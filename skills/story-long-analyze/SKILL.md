@@ -237,6 +237,7 @@ description: |
 | [references/genre-frameworks.md](references/genre-frameworks.md) | 拆解特定题材时（追妻/重生复仇/小三/世情/仙侠/死人文学） |
 | [references/character-analysis.md](references/character-analysis.md) | 深度分析人物设计、关系、动机链时 |
 | [references/material-decomposition.md](references/material-decomposition.md) | 系统拆解一本完整小说时（5阶段拆解流程） |
+| [references/quality-checklist.md](references/quality-checklist.md) | 评估作品质量、检查连载问题时 |
 
 > 📚 深度参考：知识库/Skill知识包/long-analyze_拆文方法论.md
 

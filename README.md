@@ -58,6 +58,12 @@ npx skills add worldwonderer/oh-story-claudecode
 | `/story-short-analyze` | 短篇拆文。拆解爆款叙事结构、情绪曲线、反转技巧 |
 | `/story-short-write` | 短篇写作。从构思到成稿，聚焦情绪拉扯与节奏把控 |
 
+### 润色工具
+
+| Skill | 做什么 |
+|---|---|
+| `/story-deslop` | 去AI味。检测并清除AI写作痕迹，让文字回归自然 |
+
 ### 工具路径图
 
 #### 长篇主线

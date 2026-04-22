@@ -218,6 +218,10 @@ description: |
 | [references/character-design.md](references/character-design.md) | 设定主角、配角、反派层级时 |
 | [references/anti-ai-writing.md](references/anti-ai-writing.md) | 精修正文、去除 AI 痕迹时 |
 | [references/outline-arrangement.md](references/outline-arrangement.md) | 排布大纲、设计剧情线时 |
+| [references/hook-techniques.md](references/hook-techniques.md) | 设计章尾钩子、章首开局时 |
+| [references/consistency-tracking.md](references/consistency-tracking.md) | 管理长篇连续性、防止遗忘时 |
+| [references/style-modules.md](references/style-modules.md) | 针对特定题材风格写作时 |
+| [references/dialogue-mastery.md](references/dialogue-mastery.md) | 写对话、设计角色语气时 |
 
 > 📚 深度参考：知识库/Skill知识包/long-write_长篇写作框架.md
 

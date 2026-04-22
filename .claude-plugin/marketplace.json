@@ -77,6 +77,16 @@
       "category": "novel-writing",
       "keywords": ["short-novel", "writing", "emotion", "pacing", "chinese"],
       "skills": ["./skills/story-short-write"]
+    },
+    {
+      "name": "story-deslop",
+      "description": "网文去AI味。检测并清除文本中的AI写作痕迹，让文字回归自然。覆盖禁用词替换、句式去套路、心理外化、节奏打碎。",
+      "source": "./",
+      "strict": false,
+      "version": "1.0.0",
+      "category": "novel-polish",
+      "keywords": ["de-ai", "humanize", "deslop", "去AI味", "润色", "去味", "chinese"],
+      "skills": ["./skills/story-deslop"]
     }
   ]
 }
