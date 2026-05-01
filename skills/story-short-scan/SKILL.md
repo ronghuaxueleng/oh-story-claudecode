@@ -50,16 +50,36 @@ metadata:
 
 **扫榜需要真实数据支撑。** 根据当前环境选择数据来源：
 
-| 模式 | 说明 | 何时用 |
-|------|------|--------|
-| **实时搜索** | 使用 WebSearch/WebFetch 工具抓取平台榜单数据 | 有网络工具时（优先） |
-| **用户提供** | 用户粘贴榜单截图/文字/链接 | 用户已有数据时 |
-| **内置知识** | 基于知识库中的趋势数据和方法论做分析 | 无法联网、用户无数据时 |
+| 优先级 | 模式 | 说明 | 何时用 |
+|--------|------|------|--------|
+| 1 | **browser-cdp 采集** | 直接抓取平台页面，产出结构化文件 | 有 Chrome 环境时（优先） |
+| 2 | **用户提供** | 用户粘贴榜单截图/文字/链接 | 用户已有数据时 |
+| 3 | **内置知识** | 基于知识库中的趋势数据和方法论做分析 | 无法联网、用户无数据时 |
 
-**实时搜索操作指引：**
-- 知乎盐言：搜索「知乎盐言故事 热门/高赞 {当前年月}」
-- 番茄短篇：搜索「番茄小说 短篇 畅销榜 {当前年月}」
-- 七猫短篇：搜索「七猫短篇 排行榜 {当前年月}」
+#### browser-cdp 采集模式
+
+使用 `/browser-cdp` 启动 Chrome，直接抓取平台页面的结构化数据。
+
+**点众采集目标**：
+
+| 页面 | URL | 核心字段 |
+|------|-----|----------|
+| 男频短篇 | ishugui.com/browse | 书名·作者·标签·状态·字数·评分·最新章节 |
+| 女频短篇 | ishugui.com/browse/on3 | 书名·作者·标签·状态·字数·评分·最新章节 |
+
+**黑岩采集目标**：
+
+| 页面 | URL | 核心字段 |
+|------|-----|----------|
+| 书库列表 | manage.zhangwenpindu.cn/books/booklist | 书名·作者·字数·分类·类型·价格·创建/更新时间·标签（详情模式） |
+
+> **黑岩需要登录！** 必须先在 Chrome 中手动登录 `manage.zhangwenpindu.cn`，脚本才能从 Cookie 中提取 Bearer token 调用后端 API。未登录会报错提示。
+
+- `--pages N` 控制采集页数（每页 20 条）
+- `--detail` 启用逐本详情获取（标签、简介等，速度较慢）
+- `--channel male/female` 按频道筛选
+
+**文件命名**：`{平台}{类型}_{YYYYMMDD}.md`，例：`点众男频短篇_20260501.md`
 
 **用户提供操作指引：**
 - 请用户截图或复制粘贴榜单内容
@@ -189,6 +209,9 @@ metadata:
 | 文件 | 何时加载 |
 |------|----------|
 | [references/real-market-data.md](references/real-market-data.md) | **核心参考**：跨平台写作差异对照表、各平台简介公式速查、题材爆款公式速查表、各平台写作特征 |
+| [scripts/cdp-utils.js](scripts/cdp-utils.js) | CDP 公共工具函数（ab/sleep/evalJSON/scrollLoad），各采集脚本共用 |
+| [scripts/dz-browse-scraper.js](scripts/dz-browse-scraper.js) | 点众短篇采集（男频/女频），文本解析+评分提取，配合 browser-cdp 使用 |
+| [scripts/heiyan-booklist-scraper.js](scripts/heiyan-booklist-scraper.js) | 黑岩书库列表采集，后端 API 模式（Bearer token），含字数/标签/价格/时间，支持 --detail 获取标签简介 |
 
 ---
 

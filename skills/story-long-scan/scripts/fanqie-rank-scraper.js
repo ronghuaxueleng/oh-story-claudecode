@@ -16,79 +16,34 @@
  *   bash ~/.claude/skills/browser-cdp/scripts/setup_cdp_chrome.sh 9222
  */
 
-const { execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
-
-// ---------------------------------------------------------------------------
-// agent-browser 工具函数
-// ---------------------------------------------------------------------------
-
-function ab(...args) {
-  const cmd = args.map((a) => `"${a.replace(/"/g, '\\"')}"`).join(" ");
-  try {
-    return execSync(`agent-browser --cdp ${PORT} ${cmd}`, {
-      encoding: "utf-8",
-      timeout: 20000,
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-  } catch (e) {
-    return e.stdout?.trim() || "";
-  }
-}
-
-function sleep(ms) {
-  execSync(`sleep ${Math.ceil(ms / 1000)}`);
-}
-
-/** 在浏览器内执行 JS 并解析 JSON 返回值 */
-function evalJSON(js) {
-  const raw = ab("eval", js);
-  if (!raw || raw === "ERR") return null;
-  try {
-    let parsed = JSON.parse(raw);
-    // agent-browser eval 可能双重编码：JSON.parse 后仍是字符串
-    if (typeof parsed === "string") {
-      try { parsed = JSON.parse(parsed); } catch {}
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-}
+const { ab, sleep, evalJSON, scrollLoad, getArg } = require("./cdp-utils");
 
 // ---------------------------------------------------------------------------
 // 页面提取
 // ---------------------------------------------------------------------------
 
 /** 提取侧边菜单品类链接 */
-function extractCategories(channel, type) {
+function extractCategories(port, channel, type) {
   const prefix = `/rank/${channel}_${type}_`;
   const js = "JSON.stringify(Array.from(document.querySelectorAll('a')).filter(a=>a.href&&a.href.indexOf('" + prefix + "')>-1&&a.parentElement&&a.parentElement.classList.contains('arco-menu-item-inner')).map(a=>({name:a.innerText.trim(),href:a.getAttribute('href')})).filter(x=>x.name))";
-  return evalJSON(js) || [];
+  return evalJSON(port, js) || [];
 }
 
 /** 从 __INITIAL_STATE__ 提取当前品类页的作品数据 */
-function extractBookList() {
+function extractBookList(port) {
   const js = "JSON.stringify(window.__INITIAL_STATE__?.rank?.book_list||[])";
-  const list = evalJSON(js);
+  const list = evalJSON(port, js);
   return Array.isArray(list) ? list : [];
 }
 
-/** 批量获取真实书名和作者：用同步 XHR 请求详情页，解析 <title> 和作者信息 */
-function fetchRealTitles(bookIds) {
+/** 批量获取真实书名、作者和简介：用同步 XHR 请求详情页解析 */
+function fetchRealTitles(port, bookIds) {
   if (!bookIds.length) return {};
   const ids = JSON.stringify(bookIds);
-  const js = "JSON.stringify((()=>{const map={};var ids=" + ids + ";ids.forEach(function(id){try{var x=new XMLHttpRequest();x.open('GET','/page/'+id,false);x.send();var tm=x.responseText.match(/<title>([^<]+?)完整版/);var am=x.responseText.match(/\"author\":\"([^\"]+)\"/);map[id]={title:tm?tm[1]:'',author:am?am[1]:''}}catch(e){map[id]={title:'',author:''}}});return map})())";
-  return evalJSON(js) || {};
-}
-
-/** 滚动加载更多内容 */
-function scrollLoad(times) {
-  for (let i = 0; i < times; i++) {
-    ab("eval", "window.scrollBy(0, window.innerHeight)");
-    sleep(1000);
-  }
+  const js = "JSON.stringify((()=>{const map={};var ids=" + ids + ";ids.forEach(function(id){try{var x=new XMLHttpRequest();x.open('GET','/page/'+id,false);x.send();var tm=x.responseText.match(/<title>([^<]+?)完整版/);var am=x.responseText.match(/\"author\":\"([^\"]+)\"/);var dm=x.responseText.match(/<meta\\s+name=\"description\"\\s+content=\"([^\"]+)\"/);if(!dm)dm=x.responseText.match(/\"abstract\":\"([^\"]{10,}?)\"/);map[id]={title:tm?tm[1]:'',author:am?am[1]:'',desc:dm?dm[1]:''}}catch(e){map[id]={title:'',author:'',desc:''}}});return map})())";
+  return evalJSON(port, js) || {};
 }
 
 /** 格式化在读数 */
@@ -119,15 +74,10 @@ function fmtStatus(s) {
 // ---------------------------------------------------------------------------
 
 const args = process.argv.slice(2);
-const PORT = getArg("--port") || "9222";
-const OUTDIR = getArg("--outdir") || ".";
-const CHANNEL = getArg("--channel") || "1";
-const TYPE = getArg("--type") || "2";
-
-function getArg(name) {
-  const i = args.indexOf(name);
-  return i >= 0 && i + 1 < args.length ? args[i + 1] : null;
-}
+const PORT = parseInt(getArg(args, "--port") || "9222", 10);
+const OUTDIR = getArg(args, "--outdir") || ".";
+const CHANNEL = getArg(args, "--channel") || "1";
+const TYPE = getArg(args, "--type") || "2";
 
 function channelLabel(ch) {
   return ch === "1" ? "男频" : "女频";
@@ -145,10 +95,10 @@ function scrapeChannel(ch, type) {
   // 用已知品类 ID 作为入口，确保菜单只显示当前频道/类型的品类
   const initCatId = ch === "1" ? "1141" : "1139"; // 男频:西方奇幻 / 女频:古风世情
   const initUrl = `https://fanqienovel.com/rank/${ch}_${type}_${initCatId}`;
-  ab("open", initUrl);
+  ab(PORT, "open", initUrl);
   sleep(3000);
 
-  const categories = extractCategories(ch, type);
+  const categories = extractCategories(PORT, ch, type);
   if (!categories.length) {
     console.log(`  ⚠ 未提取到品类，跳过`);
     return null;
@@ -171,11 +121,11 @@ function scrapeChannel(ch, type) {
     const cat = categories[ci];
     console.log(`  [${ci + 1}/${categories.length}] ${cat.name}`);
 
-    ab("open", `https://fanqienovel.com${cat.href}`);
+    ab(PORT, "open", `https://fanqienovel.com${cat.href}`);
     sleep(2500);
-    scrollLoad(2);
+    scrollLoad(PORT, 2);
 
-    const books = extractBookList();
+    const books = extractBookList(PORT);
     if (!Array.isArray(books) || !books.length) {
       lines.push(`## ${cat.name} — 0 本`, "", "---", "");
       continue;
@@ -183,7 +133,7 @@ function scrapeChannel(ch, type) {
 
     // 批量获取真实标题
     const bookIds = books.map((b) => String(b.bookId));
-    const titles = fetchRealTitles(bookIds);
+    const titles = fetchRealTitles(PORT, bookIds);
 
     lines.push(`## ${cat.name} — ${books.length} 本`, "");
 
@@ -198,6 +148,12 @@ function scrapeChannel(ch, type) {
       );
       lines.push(`**最新更新：** ${b.lastChapterTitle || "未知"}`);
       lines.push(`[作品页](https://fanqienovel.com/page/${b.bookId})`);
+      if (info.desc) {
+        lines.push("");
+        lines.push("**简介**");
+        lines.push("");
+        lines.push(info.desc);
+      }
       lines.push("");
     }
 
