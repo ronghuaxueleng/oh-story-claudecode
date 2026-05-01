@@ -60,7 +60,7 @@ function extractBookUrls(port) {
     "Array.from(document.querySelectorAll('a')).forEach(function(a){" +
     "var h=a.getAttribute('href')||a.href||'';" +
     "var m=h.match(/\\/(?:shuku|book)\\/(\\d+)/);" +
-    "if(m&&!seen.has(m[1])){seen.add(m[1]);urls.push({bookId:m[1],url:'https://www.qimao.com/shuku/'+m[1]+'/'})}" +
+    "if(m&&!seen.has(m[1])){seen.add(m[1]);urls.push({bookId:m[1],title:a.textContent.trim(),url:'https://www.qimao.com/shuku/'+m[1]+'/'})}" +
     "});return urls" +
     "})())";
   return evalJSON(port, js) || [];
@@ -167,9 +167,10 @@ function scrapeRank(port, channelId, rankTypeId) {
     return null;
   }
 
-  // 按排名顺序合并 URL
-  for (let i = 0; i < books.length && i < urls.length; i++) {
-    books[i].url = urls[i].url;
+  // 按标题匹配 URL
+  for (const b of books) {
+    const matched = urls.find((u) => u.title === b.title);
+    if (matched) b.url = matched.url;
   }
 
   console.log(`  ✓ 提取 ${books.length} 本`);

@@ -3,10 +3,10 @@
  * 晋江文学城排行榜采集脚本
  *
  * 配合 browser-cdp skill 使用。先启动 Chrome CDP 环境，再运行本脚本。
- * 采集策略：晋江页面为传统 HTML，通过 onebook.php 链接定位作品条目，
- * 按频道分组提取书名和作者。
+ * 采集策略：晋江 topten.php 页面为纯文本格式，频道名直接出现，
+ * 书目以标题/作者交替行呈现（无特殊前缀）。文本解析提取结构化数据。
  * 注：收藏数/营养液/积分等核心指标仅在作品详情页（需逐条访问），
- *     当前版本只提取榜单页可见数据（书名、作者、链接）。
+ *     当前版本只提取榜单页可见数据（书名、作者）。
  * 输出 Markdown 格式匹配 scan-output-format.md 规范。
  *
  * 用法：
@@ -22,7 +22,7 @@
 
 const fs = require("fs");
 const path = require("path");
-const { ab, sleep, evalJSON, scrollLoad, getArg } = require("./cdp-utils");
+const { ab, sleep, evalJSON, getArg } = require("./cdp-utils");
 
 const BASE_URL = "https://www.jjwxc.net/topten.php";
 
@@ -41,83 +41,58 @@ const RANK_TYPES = [
 
 /**
  * 提取晋江榜单数据。
- * 晋江页面按频道分组（古代言情、现代言情、纯爱等），
- * 每个频道下列出作品（书名链接到 onebook.php）。
+ * 晋江 topten.php 页面为纯文本格式：
+ *   频道名（如"古代言情"，无前缀）
+ *   书名
+ *   作者
+ *   书名
+ *   作者
+ *   ...
+ * 按频道分组，标题/作者交替解析。
  */
 function extractRankData(port) {
   const js =
     "JSON.stringify((()=>{" +
     "var result={channels:[]};" +
-    // 找到所有指向 onebook.php 的作品链接
-    "var bookLinks=Array.from(document.querySelectorAll('a[href*=\"onebook.php\"]'));" +
-    "if(!bookLinks.length){" +
-    // 兜底：查找任何指向作品页的链接
-    "  bookLinks=Array.from(document.querySelectorAll('a[href*=\"novelid\"]'));" +
-    "}" +
-    "if(!bookLinks.length)return result;" +
-    // 找到页面主体内容区域
-    "var body=document.querySelector('body');" +
-    // 用频道标题分割。晋江频道标题通常用 <h>、<b>、<td> 包含频道名
-    // 常见频道关键词
-    "var channelKeywords=['古代言情','现代言情','仙侠','科幻','游戏','奇幻','武侠','悬疑','纯爱','百合','无CP','衍生','言情','耽美','古风','青春'];" +
-    // 建立 bookLink → 所属频道的映射
-    // 向上遍历找到频道标题
-    "var currentChannel='';" +
-    "var channelMap={};" +
-    // 策略：遍历所有元素，维护当前频道名
-    "var allEls=document.querySelectorAll('tr,div,h1,h2,h3,h4,h5,td,th,b,font');" +
-    "for(var i=0;i<allEls.length;i++){" +
-    "  var el=allEls[i];" +
-    "  var text=el.textContent.trim();" +
-    // 检测频道标题
-    "  for(var k=0;k<channelKeywords.length;k++){" +
-    "    if(text.indexOf(channelKeywords[k])>=0&&text.length<30){" +
-    "      currentChannel=text;" +
-    "      if(!channelMap[currentChannel])channelMap[currentChannel]=[];" +
-    "      break" +
+    "var text=document.body.innerText||'';" +
+    "var lines=text.split(/\\n/).map(function(l){return l.trim()}).filter(Boolean);" +
+    // 已知频道名列表
+    "var channels=['古代言情','现代言情','古代穿越','现代都市纯爱','现代幻想纯爱','古代纯爱','衍生纯爱','幻想现言','奇幻言情','未来游戏悬疑','百合','无CP','二次元言情','衍生言情','衍生无cp','未来幻想纯爱','原创轻小说','多元'];" +
+    "var channelSet={};channels.forEach(function(c){channelSet[c]=true});" +
+    "var curChannel='';" +
+    "var channelBooks={};" +
+    "var expectTitle=true;" +
+    "var pendingTitle='';" +
+    "for(var i=0;i<lines.length;i++){" +
+    "  var line=lines[i];" +
+    // 跳过附录区
+    "  if(/上榜天数记录|榜单说明/.test(line)){break}" +
+    // 跳过 UI 文字
+    "  if(/^(免费强推|vip强推|新晋作者|月榜|季榜|半年榜|长生殿|总分榜|字数榜|收入金榜|霸王票|霸王总榜|勤奋指数|完结金榜|新手金榜|栽培月榜|驻站|完结高分|千字金榜|完结全订榜)/.test(line)){continue}" +
+    "  if(line.length>30&&line.indexOf('·')>0)continue;" +
+    // 检测频道名
+    "  if(channelSet[line]){" +
+    "    if(curChannel&&channelBooks[curChannel])channelBooks[curChannel]._finished=true;" +
+    "    curChannel=line;" +
+    "    if(!channelBooks[curChannel])channelBooks[curChannel]={books:[],_finished:false};" +
+    "    expectTitle=true;pendingTitle='';continue" +
+    "  }" +
+    "  if(!curChannel)continue;" +
+    // 标题/作者交替
+    "  if(expectTitle){" +
+    "    pendingTitle=line;expectTitle=false" +
+    "  }else{" +
+    // 当前行为作者，上一行为标题
+    "    if(pendingTitle){" +
+    "      channelBooks[curChannel].books.push({title:pendingTitle,author:line})" +
     "    }" +
-    "  }" +
-    // 检测这个元素内是否有作品链接
-    "  var links=el.querySelectorAll('a[href*=\"onebook.php\"],a[href*=\"novelid\"]');" +
-    "  if(links.length>0&&currentChannel){" +
-    "    links.forEach(function(a){" +
-    "      var novelId=(a.getAttribute('href')||'').match(/novelid=(\\d+)/);" +
-    "      novelId=novelId?novelId[1]:'';" +
-    "      var title=a.textContent.trim();" +
-    "      if(!title||title.length>50)return;" +
-    // 作者通常在同级或相邻元素
-    "      var parent=el;" +
-    "      var authorLink=parent.querySelector('a[href*=\"authorid\"]');" +
-    "      var author=authorLink?authorLink.textContent.trim():'';" +
-    "      if(!author){" +
-    "        var parentText=parent.textContent.replace(/\\s+/g,' ').trim();" +
-    "        var m=parentText.match(/作者[：:]?\\s*([^\\s,，]+|\\S+)/);" +
-    "        author=m?m[1]:''" +
-    "      }" +
-    "      var href=a.getAttribute('href')||'';" +
-    "      var url=href.indexOf('http')===0?href:'https://www.jjwxc.net/'+href.replace(/^\\.\\//,'');" +
-    "      channelMap[currentChannel].push({title:title,author:author,url:url,novelId:novelId})" +
-    "    })" +
+    "    expectTitle=true;pendingTitle=''" +
     "  }" +
     "}" +
-    // 如果没检测到频道分组，把所有书放到一个默认组
-    "var foundAny=Object.values(channelMap).some(function(arr){return arr.length>0});" +
-    "if(!foundAny){" +
-    "  currentChannel='全站';" +
-    "  channelMap[currentChannel]=[];" +
-    "  bookLinks.forEach(function(a){" +
-    "    var novelId=(a.getAttribute('href')||'').match(/novelid=(\\d+)/);" +
-    "    novelId=novelId?novelId[1]:'';" +
-    "    var title=a.textContent.trim();" +
-    "    var href=a.getAttribute('href')||'';" +
-    "    var url=href.indexOf('http')===0?href:'https://www.jjwxc.net/'+href.replace(/^\\.\\//,'');" +
-    "    channelMap[currentChannel].push({title:title,author:'',url:url,novelId:novelId})" +
-    "  })" +
-    "}" +
-    // 转换为数组输出
-    "for(var name in channelMap){" +
-    "  if(channelMap[name].length>0){" +
-    "    result.channels.push({name:name,books:channelMap[name]})" +
+    // 转换输出
+    "for(var name in channelBooks){" +
+    "  if(channelBooks[name].books.length>0){" +
+    "    result.channels.push({name:name,books:channelBooks[name].books})" +
     "  }" +
     "}" +
     "return result" +
@@ -157,7 +132,15 @@ function scrapeRank(port, rankTypeId, channelId) {
   }
 
   let totalBooks = 0;
-  data.channels.forEach((ch) => (totalBooks += ch.books.length));
+  data.channels.forEach((ch) => {
+    totalBooks += ch.books.length;
+    const authors = new Set(ch.books.map((b) => b.author));
+    if (ch.books.length >= 5 && authors.size / ch.books.length < 0.2) {
+      console.log(
+        `  ⚠ ${ch.name}：${ch.books.length} 本书只有 ${authors.size} 个唯一作者，可能提取有误`
+      );
+    }
+  });
   console.log(
     `  ✓ 提取 ${data.channels.length} 个频道，共 ${totalBooks} 本`
   );
@@ -181,7 +164,6 @@ function scrapeRank(port, rankTypeId, channelId) {
       const b = ch.books[i];
       lines.push(`### #${i + 1} ${b.title}`);
       if (b.author) lines.push(`*${b.author}*`);
-      if (b.url) lines.push(`[作品页](${b.url})`);
       lines.push("");
     }
     lines.push("---", "");

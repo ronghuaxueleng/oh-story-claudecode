@@ -89,43 +89,41 @@ function extractStoriesFromText(port) {
   const js =
     "JSON.stringify((()=>{" +
     "var text=document.body.innerText||'';" +
-    // 找到故事列表起始（第一个评分标记之后）
     "var scoreIdx=text.indexOf('分');" +
     "if(scoreIdx<0)return[];" +
-    // 找到筛选区域结束
     "var filters=['全部','玄幻','仙侠','科幻','历史','都市','游戏','悬疑','故事','脑洞','同人衍生','连载','完本'];" +
     "var lines=text.split(/\\n/).map(function(l){return l.trim()}).filter(Boolean);" +
-    "var stories=[];var cur=null;" +
+    "var stories=[];var cur=null;var prevLine='';" +
     "for(var i=0;i<lines.length;i++){" +
     "  var line=lines[i];" +
-    // 检测元数据行：作者 · 标签 · 状态 · 字数
+    // 评分行作为条目起始：X.X分
+    "  var sm=line.match(/^([\\d.]+)分$/);" +
+    "  if(sm){" +
+    "    if(cur&&cur.title)stories.push(cur);" +
+    "    cur={score:sm[1]+'分',title:prevLine,author:'',tag:'',status:'',words:'',desc:'',update:''};" +
+    "    prevLine='';continue" +
+    "  }" +
+    // 元数据行：作者 · 标签 · 状态 · 字数
     "  var metaM=line.match(/^(.+?)\\s*·\\s*(.+?)\\s*·\\s*(完结|连载)\\s*·\\s*([\\d]+字)$/);" +
-    "  if(metaM){" +
-    "    if(cur)stories.push(cur);" +
-    "    cur={author:metaM[1],tag:metaM[2],status:metaM[3],words:metaM[4]};" +
-    "    continue" +
+    "  if(metaM&&cur){" +
+    "    cur.author=metaM[1];cur.tag=metaM[2];cur.status=metaM[3];cur.words=metaM[4];continue" +
     "  }" +
-    // 检测最新章节
+    // 最新章节
     "  if(line.indexOf('最新章节')===0){" +
-    "    if(cur)cur.update=line.replace(/^最新章节[:\\s]*/,'');" +
-    "    continue" +
+    "    if(cur)cur.update=line.replace(/^最新章节[:\\s]*/,'');continue" +
     "  }" +
-    // 跳过筛选和 UI 文字
+    // 跳过 UI 文字
     "  if(filters.indexOf(line)>=0)continue;" +
     "  if(/^(首页|分类|排行榜|下载|手机版|男频|女频|字数|状态)/.test(line))continue;" +
-    // 跳过过长行（非故事数据）
-    "  if(line.length>300&&!cur)continue;" +
-    // 如果有当前条目，这是标题或简介
-    "  if(cur){" +
-    // 检测评分行（X.X分）
-    "    var sm=line.match(/^([\\d.]+)分$/);" +
-    "    if(sm){cur.score=sm[1]+'分'}" +
-    "    else if(!cur.title)cur.title=line;" +
-    "    else if(!cur.desc&&!cur.score)cur.desc=line.substring(0,200);" +
+    "  if(line.length>300)continue;" +
+    // 如果有当前条目且未填过 desc，填入简介
+    "  if(cur&&cur.title&&!cur.author){" +
+    "    if(!cur.desc)cur.desc=line.substring(0,200);" +
     "  }" +
+    "  prevLine=line" +
     "}" +
-    "if(cur)stories.push(cur);" +
-    // 如果文本解析没找到结构化数据，尝试用评分标记分割
+    "if(cur&&cur.title)stories.push(cur);" +
+    // 兜底：用评分标记分割
     "if(!stories.length){" +
     "  var parts=text.split(/([\\d.]+分)/);" +
     "  for(var p=1;p<parts.length-1;p+=2){" +
@@ -167,11 +165,30 @@ function scrapeChannel(port, channelId) {
   scrollLoad(port, 8);
   sleep(1000);
 
-  // 先尝试 DOM 提取
-  let stories = extractStories(port);
-  if (!stories) {
-    // DOM 提取失败，用文本解析
-    stories = extractStoriesFromText(port);
+  // 优先使用文本解析（返回完整字段），DOM 仅作兜底
+  let stories = extractStoriesFromText(port);
+  if (!stories.length) {
+    const domStories = extractStories(port);
+    if (domStories) {
+      // DOM 返回 {rank, raw}，解析 raw 文本提取字段
+      stories = domStories.map((d) => {
+        const raw = d.raw || "";
+        const scoreM = raw.match(/([\d.]+)分/);
+        const metaM = raw.match(/(.+?)·(.+?)·(完结|连载)·([\d]+字)/);
+        const updateM = raw.match(/最新章节[:\s]*(.+)/);
+        const parts = raw.split(/[\s·]+/).filter(Boolean);
+        return {
+          title: parts[0] || "",
+          score: scoreM ? scoreM[1] + "分" : "",
+          author: metaM ? metaM[1].trim() : "",
+          tag: metaM ? metaM[2].trim() : "",
+          status: metaM ? metaM[3] : "",
+          words: metaM ? metaM[4] : "",
+          update: updateM ? updateM[1] : "",
+          desc: "",
+        };
+      });
+    }
   }
 
   if (!stories.length) {

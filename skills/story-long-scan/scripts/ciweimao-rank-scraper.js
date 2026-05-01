@@ -66,7 +66,7 @@ function extractAllRanks(port) {
     "    var t=lines[i+1]||'';var a=lines[i+2]||'';var v=lines[i+3]||'';" +
     "    if(headers.indexOf(v)>=0)continue;" +
     "    curEntries.push({rank:1,title:t,author:a,genre:'',metric:v});" +
-    "    i+=3;continue" +
+    "    i+=2;continue" +
     "  }" +
     // #2-10 条目：N[题材]书名
     "  var rm=line.match(/^(\\d{1,2})\\[(.+?)\\](.+)$/);" +
