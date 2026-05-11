@@ -1,0 +1,57 @@
+* text=auto
+*.png binary
+
+*.sh text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.gitignore text eol=lf
+LICENSE text eol=lf
+CONTRIBUTING.md text eol=lf
+CLAUDE.md text eol=lf
+README.md text eol=lf
+
+CHANGELOG.md text eol=crlf
+scripts/static-check.sh text eol=crlf
+
+skills/story-deslop/references/anti-ai-writing.md text eol=crlf
+skills/story-long-scan/references/publishing-guide.md text eol=crlf
+
+skills/story-long-write/SKILL.md text eol=crlf
+skills/story-long-write/references/*.md text eol=crlf
+skills/story-long-write/references/banned-words.md text eol=lf
+skills/story-long-write/references/hooks-paragraph.md text eol=lf
+skills/story-long-write/references/narrative-units.md text eol=lf
+skills/story-long-write/references/quality-checklist.md text eol=lf
+skills/story-long-write/references/workflow-daily.md text eol=lf
+skills/story-long-write/references/workflow-revision.md text eol=lf
+
+skills/story-setup/SKILL.md text eol=lf
+skills/story-setup/UPGRADING.md text eol=crlf
+skills/story-setup/references/templates/CLAUDE.md.tmpl text eol=crlf
+skills/story-setup/references/templates/agents/character-designer.md text eol=crlf
+skills/story-setup/references/templates/agents/consistency-checker.md text eol=lf
+skills/story-setup/references/templates/agents/narrative-writer.md text eol=crlf
+skills/story-setup/references/templates/agents/story-architect.md text eol=crlf
+skills/story-setup/references/templates/agents/story-researcher.md text eol=lf
+skills/story-setup/references/templates/hooks/*.sh text eol=lf
+skills/story-setup/references/templates/rules/story-consistency.md text eol=lf
+skills/story-setup/references/templates/rules/story-format.md text eol=lf
+skills/story-setup/references/templates/rules/story-narrative.md text eol=lf
+skills/story-setup/references/templates/rules/story-outline.md text eol=crlf
+skills/story-setup/references/templates/settings-hooks.json text eol=lf
+"skills/story-setup/references/templates/上下文.md.tmpl" text eol=lf
+
+skills/story-short-analyze/references/*.md text eol=crlf
+skills/story-short-analyze/references/hooks-paragraph.md text eol=lf
+skills/story-short-analyze/references/quality-checklist.md text eol=lf
+
+skills/story-short-write/references/*.md text eol=crlf
+skills/story-short-write/references/banned-words.md text eol=lf
+skills/story-short-write/references/format-and-structure.md text eol=lf
+skills/story-short-write/references/hooks-paragraph.md text eol=lf
+skills/story-short-write/references/quality-checklist.md text eol=lf
+skills/story-short-write/references/villain-and-reveal.md text eol=lf
+skills/story-short-write/references/writing-workflow.md text eol=lf

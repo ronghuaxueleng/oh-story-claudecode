@@ -1,0 +1,111 @@
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = false
+
+[*.sh]
+end_of_line = lf
+
+[*.js]
+end_of_line = lf
+
+[*.json]
+end_of_line = lf
+
+[*.toml]
+end_of_line = lf
+
+[*.yml]
+end_of_line = lf
+
+[*.yaml]
+end_of_line = lf
+
+[*.md]
+end_of_line = lf
+
+[CHANGELOG.md]
+end_of_line = crlf
+
+[scripts/static-check.sh]
+end_of_line = crlf
+
+[skills/story-deslop/references/anti-ai-writing.md]
+end_of_line = crlf
+
+[skills/story-long-scan/references/publishing-guide.md]
+end_of_line = crlf
+
+[skills/story-long-write/SKILL.md]
+end_of_line = crlf
+
+[skills/story-long-write/references/*.md]
+end_of_line = crlf
+
+[skills/story-long-write/references/banned-words.md]
+end_of_line = lf
+
+[skills/story-long-write/references/hooks-paragraph.md]
+end_of_line = lf
+
+[skills/story-long-write/references/narrative-units.md]
+end_of_line = lf
+
+[skills/story-long-write/references/quality-checklist.md]
+end_of_line = lf
+
+[skills/story-long-write/references/workflow-daily.md]
+end_of_line = lf
+
+[skills/story-long-write/references/workflow-revision.md]
+end_of_line = lf
+
+[skills/story-setup/UPGRADING.md]
+end_of_line = crlf
+
+[skills/story-setup/references/templates/CLAUDE.md.tmpl]
+end_of_line = crlf
+
+[skills/story-setup/references/templates/agents/character-designer.md]
+end_of_line = crlf
+
+[skills/story-setup/references/templates/agents/narrative-writer.md]
+end_of_line = crlf
+
+[skills/story-setup/references/templates/agents/story-architect.md]
+end_of_line = crlf
+
+[skills/story-setup/references/templates/rules/story-outline.md]
+end_of_line = crlf
+
+[skills/story-short-analyze/references/*.md]
+end_of_line = crlf
+
+[skills/story-short-analyze/references/hooks-paragraph.md]
+end_of_line = lf
+
+[skills/story-short-analyze/references/quality-checklist.md]
+end_of_line = lf
+
+[skills/story-short-write/references/*.md]
+end_of_line = crlf
+
+[skills/story-short-write/references/banned-words.md]
+end_of_line = lf
+
+[skills/story-short-write/references/format-and-structure.md]
+end_of_line = lf
+
+[skills/story-short-write/references/hooks-paragraph.md]
+end_of_line = lf
+
+[skills/story-short-write/references/quality-checklist.md]
+end_of_line = lf
+
+[skills/story-short-write/references/villain-and-reveal.md]
+end_of_line = lf
+
+[skills/story-short-write/references/writing-workflow.md]
+end_of_line = lf
