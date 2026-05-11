@@ -66,7 +66,12 @@ metadata:
 ### 2.7 创建部署标记
 
 - 创建 `.story-deployed` 文件（sentinel file）
-- 写入两行：第一行 `deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">`，第二行 `agents_version: 2`
+- 写入以下字段：
+  ```
+  deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
+  agents_version: 2
+  setup_skill_version: 1.0.0
+  ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
 - 如果 `.story-deployed` 已存在但无 `agents_version` 或版本为 1，提示用户重新运行 story-setup 以更新 Agent
 
@@ -94,8 +99,10 @@ metadata:
 |--------|----------|------|
 | `{项目名}` | 用户项目名称或目录名 | 《剑来》、《暗卫》 |
 | `{书名}` | 书名目录名（与目录一致） | 与 `{项目名}` 相同，或用户自定义 |
+| `{目标平台}` | 目标发布平台 | 起点、番茄、晋江、知乎盐言 |
+| `{作者名}` | 用户笔名或昵称 | 未指定时用「作者」 |
 
-替换时去掉花括号。如果用户未指定项目名，用当前目录名。
+替换时去掉花括号。如果用户未指定项目名，用当前目录名。未指定的占位符保留原样不替换。
 
 ## CLAUDE.md 合并策略
 
@@ -130,7 +137,7 @@ hooks 注册合并按 command 字段去重：
 | 文件 | 用途 |
 |------|------|
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
-| references/templates/hooks/ | 5 个 hook 脚本模板 |
+| references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/agents/ | 5 个 agent 定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher） |
 | references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
