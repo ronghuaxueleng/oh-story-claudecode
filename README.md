@@ -73,6 +73,22 @@ npx skills add worldwonderer/oh-story-claudecode -y
 
 更新时重新执行同一条命令即可。
 
+## Claude / Codex 共用策略
+
+本仓库建议采用“单份 skill 正文 + 薄平台适配层”：
+
+- 共享：`skills/*/SKILL.md`、`references/`、`scripts/`
+- 分平台：hooks 注册、subagent 定义、插件清单、命令入口
+- 项目级说明：优先共享仓库根 `CLAUDE.md`，Codex 通过 `.codex/config.toml` 的 fallback 读取
+
+如果要把 Claude / OpenClaw 风格的调用标记转换成 Codex 友好写法，可使用：
+
+```bash
+node scripts/claude-to-codex.js skills/story/SKILL.md
+```
+
+Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/` 从现有共享模板复制过去。
+
 ## Skills
 
 | Skill | 触发 | 说明 |

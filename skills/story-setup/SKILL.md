@@ -13,6 +13,11 @@ metadata:
 
 你是写作基础设施部署器。将网文写作工具集的全套基础设施（hooks、rules、agents、CLAUDE.md）部署到用户项目目录。
 
+**环境识别规则：**
+- 在 Claude Code / OpenClaw 中执行时，部署 `.claude/*`
+- 在 Codex 中执行时，部署 `.codex/*` 与 `.agents/*`
+- 除非用户明确要求，否则按当前宿主环境部署，不要两套都装
+
 **执行铁律：不覆盖用户已有配置，合并而非替换。**
 
 ---
@@ -24,8 +29,10 @@ metadata:
 2. 检查是否有书名目录（包含 `追踪/` 子目录的目录，或用户自定义结构）
    - 有 → 识别为长篇项目，显示当前项目信息
    - 无 → 识别为新项目或短篇项目
-3. 检查 `.claude/settings.local.json` 是否存在
-   - 存在 → 读取现有配置，后续合并
+3. 检查当前宿主配置文件：
+   - Claude / OpenClaw：检查 `.claude/settings.local.json`
+   - Codex：检查 `.codex/config.toml`
+   - 存在 → 读取现有配置，后续合并或覆盖
    - 不存在 → 后续创建新文件
 4. 检查 `.active-book` 文件是否存在
    - 存在 → 显示当前活跃书目
@@ -40,28 +47,35 @@ metadata:
 - 替换占位符（见下方「模板占位符」段）
 - 写入项目根目录 `CLAUDE.md`（如已存在，按「CLAUDE.md 合并策略」处理）
 
-### 2.2 部署 Hooks
-- 读取 `skills/story-setup/references/templates/hooks/` 下所有 `.sh` 文件
-- 复制到用户项目的 `.claude/hooks/` 目录
-- 确保脚本有执行权限（chmod +x）
+### 2.2 部署宿主环境文件
 
-### 2.3 部署 Rules
-- 读取 `skills/story-setup/references/templates/rules/` 下所有 `.md` 文件
-- 复制到用户项目的 `.claude/rules/` 目录
+- **Claude / OpenClaw 模式**：
+  - 读取 `skills/story-setup/references/templates/hooks/` 下所有 `.sh` 文件
+  - 复制到用户项目的 `.claude/hooks/` 目录
+  - 读取 `skills/story-setup/references/templates/rules/` 下所有 `.md` 文件
+  - 复制到用户项目的 `.claude/rules/` 目录
+  - 读取 `skills/story-setup/references/templates/agents/` 下所有 `.md` 文件
+  - 复制到用户项目的 `.claude/agents/` 目录
+  - 确保脚本有执行权限（chmod +x）
 
-### 2.4 部署 Agents
-- 读取 `skills/story-setup/references/templates/agents/` 下所有 `.md` 文件
-- 复制到用户项目的 `.claude/agents/` 目录
+- **Codex 模式**：
+  - 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
+  - 生成 `.codex/config.toml`
+  - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
+  - 生成 `.agents/plugins/marketplace.json` 与 `.agents/skills/`
 
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
 - 如有书名目录，复制到 `{书名}/追踪/` 下
 
-### 2.6 合并 Hooks 注册到 settings.local.json
-- 读取 `skills/story-setup/references/templates/settings-hooks.json`
-- 读取用户项目的 `.claude/settings.local.json`（如存在）
-- 合并 hooks 配置（按「settings-hooks.json 合并算法」处理）
-- 写入 `.claude/settings.local.json`
+### 2.6 宿主配置处理
+- **Claude / OpenClaw 模式**：
+  - 读取 `skills/story-setup/references/templates/settings-hooks.json`
+  - 读取用户项目的 `.claude/settings.local.json`（如存在）
+  - 合并 hooks 配置（按「settings-hooks.json 合并算法」处理）
+  - 写入 `.claude/settings.local.json`
+- **Codex 模式**：
+  - `scripts/install-codex-project.sh` 已负责写入 `.codex/config.toml`
 
 ### 2.7 创建部署标记
 
@@ -77,13 +91,9 @@ metadata:
 
 ## Phase 3：验证安装
 
-1. 验证 hooks 注册：
-   - 检查 `.claude/settings.local.json` 中的 hooks 字段是否正确
-   - 检查 `.claude/hooks/` 下的脚本是否存在且有执行权限
-2. 验证 rules 路径：
-   - 检查 `.claude/rules/` 下的规则文件是否存在且包含 `paths` frontmatter
-3. 验证 agents：
-   - 检查 `.claude/agents/` 下的 agent 定义文件是否存在
+1. 验证宿主环境文件：
+   - Claude / OpenClaw：检查 `.claude/settings.local.json`、`.claude/hooks/`、`.claude/rules/`、`.claude/agents/`
+   - Codex：检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`、`.agents/plugins/marketplace.json`
 4. 验证部署标记：
    - 检查 `.story-deployed` 是否存在且包含时间戳
 5. 输出安装报告：
@@ -142,4 +152,5 @@ hooks 注册合并按 command 字段去重：
 | references/templates/agents/ | 6 个 agent 定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer） |
 | references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
+| scripts/install-codex-project.sh | Codex 项目目录部署脚本 |
 
