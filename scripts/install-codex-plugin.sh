@@ -10,11 +10,11 @@ copy_path() {
   local src="$1"
   local dst="$2"
 
-  rm -rf "$dst"
-
   if [ -d "$src" ]; then
-    cp -R "$src" "$dst"
+    mkdir -p "$dst"
+    cp -R "$src"/. "$dst"/
   else
+    mkdir -p "$(dirname "$dst")"
     cp "$src" "$dst"
   fi
 }

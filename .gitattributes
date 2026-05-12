@@ -42,7 +42,7 @@ skills/story-setup/references/templates/rules/story-format.md text eol=lf
 skills/story-setup/references/templates/rules/story-narrative.md text eol=lf
 skills/story-setup/references/templates/rules/story-outline.md text eol=crlf
 skills/story-setup/references/templates/settings-hooks.json text eol=lf
-"skills/story-setup/references/templates/上下文.md.tmpl" text eol=lf
+skills/story-setup/references/templates/上下文.md.tmpl text eol=lf
 
 skills/story-short-analyze/references/*.md text eol=crlf
 skills/story-short-analyze/references/hooks-paragraph.md text eol=lf
