@@ -30,6 +30,14 @@ node {SKILL_DIR}/scripts/setup-cdp-chrome.js 9222
 
 成功后所有 `agent-browser` 命令带 `--cdp 9222`。
 
+默认模式**不会关闭现有 Chrome 进程**，避免误伤正在运行的 Codex/浏览器会话。
+
+如果你明确需要强制重启调试环境，再手动加：
+
+```bash
+node {SKILL_DIR}/scripts/setup-cdp-chrome.js 9222 --kill-existing-chrome
+```
+
 ---
 
 ## 常用操作

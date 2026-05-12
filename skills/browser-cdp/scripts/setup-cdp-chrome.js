@@ -3,9 +3,10 @@
 // 准备带有 CDP（Chrome DevTools Protocol）调试功能的 Chrome 环境（跨平台）。
 // 通过此脚本，agent-browser 可以复用用户的 Chrome 登录态。
 //
-// 用法: node setup-cdp-chrome.js [端口号] [--dry-run]
+// 用法: node setup-cdp-chrome.js [端口号] [--dry-run] [--kill-existing-chrome]
 //   端口号: CDP 调试端口（默认: 9222）
 //   --dry-run: 只打印检测到的路径和操作，不执行
+//   --kill-existing-chrome: 强制关闭现有 Chrome 进程后再启动调试实例
 
 "use strict";
 
@@ -18,7 +19,11 @@ const path = require("path");
 
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes("--dry-run");
-const CDP_PORT = parseInt(args.find((a) => a !== "--dry-run") || "9222", 10);
+const KILL_EXISTING_CHROME = args.includes("--kill-existing-chrome");
+const CDP_PORT = parseInt(
+  args.find((a) => a !== "--dry-run" && a !== "--kill-existing-chrome") || "9222",
+  10
+);
 const PLATFORM = os.platform();
 
 // ---------------------------------------------------------------------------
@@ -268,7 +273,7 @@ async function main() {
     } else {
       log(`1. ⚠️ 无用户 profile，将以空 profile 启动 Chrome`);
     }
-    log(`3. 停止现有 Chrome 进程`);
+    log(`3. ${KILL_EXISTING_CHROME ? "停止现有 Chrome 进程" : "保留现有 Chrome 进程"}`);
     log(`4. 启动 Chrome: ${chromePath} --remote-debugging-port=${CDP_PORT} --user-data-dir=${debugProfile}`);
     log(`5. 验证 CDP 端口 http://127.0.0.1:${CDP_PORT}/json/version`);
     ok("dry-run 完成。");
@@ -319,17 +324,22 @@ async function main() {
     );
   }
 
-  // 第五步：关闭现有 Chrome 进程
-  log("正在停止已有的 Chrome 进程...");
-  config.killChrome();
-  sleepSync(3000);
-
-  const remaining = config.listChromePids();
-  if (remaining.length > 0) {
-    warn("等待 Chrome 进程完全退出...");
+  // 第五步：按需关闭现有 Chrome 进程
+  if (KILL_EXISTING_CHROME) {
+    log("正在停止已有的 Chrome 进程...");
     sleepSync(3000);
     config.killChrome();
-    sleepSync(2000);
+    sleepSync(3000);
+
+    const remaining = config.listChromePids();
+    if (remaining.length > 0) {
+      warn("等待 Chrome 进程完全退出...");
+      sleepSync(3000);
+      config.killChrome();
+      sleepSync(2000);
+    }
+  } else {
+    warn("默认不会关闭现有 Chrome 进程，避免误伤正在运行的 Codex/浏览器会话。");
   }
 
   // 第六步：以 CDP 调试模式启动 Chrome

@@ -21,7 +21,6 @@ copy_path() {
 
 mkdir -p "$TARGET_ROOT/.codex-plugin"
 mkdir -p "$TARGET_ROOT/.codex"
-mkdir -p "$TARGET_ROOT/.agents/plugins"
 
 cat > "$TARGET_ROOT/.codex-plugin/plugin.json" <<'EOF'
 {
@@ -59,31 +58,7 @@ project_doc_fallback_filenames = ["CLAUDE.md"]
 project_doc_max_bytes = 65536
 EOF
 
-cat > "$TARGET_ROOT/.agents/plugins/marketplace.json" <<'EOF'
-{
-  "name": "oh-story-skills",
-  "interface": {
-    "displayName": "Oh Story Skills"
-  },
-  "plugins": [
-    {
-      "name": "oh-story-skills",
-      "source": {
-        "source": "local",
-        "path": "./../.."
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    }
-  ]
-}
-EOF
-
 copy_path "$REPO_ROOT/skills" "$TARGET_ROOT/skills"
-copy_path "$REPO_ROOT/skills" "$TARGET_ROOT/.agents/skills"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/hooks"
 copy_path "$REPO_ROOT/demo" "$TARGET_ROOT/assets"
 copy_path "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"

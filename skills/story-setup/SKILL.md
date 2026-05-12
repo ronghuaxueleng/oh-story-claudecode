@@ -15,7 +15,7 @@ metadata:
 
 **环境识别规则：**
 - 在 Claude Code / OpenClaw 中执行时，部署 `.claude/*`
-- 在 Codex 中执行时，部署 `.codex/*` 与 `.agents/*`
+- 在 Codex 中执行时，部署 `.codex/*`
 - 除非用户明确要求，否则按当前宿主环境部署，不要两套都装
 
 **执行铁律：不覆盖用户已有配置，合并而非替换。**
@@ -62,7 +62,6 @@ metadata:
   - 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
   - 生成 `.codex/config.toml`
   - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
-  - 生成 `.agents/plugins/marketplace.json` 与 `.agents/skills/`
 
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
@@ -93,7 +92,7 @@ metadata:
 
 1. 验证宿主环境文件：
    - Claude / OpenClaw：检查 `.claude/settings.local.json`、`.claude/hooks/`、`.claude/rules/`、`.claude/agents/`
-   - Codex：检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`、`.agents/plugins/marketplace.json`
+   - Codex：检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
 4. 验证部署标记：
    - 检查 `.story-deployed` 是否存在且包含时间戳
 5. 输出安装报告：
@@ -153,4 +152,3 @@ hooks 注册合并按 command 字段去重：
 | references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
 | scripts/install-codex-project.sh | Codex 项目目录部署脚本 |
-

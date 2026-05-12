@@ -53,34 +53,10 @@ NODE
 }
 
 mkdir -p "$TARGET_ROOT/.codex"
-mkdir -p "$TARGET_ROOT/.agents/plugins"
 
 cat > "$TARGET_ROOT/.codex/config.toml" <<'EOF'
 project_doc_fallback_filenames = ["CLAUDE.md"]
 project_doc_max_bytes = 65536
-EOF
-
-cat > "$TARGET_ROOT/.agents/plugins/marketplace.json" <<'EOF'
-{
-  "name": "oh-story-skills",
-  "interface": {
-    "displayName": "Oh Story Skills"
-  },
-  "plugins": [
-    {
-      "name": "oh-story-skills",
-      "source": {
-        "source": "local",
-        "path": "./../.."
-      },
-      "policy": {
-        "installation": "AVAILABLE",
-        "authentication": "ON_INSTALL"
-      },
-      "category": "Productivity"
-    }
-  ]
-}
 EOF
 
 render_claude_md \
@@ -88,7 +64,6 @@ render_claude_md \
   "$TARGET_ROOT/CLAUDE.md" \
   "codex"
 
-copy_path "$REPO_ROOT/skills" "$TARGET_ROOT/.agents/skills"
 copy_path "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
 copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
