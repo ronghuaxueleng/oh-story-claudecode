@@ -20,38 +20,12 @@ copy_path() {
   fi
 }
 
-copy_markdown_tree() {
+render_project_doc() {
   local src="$1"
   local dst="$2"
-  local file rel target
-
-  mkdir -p "$dst"
-
-  while IFS= read -r -d '' file; do
-    rel="${file#$src/}"
-    target="$dst/$rel"
-    mkdir -p "$(dirname "$target")"
-
-    case "$file" in
-      *.md|*.MD)
-        node "$REPO_ROOT/scripts/claude-to-codex.js" "$file" > "$target"
-        ;;
-      *)
-        cp "$file" "$target"
-        ;;
-    esac
-  done < <(find "$src" -type f -print0)
-}
-
-render_claude_md() {
-  local src="$1"
-  local dst="$2"
-  local mode="$3"
   local rendered
-  local converted
 
   rendered="$(mktemp)"
-  converted="$(mktemp)"
 
   node - "$src" "$rendered" "$PROJECT_NAME" "$BOOK_NAME" <<'NODE'
 const fs = require("fs");
@@ -65,14 +39,9 @@ text = text.split("{书名}").join(bookName);
 fs.writeFileSync(dst, text);
 NODE
 
-  if [ "$mode" = "codex" ]; then
-    node "$REPO_ROOT/scripts/claude-to-codex.js" "$rendered" > "$converted"
-    mv "$converted" "$dst"
-  else
-    mv "$rendered" "$dst"
-  fi
+  mv "$rendered" "$dst"
 
-  rm -f "$rendered" "$converted"
+  rm -f "$rendered"
 }
 
 mkdir -p "$TARGET_ROOT/.codex"
@@ -82,13 +51,12 @@ project_doc_fallback_filenames = ["CLAUDE.md"]
 project_doc_max_bytes = 65536
 EOF
 
-render_claude_md \
+render_project_doc \
   "$TEMPLATES_ROOT/CLAUDE.md.tmpl" \
-  "$TARGET_ROOT/CLAUDE.md" \
-  "codex"
+  "$TARGET_ROOT/CLAUDE.md"
 
-copy_markdown_tree "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
+copy_path "$TEMPLATES_ROOT/subagents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
-copy_markdown_tree "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
 
 echo "Installed Codex project files at $TARGET_ROOT"

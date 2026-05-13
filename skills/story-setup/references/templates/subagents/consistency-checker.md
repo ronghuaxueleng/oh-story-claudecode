@@ -119,7 +119,7 @@ maxTurns: 15
 
 ## 被调用协议
 
-skill 通过 `Agent(subagent_type: "consistency-checker")` 调用你。
+调用方通过 Codex 子代理机制加载你，等价于按 `consistency-checker` 的职责协议执行。
 
 你收到的 prompt 会包含：
 - 检查范围（文件路径或章节范围）
@@ -136,4 +136,3 @@ CONFLICTS:
 - [S4] 伏笔"神秘信件"第30章埋下，已过50章未回收 -- 文件:追踪/伏笔.md
 - [S4] 第3卷伏笔密度22个/卷，超出建议范围(3-15) -- 文件:追踪/伏笔.md
 ```
-

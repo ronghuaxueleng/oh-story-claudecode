@@ -13,17 +13,17 @@ HAS_CONTENT=false
 if [ -f ".story-deployed" ]; then
   MISSING_HOOKS=""
   for hook in session-start.sh session-end.sh detect-story-gaps.sh pre-compact.sh post-compact.sh validate-story-commit.sh; do
-    if [ ! -f ".claude/hooks/$hook" ]; then
+    if [ ! -f ".codex/hooks/$hook" ]; then
       MISSING_HOOKS+="$hook "
     fi
   done
   if [ -n "$MISSING_HOOKS" ]; then
     OUTPUT+="[WARN] .story-deployed exists but hooks are missing: $MISSING_HOOKS\n"
-    OUTPUT+="  Fix: re-run /story-setup to restore missing hooks.\n\n"
+    OUTPUT+="  Fix: re-run story-setup to restore missing hooks.\n\n"
     HAS_CONTENT=true
   fi
 else
-  OUTPUT+="[WARN] Writing infrastructure not deployed. Run /story-setup to initialize.\n\n"
+  OUTPUT+="[WARN] Writing infrastructure not deployed. Run story-setup to initialize.\n\n"
   HAS_CONTENT=true
 fi
 
@@ -53,7 +53,7 @@ fi
 if [ -d "拆文库" ]; then
   PROGRESS_COUNT=$(find 拆文库 -name "_progress.md" 2>/dev/null | wc -l | tr -d ' ')
   if [ "$PROGRESS_COUNT" -gt 0 ]; then
-    OUTPUT+="[INFO] $PROGRESS_COUNT incomplete analysis in 拆文库/. Run /story-long-analyze or /story-short-analyze.\n"
+    OUTPUT+="[INFO] $PROGRESS_COUNT incomplete analysis in 拆文库/. Use story-long-analyze or story-short-analyze.\n"
     HAS_CONTENT=true
   fi
 fi

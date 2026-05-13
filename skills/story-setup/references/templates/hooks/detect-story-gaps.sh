@@ -62,7 +62,7 @@ for BOOK_DIR in ${BOOK_DIRS[@]+"${BOOK_DIRS[@]}"}; do
     # 正则依赖 artifact-protocols.md 中的伏笔格式定义，格式变更时需同步更新
     STALE_FORESHADOW=$(grep -E "状态.*(已埋|已过期)" "$BOOK_DIR/追踪/伏笔.md" 2>/dev/null || true)
     if [ -n "$STALE_FORESHADOW" ]; then
-      BOOK_OUTPUT+="[WARN] $BOOK_NAME: Open foreshadowing threads detected in 伏笔.md. Consider running /story-review.\n"
+      BOOK_OUTPUT+="[WARN] $BOOK_NAME: Open foreshadowing threads detected in 伏笔.md. Consider using story-review.\n"
     fi
   fi
 
@@ -88,7 +88,7 @@ done
 GLOBAL_PROGRESS_OUTPUT=""
 if [ -d "拆文库" ]; then
   while IFS= read -r -d '' progress_file; do
-    GLOBAL_PROGRESS_OUTPUT+="[WARN] Incomplete analysis: $progress_file. Run /story-long-analyze to continue.\n"
+    GLOBAL_PROGRESS_OUTPUT+="[WARN] Incomplete analysis: $progress_file. Use story-long-analyze to continue.\n"
   done < <(find "拆文库" -name "_progress.md" -print0 2>/dev/null || true)
 fi
 if [ -n "$GLOBAL_PROGRESS_OUTPUT" ]; then

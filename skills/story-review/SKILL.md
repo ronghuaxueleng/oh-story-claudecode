@@ -2,16 +2,13 @@
 name: story-review
 version: 1.0.0
 description: |
-  多视角对抗式审查。4 个 Agent 并行 spawn（full 模式），各自从不同角度找问题，主线程综合裁决。
-  触发方式：/story-review、/审查、「审查一下」「帮我审一下」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  多视角对抗式审查。4 个子代理并行 spawn（full 模式），各自从不同角度找问题，主线程综合裁决。
+  触发方式：提到 `story-review`、`审查`，或直接说「审查一下」「帮我审一下」
 ---
 
 # story-review：多视角对抗式审查
 
-你是审查协调器。并行 spawn 4 个 Agent，各自从不同角度找问题，然后综合裁决。
+你是审查协调器。并行 spawn 4 个子代理，各自从不同角度找问题，然后综合裁决。
 
 **执行铁律：审查是找问题，不是验证正确性。**
 
@@ -19,9 +16,9 @@ metadata:
 
 ## Review Mode 选择
 
-- `/story-review` 或 `/story-review full` → spawn 全部 4 个 Agent
-- `/story-review lean` → 只 spawn story-architect + consistency-checker
-- `/story-review solo` → 不 spawn Agent，自身做基础检查
+- `story-review` 或 `story-review full` → spawn 全部 4 个子代理
+- `story-review lean` → 只 spawn story-architect + consistency-checker
+- `story-review solo` → 不 spawn 子代理，自身做基础检查
 - 未指定 → 默认 full，并告知用户
 
 ---
@@ -41,15 +38,25 @@ metadata:
    - 知乎盐言 → 读取 [references/rubrics/zhihu.md](references/rubrics/zhihu.md)
    - 未指定 → 默认加载 [references/quality-rubric.md](references/quality-rubric.md)
 
-**Phase 1.5：可选 story-explorer 预查询**。如果项目已部署 story-explorer agent（检查 `.claude/agents/story-explorer.md` 是否存在），可 spawn `Agent(subagent_type: "story-explorer", prompt: "项目目录：{dir}\n查询类型：setting_appearances\n查询参数：{审查涉及的设定关键词}")` 预查设定摘要，将结果注入各 agent 的 prompt，减少重复 grep。此步可选，跳过不影响审查流程。
+**Phase 1.5：可选 story-explorer 预查询**。如果项目已部署 `story-explorer`（检查 `.codex/agents/story-explorer.md` 是否存在），可 spawn 一个子代理：
 
-## Phase 2：并行 Spawn 4 个 Agent（+ 可选 researcher）
+```text
+subagent: story-explorer
+prompt:
+项目目录：{dir}
+查询类型：setting_appearances
+查询参数：{审查涉及的设定关键词}
+```
 
-使用 Agent 工具并行调用 4 次（不同 subagent_type）。
+预查设定摘要，将结果注入各子代理的 prompt，减少重复 grep。此步可选，跳过不影响审查流程。
 
-**调用规则**：每个 Agent 不继承父对话上下文，prompt 必须自包含文件路径和上下文。
+## Phase 2：并行 Spawn 4 个子代理（+ 可选 researcher）
 
-**Agent 1: story-architect**（subagent_type: story-architect）
+使用 Codex 子代理机制并行调用 4 次，对应 `story-architect`、`character-designer`、`narrative-writer`、`consistency-checker`。
+
+**调用规则**：每个子代理不依赖父线程隐式上下文，输入必须自包含文件路径和上下文。
+
+**子代理 1: story-architect**
 - 审查视角：主题对齐、大纲结构、钩子/反转质量、范围控制
 - 提示指令：
   ```
@@ -74,7 +81,7 @@ metadata:
   RECOMMENDATIONS: [修改建议]
   ```
 
-**Agent 2: character-designer**（subagent_type: character-designer）
+**子代理 2: character-designer**
 - 审查视角：角色语言风格一致性、对话质量、人物弧线
 - 提示指令：
   ```
@@ -97,7 +104,7 @@ metadata:
   RECOMMENDATIONS: [修改建议]
   ```
 
-**Agent 3: narrative-writer**（subagent_type: narrative-writer）
+**子代理 3: narrative-writer**
 - 审查视角：AI味检测、格式合规、节奏均匀度
 - 提示指令：
   ```
@@ -118,7 +125,7 @@ metadata:
   RECOMMENDATIONS: [修改建议]
   ```
 
-**Agent 4: consistency-checker**（subagent_type: consistency-checker）
+**子代理 4: consistency-checker**
 - 审查视角：grep-first 事实冲突检测，输出 S1-S4 报告
 - 提示指令：
   ```
@@ -142,10 +149,21 @@ metadata:
 
 ## Phase 3：综合裁决
 
-1. 收集 4 个 Agent 的 VERDICT 和 FINDINGS
-2. 合并去重：将各 Agent 的 FINDINGS 按严重程度排序（S1 > S2 > S3 > S4，AI味重度 > 中度 > 轻度）
-3. **可选事实核查**：如果审查内容涉及需要验证的外部事实（历史年代、地理方位、职业细节等），额外 spawn `story-researcher` agent 搜索验证。将研究结果纳入裁决参考。
-4. **分歧呈现**：如果 Agent 间有冲突意见，明确呈现分歧让用户裁决
+1. 收集 4 个子代理的 VERDICT 和 FINDINGS
+2. 合并去重：将各子代理的 FINDINGS 按严重程度排序（S1 > S2 > S3 > S4，AI味重度 > 中度 > 轻度）
+3. **可选事实核查**：如果审查内容涉及需要验证的外部事实（历史年代、地理方位、职业细节等），并且项目已部署 `story-researcher`（检查 `.codex/agents/story-researcher.md` 是否存在），额外 spawn 一个子代理：
+
+```text
+subagent: story-researcher
+prompt:
+项目目录：{dir}
+任务描述：事实核查
+研究主题：{待核查的外部事实}
+输出方式：返回研究结论并附主要依据
+```
+
+将研究结果纳入裁决参考；如子代理不可用，由主线程直接核查。
+4. **分歧呈现**：如果子代理间有冲突意见，明确呈现分歧让用户裁决
    - 例：story-architect 认为某段"结构合理"，但 character-designer 认为"角色弧线有问题"
    - 不要自动妥协，让用户看到双方理由
 5. 输出综合审查报告
@@ -169,8 +187,8 @@ Review Mode: full
 ## 发现的问题
 {按 S1→S4 分级列出所有问题}
 
-## Agent 分歧（如有）
-{列出 Agent 间不同的意见}
+## 子代理分歧（如有）
+{列出子代理间不同的意见}
 
 ## 修改建议
 {按优先级排列}
@@ -180,7 +198,7 @@ Review Mode: full
 
 ## lean 模式
 
-只 spawn story-architect + consistency-checker，跳过 character-designer 和 narrative-writer。
+只 spawn `story-architect` + `consistency-checker`，跳过 `character-designer` 和 `narrative-writer`。
 其余流程同 full。
 
 ### lean 模式输出格式
@@ -206,7 +224,7 @@ Review Mode: lean
 
 ## solo 模式
 
-不 spawn Agent。skill 自身执行基础检查：
+不 spawn 子代理。skill 自身执行基础检查：
 1. 格式合规性检查（一段一句、无空行、对话格式）
 2. 简单的设定一致性 grep
 3. 输出简化版报告

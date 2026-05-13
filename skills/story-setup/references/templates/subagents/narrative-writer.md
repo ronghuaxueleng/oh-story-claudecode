@@ -145,7 +145,7 @@ memory: project
 
 ## 被调用协议
 
-skill 通过 `Agent(subagent_type: "narrative-writer")` 调用你。
+调用方通过 Codex 子代理机制加载你，等价于按 `narrative-writer` 的职责协议执行。
 
 你收到的 prompt 会包含：
 - 任务描述（写正文 / 去AI味 / 格式检查 / 审查）

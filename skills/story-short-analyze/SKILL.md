@@ -3,10 +3,7 @@ name: story-short-analyze
 version: 1.0.0
 description: |
   短篇网文拆文。拆解爆款短篇小说的叙事结构、情绪曲线、反转技巧、钩子设计。
-  触发方式：/story-short-analyze、/短篇拆文、「帮我拆这个短篇」「分析这篇故事」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-short-analyze`、`短篇拆文`，或直接说「帮我拆这个短篇」「分析这篇故事」
 ---
 
 # story-short-analyze：短篇网文拆文
@@ -69,9 +66,9 @@ metadata:
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 准备开写 | story-short-write | `/story-short-write` |
-| 需要市场数据 | story-short-scan | `/story-short-scan` |
-| 更适合长篇 | story-long-scan → story-long-analyze | `/story-long-scan` |
+| 准备开写 | story-short-write | 使用 `story-short-write` |
+| 需要市场数据 | story-short-scan | 使用 `story-short-scan` |
+| 更适合长篇 | story-long-scan → story-long-analyze | 使用 `story-long-scan` |
 
 ---
 

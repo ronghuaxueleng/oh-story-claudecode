@@ -148,7 +148,7 @@ maxTurns: 25
 
 ## 被调用协议
 
-skill 通过 `Agent(subagent_type: "character-designer")` 调用你。
+调用方通过 Codex 子代理机制加载你，等价于按 `character-designer` 的职责协议执行。
 
 你收到的 prompt 会包含：
 - 任务描述（设计角色 / 创作对话 / 审查一致性）

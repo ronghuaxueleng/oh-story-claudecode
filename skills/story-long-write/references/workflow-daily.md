@@ -14,7 +14,7 @@
 
 ## Step 1：快速上下文加载
 
-**可选：使用 story-explorer agent 批量加载上下文**。如果项目已部署 story-explorer agent（检查 `.claude/agents/story-explorer.md` 是否存在），可以用 `Agent(subagent_type: "story-explorer", prompt: "项目目录：{dir}\n查询类型：context_load\n查询参数：准备写第 {N} 章")` 执行 `context_load` 查询，一次获取全部写作上下文。spawn 返回后直接使用其 results，跳过下方手动加载步骤。如果 agent 不可用或返回不完整，回退到下方手动加载。
+**可选：使用 story-explorer 子代理批量加载上下文**。如果项目已部署 `story-explorer`（检查 `.codex/agents/story-explorer.md` 是否存在），可用 `spawn_agent(agent_type="default", task="读取项目目录：{dir}\n查询类型：context_load\n查询参数：准备写第 {N} 章", context=".codex/agents/story-explorer.md 的约束")` 执行 `context_load` 查询，一次获取全部写作上下文。子代理返回后直接使用其 `results`，跳过下方手动加载步骤。如果子代理不可用或返回不完整，回退到下方手动加载。
 
 手动加载（默认方式）：
 
@@ -76,10 +76,10 @@
      - `追踪/伏笔.md`（新增/回收伏笔）
      - `追踪/时间线.md`（记录事件时序）
      - `追踪/上下文.md`（更新进度摘要）
-   - **质检提示**（可选）：本章写作完成。如需一致性检查，运行 `/story-review lean`。批量写作模式跳过此步骤，全部写完后再统一审查。
+   - **质检提示**（可选）：本章写作完成。如需一致性检查，使用 `story-review lean`。批量写作模式跳过此步骤，全部写完后再统一审查。
 3. **不中断**：一章写完不问用户，直接写下一章（除非用户要求逐章确认）
 
-**资料研究（按需）**：如果写作中遇到需要查证的外部事实（历史年代、地理方位、职业细节等），暂停写作，spawn `story-researcher` agent 搜索并输出到 `参考资料/` 目录。研究完成后再继续写作。
+**资料研究（按需）**：如果写作中遇到需要查证的外部事实（历史年代、地理方位、职业细节等），暂停写作，spawn `story-researcher` 子代理搜索并输出到 `参考资料/` 目录。研究完成后再继续写作。
 
 ---
 

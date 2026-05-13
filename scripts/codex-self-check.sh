@@ -18,7 +18,7 @@ echo "=== Codex Self Check ==="
 
 check_path "CLAUDE.md"
 check_path "scripts/install-codex-plugin.sh"
-check_path "skills/story-setup/references/templates/agents/story-architect.md"
+check_path "skills/story-setup/references/templates/subagents/story-architect.md"
 check_path "skills/story-setup/references/templates/hooks/session-start.sh"
 check_path "skills/story-setup/references/templates/rules/story-outline.md"
 

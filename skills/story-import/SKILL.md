@@ -4,10 +4,7 @@ version: 1.0.0
 description: |
   逆向导入已有小说。将已写好的小说（半成品或完本）反向解析为标准项目目录结构，
   兼容 story-long-write 的后续写作流程。内部复用 story-long-analyze 的深度分析管线。
-  触发方式：/story-import、「导入小说」「反向解析」「导入」「把我的书导进来」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-import`，或直接说「导入小说」「反向解析」「导入」「把我的书导进来」
 ---
 
 # story-import：逆向导入已有小说
@@ -336,16 +333,16 @@ source: 导入反推
 - [ ] 伏笔追踪中的伏笔需要人工确认
 
 ## 下一步建议
-- 运行 `/story-review lean` 审查导入结果
-- 运行 `/story-long-write` + "日更" 开始续写
+- 使用 `story-review lean` 审查导入结果
+- 使用 `story-long-write` 并说明“日更”开始续写
 ```
 
 ### 4.3 项目激活
 
 - 设置 `.active-book` 指向导入的书名目录
 - 确认项目可以被 story-long-write 识别
-- 检查项目是否已部署 story-setup 基础设施（`.story-deployed` 是否存在）。如不存在，建议用户运行 `/story-setup` 完成环境部署（包括 agents、hooks、rules、CLAUDE.md）
-- 可选验证：如果项目已部署 story-explorer agent（检查 `.claude/agents/story-explorer.md` 是否存在），可 spawn `Agent(subagent_type: "story-explorer", prompt: "项目目录：{dir}\n查询类型：progress\n查询参数：导入验证")` 交叉验证迁移数据完整性
+- 检查项目是否已部署 story-setup 基础设施（`.story-deployed` 是否存在）。如不存在，建议用户使用 `story-setup` 完成环境部署（包括 `.codex/agents`、`.codex/hooks`、`.codex/rules`、`CLAUDE.md`）
+- 可选验证：如果项目已部署 `story-explorer`（检查 `.codex/agents/story-explorer.md` 是否存在），可 spawn 一个子代理，按 `story-explorer` 协议执行 `项目目录：{dir}\n查询类型：progress\n查询参数：导入验证`，交叉验证迁移数据完整性
 
 ---
 
@@ -401,11 +398,11 @@ source: 导入反推
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 导入完想继续写 | story-long-write | `/story-long-write` + "日更" |
-| 导入完想审查质量 | story-review | `/story-review` |
-| 想深入分析对标 | story-long-analyze | `/story-long-analyze` |
-| 从零开新书 | story-long-write | `/story-long-write` + "开书" |
-| 项目未部署环境 | story-setup | `/story-setup` |
+| 导入完想继续写 | story-long-write | 使用 `story-long-write` 并说明“日更” |
+| 导入完想审查质量 | story-review | 使用 `story-review` |
+| 想深入分析对标 | story-long-analyze | 使用 `story-long-analyze` |
+| 从零开新书 | story-long-write | 使用 `story-long-write` 并说明“开书” |
+| 项目未部署环境 | story-setup | 使用 `story-setup` |
 
 ---
 

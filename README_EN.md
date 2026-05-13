@@ -4,7 +4,7 @@
 
 # oh-story-claudecode
 
-A web novel writing skill pack for Claude Code and OpenClaw. Covers the full pipeline for long-form and short-form Chinese web novels: trend scanning, deconstruction, writing, AI tone removal, and cover generation.
+A web novel writing skill pack for Codex. Covers the full pipeline for long-form and short-form Chinese web novels: trend scanning, deconstruction, writing, AI tone removal, and cover generation.
 
 ## Pipeline Overview
 
@@ -20,7 +20,7 @@ flowchart LR
     entry_i{{"Existing Novel"}}:::entry
 
     subgraph S0 ["  Setup"]
-        setup["/story-setup"]:::phase
+        setup["story-setup"]:::phase
     end
 
     subgraph S1 ["  Trend Scanning"]
@@ -63,7 +63,7 @@ flowchart LR
 
 ## Installation
 
-**Option 1** Tell Claude Code / OpenClaw directly:
+**Option 1** Install it directly in an environment that supports skills:
 
 ```
 Install this skill https://github.com/worldwonderer/oh-story-claudecode
@@ -81,19 +81,19 @@ Re-run the same command to update.
 
 | Skill | Trigger | Description |
 |:------|:--------|:------------|
-| `story-setup` | `/story-setup` | Environment setup — deploys hooks/rules/agents/CLAUDE.md in one click |
-| `story` | `/story` | Toolbox router — routes fuzzy intents to the matching skill |
-| `story-long-write` | `/story-long-write` | Long-form writing — outline building, character design, prose output |
-| `story-long-analyze` | `/story-long-analyze` | Long-form deconstruction — Golden First 3 Chapters, payoff design, pacing analysis |
-| `story-long-scan` | `/story-long-scan` | Long-form trend scan — Qidian/Fanqie/Jinjiang market trends |
-| `story-short-write` | `/story-short-write` | Short-form writing — emotion design, twist crafting, polish & delivery |
-| `story-short-analyze` | `/story-short-analyze` | Short-form deconstruction — narrative structure, emotion curves, hook breakdown |
-| `story-short-scan` | `/story-short-scan` | Short-form trend scan — Zhihu Yanayan/Fanqie short-form trending data |
-| `story-deslop` | `/story-deslop` | De-AI-ify — detect and remove AI writing traces |
-| `story-import` | `/story-import` | Reverse import — parse existing novels into standard project structure |
-| `story-review` | `/story-review` | Multi-perspective review — 4-agent adversarial review + Fanqie/Qidian/Zhihu scoring rubrics |
-| `story-cover` | `/story-cover` | Cover generation — title & genre analysis + GPT-Image-2 image generation |
-| `browser-cdp` | `/browser-cdp` | Browser control — CDP protocol for scraping with reusable login sessions |
+| `story-setup` | `story-setup`, `准备写书` | Environment setup — deploy hooks/rules/subagents/CLAUDE.md in one pass |
+| `story` | `story`, `网文` | Toolbox router — routes fuzzy intents to the matching skill |
+| `story-long-write` | `story-long-write`, `写长篇` | Long-form writing — outline building, character design, prose output |
+| `story-long-analyze` | `story-long-analyze`, `长篇拆文` | Long-form deconstruction — Golden First 3 Chapters, payoff design, pacing analysis |
+| `story-long-scan` | `story-long-scan`, `长篇扫榜` | Long-form trend scan — Qidian/Fanqie/Jinjiang market trends |
+| `story-short-write` | `story-short-write`, `写短篇` | Short-form writing — emotion design, twist crafting, polish & delivery |
+| `story-short-analyze` | `story-short-analyze`, `短篇拆文` | Short-form deconstruction — narrative structure, emotion curves, hook breakdown |
+| `story-short-scan` | `story-short-scan`, `短篇扫榜` | Short-form trend scan — Zhihu Yanayan/Fanqie short-form trending data |
+| `story-deslop` | `story-deslop`, `去AI味` | De-AI-ify — detect and remove AI writing traces |
+| `story-import` | `story-import`, `导入小说` | Reverse import — parse existing novels into standard project structure |
+| `story-review` | `story-review`, `审查` | Multi-perspective review — 4 parallel subagents + Fanqie/Qidian/Zhihu scoring rubrics |
+| `story-cover` | `story-cover`, `封面` | Cover generation — title & genre analysis + GPT-Image-2 image generation |
+| `browser-cdp` | `browser-cdp`, `浏览器操作` | Browser control — CDP protocol for scraping with reusable login sessions |
 
 Natural language also triggers: `帮我开书` ("help me start writing") → `story-long-write`, `这篇太AI了` ("this is too AI-ish") → `story-deslop`, `把我的书导进来` ("import my book") → `story-import`, `沈栀现在什么状态` ("what's Shen Zhi's current status") → `story-explorer`.
 
@@ -104,12 +104,12 @@ Natural language also triggers: `帮我开书` ("help me start writing") → `st
 
 </details>
 
-## Agent System
+## Subagent System
 
-Writing skills internally coordinate 6 specialized agents:
+Writing skills internally coordinate 6 specialized subagents:
 
-| Agent | Model | Role |
-|:------|:------|:-----|
+| Subagent | Model | Role |
+|:---------|:------|:-----|
 | **story-architect** | Opus | Story architecture — genre positioning, outline structure, hook/twist design, emotion arcs |
 | **character-designer** | Sonnet | Character design — profiles, voice, motivation chains, dialogue writing |
 | **narrative-writer** | Sonnet | Narrative writer — prose writing, de-AI-ify, format compliance |
@@ -117,11 +117,11 @@ Writing skills internally coordinate 6 specialized agents:
 | **story-researcher** | Sonnet | Research — CDP search + full-text extraction, multi-source cross-verification, structured reference files |
 | **story-explorer** | Haiku | Story query — read-only character/foreshadowing/setting/progress lookup, quick context loading |
 
-Agents load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 110+ techniques total), without reserving context window space.
+Subagents load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 110+ techniques total), without reserving context window space.
 
 ## Automation Hooks
 
-5 hooks deployed automatically by `/story-setup`:
+5 hooks deployed automatically by `story-setup`:
 
 | Hook | Trigger | Function |
 |:-----|:---------|:---------|

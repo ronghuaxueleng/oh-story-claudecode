@@ -3,10 +3,7 @@ name: story-short-scan
 version: 1.0.0
 description: |
   短篇网文扫榜。分析知乎盐言、七猫、黑岩、点众等平台热门短篇数据，捕捉风口题材。
-  触发方式：/story-short-scan、/短篇扫榜、「短篇什么火」「知乎故事排行」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-short-scan`、`短篇扫榜`，或直接说「短篇什么火」「知乎故事排行」
 ---
 
 # story-short-scan：短篇网文扫榜
@@ -58,7 +55,12 @@ metadata:
 
 #### browser-cdp 采集模式
 
-使用 `/browser-cdp` 启动 Chrome，直接抓取平台页面的结构化数据。
+优先使用 `browser-cdp` skill 复用现有 Chrome 会话抓取平台页面的结构化数据。
+
+执行要求：
+- 复用已有浏览器会话，禁止为了采集而强行关闭或重启用户当前 Chrome
+- 采集脚本必须设置明确超时和退出条件，避免长时间占满网络连接
+- 若 CDP 连接异常或网络不稳定，立即停止采集并回退到“用户提供”或“内置知识”模式，不要持续重试
 
 **点众采集目标**：
 
@@ -198,9 +200,9 @@ metadata:
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 找到方向 | story-short-analyze | `/story-short-analyze` |
-| 直接开写 | story-short-write | `/story-short-write` |
-| 更适合长篇 | story-long-scan | `/story-long-scan` |
+| 找到方向 | story-short-analyze | 使用 `story-short-analyze` |
+| 直接开写 | story-short-write | 使用 `story-short-write` |
+| 更适合长篇 | story-long-scan | 使用 `story-long-scan` |
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: story-researcher
 description: |
-  小说写作资料研究 agent。接收研究查询，优先使用 CDP (agent-browser) 搜索并提取完整正文，
+  小说写作资料研究子代理。接收研究查询，优先使用 CDP (`agent-browser`) 搜索并提取完整正文，
   WebSearch/webReader 作为兜底。输出带来源引用的结构化 Markdown 参考文件。
   被 story-long-write（Phase 4）、story-review、story skill 路由调用。
 tools: [Read, Glob, Grep, Bash, Write]
@@ -277,7 +277,7 @@ CDP 不可用时使用：
 
 ## 被调用协议
 
-skill 通过 `Agent(subagent_type: "story-researcher")` 调用你。
+调用方通过 Codex 子代理机制加载你，等价于按 `story-researcher` 的职责协议执行。
 
 你收到的 prompt 会包含：
 - `query`：研究主题（如"明代锦衣卫组织架构"）

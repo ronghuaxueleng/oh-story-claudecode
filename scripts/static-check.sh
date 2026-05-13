@@ -1,6 +1,6 @@
 #!/bin/bash
 # static-check.sh — Skill 结构与路径完整性检查
-# 检查：frontmatter、引用路径有效、死文件、Agent 引用有效、Hook 路径有效
+# 检查：frontmatter、引用路径有效、死文件、子代理引用有效、Hook 路径有效
 
 set -euo pipefail
 
@@ -33,12 +33,12 @@ extract_referenced_paths() {
   grep -oE '(references|scripts|assets)/[^ `")\]]+' "$file" 2>/dev/null || true
 }
 
-# 从 SKILL.md 提取所有 subagent_type 引用
+# 从 SKILL.md 提取所有子代理引用
 extract_agent_refs() {
   local file="$1"
-  grep -oE 'subagent_type:[[:space:]]*"[^"]+"' "$file" 2>/dev/null | sed 's/subagent_type:[[:space:]]*"//' | sed 's/"$//' || true
-  grep -oE 'subagent_type="[^"]+"' "$file" 2>/dev/null | sed 's/subagent_type="//' | sed 's/"//' || true
-  grep -oE '\(subagent_type:[[:space:]]*[a-z][a-z0-9_-]+\)' "$file" 2>/dev/null | sed 's/(subagent_type:[[:space:]]*//' | sed 's/)$//' || true
+  grep -oE 'subagent:[[:space:]]*[a-z][a-z0-9_-]+' "$file" 2>/dev/null | sed 's/subagent:[[:space:]]*//' || true
+  grep -oE 'subagent:[[:space:]]*"[^"]+"' "$file" 2>/dev/null | sed 's/subagent:[[:space:]]*"//' | sed 's/"$//' || true
+  grep -oE 'subagent="[^"]+"' "$file" 2>/dev/null | sed 's/subagent="//' | sed 's/"//' || true
 }
 
 # ---------- checks ----------
@@ -161,36 +161,36 @@ check_skill() {
     fi
   fi
 
-  # Check 5: Agent references valid
-  local agent_names=()
-  if [ -d "$REPO_ROOT/skills/story-setup/references/templates/agents" ]; then
-    for f in "$REPO_ROOT/skills/story-setup/references/templates/agents/"*.md; do
-      [ -f "$f" ] && agent_names+=("$(basename "$f" .md)")
+  # Check 5: subagent references valid
+  local subagent_names=()
+  if [ -d "$REPO_ROOT/skills/story-setup/references/templates/subagents" ]; then
+    for f in "$REPO_ROOT/skills/story-setup/references/templates/subagents/"*.md; do
+      [ -f "$f" ] && subagent_names+=("$(basename "$f" .md)")
     done
   fi
 
-  local broken_agents=()
-  while IFS= read -r agent_ref; do
-    [ -z "$agent_ref" ] && continue
+  local broken_subagents=()
+  while IFS= read -r subagent_ref; do
+    [ -z "$subagent_ref" ] && continue
     local found=false
-    for name in "${agent_names[@]}"; do
-      if [ "$agent_ref" = "$name" ]; then
+    for name in "${subagent_names[@]}"; do
+      if [ "$subagent_ref" = "$name" ]; then
         found=true
         break
       fi
     done
     if [ "$found" = false ]; then
-      broken_agents+=("$agent_ref")
+      broken_subagents+=("$subagent_ref")
     fi
   done < <(extract_agent_refs "$skill_file" | sort -u)
 
-  if [ ${#broken_agents[@]} -eq 0 ]; then
-    if [ ${#agent_names[@]} -gt 0 ] && [ -n "$(extract_agent_refs "$skill_file")" ]; then
-      echo "  [PASS] all agent references valid"
+  if [ ${#broken_subagents[@]} -eq 0 ]; then
+    if [ ${#subagent_names[@]} -gt 0 ] && [ -n "$(extract_agent_refs "$skill_file")" ]; then
+      echo "  [PASS] all subagent references valid"
     fi
   else
-    echo "  [FAIL] unknown agent references:"
-    for a in "${broken_agents[@]}"; do
+    echo "  [FAIL] unknown subagent references:"
+    for a in "${broken_subagents[@]}"; do
       echo "         -> $a"
     done
     errors=$((errors + 1))

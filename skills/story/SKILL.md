@@ -2,7 +2,7 @@
 name: story
 description: |
   网络小说工具箱主入口。根据用户需求自动路由到对应 skill。
-  触发方式：/story、/网文、「我想写小说」「帮我写书」「写网文」
+  触发方式：提到 `story`、`网文`，或直接说「我想写小说」「帮我写书」「写网文」
   当用户意图不明确时触发此 skill，由路由逻辑分发到具体的扫榜/拆文/写作/去AI味/封面 skill。
 ---
 
@@ -14,19 +14,19 @@ description: |
 
 | 用户意图 | 关键词示例 | 路由到 |
 |---|---|---|
-| 写长篇 | 开书、写大纲、长篇、连载 | `/story-long-write` |
-| 写短篇 | 短篇、盐言、一万字 | `/story-short-write` |
-| 长篇拆文 | 拆文、分析这本书、黄金三章 | `/story-long-analyze` |
-| 短篇拆文 | 拆短篇、分析这个故事 | `/story-short-analyze` |
-| 长篇扫榜 | 长篇排行、什么火、起点/番茄/晋江 | `/story-long-scan` |
-| 短篇扫榜 | 短篇排行、知乎盐言排行 | `/story-short-scan` |
-| 去 AI 味 | 去 AI 味、太 AI、去味 | `/story-deslop` |
-| 封面 | 封面、封面图 | `/story-cover` |
-| 环境部署 | 准备写书、搭环境、初始化 | `/story-setup` |
-| 浏览器操控 | 浏览器、抓取、登录态 | `/browser-cdp` |
-| 导入小说 | 导入、反向解析、导入小说、把我的书导进来 | `/story-import` |
-| 查故事资料 | 查角色、查伏笔、查进度、查设定、什么状态、写到哪了 | 直接 spawn `story-explorer` agent（使用结构化 prompt：`项目目录：{dir}\n查询类型：{根据意图选择}\n查询参数：{用户查询}`） |
-| 查资料 | 查资料、帮我查资料、调研、搜索一下、搜一下 | 直接 spawn `story-researcher` agent |
+| 写长篇 | 开书、写大纲、长篇、连载 | `story-long-write` |
+| 写短篇 | 短篇、盐言、一万字 | `story-short-write` |
+| 长篇拆文 | 拆文、分析这本书、黄金三章 | `story-long-analyze` |
+| 短篇拆文 | 拆短篇、分析这个故事 | `story-short-analyze` |
+| 长篇扫榜 | 长篇排行、什么火、起点/番茄/晋江 | `story-long-scan` |
+| 短篇扫榜 | 短篇排行、知乎盐言排行 | `story-short-scan` |
+| 去 AI 味 | 去 AI 味、太 AI、去味 | `story-deslop` |
+| 封面 | 封面、封面图 | `story-cover` |
+| 环境部署 | 准备写书、搭环境、初始化 | `story-setup` |
+| 浏览器操控 | 浏览器、抓取、登录态 | `browser-cdp` |
+| 导入小说 | 导入、反向解析、导入小说、把我的书导进来 | `story-import` |
+| 查故事资料 | 查角色、查伏笔、查进度、查设定、什么状态、写到哪了 | 直接 spawn `story-explorer` 子代理（使用结构化 prompt：`项目目录：{dir}\n查询类型：{根据意图选择}\n查询参数：{用户查询}`） |
+| 查资料 | 查资料、帮我查资料、调研、搜索一下、搜一下 | 直接 spawn `story-researcher` 子代理 |
 
 ## 路由流程
 
@@ -41,6 +41,6 @@ description: |
 路由前先检查当前项目状态：
 
 - **无项目目录**（没有包含 `追踪/` 或 `设定/` 的书名目录）：
-  - 如果用户要写作，建议先 `/story-setup` 初始化环境
+  - 如果用户要写作，建议先用 `story-setup` 初始化环境
   - 如果用户要扫榜/拆文，直接路由
-- **已有项目**：检查 `.story-deployed` 标记，如未部署建议先 `/story-setup`
+- **已有项目**：检查 `.story-deployed` 标记，如未部署建议先用 `story-setup`

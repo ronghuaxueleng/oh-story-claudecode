@@ -3,10 +3,7 @@ name: story-short-write
 version: 1.0.0
 description: |
   短篇网文写作。辅助短篇小说创作，从构思到成稿，聚焦情绪拉扯与节奏把控。
-  触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-short-write`、`写短篇`，或直接说「帮我写一篇短篇」「写个盐言故事」
 ---
 
 # story-short-write：短篇网文写作
@@ -56,11 +53,21 @@ metadata:
 
 ### Phase 2：构思核心框架
 
-> 如果用户有参考小说，先用 `/story-short-analyze` 拆解，输出存入 `拆文库/{书名}/`（或用户指定的 对标/ 目录）。写作时参考其结构/情绪/反转设计。
+> 如果用户有参考小说，先用 `story-short-analyze` 拆解，输出存入 `拆文库/{书名}/`（或用户指定的 对标/ 目录）。写作时参考其结构/情绪/反转设计。
 
-#### Agent 调用：story-architect
+#### 子代理调用：story-architect
 
-构思阶段，如果项目已部署 story-architect agent（检查 `.claude/agents/story-architect.md` 是否存在），可 spawn `Agent(subagent_type: "story-architect", prompt: "项目目录：{dir}\n任务类型：短篇构思\n查询参数：{情绪目标+题材方向}")` 辅助框架设计。如 agent 不可用，由主线程直接执行。
+构思阶段，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理：
+
+```text
+subagent: story-architect
+prompt:
+项目目录：{dir}
+任务类型：短篇构思
+查询参数：{情绪目标+题材方向}
+```
+
+辅助框架设计。如子代理不可用，由主线程直接执行。
 
 帮用户确定短篇的核心框架：
 
@@ -107,9 +114,19 @@ metadata:
 5. 反转信息差验证（公式见 writing-workflow.md）
 6. 伏笔回查清单（标准见 writing-workflow.md）
 
-#### Agent 调用：character-designer
+#### 子代理调用：character-designer
 
-设计任务完成后，如果项目已部署 character-designer agent（检查 `.claude/agents/character-designer.md` 是否存在），可 spawn `Agent(subagent_type: "character-designer", prompt: "项目目录：{dir}\n任务类型：角色设定\n查询参数：{人设速写+关系}")` 辅助角色设定和语言风格档案。如 agent 不可用，由主线程直接执行。
+设计任务完成后，如果项目已部署 `character-designer`（检查 `.codex/agents/character-designer.md` 是否存在），可 spawn 一个子代理：
+
+```text
+subagent: character-designer
+prompt:
+项目目录：{dir}
+任务类型：角色设定
+查询参数：{人设速写+关系}
+```
+
+辅助角色设定和语言风格档案。如子代理不可用，由主线程直接执行。
 
 ---
 
@@ -119,9 +136,21 @@ metadata:
 
 **写作心法：你不是在翻译大纲，你在构建场景。读者要和主角一起经历。**
 
-#### Agent 调用：narrative-writer
+#### 子代理调用：narrative-writer
 
-正文写作阶段，如果项目已部署 narrative-writer agent（检查 `.claude/agents/narrative-writer.md` 是否存在），spawn `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：写正文\n情绪目标：{从核心框架读取}\n小节大纲：小节大纲.md\n涉及角色：{从核心框架读取}")` 执行正文写作。如 agent 不可用，由主线程直接写作。
+正文写作阶段，如果项目已部署 `narrative-writer`（检查 `.codex/agents/narrative-writer.md` 是否存在），可 spawn 一个子代理：
+
+```text
+subagent: narrative-writer
+prompt:
+项目目录：{dir}
+任务描述：写正文
+情绪目标：{从核心框架读取}
+小节大纲：小节大纲.md
+涉及角色：{从核心框架读取}
+```
+
+执行正文写作。如子代理不可用，由主线程直接写作。
 
 ⚠️ **硬约束：每节 ≥ 800 字 / 50-65 行**。
 题材例外：爽文、打脸、系统流等高信息密度题材可降至 ≥ 500 字/节（见 genre-writing-formulas.md 各题材速查表），但不得低于 500 字。
@@ -140,7 +169,7 @@ metadata:
    - **禁止凑字**：每个添加必须推动情绪/铺垫/代入感，不得灌水
 
 **节长验证（分批写作，每批写完后执行）**：
-分批写作：每次输出 2-3 节（2-3 节约为 Claude 单次输出的最佳叙事窗口，过少浪费上下文，过多降低单节质量），写完后统一检查本批所有节的字数。
+分批写作：每次输出 2-3 节（2-3 节是当前工作流下较稳的单批叙事窗口，过少浪费上下文，过多降低单节质量），写完后统一检查本批所有节的字数。
 如果任何一节 < 800 字（高信息密度题材 < 500 字）→ 用三层展开法补足后再写下一批。
 禁止跳过未达标的小节。
 
@@ -250,13 +279,30 @@ metadata:
 加载 `references/writing-workflow.md` 中的精修清单完成检查。
 重点：开头钩子、情绪曲线、反转铺垫、每句话价值、格式规范、AI 腔排查。
 
-#### Agent 调用：narrative-writer（去AI味）+ consistency-checker
+#### 子代理调用：narrative-writer（去AI味）+ consistency-checker
 
-精修阶段，如果项目已部署对应 agent，可 spawn：
-- `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：去AI味+格式检查\n检查范围：{正文文件}")` — 执行去AI味（6 Gate）和格式合规检查
-- `Agent(subagent_type: "consistency-checker", prompt: "项目目录：{dir}\n检查范围：{正文文件}\n检查类型：事实冲突+伏笔断线+角色属性不一致")` — 执行一致性检查
+精修阶段，如果项目已部署对应子代理，可 spawn：
+- spawn `consistency-checker` 子代理：
 
-如 agent 不可用，由主线程直接执行。
+```text
+subagent: narrative-writer
+prompt:
+项目目录：{dir}
+任务描述：去AI味+格式检查
+检查范围：{正文文件}
+```
+
+- spawn `narrative-writer` 子代理：
+
+```text
+subagent: consistency-checker
+prompt:
+项目目录：{dir}
+检查范围：{正文文件}
+检查类型：事实冲突+伏笔断线+角色属性不一致
+```
+
+如子代理不可用，由主线程直接执行。
 
 **自检记录隔离规则**：
 - 所有自检记录（字数统计、禁用词扫描结果、格式检查清单）必须写入独立文件 `自检_{标题}.md`（标题取自 Phase 2 核心框架）
@@ -275,11 +321,11 @@ metadata:
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 有参考小说想对标 | story-short-analyze | `/story-short-analyze`（拆文模式） → 输出存入 `拆文库/{书名}/` |
-| 写完，去 AI 味 | story-deslop | `/story-deslop` |
-| 想自检 | story-short-analyze | `/story-short-analyze`（自检模式） |
-| 需要市场方向 | story-short-scan | `/story-short-scan` |
-| 设定太大，适合长篇 | story-long-write | `/story-long-write` |
+| 有参考小说想对标 | story-short-analyze | 使用 `story-short-analyze`（拆文模式） → 输出存入 `拆文库/{书名}/` |
+| 写完，去 AI 味 | story-deslop | 使用 `story-deslop` |
+| 想自检 | story-short-analyze | 使用 `story-short-analyze`（自检模式） |
+| 需要市场方向 | story-short-scan | 使用 `story-short-scan` |
+| 设定太大，适合长篇 | story-long-write | 使用 `story-long-write` |
 
 ---
 

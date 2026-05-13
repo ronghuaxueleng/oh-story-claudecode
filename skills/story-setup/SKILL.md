@@ -2,21 +2,15 @@
 name: story-setup
 version: 1.0.0
 description: |
-  网文写作工具集基础设施部署。将 hooks/rules/agents/CLAUDE.md 等基础设施部署到用户项目目录。
-  触发方式：/story-setup、「准备写书」「帮我搭一下环境」「配置写作项目」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  网文写作工具集基础设施部署。将 hooks/rules/子代理/CLAUDE.md 等基础设施部署到用户项目目录。
+  触发方式：提到 `story-setup`，或直接说「准备写书」「帮我搭一下环境」「配置写作项目」
 ---
 
 # story-setup：网文写作工具集基础设施部署
 
-你是写作基础设施部署器。将网文写作工具集的全套基础设施（hooks、rules、agents、CLAUDE.md）部署到用户项目目录。
+你是写作基础设施部署器。将网文写作工具集的全套基础设施（hooks、rules、子代理、CLAUDE.md）部署到用户项目目录。
 
-**环境识别规则：**
-- 在 Claude Code / OpenClaw 中执行时，部署 `.claude/*`
-- 在 Codex 中执行时，部署 `.codex/*`
-- 除非用户明确要求，否则按当前宿主环境部署，不要两套都装
+**本分支是 Codex 专用分支。默认只部署 `.codex/*`，不再维护 `.claude/*` 双栈。**
 
 **执行铁律：不覆盖用户已有配置，合并而非替换。**
 
@@ -25,13 +19,12 @@ metadata:
 ## Phase 1：检测项目状态
 
 1. 检查当前目录是否已部署过（存在 `.story-deployed`）
-   - 如果已存在 → 使用 AskUserQuestion 确认是否重新部署
+   - 如果已存在 → 明确提示已部署，并让用户确认是否重新部署
 2. 检查是否有书名目录（包含 `追踪/` 子目录的目录，或用户自定义结构）
    - 有 → 识别为长篇项目，显示当前项目信息
    - 无 → 识别为新项目或短篇项目
 3. 检查当前宿主配置文件：
-   - Claude / OpenClaw：检查 `.claude/settings.local.json`
-   - Codex：检查 `.codex/config.toml`
+   - 检查 `.codex/config.toml`
    - 存在 → 读取现有配置，后续合并或覆盖
    - 不存在 → 后续创建新文件
 4. 检查 `.active-book` 文件是否存在
@@ -40,7 +33,7 @@ metadata:
 
 ## Phase 2：部署基础设施
 
-使用 AskUserQuestion 确认部署位置后，依次执行：
+确认部署位置后，依次执行：
 
 ### 2.1 部署 CLAUDE.md
 - 读取 `skills/story-setup/references/templates/CLAUDE.md.tmpl`
@@ -49,32 +42,17 @@ metadata:
 
 ### 2.2 部署宿主环境文件
 
-- **Claude / OpenClaw 模式**：
-  - 读取 `skills/story-setup/references/templates/hooks/` 下所有 `.sh` 文件
-  - 复制到用户项目的 `.claude/hooks/` 目录
-  - 读取 `skills/story-setup/references/templates/rules/` 下所有 `.md` 文件
-  - 复制到用户项目的 `.claude/rules/` 目录
-  - 读取 `skills/story-setup/references/templates/agents/` 下所有 `.md` 文件
-  - 复制到用户项目的 `.claude/agents/` 目录
-  - 确保脚本有执行权限（chmod +x）
-
-- **Codex 模式**：
-  - 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
-  - 生成 `.codex/config.toml`
-  - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
+- 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
+- 生成 `.codex/config.toml`
+- 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
+- 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
 - 如有书名目录，复制到 `{书名}/追踪/` 下
 
 ### 2.6 宿主配置处理
-- **Claude / OpenClaw 模式**：
-  - 读取 `skills/story-setup/references/templates/settings-hooks.json`
-  - 读取用户项目的 `.claude/settings.local.json`（如存在）
-  - 合并 hooks 配置（按「settings-hooks.json 合并算法」处理）
-  - 写入 `.claude/settings.local.json`
-- **Codex 模式**：
-  - `scripts/install-codex-project.sh` 已负责写入 `.codex/config.toml`
+- `scripts/install-codex-project.sh` 已负责写入 `.codex/config.toml`
 
 ### 2.7 创建部署标记
 
@@ -86,19 +64,18 @@ metadata:
   setup_skill_version: 1.0.0
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 3，提示用户重新运行 story-setup 以更新 Agent（v3 新增 story-explorer 查询 agent）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 3，提示用户重新运行 story-setup 以更新子代理（v3 新增 story-explorer 查询子代理）
 
 ## Phase 3：验证安装
 
 1. 验证宿主环境文件：
-   - Claude / OpenClaw：检查 `.claude/settings.local.json`、`.claude/hooks/`、`.claude/rules/`、`.claude/agents/`
-   - Codex：检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
+   - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
 4. 验证部署标记：
    - 检查 `.story-deployed` 是否存在且包含时间戳
 5. 输出安装报告：
    - 列出所有已部署的文件
    - 列出需要注意的事项（如已有配置已合并）
-   - 提示用户可以开始使用 `/story-long-write` 或 `/story-short-write`
+   - 提示用户可以开始使用 `story-long-write` 或 `story-short-write`
 
 ---
 
@@ -120,24 +97,20 @@ metadata:
 2. 读取模板 CLAUDE.md.tmpl，同样切分
 3. 模板中的标准 section（Skill 路由表、文件结构、协作规则、Context Recovery、语言）**覆盖**用户同名 section
 4. 用户独有的 section（自定义内容）**保留**不动
-5. 未知冲突用 AskUserQuestion 让用户选择保留哪个版本
+5. 未知冲突时明确列出差异，并让用户选择保留哪个版本
 
-## settings-hooks.json 合并算法
+## `.codex/config.toml` 处理策略
 
-hooks 注册合并按 command 字段去重：
-1. 读取用户现有 `.claude/settings.local.json`（如存在），提取 hooks 部分
-2. 读取 `settings-hooks.json` 模板，提取要注册的 hooks
-3. 对每个 hook event（SessionStart、PreToolUse 等）：
-   - 用户已有的 hook command → 保留，不重复添加
-   - 模板中的新 hook command → append 到对应 event 的 hooks 数组
-   - 用户独有的其他配置（permissions、env 等）→ 完整保留
-4. 写入合并后的完整 settings.local.json
+1. 如果不存在 `.codex/config.toml`，由安装脚本直接创建
+2. 如果已存在，优先保留用户已有配置
+3. 如缺少 `project_doc_fallback_filenames` 或 `project_doc_max_bytes`，按安装脚本补齐最小必需项
+4. 不覆盖用户自定义的其他 Codex 配置
 
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 3` → 提示已部署，AskUserQuestion 确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 3 → 提示需要更新，重新执行 Phase 2 覆盖 agents/hooks/rules，CLAUDE.md 和 settings.local.json 走合并策略
+- `.story-deployed` 存在且 `agents_version: 3` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 3 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -148,7 +121,6 @@ hooks 注册合并按 command 字段去重：
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
-| references/templates/agents/ | 6 个 agent 定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer） |
-| references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
+| references/templates/subagents/ | 6 个子代理定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer） |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
 | scripts/install-codex-project.sh | Codex 项目目录部署脚本 |

@@ -3,10 +3,7 @@ name: story-long-scan
 version: 1.0.0
 description: |
   长篇网文扫榜。分析起点、番茄、晋江等平台排行榜数据，提炼市场趋势与热门题材。
-  触发方式：/story-long-scan、/长篇扫榜、「长篇什么火」「起点排行」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-long-scan`、`长篇扫榜`，或直接说「长篇什么火」「起点排行」
 ---
 
 # story-long-scan：长篇网文扫榜
@@ -58,7 +55,12 @@ metadata:
 
 #### browser-cdp 采集模式
 
-使用 `/browser-cdp` 启动 Chrome，直接抓取平台榜单页面的结构化数据。
+优先使用 `browser-cdp` skill 复用现有 Chrome 会话抓取平台榜单页面的结构化数据。
+
+执行要求：
+- 复用已有浏览器会话，禁止为了采集而强行关闭或重启用户当前 Chrome
+- 采集脚本必须设置明确超时和退出条件，避免长时间占满网络连接
+- 若 CDP 连接异常或网络不稳定，立即停止采集并回退到“用户提供”或“内置知识”模式，不要持续重试
 
 **采集流程**：
 1. 启动 browser-cdp，打开目标榜单 URL
@@ -304,9 +306,9 @@ URL 参数：`/rank/{channel}_{type}_{cat_id}`，channel 0=女频/1=男频，typ
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 找到方向 | story-long-analyze | `/story-long-analyze` |
-| 直接开写 | story-long-write | `/story-long-write` |
-| 更适合短篇 | story-short-scan | `/story-short-scan` |
+| 找到方向 | story-long-analyze | 使用 `story-long-analyze` |
+| 直接开写 | story-long-write | 使用 `story-long-write` |
+| 更适合短篇 | story-short-scan | 使用 `story-short-scan` |
 
 ## 参考资料
 

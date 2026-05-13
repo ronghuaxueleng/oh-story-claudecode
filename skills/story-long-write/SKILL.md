@@ -3,10 +3,7 @@ name: story-long-write
 version: 1.0.0
 description: |
   长篇网文写作。从大纲到正文，辅助长篇网络小说的创作，包括世界观、人物、情节线管理。
-  触发方式：/story-long-write、/写长篇、「帮我开书」「写大纲」「日更」「续写」「继续写」「修改第X章」「回炉」「重写第X章」
-metadata:
-  openclaw:
-    source: https://github.com/worldwonderer/oh-story-claudecode
+  触发方式：提到 `story-long-write`、`写长篇`，或直接说「帮我开书」「写大纲」「日更」「续写」「继续写」「修改第X章」「回炉」「重写第X章」
 ---
 
 # story-long-write：长篇网文写作
@@ -67,7 +64,7 @@ metadata:
 
 1. 检查 `对标/` 下每本对标书的 `拆文报告.md` 是否存在（如不存在，检查 `拆文库/{书名}/拆文报告.md`）
 2. 如存在，读取核心发现（开篇钩子、爽点密度、节奏模式、可借鉴套路）作为参考上下文
-3. 如均不存在，提示用户：「对标书原文已放入 `对标/{书名}/原文/`。要先用 `/story-long-analyze` 深度拆解吗？拆完后 `拆文报告.md` 会自动存入 `拆文库/{书名}/`。」
+3. 如均不存在，提示用户：「对标书原文已放入 `对标/{书名}/原文/`。要先使用 `story-long-analyze` 做深度拆解吗？拆完后 `拆文报告.md` 会自动存入 `拆文库/{书名}/`。」
 
 根据回答做匹配：
 - 脑洞好 → 推荐：系统文、诸天流、无限流
@@ -75,9 +72,19 @@ metadata:
 - 节奏感好 → 推荐：都市爽文、重生文、游戏文
 - 生活经验丰富 → 推荐：行业文、都市日常、种田文
 
-#### Agent 调用：story-architect
+#### 子代理调用：story-architect
 
-确认选题方向后，如果项目已部署 story-architect agent（检查 `.claude/agents/story-architect.md` 是否存在），可 spawn `Agent(subagent_type: "story-architect", prompt: "项目目录：{dir}\n任务类型：题材定位\n查询参数：{用户选择的方向+对标信息}")` 辅助题材分析和核心梗设计。如 agent 不可用，由主线程直接执行。
+确认选题方向后，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
+
+```text
+subagent: story-architect
+prompt:
+项目目录：{dir}
+任务类型：题材定位
+查询参数：{用户选择的方向+对标信息}
+```
+
+如子代理不可用，由主线程直接执行。
 
 ---
 
@@ -121,13 +128,30 @@ metadata:
 - **设定/关系.md**：角色关系映射（参考 character-relations.md「四种关系类型」）
 - **设定/题材定位.md**：题材核心梗三分法+对标分析（参考 genre-core-mechanics.md「核心梗解析」）。对标分析表保留 2-3 行摘要，详细数据见 `对标/` 目录
 
-#### Agent 调用：story-architect + character-designer
+#### 子代理调用：story-architect + character-designer
 
-核心设定阶段，如果项目已部署对应 agent，可 spawn 以下 agent 辅助：
-- `Agent(subagent_type: "story-architect", prompt: "项目目录：{dir}\n任务类型：核心设定\n查询参数：世界观构建+核心冲突设计")` — 辅助世界观和核心冲突设计
-- `Agent(subagent_type: "character-designer", prompt: "项目目录：{dir}\n任务类型：角色设定\n查询参数：{主角设定信息}")` — 辅助角色设定和语言风格档案
+核心设定阶段，如果项目已部署对应子代理，可按以下方式辅助：
+- spawn `story-architect` 子代理：
 
-如 agent 不可用，由主线程直接执行。
+```text
+subagent: story-architect
+prompt:
+项目目录：{dir}
+任务类型：核心设定
+查询参数：世界观构建+核心冲突设计
+```
+
+- spawn `character-designer` 子代理：
+
+```text
+subagent: character-designer
+prompt:
+项目目录：{dir}
+任务类型：角色设定
+查询参数：{主角设定信息}
+```
+
+如子代理不可用，由主线程直接执行。
 
 ---
 
@@ -178,9 +202,19 @@ metadata:
 
 前 3 章细纲额外加载 [references/opening-design.md](references/opening-design.md)（黄金三章法则+六大标准）。
 
-#### Agent 调用：story-architect
+#### 子代理调用：story-architect
 
-大纲搭建阶段，如果项目已部署 story-architect agent（检查 `.claude/agents/story-architect.md` 是否存在），可 spawn `Agent(subagent_type: "story-architect", prompt: "项目目录：{dir}\n任务类型：大纲搭建\n查询参数：卷级结构+细纲+钩子/反转/情绪弧线设计")` 辅助大纲排布、钩子/反转/情绪弧线设计。如 agent 不可用，由主线程直接执行。
+大纲搭建阶段，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
+
+```text
+subagent: story-architect
+prompt:
+项目目录：{dir}
+任务类型：大纲搭建
+查询参数：卷级结构+细纲+钩子/反转/情绪弧线设计
+```
+
+如子代理不可用，由主线程直接执行。
 
 ---
 
@@ -239,7 +273,7 @@ metadata:
 | 追踪/上下文.md | 全书 | Phase 4 首次日更（workflow-daily 自动创建） | 每次日更开始时 |
 | 参考资料/{topic}.md | 按需 | Phase 4（story-researcher 输出） | Phase 4 后续章节写作时复用 |
 
-**缺失文件回退**：所有新增文件是可选增强。缺失时 agent 降级到当前行为，不报错不阻塞——情绪/反转信息在卷纲或大纲中体现，伏笔/时间线不检查，对标参考跳过。
+**缺失文件回退**：所有新增文件是可选增强。缺失时子代理降级到当前行为，不报错不阻塞——情绪/反转信息在卷纲或大纲中体现，伏笔/时间线不检查，对标参考跳过。
 
 **文件组织原则：**
 - **人物一个一个文件**：`角色/角色名.md`，方便按需读取
@@ -254,7 +288,16 @@ metadata:
 当用户准备写某一章时：
 
 1. **检查细纲**：读取 `大纲/细纲_第{N}章.md`。如果不存在，**必须先补建细纲再写正文**，不允许跳过细纲直接写作。补建时参考卷纲中本章对应的事件规划和上下文。
-2. **读取上下文**（按需加载，缺失则跳过。可选快捷路径：如果项目已部署 story-explorer agent（检查 `.claude/agents/story-explorer.md` 是否存在），可 spawn `Agent(subagent_type: "story-explorer", prompt: "项目目录：{dir}\n查询类型：context_load\n查询参数：准备写第 {N} 章")` 一次获取上下文）：
+2. **读取上下文**（按需加载，缺失则跳过。可选快捷路径：如果项目已部署 `story-explorer`（检查 `.codex/agents/story-explorer.md` 是否存在），可 spawn 一个子代理一次获取上下文）：
+
+   ```text
+   subagent: story-explorer
+   prompt:
+   项目目录：{dir}
+   查询类型：context_load
+   查询参数：准备写第 {N} 章
+   ```
+
    - (1) `正文/第{N-1}章_*.md` — 上一章正文
    - (2) `大纲/细纲_第{N}章.md` — 本章细纲（含钩子设计）
    - (3) `追踪/伏笔.md`（如存在）— 待回收伏笔
@@ -263,8 +306,33 @@ metadata:
    - (6) `对标/{对标书名}/原文/第{N}章_*.md`（如存在）— 同位置章节参考
    - (7) `参考资料/{topic}.md`（如存在）— 历史研究资料（由 story-researcher 产出）
 3. **确认节奏**：本章是快节奏（冲突/打斗）还是慢节奏（铺垫/日常）
-3.5. **资料研究**（按需）：如果写作中遇到需要查证的外部事实（历史年代、地理方位、职业细节等），spawn `story-researcher` agent 搜索并输出到 `参考资料/` 目录。研究完成后再继续写作。
-4. **写作**：如果项目已部署 narrative-writer agent（**必须先检查 `.claude/agents/narrative-writer.md` 是否存在**），spawn `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：写正文\n章节：第{N}章\n细纲文件：大纲/细纲_第{N}章.md\n上一章：正文/第{N-1}章_*.md\n情绪目标：{从细纲读取}\n涉及角色：{从上下文读取}")` 执行正文写作，输出写入 `正文/第XXX章_章名.md`。如 narrative-writer agent 未部署，由主线程直接写作。
+3.5. **资料研究**（按需）：如果写作中遇到需要查证的外部事实（历史年代、地理方位、职业细节等），并且项目已部署 `story-researcher`（检查 `.codex/agents/story-researcher.md` 是否存在），可 spawn 一个子代理：
+
+   ```text
+   subagent: story-researcher
+   prompt:
+   项目目录：{dir}
+   任务描述：资料研究
+   研究主题：{待查证的外部事实}
+   输出路径：参考资料/{topic}.md
+   ```
+
+   研究完成后再继续写作；如子代理不可用，由主线程直接研究并继续。
+4. **写作**：如果项目已部署 `narrative-writer`（**必须先检查 `.codex/agents/narrative-writer.md` 是否存在**），可 spawn 一个子代理：
+
+   ```text
+   subagent: narrative-writer
+   prompt:
+   项目目录：{dir}
+   任务描述：写正文
+   章节：第{N}章
+   细纲文件：大纲/细纲_第{N}章.md
+   上一章：正文/第{N-1}章_*.md
+   情绪目标：{从细纲读取}
+   涉及角色：{从上下文读取}
+   ```
+
+   执行正文写作，输出写入 `正文/第XXX章_章名.md`。如 `narrative-writer` 未部署，由主线程直接写作。
 5. **检查**：章尾是否有钩子、爽点是否到位、字数是否达标
 6. **禁用词扫描**：对照 `references/banned-words.md` 检查本章，一级词（高频AI腔）命中即替换；二级词（低频/语境相关）高频出现时替换，偶发可参考 `references/anti-ai-writing.md` 定性裁定
 7. **更新追踪**：写完后即时更新 `追踪/伏笔.md`（新增/回收伏笔）和 `追踪/时间线.md`（记录事件时序）
@@ -301,13 +369,33 @@ metadata:
 
 对已写内容做检查，参考 [references/quality-checklist.md](references/quality-checklist.md) 中的通用检查和长篇专项清单。
 
-#### Agent 调用：consistency-checker
+#### 子代理调用：consistency-checker
 
-质量检查阶段，如果项目已部署 consistency-checker agent（检查 `.claude/agents/consistency-checker.md` 是否存在），spawn `Agent(subagent_type: "consistency-checker", prompt: "项目目录：{dir}\n检查范围：{本次写作的章节}\n检查类型：事实冲突+伏笔断线+角色属性不一致")` 执行一致性检查，获取 S1-S4 分级报告。如 agent 不可用，由主线程参照 quality-checklist.md 直接检查。
+质量检查阶段，如果项目已部署 `consistency-checker`（检查 `.codex/agents/consistency-checker.md` 是否存在），可 spawn 一个子代理：
 
-#### Agent 调用：narrative-writer（去AI味审查）
+```text
+subagent: consistency-checker
+prompt:
+项目目录：{dir}
+检查范围：{本次写作的章节}
+检查类型：事实冲突+伏笔断线+角色属性不一致
+```
 
-质量检查阶段，如果项目已部署 narrative-writer agent，可 spawn `Agent(subagent_type: "narrative-writer", prompt: "项目目录：{dir}\n任务描述：审查+去AI味\n检查范围：{本次写作的章节}")` 执行文字质量审查和去AI味检查。如 agent 不可用，由主线程直接执行。
+执行一致性检查，获取 S1-S4 分级报告。如子代理不可用，由主线程参照 quality-checklist.md 直接检查。
+
+#### 子代理调用：narrative-writer（去AI味审查）
+
+质量检查阶段，如果项目已部署 `narrative-writer`（检查 `.codex/agents/narrative-writer.md` 是否存在），可 spawn 一个子代理：
+
+```text
+subagent: narrative-writer
+prompt:
+项目目录：{dir}
+任务描述：审查+去AI味
+检查范围：{本次写作的章节}
+```
+
+执行文字质量审查和去AI味检查。如子代理不可用，由主线程直接执行。
 
 检查后更新追踪文件：
 - 更新 `追踪/伏笔.md` 中的过期伏笔和回收状态
@@ -322,10 +410,10 @@ metadata:
 
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 写完，去 AI 味 | story-deslop | `/story-deslop` |
-| 想对比参考书 | story-long-analyze | `/story-long-analyze` |
-| 需要市场方向 | story-long-scan | `/story-long-scan` |
-| 太长，适合短篇 | story-short-write | `/story-short-write` |
+| 写完，去 AI 味 | story-deslop | 使用 `story-deslop` |
+| 想对比参考书 | story-long-analyze | 使用 `story-long-analyze` |
+| 需要市场方向 | story-long-scan | 使用 `story-long-scan` |
+| 太长，适合短篇 | story-short-write | 使用 `story-short-write` |
 
 ---
 

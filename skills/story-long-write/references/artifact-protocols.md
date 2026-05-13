@@ -1,6 +1,6 @@
 # Artifact 创建模板
 
-各 artifact 的标准模板与创建指引。agent 在 Phase 2-3 过渡时按需加载此文件。
+各 artifact 的标准模板与创建指引。子代理在 Phase 2-3 过渡时按需加载此文件。
 
 **模板列表：**
 - 设定/关系.md

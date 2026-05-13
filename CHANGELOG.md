@@ -6,13 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### 新功能
 
-- 新增 **story-explorer** 只读查询 Agent（Haiku）：10 种查询类型（角色状态、伏笔、设定、时间线、进度、上下文加载等），被 story-long-write、story-review、story 路由集成调用
+- 新增 **story-explorer** 只读查询子代理（Haiku）：10 种查询类型（角色状态、伏笔、设定、时间线、进度、上下文加载等），被 story-long-write、story-review、story 路由集成调用
 - 新增 **story-import** 逆向导入 Skill：4 阶段流水线（确认来源 → 深度分析 → 结构迁移 → 项目激活），将已有小说反向解析为标准项目目录结构
 - story 路由表新增「查故事资料」和「导入小说」入口
 
 ### 改进
 
-- story-setup agents_version 升级到 v3（6 个 Agent）
+- story-setup agents_version 升级到 v3（6 个子代理）
 - UPGRADING.md 新增 v3 版本记录
 - story-long-write、story-review、workflow-daily 统一 story-explorer 集成模式（部署检测 + 结构化 prompt + 回退机制）
 - structure-mapping.md 新增势力/散落情节/悬念映射规则
@@ -31,16 +31,16 @@ All notable changes to this project will be documented in this file.
 - 大文件拆分：character-design → basics + methods + relations；genre-frameworks → catalog + mechanics + readers + formulas；hook-techniques → chapter + suspense + paragraph；outline-arrangement → methods + conflict + structure-theory + rhythm；style-modules → craft + genre-modules + combat-face + commercial-theory；advanced-plot-techniques → core-methods + frameworks + special-topics + emotion-system
 - 新增 writing-craft.md（306行）、format-and-structure.md（137行）、emotional-methods.md（179行）
 - 13 个共享文件跨 skill (long-write/short-write/short-analyze/deslop) byte-for-byte 同步
-- Agent 模板和 SKILL.md 索引全部更新为新文件名
+- 子代理模板和 SKILL.md 索引全部更新为新文件名
 
 ### 新功能
 
-- 新增 story-researcher 资料研究 agent（CDP 搜索+正文提取+多源交叉验证）
+- 新增 story-researcher 资料研究子代理（CDP 搜索+正文提取+多源交叉验证）
 - 长篇写作新增场景路由（开书/日更续写/大修）+ 日更工作流 + 大修工作流
 - story skill 路由表新增「查资料」入口
 - story-review 审查流程新增可选事实核查路径
 - static-check.sh 新增 Check 6：检测反引号行内悬空文件引用
-- static-check.sh Check 5 增强：支持 `(subagent_type: xxx)` 格式匹配
+- static-check.sh Check 5 增强：支持旧版子代理引用格式匹配
 
 ### 改进
 
