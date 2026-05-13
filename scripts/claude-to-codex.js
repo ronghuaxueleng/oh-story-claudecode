@@ -50,6 +50,33 @@ function replaceSlashCommands(text, skillNames) {
   return output;
 }
 
+function unescapePrompt(text) {
+  return text
+    .replace(/\\n/g, "\n")
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'");
+}
+
+function renderAgentBridge(agentName, prompt = "") {
+  const normalizedPrompt = unescapePrompt(prompt).trim();
+  const lines = [
+    "调用 `$story-agent-dispatch`：",
+    "",
+    `- agent: \`${agentName}\``,
+    "- 检查文件：`.codex/agents/" + agentName + ".md`",
+  ];
+
+  if (normalizedPrompt) {
+    lines.push("- prompt:");
+    lines.push("");
+    lines.push("```text");
+    lines.push(normalizedPrompt);
+    lines.push("```");
+  }
+
+  return lines.join("\n");
+}
+
 function transform(text, skillNames) {
   let output = text;
 
@@ -59,8 +86,13 @@ function transform(text, skillNames) {
   );
 
   output = output.replace(
-    /Agent\(\s*subagent_type:\s*["']([a-z0-9_-]+)["']\s*\)/g,
-    (_, agentName) => `调用子代理 ${agentName}`
+    /Agent\(\s*(?:subagent_type|子代理):\s*["']?([a-z0-9_-]+)["']?\s*,\s*prompt:\s*"((?:\\"|[^"])*)"\s*\)/g,
+    (_, agentName, prompt) => renderAgentBridge(agentName, prompt)
+  );
+
+  output = output.replace(
+    /Agent\(\s*(?:subagent_type|子代理):\s*["']?([a-z0-9_-]+)["']?\s*\)/g,
+    (_, agentName) => renderAgentBridge(agentName)
   );
 
   output = output.replace(
@@ -68,11 +100,7 @@ function transform(text, skillNames) {
     (_, agentName) => `(子代理: ${agentName})`
   );
 
-  output = output.replace(
-    /subagent_type:\s*["']?([a-z0-9_-]+)["']?/g,
-    (_, agentName) => `子代理: ${agentName}`
-  );
-
+  output = output.replace(/\.claude\/agents\//g, ".codex/agents/");
   output = output.replace(/\bAskUserQuestion\b/g, "询问用户并等待答复");
   output = output.replace(/\bWebFetch\b/g, "web");
   output = replaceSlashCommands(output, skillNames);
@@ -86,8 +114,8 @@ function showMap() {
     ["Skill('story-review')", "$story-review"],
     ["/story-long-write", "$story-long-write"],
     ["AskUserQuestion", "询问用户并等待答复"],
-    ["Agent(subagent_type: \"story-architect\")", "调用子代理 story-architect"],
-    ["subagent_type: story-architect", "子代理: story-architect"],
+    ["Agent(subagent_type: \"story-architect\")", "调用 $story-agent-dispatch + agent=story-architect"],
+    ["Agent(subagent_type: \"story-architect\", prompt: \"...\")", "调用 $story-agent-dispatch + prompt"],
     ["WebFetch", "web"],
   ];
 

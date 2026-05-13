@@ -19,6 +19,29 @@ copy_path() {
   fi
 }
 
+copy_markdown_tree() {
+  local src="$1"
+  local dst="$2"
+  local file rel target
+
+  mkdir -p "$dst"
+
+  while IFS= read -r -d '' file; do
+    rel="${file#$src/}"
+    target="$dst/$rel"
+    mkdir -p "$(dirname "$target")"
+
+    case "$file" in
+      *.md|*.MD)
+        node "$REPO_ROOT/scripts/claude-to-codex.js" "$file" > "$target"
+        ;;
+      *)
+        cp "$file" "$target"
+        ;;
+    esac
+  done < <(find "$src" -type f -print0)
+}
+
 mkdir -p "$TARGET_ROOT/.codex-plugin"
 mkdir -p "$TARGET_ROOT/.codex"
 
@@ -58,11 +81,11 @@ project_doc_fallback_filenames = ["CLAUDE.md"]
 project_doc_max_bytes = 65536
 EOF
 
-copy_path "$REPO_ROOT/skills" "$TARGET_ROOT/skills"
+copy_markdown_tree "$REPO_ROOT/skills" "$TARGET_ROOT/skills"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/hooks"
 copy_path "$REPO_ROOT/demo" "$TARGET_ROOT/assets"
-copy_path "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
+copy_markdown_tree "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
-copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+copy_markdown_tree "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
 
 echo "Installed Codex plugin at $TARGET_ROOT"

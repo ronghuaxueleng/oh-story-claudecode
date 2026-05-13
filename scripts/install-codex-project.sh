@@ -20,6 +20,29 @@ copy_path() {
   fi
 }
 
+copy_markdown_tree() {
+  local src="$1"
+  local dst="$2"
+  local file rel target
+
+  mkdir -p "$dst"
+
+  while IFS= read -r -d '' file; do
+    rel="${file#$src/}"
+    target="$dst/$rel"
+    mkdir -p "$(dirname "$target")"
+
+    case "$file" in
+      *.md|*.MD)
+        node "$REPO_ROOT/scripts/claude-to-codex.js" "$file" > "$target"
+        ;;
+      *)
+        cp "$file" "$target"
+        ;;
+    esac
+  done < <(find "$src" -type f -print0)
+}
+
 render_claude_md() {
   local src="$1"
   local dst="$2"
@@ -64,8 +87,8 @@ render_claude_md \
   "$TARGET_ROOT/CLAUDE.md" \
   "codex"
 
-copy_path "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
+copy_markdown_tree "$TEMPLATES_ROOT/agents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
-copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+copy_markdown_tree "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
 
 echo "Installed Codex project files at $TARGET_ROOT"
