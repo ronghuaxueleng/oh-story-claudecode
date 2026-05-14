@@ -14,7 +14,6 @@ CLAUDE.md text eol=lf
 README.md text eol=lf
 
 CHANGELOG.md text eol=crlf
-scripts/static-check.sh text eol=crlf
 
 skills/story-deslop/references/anti-ai-writing.md text eol=crlf
 skills/story-long-scan/references/publishing-guide.md text eol=crlf
