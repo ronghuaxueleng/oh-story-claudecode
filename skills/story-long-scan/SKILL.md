@@ -49,13 +49,32 @@ description: |
 
 | 优先级 | 模式 | 说明 | 何时用 |
 |--------|------|------|--------|
-| 1 | **browser-cdp 采集** | 直接抓取平台页面，产出结构化文件 | 有 Chrome 环境时（优先） |
-| 2 | **用户提供** | 用户粘贴榜单截图/文字/链接 | 用户已有数据时 |
-| 3 | **内置知识** | 基于知识库趋势数据做分析 | 无法联网、用户无数据时 |
+| 1 | **HTTP/SSR 采集** | 直接请求榜单页/详情页，后台运行，不打开浏览器 | 平台页面已带结构化状态时（番茄优先） |
+| 2 | **browser-cdp 采集** | 直接抓取平台页面，产出结构化文件 | 需要登录态、需要执行前端脚本、HTTP 方案失效时 |
+| 3 | **用户提供** | 用户粘贴榜单截图/文字/链接 | 用户已有数据时 |
+| 4 | **内置知识** | 基于知识库趋势数据做分析 | 无法联网、用户无数据时 |
+
+#### HTTP/SSR 采集模式
+
+优先用于**番茄**这类榜单页直接内嵌 `window.__INITIAL_STATE__` 的平台。优势是：
+- 可纯后台运行，不弹浏览器窗口
+- 不依赖用户现有 Chrome/Edge 会话
+- 对只读榜单采集更稳定，适合批量全题材扫榜
+
+执行要求：
+- 先验证榜单页是否包含 `__INITIAL_STATE__` 或等价结构化状态
+- 详情页请求必须设置超时、重试和单条降级，不能因为单本异常拖垮整批采集
+- 遇到 `undefined` / 非严格 JSON 状态对象时，按 JavaScript 对象字面量容错解析
+- 采集完成后必须落盘结构化 Markdown，不只在终端打印摘要
+
+**推荐顺序**：
+1. 先试 HTTP/SSR 方案
+2. 若字段不全、需要登录态或反爬升级，再切 browser-cdp
+3. 若两者都不稳定，再回退到“用户提供”或“内置知识”
 
 #### browser-cdp 采集模式
 
-优先使用 `browser-cdp` skill 复用现有 Chrome 会话抓取平台榜单页面的结构化数据。
+在需要登录态或必须执行前端脚本时，使用 `browser-cdp` skill 复用现有 Chrome 会话抓取平台榜单页面的结构化数据。
 
 执行要求：
 - 复用已有浏览器会话，禁止为了采集而强行关闭或重启用户当前 Chrome
@@ -94,7 +113,32 @@ description: |
 | 男频新书榜 | fanqienovel.com/rank/1_1_{cat_id} | 新风向信号 |
 | 女频新书榜 | fanqienovel.com/rank/0_1_{cat_id} | 新风向信号 |
 
-URL 参数：`/rank/{channel}_{type}_{cat_id}`，channel 0=女频/1=男频，type 1=新书榜/2=阅读榜。番茄有字体反爬，需用 `scripts/fanqie-rank-scraper.js`（通过详情页获取可读标题，绕过字体反爬，配合 browser-cdp 使用）。
+URL 参数：`/rank/{channel}_{type}_{cat_id}`，channel 0=女频/1=男频，type 1=新书榜/2=阅读榜。
+
+**番茄推荐采集顺序**：
+1. 默认用 `scripts/fanqie-rank-auto.js`
+   - `--mode auto`：先试 HTTP，失败再回退到 browser-cdp
+   - `--mode http`：强制纯后台 HTTP
+   - `--mode cdp`：强制 browser-cdp
+2. HTTP 路径底层使用 `scripts/fanqie-rank-http-scraper.js`
+   - 榜单页直接读取 `window.__INITIAL_STATE__`
+   - 再逐本请求 `/page/{bookId}` 拿真实书名、作者、简介
+   - 全程后台运行，不打开浏览器窗口
+3. 若 HTTP 方案失效，再回退到底层 `scripts/fanqie-rank-scraper.js`
+   - 通过 browser-cdp 打开页面
+   - 通过详情页获取可读标题，绕过字体反爬
+
+**推荐命令**：
+```bash
+node scripts/fanqie-rank-auto.js --mode auto --channel all --type 2 --outdir <输出目录>
+```
+
+**番茄实战经验补充**：
+- 榜单页里的 `bookName` / `author` 可能仍带字体混淆，不可直接作为最终字段
+- 详情页 `window.__INITIAL_STATE__` 偶发含 `undefined`，不能假设一定能 `JSON.parse`
+- 详情页偶发返回空壳页，必须做 2-3 次重试，并允许单条降级为“使用榜单页字段”
+- `completeCategory` 有时是 JSON 字符串，不是纯文本，写文件前必须清洗成主分类名
+- 当前稳定做法是：并发抓详情页，但限制并发数，避免番茄短时间返回空页
 
 **七猫采集目标**：
 
@@ -319,8 +363,10 @@ URL 参数：`/rank/{channel}_{type}_{cat_id}`，channel 0=女频/1=男频，typ
 | [references/reader-profiling.md](references/reader-profiling.md) | 需要分析目标读者画像时 |
 | [references/genre-trends.md](references/genre-trends.md) | 查看当前题材趋势和切入建议时 |
 | [references/publishing-guide.md](references/publishing-guide.md) | 平台选择+推荐机制+数据指标+简介设计 |
-| [references/scan-output-format.md](references/scan-output-format.md) | browser-cdp采集字段定义+输出模板+文件命名规范 |
+| [references/scan-output-format.md](references/scan-output-format.md) | HTTP/SSR + browser-cdp 采集字段定义+输出模板+文件命名规范 |
 | [scripts/cdp-utils.js](scripts/cdp-utils.js) | CDP 公共工具函数（ab/sleep/evalJSON/safeStr/scrollLoad/getArg），各采集脚本共用 |
+| [scripts/fanqie-rank-auto.js](scripts/fanqie-rank-auto.js) | 番茄统一入口，默认先走后台 HTTP，失败再回退到 browser-cdp |
+| [scripts/fanqie-rank-http-scraper.js](scripts/fanqie-rank-http-scraper.js) | 番茄后台榜单采集，直接请求榜单页与详情页，不打开浏览器 |
 | [scripts/fanqie-rank-scraper.js](scripts/fanqie-rank-scraper.js) | 番茄榜单采集，通过详情页绕过字体反爬，配合 browser-cdp 使用 |
 | [scripts/qidian-rank-scraper.js](scripts/qidian-rank-scraper.js) | 起点榜单采集（畅销/月票/新书等），SSR 直出提取 |
 | [scripts/qimao-rank-scraper.js](scripts/qimao-rank-scraper.js) | 七猫榜单采集（大热/新书/完结等），tab 切换+滚动加载 |
