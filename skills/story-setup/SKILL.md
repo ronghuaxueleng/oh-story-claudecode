@@ -60,11 +60,11 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 3
+  agents_version: 4
   setup_skill_version: 1.0.0
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 3，提示用户重新运行 story-setup 以更新子代理（v3 新增 story-explorer 查询子代理）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 4，提示用户重新运行 story-setup 以更新子代理（v4 新增 `chapter-extractor` 章节提取子代理）
 
 ## Phase 3：验证安装
 
@@ -109,8 +109,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 3` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 3 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 4` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 4 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -121,6 +121,7 @@ description: |
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
-| references/templates/subagents/ | 6 个子代理定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer） |
+| references/templates/subagents/ | 7 个子代理定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
+| references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
 | scripts/install-codex-project.sh | Codex 项目目录部署脚本 |

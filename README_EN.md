@@ -105,8 +105,35 @@ Natural language also triggers: `帮我开书` ("help me start writing") → `st
 </details>
 
 ## Subagent System
+<details>
+<summary>Deconstruction demo — Coiling Dragon (deep analysis output)</summary>
 
-Writing skills internally coordinate 6 specialized subagents:
+Full output from `story-long-analyze` deep mode on the first 23 chapters of *Coiling Dragon* (original text excluded):
+
+```
+demo/拆文库-盘龙/
+├── 概要.md              # Novel overview + chapter index
+├── 拆文报告.md           # 5-dimension scoring + pacing analysis + takeaways
+├── 章节/
+│   ├── 第1章_深度拆解.md  # Golden三章 deep analysis
+│   └── 第1-23章_摘要.md   # Per-chapter summary + plot points + character mentions
+├── 角色/
+│   ├── 林雷.md           # Protagonist full profile
+│   ├── 霍格.md           # Core supporting
+│   ├── 希尔曼.md         # Core supporting
+│   ├── 德林柯沃特.md      # Core supporting
+│   ├── 沃顿.md           # Functional character
+│   └── 角色关系.md        # Relationship network
+├── 剧情/
+│   └── 故事线.md          # Framework + 4 plotlines + 2 storylines
+└── 设定/
+    ├── 世界观.md          # Power system + geography + factions
+    └── 金手指.md          # Panlong Ring + Delin Cowort
+```
+
+</details>
+
+Writing skills internally coordinate 7 specialized subagent protocols:
 
 | Subagent | Model | Role |
 |:---------|:------|:-----|
@@ -116,16 +143,18 @@ Writing skills internally coordinate 6 specialized subagents:
 | **consistency-checker** | Haiku | Consistency check — fact conflict scanning, foreshadowing tracking, S1-S4 grading reports |
 | **story-researcher** | Sonnet | Research — CDP search + full-text extraction, multi-source cross-verification, structured reference files |
 | **story-explorer** | Haiku | Story query — read-only character/foreshadowing/setting/progress lookup, quick context loading |
+| **chapter-extractor** | Haiku | Chapter extraction — summaries, plot points, character mentions, parallel deconstruction unit |
 
-Subagents load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 110+ techniques total), without reserving context window space.
+Subagent protocols load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 100+ methodology files), without reserving context window space.
 
 ## Automation Hooks
 
-5 hooks deployed automatically by `story-setup`:
+6 hooks deployed automatically by `story-setup`:
 
 | Hook | Trigger | Function |
 |:-----|:---------|:---------|
 | session-start.sh | Session start | Display branch, progress snapshot, deconstruction status |
+| session-end.sh | Session end | Log session to `追踪/session-log.txt` |
 | detect-story-gaps.sh | Session start | Detect setting gaps, missing outlines, foreshadowing breaks |
 | pre-compact.sh | Before context compaction | Save progress snapshot path and line-count summary |
 | post-compact.sh | After context compaction | Prompt to read progress snapshot for context recovery |
