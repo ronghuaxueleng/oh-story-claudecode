@@ -16,7 +16,7 @@ check_path() {
 
 echo "=== Codex Self Check ==="
 
-check_path "CLAUDE.md"
+check_path "skills/story-setup/references/templates/CLAUDE.md.tmpl"
 check_path "scripts/install-codex-plugin.sh"
 check_path "skills/story-setup/references/templates/subagents/story-architect.md"
 check_path "skills/story-setup/references/templates/hooks/session-start.sh"
