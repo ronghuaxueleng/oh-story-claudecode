@@ -87,7 +87,7 @@ Re-run the same command to update.
 | `story-long-analyze` | `story-long-analyze`, `长篇拆文` | Long-form deconstruction — Golden First 3 Chapters, payoff design, pacing analysis |
 | `story-long-scan` | `story-long-scan`, `长篇扫榜` | Long-form trend scan — Qidian/Fanqie/Jinjiang market trends |
 | `story-short-write` | `story-short-write`, `写短篇` | Short-form writing — emotion design, twist crafting, polish & delivery |
-| `story-short-analyze` | `story-short-analyze`, `短篇拆文` | Short-form deconstruction — narrative structure, emotion curves, hook breakdown |
+| `story-short-analyze` | `story-short-analyze`, `短篇拆文` | Short-form deconstruction — story core, structure, emotional arc, reversal design, writing techniques, resonance analysis |
 | `story-short-scan` | `story-short-scan`, `短篇扫榜` | Short-form trend scan — Zhihu Yanayan/Fanqie short-form trending data |
 | `story-deslop` | `story-deslop`, `去AI味` | De-AI-ify — detect and remove AI writing traces |
 | `story-import` | `story-import`, `导入小说` | Reverse import — parse existing novels into standard project structure |
@@ -219,6 +219,7 @@ Each skill includes a `references/` knowledge base loaded on demand to keep cont
 | Writing Formulas | 21 genre formulas · Three-flip-four-shock (escalating reversal) · Romance four-stage | short-write / short-analyze |
 | Female-oriented Writing | Female reader preferences · Emotional description · Romance patterns · Benchmark analysis | short-write |
 | Deconstruction Methods | Golden First 3 Chapters · Emotion curves · Structure breakdown · Zhihu style analysis | long-analyze / short-analyze |
+| Short-form Methodology | Story core · Plot nodes · Explosive point analysis · Writing techniques · Rhythm analysis · Resonance analysis · Character classification · Platform fit | short-analyze |
 | Deconstruction Examples | Full case breakdowns · Template output | short-analyze |
 | Reader Profiles | 9-dimension profiles · Target reader analysis | long-scan |
 | Market Data | Genre trends · Platform characteristics · Collection formats · Submission guides | long-scan / short-scan |

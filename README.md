@@ -95,7 +95,7 @@ Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `
 | `story-long-analyze` | `story-long-analyze`、`长篇拆文` | 长篇拆文 · 黄金三章、爽点设计、节奏分析 |
 | `story-long-scan` | `story-long-scan`、`长篇扫榜` | 长篇扫榜 · 起点/番茄/晋江市场趋势 |
 | `story-short-write` | `story-short-write`、`写短篇` | 短篇写作 · 情绪设计、反转构思、精修出稿 |
-| `story-short-analyze` | `story-short-analyze`、`短篇拆文` | 短篇拆文 · 叙事结构、情绪曲线、钩子拆解 |
+| `story-short-analyze` | `story-short-analyze`、`短篇拆文` | 短篇拆文 · 故事核、结构分析、情感线、反转设计、写作手法、共鸣分析 |
 | `story-short-scan` | `story-short-scan`、`短篇扫榜` | 短篇扫榜 · 知乎盐言/番茄短篇风口数据 |
 | `story-deslop` | `story-deslop`、`去AI味` | 去AI味 · 检测并清除 AI 写作痕迹 |
 | `story-import` | `story-import`、`导入小说` | 逆向导入 · 将已有小说反向解析为标准项目结构 |
@@ -244,6 +244,7 @@ demo/拆文库-盘龙/
 | 写作公式 | 21 大题材写作公式 · 三翻四震 · 感情线四阶段 | short-write / short-analyze |
 | 女频写作 | 女读者偏好 · 情感描写 · 感情线模式 · 对标拆书 | short-write |
 | 拆文方法 | 黄金三章 · 情绪曲线 · 结构拆解 · 知乎风格分析 | long-analyze / short-analyze |
+| 短篇方法论 | 故事核 · 情节节点 · 爆点分析 · 写作手法 · 节奏分析 · 共鸣分析 · 人物分类 · 平台适配 | short-analyze |
 | 拆文实例 | 完整案例拆解 · 模板化输出 | short-analyze |
 | 读者画像 | 9 维画像 · 目标读者分析 | long-scan |
 | 市场数据 | 题材趋势 · 平台特性 · 采集格式 · 投稿指南 | long-scan / short-scan |
