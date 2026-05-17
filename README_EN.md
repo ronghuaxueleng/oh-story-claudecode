@@ -6,6 +6,14 @@
 
 A web novel writing skill pack for Codex. Covers the full pipeline for long-form and short-form Chinese web novels: trend scanning, deconstruction, writing, AI tone removal, and cover generation.
 
+## Core Approach
+
+> **Tropes = deterministic emotional payoff**
+
+Professional authors follow a three-step method: 1. Scan — analyze trending charts, identify genres, characters, and entry points. 2. Deconstruct — break down pacing and plot materials, build a personal module library. 3. Commercialize — learn and apply hooks, payoff density, expectation management.
+
+Built around four pillars: reverse-engineering hits, plot modularization, layered state management, and human-AI collaboration.
+
 ## Pipeline Overview
 
 ```mermaid
@@ -184,19 +192,34 @@ The file system separates settings, outlines, prose, and tracking into independe
 ├── Prose/
 │   ├── Chapter_001_Title.md
 │   └── ...
-├── Benchmark/
+├── Benchmark/                # Benchmark reference (structured subdirs synced from deconstruction)
 │   └── {Benchmark Book}/
 │       ├── Source/              # Benchmark book original chapters
+│       ├── Characters/         # Structured character profiles (synced from analyze)
+│       ├── Plotlines/          # Structured plot lines (synced from analyze)
+│       ├── Settings/           # Structured world settings (synced from analyze)
 │       └── Report.md            # Analyze skill output
-├── Tracking/                # Continuity management
+├── Tracking/                # Continuity management (layered tracking)
 │   ├── Context.md           # Writing context (for compact recovery)
-│   ├── Foreshadowing.md     # Foreshadowing planted/resolved status table
-│   └── Timeline.md          # In-story timeline
+│   ├── Foreshadowing.md     # Foreshadowing planted/resolved status table (cross-volume)
+│   ├── Timeline.md          # In-story timeline (full-book)
+│   └── Character_Status.md  # Character current state snapshots (per-chapter)
 ├── References/              # story-researcher output
 │   └── {topic}.md           # Split by research topic
 ```
 
-**Deconstruction Library:** Deconstruction skills save outputs to `拆文库/{Book Title}/` at project root by default. Writing skills can directly reference `拆文报告.md` as benchmark material.
+**Short-form file structure:**
+
+```
+{Book Title}/
+├── Prose.md                  # Complete short-form prose
+├── Section_outline.md        # Per-section outline (emotion + hooks + events)
+├── Self-check.md             # Post-writing self-check record
+└── References/               # Writing references
+    └── {topic}.md
+```
+
+**Deconstruction Library:** Deconstruction skills save structured outputs (characters, plotlines, settings, chapters) under `拆文库/{Book Title}/` at project root. Writing skills consume these assets through the `Benchmark/` subdirectory, or automatically fall back to reading from the deconstruction library.
 
 ## Knowledge Base
 
