@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.6.3
+
+> 引用完整性修复 + CI static-check 增强
+
+### Bug 修复
+
+- **story-long-write**: `genre-writing-formulas.md` 引用了不存在的 `genre-writing-techniques.md`，改为正确的 `style-craft.md`
+- **story-long-write**: `format-and-structure.md` section 引用 `设计任务第 4 步` 在 long-write SKILL.md 中不存在，改为 `Phase 3 细纲`
+- **story-short-analyze**: 补充缺失的 `anti-ai-writing.md` 和 `banned-words.md`（从 story-deslop 复制）
+
+### CI 增强 (static-check.sh)
+
+- **Check 6 收紧**: `references/` 下的反引号引用限制在 skill 内解析，防止跨 skill 断裂引用静默通过
+- **Check 7 新增**: 裸 .md 文件名检测（非反引号、非链接、非代码块），不存在的文件报 FAIL，存在的报 WARN
+- **Check 8 新增**: SKILL.md section 引用验证（三级匹配：子串 → 空格前缀剥离 → 字符级 fallback），断裂的 section 引用报 FAIL
+- 脚本注释更新，准确描述全部 8 个检查项
+
 ## v0.6.2
 
 > story-short-analyze skill v2.1.0
