@@ -55,8 +55,19 @@ render_project_doc \
   "$TEMPLATES_ROOT/CLAUDE.md.tmpl" \
   "$TARGET_ROOT/CLAUDE.md"
 
+if [ ! -f "$TARGET_ROOT/.env" ] && [ -f "$TEMPLATES_ROOT/.env.tmpl" ]; then
+  copy_path "$TEMPLATES_ROOT/.env.tmpl" "$TARGET_ROOT/.env"
+fi
+
 copy_path "$TEMPLATES_ROOT/subagents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
 copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+
+if [ -f "$TEMPLATES_ROOT/情节库参考.md.tmpl" ]; then
+  mkdir -p "$TARGET_ROOT/参考资料"
+  render_project_doc \
+    "$TEMPLATES_ROOT/情节库参考.md.tmpl" \
+    "$TARGET_ROOT/参考资料/情节库参考.md"
+fi
 
 echo "Installed Codex project files at $TARGET_ROOT"

@@ -23,8 +23,10 @@ description: |
 | 去 AI 味 | 去 AI 味、太 AI、去味 | `story-deslop` |
 | 封面 | 封面、封面图 | `story-cover` |
 | 环境部署 | 准备写书、搭环境、初始化 | `story-setup` |
+| 书名生成大纲种子 | 只有书名、只有一句话梗概、先出情节池、先出大纲种子 | 先调用 `story-plot-extractor` 的 `search-for-outline`，再进入 `story-long-write` |
 | 浏览器操控 | 浏览器、抓取、登录态 | `browser-cdp` |
 | 导入小说 | 导入、反向解析、导入小说、把我的书导进来 | `story-import` |
+| 情节提取/搜情节 | 情节提取、搜情节、找相似情节、情节库、plot-extractor | `story-plot-extractor` |
 | 查故事资料 | 查角色、查伏笔、查进度、查设定、什么状态、写到哪了 | 直接 spawn `story-explorer` 子代理（使用结构化 prompt：`项目目录：{dir}\n查询类型：{根据意图选择}\n查询参数：{用户查询}`） |
 | 查资料 | 查资料、帮我查资料、调研、搜索一下、搜一下 | 直接 spawn `story-researcher` 子代理 |
 
@@ -35,6 +37,13 @@ description: |
 3. 如果能明确匹配，直接调用对应 skill（`Skill("skill-name")`）
 4. 如果无法匹配，询问用户想做什么（从上表中选择）
 5. 如果用户说"我想写小说"但未指定长篇/短篇，询问篇幅类型后再路由
+6. 如果用户要“开书/写大纲”，但输入只有书名或一句话梗概，没有角色、主线、卷规划：
+   - 先走 `story-plot-extractor`
+   - 目标产物不是普通检索结果，而是 `首版情节池 + outline_seed`
+   - 然后再把该结果作为前置上下文交给 `story-long-write`
+   - 如果 `story-plot-extractor` 报“无法稳定抽取处境/驱动/情绪/目标/阻碍”，立即停止这条链路
+   - 失败后不要继续等待情节池，直接回到 `story-long-write` 的常规开书流程
+   - 也就是改为：人工确定题材、主线、角色、第一卷冲突，再继续写大纲
 
 ## 项目状态感知
 

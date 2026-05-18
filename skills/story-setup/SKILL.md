@@ -45,11 +45,16 @@ description: |
 - 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
 - 生成 `.codex/config.toml`
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
+- 如目标目录不存在 `.env`，自动生成一份 `.env`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
 - 如有书名目录，复制到 `{书名}/追踪/` 下
+
+### 2.5b 部署情节库参考模板
+- 读取 `skills/story-setup/references/templates/情节库参考.md.tmpl`
+- 写入项目根目录 `参考资料/情节库参考.md`
 
 ### 2.6 宿主配置处理
 - `scripts/install-codex-project.sh` 已负责写入 `.codex/config.toml`
@@ -69,7 +74,7 @@ description: |
 ## Phase 3：验证安装
 
 1. 验证宿主环境文件：
-   - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
+   - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`、`.env`
 4. 验证部署标记：
    - 检查 `.story-deployed` 是否存在且包含时间戳
 5. 输出安装报告：
@@ -119,6 +124,8 @@ description: |
 | 文件 | 用途 |
 |------|------|
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
+| references/templates/.env.tmpl | 项目根 `.env` 模板（Neo4j + plot-extractor 配置） |
+| references/templates/情节库参考.md.tmpl | 情节库参考模板（给 story-plot-extractor 落盘用） |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/subagents/ | 7 个子代理定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |

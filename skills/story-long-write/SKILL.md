@@ -75,6 +75,122 @@ description: |
 - 节奏感好 → 推荐：都市爽文、重生文、游戏文
 - 生活经验丰富 → 推荐：行业文、都市日常、种田文
 
+如果用户已经给了书名/一句话梗概，但还缺“具体情节怎么跑”，可在 Phase 1 末尾调用 `story-plot-extractor`：
+
+- 先把题材抽成几个稳定的结构字段
+- 搜相近结构的推进方式与节奏模块
+- 只借结构，不借具体设定外壳
+
+#### 书名/梗概 → 首版情节池协议
+
+如果用户只给了书名或一句话梗概，没有现成大纲：
+
+1. 先不要直接写大纲
+2. 先调用 `story-plot-extractor` 生成一份 `首版情节池 + 大纲种子`
+3. 优先直接消费 `outline_seed`，拿到：
+   - 核心母线
+   - 第一卷冲突
+   - 前 30 章推进节奏
+4. 情节池作为候选桥段池，只负责补桥段，不再让人手工二次归纳核心方向
+5. 最后才进入卷纲和细纲
+
+这是 **强制前置步骤**，不是“可选灵感补充”：
+
+- 没有 `outline_seed` 时，不要直接开始写卷纲
+- 只有在用户已经给出完整卷纲/细纲时，才可以跳过这一步
+- 如果项目里已经存在 `参考资料/情节库参考.md`，先读里面最新一次生成的 `outline_seed`
+- 如果 `story-plot-extractor` 明确失败，不要伪造 `outline_seed`
+- 明确失败后，立即回退到“**不使用情节提取**”的常规开书流程：人工确定题材、主线、角色、第一卷主冲突
+
+如果要直接走自动化入口，优先使用：
+
+```bash
+python3 skills/story-long-write/scripts/bootstrap_outline.py "书名" \
+  --premise "一句话梗概"
+```
+
+这条命令会自动完成：
+
+1. 调用 `story-plot-extractor/search-for-outline`
+2. 落盘 `参考资料/情节库参考.md`
+3. 生成 `大纲/大纲.md`
+4. 生成 `大纲/卷纲_第一卷.md`
+
+严格模式说明：
+
+- `story-plot-extractor` 现在不再 fallback 猜词
+- 如果无法稳定抽取 `处境 / 驱动 / 情绪 / 目标 / 阻碍`，会直接失败
+- 失败不是 bug，而是说明这本书不适合走情节提取链路
+- 这时不要继续等待情节池或 `outline_seed`，直接切回常规开书流程
+
+首版情节池至少要分成四栏：
+
+- 开篇功能
+- 中段功能
+- 卷末功能
+- 长线功能
+
+`outline_seed` 至少要包含：
+
+- `core_lines`
+- `volume_one_conflict`
+- `thirty_chapter_rhythm`
+
+#### 情节检索固定步骤
+
+当需要调用 `story-plot-extractor` 时，按固定顺序处理：
+
+1. **抽母题**
+   - 抽处境字段
+   - 抽驱动字段
+   - 抽情绪字段
+2. **组关键词**
+   - 第一组：处境 + 驱动
+   - 第二组：处境 + 情绪
+   - 第三组：驱动 + 情绪
+3. **检索目标**
+   - 开局阶段：找起势方式
+   - 卷纲阶段：找阶段推进与结构转折
+   - 细纲阶段：找本章功能对应的事件模板
+4. **落盘**
+   - 把最终整理后的桥段写入 `参考资料/情节库参考.md`
+   - 至少记录：题材母题、检索词、`outline_seed`、可借桥段、改编限制
+
+#### `outline_seed` 使用规则
+
+在进入 Phase 3 之前，先把 `outline_seed` 映射成写作输入：
+
+1. `core_lines`
+   - 直接转成全书主母线
+   - 一条对应“外部困局”，一条对应“主角破局方式”，一条对应“长线悬念”
+2. `volume_one_conflict`
+   - 直接作为第一卷核心矛盾初稿
+   - 如用户后续补了新设定，只允许细化，不允许完全脱钩
+3. `thirty_chapter_rhythm`
+   - 直接作为前 30 章分段推进骨架
+   - Phase 3 写前 30 章细纲时，默认按 `1-3 / 4-10 / 11-20 / 21-30` 四段拆
+4. `outline_pool`
+   - 不负责定方向
+   - 只在卷纲、细纲阶段补具体事件模板和推进方式
+
+#### 不使用情节提取的常规开书流程
+
+如果 `story-plot-extractor` 报以下类型错误：
+
+- 无法稳定抽取处境
+- 无法稳定抽取驱动
+- 无法稳定抽取情绪
+- 无法稳定抽取目标
+- 无法稳定抽取阻碍
+
+则立刻回退，不再继续等待情节池或 `outline_seed`。
+
+回退后的执行顺序：
+
+1. 回到 Phase 1：明确题材、读者情绪、对标方向
+2. 回到 Phase 2：人工补出主角能力、核心冲突、第一卷目标
+3. 再进入 Phase 3：直接写卷纲，不再依赖情节提取结果
+
 #### 子代理调用：story-architect
 
 确认选题方向后，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
@@ -133,6 +249,16 @@ prompt:
 - **设定/关系.md**：角色关系映射（参考 character-relations.md「四种关系类型」）
 - **设定/题材定位.md**：题材核心梗三分法+对标分析（参考 genre-core-mechanics.md「核心梗解析」）。对标分析表保留 2-3 行摘要，详细数据见 `对标/` 目录
 
+如果核心设定中的“金手指/处境/冲突”需要具体情节参考，可插入 `story-plot-extractor`：
+
+- 搜“同类主角处境”的常见推进方式
+- 搜“这个金手指”适合触发哪些情节功能
+- 搜“这一卷的核心冲突”常见怎样升级
+
+如果已经调用了 `story-plot-extractor`，建议将整理后的结果落盘到：
+
+- **参考资料/情节库参考.md**：记录题材母题、检索词、可借桥段、改编限制
+
 #### 子代理调用：story-architect + character-designer
 
 核心设定阶段，如果项目已部署对应子代理，可按以下方式辅助：
@@ -163,6 +289,21 @@ prompt:
 ### Phase 3：大纲搭建
 
 #### 卷级大纲（全书结构）
+
+如果项目有 `参考资料/情节库参考.md`：
+
+1. 先读取其中最近一次 `outline_seed`
+2. 先根据 `core_lines` 写出全书主母线
+3. 先根据 `volume_one_conflict` 写出第一卷定位
+4. 再根据 `thirty_chapter_rhythm` 展开前 30 章节奏
+5. 最后才使用情节池里的开局桥段/中段推进/卷尾钩子补具体桥段
+5. 最后才使用情节池里的功能模块补具体事件
+
+禁止反过来操作：
+
+- 不要先堆桥段，再硬拼卷纲
+- 不要跳过 `outline_seed`，直接凭感觉写第一卷
+- 不要把 `outline_pool` 当成完整大纲替代品
 
 ```
 ## 卷级大纲
@@ -209,8 +350,36 @@ prompt:
 - **大纲/大纲.md**：全书卷级鸟瞰（卷名+字数+章数+核心事件+状态变化，一段式汇总）
 - **大纲/卷纲_第X卷.md**：每卷的爽点节奏+情绪弧线+人物弧线+伏笔+反转（参考 outline-methods.md「大纲三层结构法」 + emotional-arc-design.md「六种弧线速查」 + reversal-toolkit.md「五种反转类型」）
 - **追踪/伏笔.md** + **追踪/时间线.md** + **追踪/角色状态.md**：伏笔状态表+故事时间线+角色状态快照（参考 plot-core-methods.md「连续性追踪」、state-tracking.md「角色状态快照格式」）
+- **参考资料/情节库参考.md**：如走过题材检索链路，必须保留 `outline_seed + outline_pool + 已采用记录`
 
 前 3 章细纲额外加载 [references/opening-design.md](references/opening-design.md)（黄金三章法则+六大标准）。
+
+在 Phase 3 大纲搭建时，`story-plot-extractor` 是推荐辅助工具：
+
+- **优先顺序**：先读 `outline_seed` 定卷方向，再从情节池里补桥段
+- **卷纲阶段**：搜“这一卷要交付的情绪”常见用哪些桥段
+- **细纲阶段**：搜某章功能对应的桥段，如“流放开局”“追杀逃亡”“情报预警”“章末大钩子”
+- 检索结果只能作为“桥段候选池”，必须做角色位抽象和外壳替换
+- 如结果有价值，写入 **参考资料/情节库参考.md**，在后续章节持续复用，而不是每次重新搜
+
+#### Phase 3 标准顺序
+
+如果用户是从“书名/一句话梗概”开始开书，Phase 3 必须按这个顺序执行：
+
+1. 读取 `参考资料/情节库参考.md`
+2. 提取 `outline_seed`
+3. 生成 `大纲/大纲.md` 的主母线与第一卷定位
+4. 生成第一卷卷纲
+5. 按 `thirty_chapter_rhythm` 拆前 30 章细纲
+6. 再回头用 `outline_pool` 给具体章节补桥段
+
+#### 细纲阶段的情节检索触发条件
+
+出现以下情况时，优先调用 `story-plot-extractor` 再写细纲：
+
+- 用户只知道“这章要爽”，但不知道用什么桥段
+- 这章承担“开局钩子/章末悬念/追杀逃亡/反杀翻盘”功能
+- 当前细纲太空，只剩抽象描述，没有具体可执行事件
 
 #### 子代理调用：story-architect
 
@@ -277,6 +446,7 @@ prompt:
 │   └── 上下文.md                  ← 正文级（日更进度摘要）
 ├── 参考资料/
 │   └── {topic}.md             # story-researcher 输出的研究资料
+│   └── 情节库参考.md           # story-plot-extractor 整理后的桥段参考
 ```
 
 **Artifact 映射表**（创建模板详见 [references/artifact-protocols.md](references/artifact-protocols.md)）：
@@ -291,6 +461,7 @@ prompt:
 | 对标/{书名}/拆文报告.md | 对标书 | 用户手动+analyze | Phase 2 核心设定、Phase 3 大纲、Phase 4 写作 |
 | 追踪/上下文.md | 全书 | Phase 4 首次日更（workflow-daily 自动创建） | 每次日更开始时 |
 | 参考资料/{topic}.md | 按需 | Phase 4（story-researcher 输出） | Phase 4 后续章节写作时复用 |
+| 参考资料/情节库参考.md | 全书/按卷 | Phase 2/3（story-plot-extractor 输出） | Phase 3 大纲、Phase 4 写作 |
 | 追踪/角色状态.md | 全书 | Phase 3 | Phase 4 每章写作前（状态筛选步骤） |
 | 对标/{书名}/角色/{角色名}.md | 对标书 | analyze 输出 | Phase 4 模块召回（角色参考） |
 | 对标/{书名}/剧情/{剧情线名}.md | 对标书 | analyze 输出 | Phase 4 模块召回（剧情模块参考） |
@@ -339,6 +510,15 @@ prompt:
    - 3.1 **状态筛选**：从 `追踪/角色状态.md` 中筛选本章涉及角色的当前状态，从 `追踪/伏笔.md` 中筛选本章需要回收/推进的伏笔。输出最简记忆包（参考 state-tracking.md）。如果角色状态文件不存在，从角色设定和前文推断
    - 3.2 **模块召回**：① 本章目标情绪词？② 借鉴哪个参考文件的哪个技法？③ 用在哪些段落？答不出 → 先回读参考再动笔。同时从 `对标/` 的结构化子目录（角色/剧情/设定）中检索与本章最相关的模块作为参考
    - 3.3 **指令确认**：综合细纲+最简记忆包+模块召回结果，确认本章节奏（快/慢）和情绪目标，用一句话概括本章写作意图。例：「快节奏打脸——读者等了三章，这章必须一拳到位。技法=信息差揭示（hooks-suspense.md），用于第2-4段。」
+   - 3.4 **Beat 间子任务补位**：如果细纲中的两个 Beat 之间存在“转场太硬 / 缺临时阻碍 / 缺关系波动 / 缺小反转 / 缺延迟动作”任一问题，先调用 `story-plot-extractor/search-micro-task` 补一个子任务骨架，再写正文。推荐调用：
+
+   ```bash
+   python3 skills/story-plot-extractor/scripts/plot_extractor_cli.py search-micro-task -- "误会 试探 反转" \
+     --length light \
+     --structure-terms {本章处境词} {本章驱动词} {本章情绪词}
+   ```
+
+   返回的 `function_tags / tension_type / relationship_effect / position_hint / expected_effect / trigger_condition / insertion_goal / exit_condition / execution_shape / adaptation_hint` 只作为功能骨架使用，不允许原样照搬表层设定。必须改写成当前章节语境下的人物动作、场景阻碍或信息交换。
 4. **资料研究**（按需）：如果写作中遇到需要查证的外部事实（历史年代、地理方位、职业细节等），并且项目已部署 `story-researcher`（检查 `.codex/agents/story-researcher.md` 是否存在），可 spawn 一个子代理：
 
    ```text
