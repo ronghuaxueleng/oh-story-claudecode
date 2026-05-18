@@ -126,9 +126,9 @@ Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `
 
 ## 子代理体系
 <details>
-<summary>拆文 demo — 盘龙（深度分析输出）</summary>
+<summary>拆文 demo — 盘龙</summary>
 
-使用 `story-long-analyze` 深度模式分析《盘龙》前23章的完整输出（不含原文）：
+使用 `story-long-analyze` 深度模式分析《盘龙》前23章的完整输出：
 
 ```
 demo/拆文库-盘龙/
@@ -179,8 +179,6 @@ demo/拆文库-盘龙/
 | pre-compact.sh | 上下文压缩前 | 保存进度快照路径和行数摘要 |
 | post-compact.sh | 上下文压缩后 | 提示读取进度快照恢复上下文 |
 | validate-story-commit.sh | git commit 时 | 检查硬编码属性、设定必填字段（仅警告，不阻断） |
-
-> Hook 输出会进入 Codex 会话上下文供 AI 感知，不直接显示在对话中。手动查看：`bash .codex/hooks/session-start.sh`
 
 ## 项目文件结构
 

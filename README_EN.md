@@ -114,9 +114,9 @@ Natural language also triggers: `帮我开书` ("help me start writing") → `st
 
 ## Subagent System
 <details>
-<summary>Deconstruction demo — Coiling Dragon (deep analysis output)</summary>
+<summary>Deconstruction demo — Coiling Dragon</summary>
 
-Full output from `story-long-analyze` deep mode on the first 23 chapters of *Coiling Dragon* (original text excluded):
+Full output from `story-long-analyze` deep mode on the first 23 chapters of *Coiling Dragon*:
 
 ```
 demo/拆文库-盘龙/
