@@ -65,11 +65,11 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 4
+  agents_version: 5
   setup_skill_version: 1.0.0
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 4，提示用户重新运行 story-setup 以更新子代理（v4 新增 `chapter-extractor` 章节提取子代理）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 5，提示用户重新运行 story-setup 以更新子代理（v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
@@ -114,8 +114,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 4` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 4 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 5` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 5 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 
