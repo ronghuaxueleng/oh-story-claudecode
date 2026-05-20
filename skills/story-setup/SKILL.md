@@ -47,6 +47,10 @@ description: |
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 
+### 2.3 子代理兼容性处理
+- 子代理 frontmatter 以当前项目的 Codex 兼容形式为准；如果目标运行环境不支持某些扩展字段，应优先保留最小必需字段后再部署，不要回退到 `.claude/*` 双栈。
+- 部署到项目后，子代理内引用的 `story-*/references/*.md` 需要能从项目根或 skills 安装目录检索到；若全局安装路径不同，优先用项目内 skills 路径，其次用工具的 skill 搜索能力，不要假定固定绝对路径。
+
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
 - 如有书名目录，复制到 `{书名}/追踪/` 下
@@ -60,11 +64,11 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 5
+  agents_version: 6
   setup_skill_version: 1.0.0
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 5，提示用户重新运行 story-setup 以更新子代理（v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 6，提示用户重新运行 story-setup 以更新子代理（v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
@@ -109,8 +113,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 5` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 5 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 6` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 6 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 

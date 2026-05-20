@@ -19,6 +19,9 @@ description: |
 - `story-review` 或 `story-review full` → spawn 全部 4 个子代理
 - `story-review lean` → 只 spawn story-architect + consistency-checker
 - `story-review solo` → 不 spawn 子代理，自身做基础检查
+- `story-review` 或 `story-review full` → spawn 全部 4 个子代理；如果当前已经在子代理内，自动降级为 `solo`
+- `story-review lean` → 只 spawn story-architect + consistency-checker；如果当前已经在子代理内，自动降级为 `solo`
+- `story-review solo` → 不 spawn 子代理，自身做基础检查
 - 未指定 → 默认 full，并告知用户
 
 ---
@@ -76,7 +79,7 @@ prompt:
   8. 按平台 rubric 逐项对照，标记 PASS/FAIL
 
   输出格式：
-  VERDICT: APPROVE / CONCERNS / REJECT
+  VERDICT / 结论: APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)
   FINDINGS: [结构/情节/节奏问题，附具体引用]
   RECOMMENDATIONS: [修改建议]
   ```
@@ -99,7 +102,7 @@ prompt:
   7. 好感度进度是否可感知？
 
   输出格式：
-  VERDICT: APPROVE / CONCERNS / REJECT
+  VERDICT / 结论: APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)
   FINDINGS: [角色/对话问题，附具体引用]
   RECOMMENDATIONS: [修改建议]
   ```
@@ -120,7 +123,7 @@ prompt:
   5. AI味分级（轻度/中度/重度）？
 
   输出格式：
-  VERDICT: APPROVE / CONCERNS / REJECT
+  VERDICT / 结论: APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)
   FINDINGS: AI味级别: 轻度/中度/重度; [禁用词/格式/节奏问题，附具体引用]
   RECOMMENDATIONS: [修改建议]
   ```
@@ -142,7 +145,7 @@ prompt:
   5. 伏笔密度是否合理？
 
   输出格式：
-  VERDICT: APPROVE / CONCERNS / REJECT
+  VERDICT / 结论: APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)
   FINDINGS: [S1/S2/S3/S4] 具体冲突描述（每条标注严重等级）
   RECOMMENDATIONS: [修复建议]
   ```
@@ -175,14 +178,14 @@ prompt:
 Review Mode: full
 审查范围: {章节/文件}
 
-## Verdict Summary
+## Verdict Summary / 结论汇总
 - story-architect: APPROVE / CONCERNS(n) / REJECT
 - character-designer: APPROVE / CONCERNS(n) / REJECT
 - narrative-writer: APPROVE / CONCERNS(n) / REJECT
 - consistency-checker: APPROVE / CONCERNS(n) / REJECT
 
 ## 综合评定
-{APPROVE / CONCERNS / REJECT}
+{APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)}
 
 ## 发现的问题
 {按 S1→S4 分级列出所有问题}
@@ -208,12 +211,12 @@ Review Mode: full
 Review Mode: lean
 审查范围: {章节/文件}
 
-## Verdict Summary
+## Verdict Summary / 结论汇总
 - story-architect: APPROVE / CONCERNS(n) / REJECT
 - consistency-checker: APPROVE / CONCERNS(n) / REJECT
 
 ## 综合评定
-{APPROVE / CONCERNS / REJECT}
+{APPROVE(通过) / CONCERNS(有问题) / REJECT(需重写)}
 
 ## 发现的问题
 {按 S1→S4 分级}
@@ -225,6 +228,7 @@ Review Mode: lean
 ## solo 模式
 
 不 spawn 子代理。skill 自身执行基础检查：
+不 spawn 子代理。先按 Phase 1 第 4 步识别目标平台并加载对应 rubric；即使是 solo，也必须用平台 rubric 校准判断。skill 自身执行基础检查：
 1. 格式合规性检查（一段一句、无空行、对话格式）
 2. 简单的设定一致性 grep
 3. 输出简化版报告

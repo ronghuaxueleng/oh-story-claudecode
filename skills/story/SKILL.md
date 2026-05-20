@@ -44,3 +44,5 @@ description: |
   - 如果用户要写作，建议先用 `story-setup` 初始化环境
   - 如果用户要扫榜/拆文，直接路由
 - **已有项目**：检查 `.story-deployed` 标记，如未部署建议先用 `story-setup`
+  - 如果用户要扫榜/拆文，直接路由
+- **已有项目**：检查 `.story-deployed` 标记，如未部署建议先用 `story-setup`
