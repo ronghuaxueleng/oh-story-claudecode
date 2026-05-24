@@ -38,10 +38,10 @@ setup_fixture() {
   local name="$1"
   local foreshadow_body="$2"
   local root="$TMP_DIR/$name"
-  mkdir -p "$root/.claude/hooks/lib" "$root/book/追踪" "$root/book/正文" "$root/book/设定" "$root/book/大纲"
-  cp "$HOOK_FILE" "$root/.claude/hooks/detect-story-gaps.sh"
-  cp "$COMMON_FILE" "$root/.claude/hooks/lib/common.sh"
-  chmod +x "$root/.claude/hooks/detect-story-gaps.sh"
+  mkdir -p "$root/.codex/hooks/lib" "$root/book/追踪" "$root/book/正文" "$root/book/设定" "$root/book/大纲"
+  cp "$HOOK_FILE" "$root/.codex/hooks/detect-story-gaps.sh"
+  cp "$COMMON_FILE" "$root/.codex/hooks/lib/common.sh"
+  chmod +x "$root/.codex/hooks/detect-story-gaps.sh"
   touch "$root/.story-deployed"
   cat > "$root/book/追踪/上下文.md" <<'CTX'
 # 写作进度
@@ -62,7 +62,7 @@ EOF_FORESHADOW
 
 run_hook() {
   local root="$1"
-  (cd "$root" && bash .claude/hooks/detect-story-gaps.sh)
+  (cd "$root" && bash .codex/hooks/detect-story-gaps.sh)
 }
 
 assert_no_foreshadow_warn() {

@@ -34,12 +34,14 @@ extract_referenced_paths() {
   grep -oE '(references|scripts|assets)/[^ `")\]]+' "$file" 2>/dev/null || true
 }
 
-# 从 SKILL.md 提取所有子代理引用
+# 从 SKILL.md 提取所有代理引用
 extract_agent_refs() {
   local file="$1"
   grep -oE 'subagent:[[:space:]]*[a-z][a-z0-9_-]+' "$file" 2>/dev/null | sed 's/subagent:[[:space:]]*//' || true
   grep -oE 'subagent:[[:space:]]*"[^"]+"' "$file" 2>/dev/null | sed 's/subagent:[[:space:]]*"//' | sed 's/"$//' || true
   grep -oE 'subagent="[^"]+"' "$file" 2>/dev/null | sed 's/subagent="//' | sed 's/"//' || true
+  grep -oE '代理名：[[:space:]]*[a-z][a-z0-9_-]+' "$file" 2>/dev/null | sed 's/代理名：[[:space:]]*//' || true
+  grep -oE '代理名:[[:space:]]*[a-z][a-z0-9_-]+' "$file" 2>/dev/null | sed 's/代理名:[[:space:]]*//' || true
 }
 
 # ---------- checks ----------
@@ -162,7 +164,7 @@ check_skill() {
     fi
   fi
 
-  # Check 5: subagent references valid
+  # Check 5: agent references valid
   local subagent_names=()
   if [ -d "$REPO_ROOT/skills/story-setup/references/templates/subagents" ]; then
     for f in "$REPO_ROOT/skills/story-setup/references/templates/subagents/"*.md; do
@@ -187,10 +189,10 @@ check_skill() {
 
   if [ ${#broken_subagents[@]} -eq 0 ]; then
     if [ ${#subagent_names[@]} -gt 0 ] && [ -n "$(extract_agent_refs "$skill_file")" ]; then
-      echo "  [PASS] all subagent references valid"
+      echo "  [PASS] all agent references valid"
     fi
   else
-    echo "  [FAIL] unknown subagent references:"
+    echo "  [FAIL] unknown agent references:"
     for a in "${broken_subagents[@]}"; do
       echo "         -> $a"
     done

@@ -28,7 +28,7 @@ All notable changes to this project will be documented in this file.
 - `bash scripts/check-shared-files.sh`
 - `bash scripts/static-check.sh`
 - GitHub CI：macOS / Windows / static-check 全绿
-- tmux + Claude Code 场景实测：构造 42 章长篇项目，执行 `/story-long-write 日更` 写第43章，再回复“继续”写第44章；两轮均保持在 daily workflow，读取必需上下文/伏笔/时间线/角色状态，未触发全量伏笔审计。
+- tmux + Codex 场景实测：构造 42 章长篇项目，执行 `/story-long-write 日更` 写第43章，再回复“继续”写第44章；两轮均保持在 daily workflow，读取必需上下文/伏笔/时间线/角色状态，未触发全量伏笔审计。
 
 ## v0.6.5
 
@@ -38,7 +38,7 @@ All notable changes to this project will be documented in this file.
 
 - 修复 Claude/Opus 4.7 下旧“三层展开”提示容易诱导的叠加式描写：同一动作/情绪不再按发生、感知、反应拆成多段重复描写
 - 修复三维度织入后一段到底的问题：新增镜头断段、手机阅读密度和输出前密度重排规则
-- 修复 Windows + DeepSeek/Claude Code 组合中字数统计偏差：优先使用 Python 字符统计，`wc -m` 仅作 macOS/Linux 备选，禁止模型估算和 `wc -c` 字节数
+- 修复 Windows + DeepSeek/Codex 组合中字数统计偏差：优先使用 Python 字符统计，`wc -m` 仅作 macOS/Linux 备选，禁止模型估算和 `wc -c` 字节数
 
 ### 改进
 
@@ -53,7 +53,7 @@ All notable changes to this project will be documented in this file.
 - `git diff --check`
 - `bash scripts/static-check.sh`
 - `bash scripts/check-hook-regex-sync.sh`
-- tmux + Claude Code 场景实测：对比旧三层、三维度织入、镜头断段和密度重排后的段落/句长指标
+- tmux + Codex 场景实测：对比旧三层、三维度织入、镜头断段和密度重排后的段落/句长指标
 
 ## v0.6.4
 

@@ -5,6 +5,14 @@
 
 ## 起点
 
+### 起点采集说明
+
+优先使用 `scripts/qidian-rank-scraper.js` 的默认 `--mode auto`：
+
+- 先读取 `https://m.qidian.com` 的移动端 SSR pageContext JSON
+- 移动端失败时，再回退到 CDP/PC 页面
+- 输出头部应标注抓取方式：`mobile-ssr` 或 `cdp-pc`
+
 ### 榜单URL
 
 | 榜单 | URL |

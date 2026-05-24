@@ -2,13 +2,13 @@
 name: story-setup
 version: 1.0.0
 description: |
-  网文写作工具集基础设施部署。将 hooks/rules/子代理/CLAUDE.md 等基础设施部署到用户项目目录。
-  触发方式：提到 `story-setup`，或直接说「准备写书」「帮我搭一下环境」「配置写作项目」
+  网文写作工具集基础设施部署。将 `.codex/agents`、hooks、rules、CLAUDE.md 等基础设施部署到用户项目目录。
+  触发方式：提到 `/story-setup`、`story-setup`，或直接说「准备写书」「帮我搭一下环境」「配置写作项目」
 ---
 
 # story-setup：网文写作工具集基础设施部署
 
-你是写作基础设施部署器。将网文写作工具集的全套基础设施（hooks、rules、子代理、CLAUDE.md）部署到用户项目目录。
+你是写作基础设施部署器。将网文写作工具集的全套基础设施（`.codex/agents`、hooks、rules、CLAUDE.md）部署到用户项目目录。
 
 **本分支是 Codex 专用分支。默认只部署 `.codex/*`，不再维护 `.claude/*` 双栈。**
 
@@ -40,16 +40,22 @@ description: |
 - 替换占位符（见下方「模板占位符」段）
 - 写入项目根目录 `CLAUDE.md`（如已存在，按「CLAUDE.md 合并策略」处理）
 
-### 2.2 部署宿主环境文件
+### 2.2 部署公共执行铁律
+- 读取 `skills/story-setup/references/templates/写作执行铁律.md.tmpl`
+- 若项目内存在明确书名目录，则写入对应小说目录；否则写入项目根目录 `写作执行铁律.md`
+- 如果已存在，按“合并而非替换”处理：保留用户自定义附加条款，但必须覆盖/保留硬闸、读前顺序、冲突优先级
+
+### 2.3 部署宿主环境文件
 
 - 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
 - 生成 `.codex/config.toml`
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 
-### 2.3 子代理兼容性处理
+### 2.4 子代理兼容性处理
 - 子代理 frontmatter 以当前项目的 Codex 兼容形式为准；如果目标运行环境不支持某些扩展字段，应优先保留最小必需字段后再部署，不要回退到 `.claude/*` 双栈。
-- 部署到项目后，子代理内引用的 `story-*/references/*.md` 需要能从项目根或 skills 安装目录检索到；若全局安装路径不同，优先用项目内 skills 路径，其次用工具的 skill 搜索能力，不要假定固定绝对路径。
+- 部署到项目后，子代理内引用的参考资料必须统一走 `story-setup/references/agent-references/*.md` 这一套自带副本，禁止跨 skill 直接引用其他 `story-*/references/*.md`。
+- 若全局安装路径不同，优先使用项目内 `skills/` 或 `.codex/skills/` 作为规范路径前缀，其次才依赖宿主的 skill 搜索能力；不要假定固定绝对路径。
 
 ### 2.5 部署 Session State 模板
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
@@ -64,11 +70,11 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 7
+  agents_version: 8
   setup_skill_version: 1.0.0
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 7，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules（v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 8，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules（v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
@@ -79,7 +85,7 @@ description: |
 5. 输出安装报告：
    - 列出所有已部署的文件
    - 列出需要注意的事项（如已有配置已合并）
-   - 提示用户可以开始使用 `story-long-write` 或 `story-short-write`
+   - 提示用户可以开始使用 `/story-long-write`、`story-long-write`、`/story-short-write` 或 `story-short-write`
 
 ---
 
@@ -113,8 +119,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 7` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 7 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 8` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 8 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -123,9 +129,11 @@ description: |
 | 文件 | 用途 |
 |------|------|
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
+| references/templates/写作执行铁律.md.tmpl | 项目根公共执行铁律模板 |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
-| references/templates/subagents/ | 7 个子代理定义模板（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
+| references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
+| references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
 | references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
 | scripts/install-codex-project.sh | Codex 项目目录部署脚本 |
