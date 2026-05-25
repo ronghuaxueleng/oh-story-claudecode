@@ -11,6 +11,8 @@
 1. 情绪交付
 - 本章是否交付了细纲承诺的目标情绪
 - 爽点、压迫、翻盘、危险是否真的落地
+- 本章是否仍然符合 `设定/爽点模型说明书.md` 约定的当前阶段爽法
+- 有没有把主爽法偷换成更保守、更慢、更虚的写法
 
 2. 技术质量
 - 事实一致性
@@ -22,6 +24,7 @@
 - `references/quality-checklist.md`
 - `references/banned-words.md`
 - `references/anti-ai-writing.md`
+- `references/story-type-and-payoff-model.md`
 
 ---
 
