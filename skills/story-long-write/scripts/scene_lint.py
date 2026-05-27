@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -89,11 +91,27 @@ TRACKING_REQUIRED_COLUMNS = [
     "实际战果",
 ]
 
+SUGGESTIONS = {
+    ("字数", "warn"): "建议补强外部反应、群体站位变化或现场细节，不要用解释句凑字。",
+    ("字数", "error"): "建议先回到细纲，补足硬场面、外部反应位或第二口收益后再扩写。",
+    ("章尾", "error"): "建议把章尾改成新物证、新口径、新名单或新翻面，不要用总结/预告腔收口。",
+    ("解释", "error"): "建议删除作者判句，改成现场动作、人物反应或器物/屏幕/环境变化。",
+    ("解释", "warn"): "建议减少解释句，优先补具体动作响应。",
+    ("情报", "error"): "建议补独立情报引号块、兑现动作或情报台账字段。",
+    ("污染", "error"): "建议先清工具残片、流程块或执行日志，再复扫。",
+    ("动作", "error"): "建议补可见动作链，不要只剩判断和说明。",
+    ("结构", "error"): "建议拆长段、补句末停顿，并检查是否大段拖叙。",
+    ("流程", "error"): "建议先补齐缺失文件或角色目录，再继续正文流程。",
+}
+
 
 @dataclass
 class Issue:
     path: str
     message: str
+    severity: str = "error"
+    category: str = "general"
+    suggestion: str | None = None
 
 
 def count_occurrences(text: str, needles: list[str]) -> int:
@@ -101,6 +119,11 @@ def count_occurrences(text: str, needles: list[str]) -> int:
     for needle in needles:
         total += text.count(needle)
     return total
+
+
+def make_issue(path: str, message: str, severity: str = "error", category: str = "general") -> Issue:
+    suggestion = SUGGESTIONS.get((category, severity))
+    return Issue(path, message, severity, category, suggestion)
 
 
 def has_any(text: str, needles: list[str]) -> bool:
@@ -118,19 +141,73 @@ def project_root_for(path: Path) -> Path:
     return path.parent
 
 
+def chapter_no_for(path: Path) -> str | None:
+    match = re.search(r"第(\d+)章", path.name)
+    if match:
+        return match.group(1).zfill(3)
+    return None
+
+
+def chapter_outline_path(project_root: Path, chapter_no: str | None) -> Path | None:
+    if not chapter_no:
+        return None
+    outline_dir = project_root / "大纲"
+    if not outline_dir.exists():
+        return None
+    matches = sorted(outline_dir.glob(f"细纲_第{chapter_no}章*.md"))
+    return matches[0] if matches else None
+
+
+def parse_target_chars(text: str) -> int | None:
+    patterns = [
+        r"字数目标[:：]\s*(\d+)",
+        r"本章目标字数[:：]\s*(\d+)",
+        r"目标字数[:：]\s*(\d+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+@dataclass
+class ChapterPolicy:
+    hard_min: int
+    soft_min: int
+    hard_max: int
+    soft_max: int
+    target: int | None = None
+
+
 def count_explanation_lines(text: str) -> int:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return sum(1 for line in lines if any(pattern in line for pattern in EXPLANATION_PATTERNS))
 
 
-def chapter_targets(path: Path, text: str) -> tuple[int, int]:
-    if "正文" in path.parts:
-        return (2900, 5100)
-    if any(marker in path.name for marker in ("正文", "第0", "第1", "第2", "第3", "第4", "第5", "第6", "第7", "第8", "第9")):
-        return (2900, 5100)
-    if "chapter" in path.name.lower():
-        return (2900, 5100)
-    return (0, 0)
+def chapter_targets(path: Path, text: str, project_root: Path) -> ChapterPolicy:
+    is_chapter = (
+        "正文" in path.parts
+        or any(marker in path.name for marker in ("正文", "第0", "第1", "第2", "第3", "第4", "第5", "第6", "第7", "第8", "第9"))
+        or "chapter" in path.name.lower()
+    )
+    if not is_chapter:
+        return ChapterPolicy(0, 0, 0, 0, None)
+
+    chapter_no = chapter_no_for(path)
+    outline_path = chapter_outline_path(project_root, chapter_no)
+    target = None
+    if outline_path and outline_path.exists():
+        target = parse_target_chars(outline_path.read_text(encoding="utf-8"))
+
+    if target is not None:
+        hard_min = max(2700, min(2900, target - 300))
+        soft_min = max(2900, target - 120)
+        soft_max = max(5100, target + 900)
+        hard_max = max(5600, target + 1400)
+        return ChapterPolicy(hard_min, soft_min, hard_max, soft_max, target)
+
+    return ChapterPolicy(2800, 3000, 5600, 5100, None)
 
 
 def lint_file(path: Path) -> list[Issue]:
@@ -141,53 +218,62 @@ def lint_file(path: Path) -> list[Issue]:
 
     for needle in FORBIDDEN_SUBSTRINGS:
         if needle in text:
-            issues.append(Issue(str(path), f"命中污染片段: {needle}"))
+            issues.append(make_issue(str(path), f"命中污染片段: {needle}", "error", "污染"))
 
     for marker in INLINE_GATE_MARKERS:
         if marker in text:
-            issues.append(Issue(str(path), f"正文文件混入流程块: {marker}"))
+            issues.append(make_issue(str(path), f"正文文件混入流程块: {marker}", "error", "污染"))
 
     explanation_count = count_occurrences(text, EXPLANATION_PATTERNS)
     if explanation_count >= 1:
-        issues.append(Issue(str(path), f"解释腔/作者判句过多: {explanation_count}"))
+        issues.append(make_issue(str(path), f"解释腔/作者判句过多: {explanation_count}", "error", "解释"))
     explanation_line_count = count_explanation_lines(text)
     if explanation_line_count >= 3:
-        issues.append(Issue(str(path), f"解释句密度过高: {explanation_line_count}"))
+        issues.append(make_issue(str(path), f"解释句密度过高: {explanation_line_count}", "error", "解释"))
 
     summary_count = count_occurrences(tail(text), SUMMARY_PATTERNS)
     if summary_count >= 1 and len(stripped) > 0:
-        issues.append(Issue(str(path), f"章尾总结/预告/盖章风险: {summary_count}"))
+        issues.append(make_issue(str(path), f"章尾总结/预告/盖章风险: {summary_count}", "error", "章尾"))
 
     if "正文" in path.parts or "chapter" in path.name.lower():
-        min_chars, max_chars = chapter_targets(path, text)
-        if min_chars and len(text) < min_chars:
-            issues.append(Issue(str(path), f"字数不足: {len(text)} < {min_chars}"))
-        if max_chars and len(text) > max_chars:
-            issues.append(Issue(str(path), f"字数超上限: {len(text)} > {max_chars}"))
+        policy = chapter_targets(path, text, project_root)
+        if policy.hard_min and len(text) < policy.hard_min:
+            target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
+            issues.append(make_issue(str(path), f"字数不足: {len(text)} < {policy.hard_min}{target_note}", "error", "字数"))
+        elif policy.soft_min and len(text) < policy.soft_min:
+            target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
+            issues.append(make_issue(str(path), f"字数接近下限，建议补强场面或外部反应: {len(text)} < {policy.soft_min}{target_note}", "warn", "字数"))
+
+        if policy.hard_max and len(text) > policy.hard_max:
+            target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
+            issues.append(make_issue(str(path), f"字数超上限: {len(text)} > {policy.hard_max}{target_note}", "error", "字数"))
+        elif policy.soft_max and len(text) > policy.soft_max:
+            target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
+            issues.append(make_issue(str(path), f"字数偏高，建议检查是否拖叙: {len(text)} > {policy.soft_max}{target_note}", "warn", "字数"))
 
         if not has_any(text, ACTION_MARKERS):
-            issues.append(Issue(str(path), "缺少明显动作场面标记"))
+            issues.append(make_issue(str(path), "缺少明显动作场面标记", "error", "动作"))
 
         if len(text) > 0 and len(re.findall(r"[。！？]", text)) < 5:
-            issues.append(Issue(str(path), "句末标点偏少，可能存在大段拖叙"))
+            issues.append(make_issue(str(path), "句末标点偏少，可能存在大段拖叙", "error", "结构"))
 
     if has_any(text, INFO_FLOW_MARKERS):
         if "「" not in text or "」" not in text:
-            issues.append(Issue(str(path), "情报流文本缺少独立情报引号块"))
+            issues.append(make_issue(str(path), "情报流文本缺少独立情报引号块", "error", "情报"))
 
         tracking_path = project_root / "追踪" / "情报台账.md"
         if tracking_path.exists():
             tracking_text = tracking_path.read_text(encoding="utf-8")
             missing_columns = [col for col in TRACKING_REQUIRED_COLUMNS if col not in tracking_text]
             if missing_columns:
-                issues.append(Issue(str(tracking_path), f"情报台账缺少字段: {', '.join(missing_columns)}"))
+                issues.append(make_issue(str(tracking_path), f"情报台账缺少字段: {', '.join(missing_columns)}", "error", "情报"))
 
     role_dir = project_root / "设定" / "角色"
     if not role_dir.exists():
-        issues.append(Issue(str(role_dir), "缺少设定/角色目录"))
+        issues.append(make_issue(str(role_dir), "缺少设定/角色目录", "error", "流程"))
 
     if re.search(r"\b(commentary|analysis|assistant to=|functions\.|multi_tool_use\.)\b", text):
-        issues.append(Issue(str(path), "检测到工具/渠道残片"))
+        issues.append(make_issue(str(path), "检测到工具/渠道残片", "error", "污染"))
 
     return issues
 
@@ -195,20 +281,66 @@ def lint_file(path: Path) -> list[Issue]:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Novel scene lint.")
     parser.add_argument("files", nargs="+", help="Files to lint")
+    parser.add_argument("--json", action="store_true", dest="json_output", help="Emit machine-readable JSON output")
     args = parser.parse_args(argv)
 
     all_issues: list[Issue] = []
     for file_name in args.files:
         path = Path(file_name)
         if not path.exists():
-            all_issues.append(Issue(file_name, "文件不存在"))
+            all_issues.append(make_issue(file_name, "文件不存在", "error", "流程"))
             continue
         all_issues.extend(lint_file(path))
 
     if all_issues:
+        error_count = sum(1 for issue in all_issues if issue.severity == "error")
+        warn_count = sum(1 for issue in all_issues if issue.severity == "warn")
+        category_counts = Counter(issue.category for issue in all_issues)
+        severity_category_counts = Counter(f"{issue.category}.{issue.severity}" for issue in all_issues)
+        summary = {
+            "errors": error_count,
+            "warnings": warn_count,
+            "categories": dict(sorted(category_counts.items())),
+            "severity_categories": dict(sorted(severity_category_counts.items())),
+        }
+        payload = {
+            "ok": error_count == 0,
+            "summary": summary,
+            "issues": [
+                {
+                    "path": issue.path,
+                    "severity": issue.severity,
+                    "category": issue.category,
+                    "message": issue.message,
+                    "suggestion": issue.suggestion,
+                }
+                for issue in all_issues
+            ],
+        }
+        if args.json_output:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            if error_count:
+                return 1
+            return 0
         for issue in all_issues:
-            print(f"{issue.path}: {issue.message}")
-        return 1
+            prefix = "WARN" if issue.severity == "warn" else "ERROR"
+            suggestion_suffix = f" | 建议: {issue.suggestion}" if issue.suggestion else ""
+            print(f"{prefix}[{issue.category}] {issue.path}: {issue.message}{suggestion_suffix}")
+        categories_str = ",".join(f"{name}:{count}" for name, count in sorted(category_counts.items()))
+        severity_categories_str = ",".join(
+            f"{name}:{count}" for name, count in sorted(severity_category_counts.items())
+        )
+        print(
+            f"SUMMARY errors={error_count} warnings={warn_count} "
+            f"categories={categories_str} severity_categories={severity_categories_str}"
+        )
+        if error_count:
+            return 1
+        return 0
+
+    if args.json_output:
+        print(json.dumps({"ok": True, "summary": {"errors": 0, "warnings": 0, "categories": {}, "severity_categories": {}}, "issues": []}, ensure_ascii=False, indent=2))
+        return 0
 
     print("OK")
     return 0

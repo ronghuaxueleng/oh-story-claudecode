@@ -62,3 +62,9 @@
 | 质量检查 | `references/quality-checklist.md` |
 | 禁用词扫描 | `references/banned-words.md` |
 | 去AI味 | `references/anti-ai-writing.md` |
+
+## Skill 维护
+
+| 场景 | 加载文件 |
+|------|---------|
+| 维护 story-long-write 自身规则 | `references/skill-authoring-rules.md` |
