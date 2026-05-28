@@ -10,9 +10,13 @@ A web novel writing skill pack for Claude Code and OpenClaw. Covers the full pip
 
 > **Tropes = deterministic emotional payoff**
 
-Professional authors follow a three-step method: 1. Scan — analyze trending charts, identify genres, characters, and entry points. 2. Deconstruct — break down pacing and plot materials, build a personal module library. 3. Commercialize — learn and apply hooks, payoff density, expectation management.
+Professional authors follow a three-step method:
 
-Built around four pillars: reverse-engineering hits, plot modularization, layered state management, and human-AI collaboration.
+1. **Scan** — analyze trending charts, identify genres, characters, and entry points.
+2. **Deconstruct** — break down pacing and plot materials, build a personal module library.
+3. **Commercialize** — learn and apply hooks, payoff density, expectation management.
+
+Built around four pillars: reverse-engineering hits · plot modularization · layered state management · human-AI collaboration.
 
 ## Pipeline Overview
 
@@ -84,6 +88,8 @@ npx skills add worldwonderer/oh-story-claudecode -y
 ```
 
 Re-run the same command to update.
+
+> After updating, if a project has already run `/story-setup`, re-run `/story-setup` from the project root to sync hooks / agents / references. Per-version changes are in [CHANGELOG.md](CHANGELOG.md) and [Releases](https://github.com/worldwonderer/oh-story-claudecode/releases).
 
 ## Skills
 
@@ -164,14 +170,6 @@ Writing skills internally coordinate 7 specialized agents:
 
 Agents load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 100+ methodology files), without reserving context window space.
 
-## Upgrading to v0.6.11
-
-If you have already run `/story-setup` inside a writing project, run `/story-setup` again from the project root after updating this skill pack (this release edits `reversal-toolkit.md` under agent-references, which needs redeploy).
-
-- **analyze ↔ write contract**: `story-short-analyze` adds `output-contract.md` defining the deconstruction `_meta.json` schema (with `structure_counts`) plus a Phase 7 acceptance gate (AI-tone self-check + numeric/enum validation + BLOCK-item scan). Phase 1 gains a word-count probe (short/long routing) and crash-safe resume.
-- **cross-book recall**: once you've deconstructed ≥2 books, writing a new one pulls similar exemplars across books — structure/pacing during outline, main benchmark only during prose. Three guardrails prevent style-mixing and plot contamination; cross-genre relevance is judged by the agent, no index file maintained.
-- **write references cleanup**: `reversal-toolkit` goes 5→7 reversal types (adds 认知反转 for 追妻/世情, 无反转 for sweet/comedy/karma genres), aligned with the analyze `reversal_type` enum; `cross-book-recall` adds a "deconstruction field → writing reference" mapping table; `narrative-units` is merged into `plot-emotion-system` and an orphan file removed.
-
 ## Automation Hooks
 
 6 hooks deployed automatically by `/story-setup`:
@@ -243,6 +241,9 @@ The file system separates settings, outlines, prose, and tracking into independe
 
 Each skill includes a `references/` knowledge base loaded on demand to keep context lean.
 
+<details>
+<summary>Expand the per-skill knowledge-base topic list</summary>
+
 | Topic | Contents | Skill |
 |:------|:---------|:------|
 | Outline Layout | Five-step outline method · Story structure levels · Node design · Progression design | long-write |
@@ -266,6 +267,8 @@ Each skill includes a `references/` knowledge base loaded on demand to keep cont
 | Market Data | Genre trends · Platform characteristics · Collection formats · Submission guides | long-scan / short-scan |
 | Cover Styles | 10 genre visual styles · Color composition · Prompt templates | story-cover |
 | Adversarial Review | Multi-perspective review · Scoring rubrics · Toxic trope detection | story-review |
+
+</details>
 
 ## Supported Platforms
 
