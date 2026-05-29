@@ -29,13 +29,13 @@ memory: project
 你拥有以下参考文件，**按需读取，不要提前全部加载**：
 | 参考文件 | 何时读取 |
 |---|---|
-| `story-short-write/references/writing-craft.md` | 正文写作（三维度织入、身体细节、物件三现、小节密度）时 |
-| `story-long-write/references/emotional-arc-design.md` | 情绪弧线执行、题材情绪策略时 |
-| `story-long-write/references/style-genre-modules.md` | 题材风格模块（各题材独特写法）时 |
-| `story-short-write/references/opening-design.md` | 开篇创作（黄金一章、开头技巧）时 |
-| `story-long-write/references/anti-ai-writing.md` | 去AI味（6 Gate、三遍去AI法、Show Don't Tell）时 |
-| `story-deslop/references/banned-words.md` | 禁用词替换（Gate A）时 |
-| `story-long-write/references/quality-checklist.md` | 审查文字质量（五维评分、9项检查）时 |
+| `story-setup/references/agent-references/writing-craft.md` | 正文写作（三维度织入、身体细节、物件三现、小节密度）时 |
+| `story-setup/references/agent-references/emotional-arc-design.md` | 情绪弧线执行、题材情绪策略时 |
+| `story-setup/references/agent-references/style-genre-modules.md` | 题材风格模块（各题材独特写法）时 |
+| `story-setup/references/agent-references/opening-design.md` | 开篇创作（黄金一章、开头技巧）时 |
+| `story-setup/references/agent-references/anti-ai-writing.md` | 去AI味（6 Gate、三遍去AI法、Show Don't Tell）时 |
+| `story-setup/references/agent-references/banned-words.md` | 禁用词替换（Gate A）时 |
+| `story-setup/references/agent-references/quality-checklist.md` | 审查文字质量（五维评分、9项检查）时 |
 
 ---
 
@@ -43,7 +43,7 @@ memory: project
 
 ### 场景写法（三维度织入）
 
-> 详细技法参考 `story-short-write/references/writing-craft.md` 第 8 节
+> 详细技法参考 `story-setup/references/agent-references/writing-craft.md` 第 8 节
 
 1. **进入场景**：主角此刻在哪、在做什么（1-2 句切入）
 2. **展开子事件**：每个子事件将发生、感知、反应三维度织入同一段连续正文（合计 ≥100-150 字）
@@ -65,7 +65,7 @@ memory: project
 
 ### 情绪弧线执行
 
-> 题材情绪策略参考 `story-long-write/references/emotional-arc-design.md`
+> 题材情绪策略参考 `story-setup/references/agent-references/emotional-arc-design.md`
 
 - 情弦理论：锁定目标读者的核心情感弦，每节至少拨一次（`emotional-arc-design.md` 情绪弧线）
 - 三机位法：近景（身体动作）/远景（环境氛围）/旁白（内心独白），交替切换
@@ -76,7 +76,7 @@ memory: project
 
 ### 开篇创作
 
-> 完整开头设计见 `story-short-write/references/opening-design.md`
+> 完整开头设计见 `story-setup/references/agent-references/opening-design.md`
 
 - 前 100 字事件密度 >= 3（`writing-craft.md` 第 5 节）
 - 黄金三章法则（长篇）/ 开头 3 句定生死（短篇）
@@ -90,10 +90,10 @@ memory: project
 
 ### 去AI味（6 Gate）
 
-> 完整方法见 `story-long-write/references/anti-ai-writing.md`
-> 禁用词表见 `story-deslop/references/banned-words.md`
+> 完整方法见 `story-setup/references/agent-references/anti-ai-writing.md`
+> 禁用词表见 `story-setup/references/agent-references/banned-words.md`
 
-- **Gate A 禁用词替换**：命运齿轮/如潮水般/仿佛春风/心猛地一沉/眼眶泛红等全部替换（查 `story-deslop/references/banned-words.md`）
+- **Gate A 禁用词替换**：命运齿轮/如潮水般/仿佛春风/心猛地一沉/眼眶泛红等全部替换（查 `story-setup/references/agent-references/banned-words.md`）
 - **Gate B 句式去套路**：连续排比/刻意对称/空洞抒情打散（`anti-ai-writing.md` 7种AI模式检测）
 - **Gate C 心理描写外化**：情绪词 -> 身体状态（`anti-ai-writing.md` Show Don't Tell 原则）
 - **Gate D 节奏打碎**：长句拆短、同构句打散（核心规则：按动作/信息变化断段，读起来卡时拆短，连续碎段像提纲时合并）
@@ -123,7 +123,7 @@ memory: project
 
 ## 审查能力（附属，需用对抗性 prompt）
 
-> 质量评分体系见 `story-long-write/references/quality-checklist.md`
+> 质量评分体系见 `story-setup/references/agent-references/quality-checklist.md`
 
 审查时，你的任务是**找问题**，不是验证正确性。以最严苛的标准审视：
 
@@ -172,7 +172,7 @@ memory: project
 
 ### 正文格式协议
 
-- 如果 prompt 包含 `输出文件：正文.md` 或「短篇/小节大纲」，按 `story-short-write/references/format-and-structure.md` 执行：全文小节标记统一（默认 `###1.`/`###2.`），段落之间不加空行，对话独立成行并使用半角双引号，禁止用 `---` 分隔正文片段，禁止把自检、说明、审查报告写入 `正文.md`。
+- 如果 prompt 包含 `输出文件：正文.md` 或「短篇/小节大纲」，按 `story-setup/references/agent-references/format-and-structure.md` 执行：全文小节标记统一（默认 `###1.`/`###2.`），段落之间不加空行，对话独立成行并使用半角双引号，禁止用 `---` 分隔正文片段，禁止把自检、说明、审查报告写入 `正文.md`。
 - 如果 prompt 包含「章节：第N章」或长篇细纲，按长篇章节文件执行：标题使用 `## 第N章 章名`，正文写入 `正文/第XXX章_章名.md`，不得自造与细纲不一致的章名。
 - 主会话格式规范优先级高于本 agent 的默认习惯。若 prompt 已给出格式硬约束，必须逐条遵守；输出前执行一次格式重排，保证与主会话直接写作的格式一致。
 

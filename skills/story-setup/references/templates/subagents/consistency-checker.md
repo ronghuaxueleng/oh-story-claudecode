@@ -25,7 +25,7 @@ maxTurns: 15
 
 ## 参考文件路径规则
 
-读取参考文件时，下方规范路径以 skill 名开头。优先从项目根目录下的 `.claude/skills/` 或 `skills/` 拼接解析 `story-setup/references/agent-references/...`；不要只读取裸文件名，也不要跨 skill 读取其他 skill 的 references。若当前工具只接受相对路径，先尝试 `.claude/skills/{规范路径}`，再尝试 `skills/{规范路径}`，最后用 Glob/Grep 搜索 `*/{规范路径}`。
+读取参考文件时，下方规范路径以 skill 名开头。优先从项目根目录下的 `.codex/skills/` 或 `skills/` 拼接解析 `story-setup/references/agent-references/...`；不要只读取裸文件名，也不要跨 skill 读取其他 skill 的 references。若当前工具只接受相对路径，先尝试 `.codex/skills/{规范路径}`，再尝试 `skills/{规范路径}`，最后用 Glob/Grep 搜索 `*/{规范路径}`。
 
 ## 检查流程
 

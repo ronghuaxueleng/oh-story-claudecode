@@ -19,6 +19,14 @@ FORBIDDEN_SUBSTRINGS = [
     "analysis",
     "assistant to=",
     "tool output",
+    "狠狠干",
+]
+
+SELF_EDIT_PATTERNS = [
+    r"[一-龥]{2,}(?:\?|？)\s*(?:no|wait|stop)\b",
+    r"[一-龥]{2,}\s*\.\.\.\s*(?:no|wait|stop)\b",
+    r"[一-龥]{2,}(?:no|wait|stop)\b",
+    r"\b(?:no|wait|stop)\b\s*$",
 ]
 
 EXPLANATION_PATTERNS = [
@@ -219,6 +227,10 @@ def lint_file(path: Path) -> list[Issue]:
     for needle in FORBIDDEN_SUBSTRINGS:
         if needle in text:
             issues.append(make_issue(str(path), f"命中污染片段: {needle}", "error", "污染"))
+
+    for pattern in SELF_EDIT_PATTERNS:
+        if re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE):
+            issues.append(make_issue(str(path), f"命中自改残片模式: {pattern}", "error", "污染"))
 
     for marker in INLINE_GATE_MARKERS:
         if marker in text:

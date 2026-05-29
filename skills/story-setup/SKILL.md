@@ -47,10 +47,12 @@ description: |
 
 ### 2.3 部署宿主环境文件
 
-- 调用当前 skill 包中的 `scripts/install-codex-project.sh <目标目录>`
+- 从 `references/templates/` 复制模板到目标项目
 - 生成 `.codex/config.toml`
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
+- 生成 `.codex/skills/story-setup/references/agent-references/`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
+- 同时复制 `.codex/hooks/lib/` 公共脚本
 
 ### 2.4 子代理兼容性处理
 - 子代理 frontmatter 以当前项目的 Codex 兼容形式为准；如果目标运行环境不支持某些扩展字段，应优先保留最小必需字段后再部署，不要回退到 `.claude/*` 双栈。
@@ -62,7 +64,8 @@ description: |
 - 如有书名目录，复制到 `{书名}/追踪/` 下
 
 ### 2.6 宿主配置处理
-- `scripts/install-codex-project.sh` 已负责写入 `.codex/config.toml`
+- 如不存在 `.codex/config.toml`，创建最小必需配置
+- 如已存在，仅补齐最小必需项，不覆盖用户自定义配置
 
 ### 2.7 创建部署标记
 
@@ -113,7 +116,7 @@ description: |
 
 1. 如果不存在 `.codex/config.toml`，由安装脚本直接创建
 2. 如果已存在，优先保留用户已有配置
-3. 如缺少 `project_doc_fallback_filenames` 或 `project_doc_max_bytes`，按安装脚本补齐最小必需项
+3. 如缺少 `project_doc_fallback_filenames` 或 `project_doc_max_bytes`，按最小必需配置补齐
 4. 不覆盖用户自定义的其他 Codex 配置
 
 ## 重新部署
@@ -131,9 +134,8 @@ description: |
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
 | references/templates/写作执行铁律.md.tmpl | 项目根公共执行铁律模板 |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
+| references/templates/hooks/lib/ | hook 依赖的公共 shell 函数 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
 | references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
-| references/templates/settings-hooks.json | hooks 注册 JSON 片段 |
 | references/templates/上下文.md.tmpl | 写作上下文模板 |
-| scripts/install-codex-project.sh | Codex 项目目录部署脚本 |
