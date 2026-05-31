@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - **CI 接线**：`cross-platform.yml` 现已把 `scripts/codex-self-check.sh` 纳入 `static-check` job，避免 Codex 分支自检脚本长期只靠手动运行。
 - **贡献文档**：`CONTRIBUTING.md` 已对齐当前 Codex 分支的真实 CI、仓库脚本与贡献口径，避免贡献者继续按旧的 `.claude` / 旧 CI 认知操作。
 - **历史包装层说明**：`README` / `README_EN` 补充 `.claude-plugin/marketplace.json` 仅为历史兼容元数据的说明，并把 Star History 链接对齐到当前仓库；`.claude-plugin/marketplace.json` 自身的 owner / version / description 也同步到当前分支口径。
+- **README 分支口径**：移除首页对具体 `codex-main` 分支名的写死表述，改为中性“当前维护线为 Codex 专用分支”，避免分支重命名或多维护线时误导。
 - **story-import**：对齐 `story-long-analyze` 当前 Stage 0-6 管道与 `文风.md` 产物映射，避免导入链路继续引用旧阶段编号。
 - **术语统一**：长短篇 analyze / write / setup 文档里的 `agent`、`Agent 调用`、`chapter-extractor agent` 等旧口径继续收敛到 Codex 分支使用的“子代理”表述。
 
