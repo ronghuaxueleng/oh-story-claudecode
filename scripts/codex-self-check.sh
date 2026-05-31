@@ -22,9 +22,9 @@ check_path "skills/story-setup/references/templates/subagents/story-architect.md
 check_path "skills/story-setup/references/templates/hooks/session-start.sh"
 check_path "skills/story-setup/references/templates/rules/story-outline.md"
 
-echo "[OK] repository has no .agents dependency"
+echo "[OK] repository has no legacy .agents dependency"
 
-if [ -f .codex ]; then
+if [ -e .codex ]; then
   echo "[WARN] .codex exists in repo root; it should be generated only in install targets"
 fi
 
