@@ -11,6 +11,7 @@ All notable changes to this project will be documented in this file.
 - **story-setup / 安装脚本**：`install-codex-project.sh` 与 `install-codex-plugin.sh` 统一写入 `agents_version: 9`、`target_cli: codex`、`resolver_strategy: project-local-skill-reference`、`references_dir`，并把 `agent-references` 一并部署，插件目录和项目目录的 Codex 运行时口径对齐。
 - **README / README_EN**：升级说明改为当前 Codex 分支口径，补充何时需要重新运行 `story-setup`，并新增 `install-codex-project.sh` / `install-codex-plugin.sh` 的用途说明。
 - **插件元信息**：`install-codex-plugin.sh` 不再硬编码旧上游仓库，改为优先从当前仓库 `origin` 推导 GitHub 地址，生成的 `.codex-plugin/plugin.json` 会随当前仓库来源自适应。
+- **发布工作流**：`publish-clawhub.yml` 的 canonical repo 条件改到当前维护仓库，并增加 `CLAWHUB_TOKEN` preflight；缺 token 时会给 warning 并跳过，不再把镜像仓库或未配置仓库跑成误失败。
 - **story-import**：对齐 `story-long-analyze` 当前 Stage 0-6 管道与 `文风.md` 产物映射，避免导入链路继续引用旧阶段编号。
 - **术语统一**：长短篇 analyze / write / setup 文档里的 `agent`、`Agent 调用`、`chapter-extractor agent` 等旧口径继续收敛到 Codex 分支使用的“子代理”表述。
 

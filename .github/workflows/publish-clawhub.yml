@@ -39,48 +39,62 @@ permissions:
 
 jobs:
   publish:
-    # Only the canonical repo may publish; skip on forks.
-    if: github.repository == 'worldwonderer/oh-story-claudecode'
+    # Only the current maintained repo may publish; skip on forks or mirrors.
+    if: github.repository == 'ronghuaxueleng/oh-story-claudecode'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install ClawHub CLI
-        run: npm install -g clawhub
-
-      - name: Authenticate
+      - name: Preflight publish prerequisites
+        id: preflight
         env:
           CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
         run: |
           if [ -z "$CLAWHUB_TOKEN" ]; then
-            echo "::error::CLAWHUB_TOKEN secret is not set. Add it in repo Settings → Secrets → Actions."
-            exit 1
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::CLAWHUB_TOKEN is not set. Skipping ClawHub publish workflow."
+            exit 0
           fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.preflight.outputs.enabled == 'true'
+        with:
+          node-version: 20
+
+      - name: Install ClawHub CLI
+        if: steps.preflight.outputs.enabled == 'true'
+        run: npm install -g clawhub
+
+      - name: Authenticate
+        if: steps.preflight.outputs.enabled == 'true'
+        env:
+          CLAWHUB_TOKEN: ${{ secrets.CLAWHUB_TOKEN }}
+        run: |
           clawhub login --token "$CLAWHUB_TOKEN" --no-browser
           clawhub whoami
 
       - name: Exclude manually-managed skills
+        if: steps.preflight.outputs.enabled == 'true'
         # Affects only this ephemeral CI checkout, never your repo.
         # `sync` scans the skills/ dir, so removing these folders excludes them.
         run: |
           for s in story browser-cdp; do rm -rf "skills/$s"; done
 
       - name: Resolve changelog text
+        if: steps.preflight.outputs.enabled == 'true'
         run: |
           CL="${{ github.event.inputs.changelog }}"
           if [ -z "$CL" ]; then CL="Synced from CI (${{ github.ref_name }})"; fi
           echo "CLAWHUB_CHANGELOG=$CL" >> "$GITHUB_ENV"
 
       - name: Show what would publish
+        if: steps.preflight.outputs.enabled == 'true'
         run: clawhub --no-input sync --dry-run --bump "${{ github.event.inputs.bump || 'patch' }}"
 
       - name: Publish changed skills
         # Never publishes on pull_request events — those only run the dry-run above.
-        if: github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true'
+        if: steps.preflight.outputs.enabled == 'true' && github.event_name != 'pull_request' && github.event.inputs.dry_run != 'true'
         run: |
           clawhub --no-input sync --all \
             --bump "${{ github.event.inputs.bump || 'patch' }}" \
