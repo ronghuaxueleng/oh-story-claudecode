@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TARGET_ROOT="${1:-$(pwd)}"
 TEMPLATES_ROOT="$REPO_ROOT/skills/story-setup/references/templates"
+AGENT_REFS_ROOT="$REPO_ROOT/skills/story-setup/references/agent-references"
 PROJECT_NAME="${STORY_PROJECT_NAME:-$(basename "$TARGET_ROOT")}"
 BOOK_NAME="${STORY_BOOK_NAME:-$PROJECT_NAME}"
 
@@ -58,5 +59,15 @@ render_project_doc \
 copy_path "$TEMPLATES_ROOT/subagents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
 copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+copy_path "$AGENT_REFS_ROOT" "$TARGET_ROOT/.codex/skills/story-setup/references/agent-references"
+
+cat > "$TARGET_ROOT/.story-deployed" <<EOF
+deployed_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+agents_version: 9
+setup_skill_version: 1.0.0
+target_cli: codex
+resolver_strategy: project-local-skill-reference
+references_dir: .codex/skills/story-setup/references/agent-references
+EOF
 
 echo "Installed Codex project files at $TARGET_ROOT"

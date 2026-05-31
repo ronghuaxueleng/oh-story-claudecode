@@ -98,10 +98,10 @@ assert_foreshadow_warn() {
 assert_no_foreshadow_warn "header-only" ""
 
 plain_header_root="$TMP_DIR/plain-header"
-mkdir -p "$plain_header_root/.claude/hooks/lib" "$plain_header_root/book/追踪" "$plain_header_root/book/正文" "$plain_header_root/book/设定" "$plain_header_root/book/大纲"
-cp "$HOOK_FILE" "$plain_header_root/.claude/hooks/detect-story-gaps.sh"
-cp "$COMMON_FILE" "$plain_header_root/.claude/hooks/lib/common.sh"
-chmod +x "$plain_header_root/.claude/hooks/detect-story-gaps.sh"
+mkdir -p "$plain_header_root/.codex/hooks/lib" "$plain_header_root/book/追踪" "$plain_header_root/book/正文" "$plain_header_root/book/设定" "$plain_header_root/book/大纲"
+cp "$HOOK_FILE" "$plain_header_root/.codex/hooks/detect-story-gaps.sh"
+cp "$COMMON_FILE" "$plain_header_root/.codex/hooks/lib/common.sh"
+chmod +x "$plain_header_root/.codex/hooks/detect-story-gaps.sh"
 cat > "$plain_header_root/book/追踪/伏笔.md" <<'EOF_PLAIN_HEADER'
 # 伏笔追踪
 

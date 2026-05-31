@@ -57,10 +57,13 @@ setup_git_repo() {
 
 write_sentinel() {
   local root="$1"
-  cat > "$root/.story-deployed" <<'SENTINEL'
+cat > "$root/.story-deployed" <<'SENTINEL'
 deployed_at: 2026-05-25T00:00:00Z
-agents_version: 8
+agents_version: 9
 setup_skill_version: 1.0.0
+target_cli: codex
+resolver_strategy: project-local-skill-reference
+references_dir: .codex/skills/story-setup/references/agent-references
 SENTINEL
 }
 
@@ -81,7 +84,10 @@ assert_grep '\.codex/\*' "$SKILL_FILE" "SKILL.md must document Codex-only deploy
 assert_no_grep '写入 .*\.claude/|复制到 .*\.claude/|部署到 .*\.claude/' "$SKILL_FILE" "SKILL.md must not instruct deploying into .claude paths"
 assert_grep 'templates/subagents/' "$SKILL_FILE" "SKILL.md must document subagents template directory"
 assert_grep 'scripts/install-codex-project\.sh' "$SKILL_FILE" "SKILL.md must document install-codex-project.sh"
-assert_grep 'agents_version: 8' "$SKILL_FILE" "SKILL.md must document current agents_version"
+assert_grep 'agents_version: 9' "$SKILL_FILE" "SKILL.md must document current agents_version"
+assert_grep 'target_cli: codex' "$SKILL_FILE" "SKILL.md must document target_cli"
+assert_grep 'resolver_strategy: project-local-skill-reference' "$SKILL_FILE" "SKILL.md must document resolver_strategy"
+assert_grep 'references_dir: \.codex/skills/story-setup/references/agent-references' "$SKILL_FILE" "SKILL.md must document references_dir"
 echo "  OK TS1 codex branch contract"
 
 # TS2 — Template tree completeness.
@@ -113,7 +119,9 @@ assert_file "$project_root/.codex/config.toml"
 assert_dir "$project_root/.codex/agents"
 assert_dir "$project_root/.codex/hooks"
 assert_dir "$project_root/.codex/rules"
+assert_dir "$project_root/.codex/skills/story-setup/references/agent-references"
 assert_file "$project_root/CLAUDE.md"
+assert_file "$project_root/.story-deployed"
 assert_no_grep '\.claude/' "$project_root/.codex/config.toml" "Codex config must not contain .claude references"
 for subagent in \
   story-architect \
@@ -134,6 +142,10 @@ for hook in \
   validate-story-commit.sh; do
   assert_file "$project_root/.codex/hooks/$hook"
 done
+assert_grep '^agents_version: 9$' "$project_root/.story-deployed" "sentinel must record agents_version 9"
+assert_grep '^target_cli: codex$' "$project_root/.story-deployed" "sentinel must record target_cli"
+assert_grep '^resolver_strategy: project-local-skill-reference$' "$project_root/.story-deployed" "sentinel must record resolver_strategy"
+assert_grep '^references_dir: \.codex/skills/story-setup/references/agent-references$' "$project_root/.story-deployed" "sentinel must record references_dir"
 echo "  OK TS3 installed codex layout"
 
 # TS4 — Hook scripts run from nested cwd with Codex layout.

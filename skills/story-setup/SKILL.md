@@ -48,6 +48,7 @@ description: |
 ### 2.3 部署宿主环境文件
 
 - 从 `references/templates/` 复制模板到目标项目
+- Codex 项目级安装脚本为 `scripts/install-codex-project.sh`
 - 生成 `.codex/config.toml`
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 生成 `.codex/skills/story-setup/references/agent-references/`
@@ -73,11 +74,14 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 8
+  agents_version: 9
   setup_skill_version: 1.0.0
+  target_cli: codex
+  resolver_strategy: project-local-skill-reference
+  references_dir: .codex/skills/story-setup/references/agent-references
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 8，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules（v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 9，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules（v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
@@ -122,8 +126,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 8` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 8 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 9` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 9 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
 
 ---
 

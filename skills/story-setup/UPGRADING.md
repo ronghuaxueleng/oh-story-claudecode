@@ -43,7 +43,8 @@
 - `agents_version: 5` → 旧版，需重新部署以统一短篇主会话/子代理正文格式
 - `agents_version: 6` → 旧版，需重新部署以获取日更续写与伏笔 hook 修复
 - `agents_version: 7` → 旧版，需重新部署以获取子代理参考文件路径修复
-- `agents_version: 8` → 当前版本
+- `agents_version: 8` → 旧版，需重新部署以补齐 references bundle、sentinel 字段与根路径感知 hook
+- `agents_version: 9` → 当前版本
 
 ## 版本变更
 
@@ -83,8 +84,15 @@
 - 修复 `detect-story-gaps.sh` 对伏笔表头和正常开放伏笔（`未埋`/`已埋`）的误报；SessionStart 只提示 `已过期` 或异常状态
 - 已部署项目需重新运行 `story-setup`，以覆盖 `.codex/hooks/`、`.codex/agents/`、`.codex/rules/` 并获得新版 hook 行为
 
-### v8 (当前)
+### v8
 
 - 修复 story-review 及部署后的 reviewer 子代理在项目根目录下读取参考文件时，只找裸文件名（如 `quality-checklist.md`）导致找不到 skill references 的问题
 - 子代理模板新增参考文件路径规则：优先从 `.codex/skills/` 或 `skills/` 拼接解析 `story-setup/references/agent-references/*.md` 规范路径，避免依赖当前工作目录且不跨 skill 引用 references
 - 已部署项目需重新运行 `story-setup`，以覆盖 `.codex/agents/` 并获得新版参考文件路径规则
+
+### v9 (当前)
+
+- `install-codex-project.sh` 现在会同步部署 `.codex/skills/story-setup/references/agent-references/`
+- `.story-deployed` 新增 `target_cli`、`resolver_strategy`、`references_dir` 字段，session-start 可据此检查部署完整性
+- `session-start.sh` 改为统一使用项目根解析与 sentinel 检查，能从嵌套目录稳定定位书目、拆文库和 references bundle
+- `detect-story-gaps.sh` 改为统一使用 `discover_all_books`，并彻底中文化提示文案
