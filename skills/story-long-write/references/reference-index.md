@@ -10,6 +10,7 @@
 |------|---------|
 | 确定题材类型 | `references/genre-catalog.md` |
 | 判断市场方向 | `references/genre-readers.md` |
+| 收束开书方向 | `references/artifact-protocols.md`（`设定/选题决策.md` 模板） |
 | 特殊题材考量 | `references/plot-special-topics.md` |
 
 ## Phase 2：核心设定
