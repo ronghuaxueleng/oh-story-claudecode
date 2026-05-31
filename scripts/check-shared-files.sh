@@ -25,22 +25,19 @@ fi
 # - the following craft/reference files are now skill-tuned and are not expected to stay byte-identical
 # - quality-checklist.md: story-short-analyze's copy points to material-decomposition.md
 #   (absent in story-short-write); the two copies are intentionally skill-specific
-# - 5 genre files: story-short-analyze prepends a "## 用作拆文标尺时" analyst-lens
-#   header (consumed as a reference standard for source-story evaluation, not a writer
-#   playbook). Writer skills don't get the header. Wholesale-ignored here because their
-#   non-analyst copies have not all been confirmed byte-identical.
+# - some craft/reference files remain skill-tuned and are still intentionally forked
+# - files removed from IGNORE below have been re-confirmed byte-identical and are once
+#   again guarded here; don't re-add them casually unless they truly become skill-specific
 # - female-audience-writing.md: story-short-write's copy is short-story-specific;
 #   story-long-write's copy is adapted for long-form serialized 女频 (卷级感情节奏,
 #   多平台篇幅定位, 长线骨架题材). The two are intentionally divergent — NOT a managed
 #   sync copy (no sync-source frontmatter).
 IGNORE_NAMES="output-templates.md material-decomposition.md quality-checklist.md \
 anti-ai-writing.md banned-words.md dialogue-mastery.md emotional-arc-design.md \
-format-and-structure.md hooks-chapter.md hooks-suspense.md opening-design.md \
-outline-conflict.md outline-methods.md outline-rhythm.md plot-core-methods.md \
-real-market-data.md reversal-toolkit.md state-tracking.md style-craft.md \
-style-genre-modules.md writing-craft.md \
-genre-catalog.md genre-core-mechanics.md genre-readers.md \
-genre-writing-formulas.md genre-writing-techniques.md female-audience-writing.md"
+format-and-structure.md hooks-chapter.md \
+outline-conflict.md outline-methods.md outline-rhythm.md \
+real-market-data.md style-craft.md style-genre-modules.md \
+female-audience-writing.md"
 
 # Analyst-divergent (basename): the story-short-analyze copy intentionally prepends the
 # "## 用作拆文标尺时" analyst-lens header, so it is dropped from the comparison set; all
