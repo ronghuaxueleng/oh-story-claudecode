@@ -14,6 +14,8 @@ jobs:
         run: bash scripts/check-shared-files.sh
       - name: Check story-setup deployment
         run: bash scripts/check-story-setup-deployment.sh
+      - name: Run Codex self check
+        run: bash scripts/codex-self-check.sh
       - name: Syntax-check collection scripts
         run: |
           for f in $(find skills -name '*-scraper.js' -o -name 'cdp-utils.js' -o -name 'setup-cdp-chrome.js'); do
