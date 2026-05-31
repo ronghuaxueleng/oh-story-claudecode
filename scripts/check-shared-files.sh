@@ -23,34 +23,30 @@ fi
 # - quality-checklist.md: analyze/write/review copies have different check semantics
 # - agent-references/*: story-setup ships deployment copies on purpose, never compare them
 # - the following craft/reference files are now skill-tuned and are not expected to stay byte-identical
-IGNORE_NAMES="
-output-templates.md
-material-decomposition.md
-quality-checklist.md
-anti-ai-writing.md
-banned-words.md
-character-basics.md
-character-design-methods.md
-character-relations.md
-dialogue-mastery.md
-emotional-arc-design.md
-format-and-structure.md
-genre-catalog.md
-genre-core-mechanics.md
-hooks-chapter.md
-hooks-suspense.md
-opening-design.md
-outline-conflict.md
-outline-methods.md
-outline-rhythm.md
-plot-core-methods.md
-real-market-data.md
-reversal-toolkit.md
-state-tracking.md
-style-craft.md
-style-genre-modules.md
-writing-craft.md
-"
+# - quality-checklist.md: story-short-analyze's copy points to material-decomposition.md
+#   (absent in story-short-write); the two copies are intentionally skill-specific
+# - 5 genre files: story-short-analyze prepends a "## 用作拆文标尺时" analyst-lens
+#   header (consumed as a reference standard for source-story evaluation, not a writer
+#   playbook). Writer skills don't get the header. Wholesale-ignored here because their
+#   non-analyst copies have not all been confirmed byte-identical.
+# - female-audience-writing.md: story-short-write's copy is short-story-specific;
+#   story-long-write's copy is adapted for long-form serialized 女频 (卷级感情节奏,
+#   多平台篇幅定位, 长线骨架题材). The two are intentionally divergent — NOT a managed
+#   sync copy (no sync-source frontmatter).
+IGNORE_NAMES="output-templates.md material-decomposition.md quality-checklist.md \
+anti-ai-writing.md banned-words.md dialogue-mastery.md emotional-arc-design.md \
+format-and-structure.md hooks-chapter.md hooks-suspense.md opening-design.md \
+outline-conflict.md outline-methods.md outline-rhythm.md plot-core-methods.md \
+real-market-data.md reversal-toolkit.md state-tracking.md style-craft.md \
+style-genre-modules.md writing-craft.md \
+genre-catalog.md genre-core-mechanics.md genre-readers.md \
+genre-writing-formulas.md genre-writing-techniques.md female-audience-writing.md"
+
+# Analyst-divergent (basename): the story-short-analyze copy intentionally prepends the
+# "## 用作拆文标尺时" analyst-lens header, so it is dropped from the comparison set; all
+# OTHER copies (writer skills + agent-references) must still stay byte-identical. Stricter
+# than a wholesale ignore — it still guards writer↔writer drift.
+ANALYST_DIVERGENT_NAMES="character-basics.md character-design-methods.md character-relations.md"
 
 mismatches=0
 checked=0
@@ -85,6 +81,21 @@ for base in $dup_names; do
     [ -z "$fpath" ] && continue
     paths+=("$fpath")
   done < <(find_reference_files | grep "/$base\$" || true)
+
+  # Analyst-divergent basenames: drop the story-short-analyze copy (intentional
+  # analyst-lens fork); the remaining copies must still be byte-identical.
+  case " $ANALYST_DIVERGENT_NAMES " in
+    *" $base "*)
+      filtered=()
+      for p in ${paths[@]+"${paths[@]}"}; do
+        case "$p" in
+          */story-short-analyze/*) ;;
+          *) filtered+=("$p") ;;
+        esac
+      done
+      paths=(${filtered[@]+"${filtered[@]}"})
+      ;;
+  esac
 
   if [ ${#paths[@]} -lt 2 ]; then
     continue

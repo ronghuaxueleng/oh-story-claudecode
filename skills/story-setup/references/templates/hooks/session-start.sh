@@ -3,8 +3,14 @@
 # 设计原则：无可用信息时完全静默，不输出任何内容，避免污染 context
 set -euo pipefail
 
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ ! -f "$HOOK_DIR/lib/common.sh" ]; then
+  printf '%b' "[WARN] story hook 函数库缺失。重新运行 /story-setup 恢复 .codex/hooks/lib/。\n"
+  exit 0
+fi
+
 # 加载公共函数库
-source "$(dirname "$0")/lib/common.sh"
+source "$HOOK_DIR/lib/common.sh"
 
 OUTPUT=""
 HAS_CONTENT=false
@@ -18,20 +24,20 @@ if [ -f ".story-deployed" ]; then
     fi
   done
   if [ -n "$MISSING_HOOKS" ]; then
-    OUTPUT+="[WARN] .story-deployed exists but hooks are missing: $MISSING_HOOKS\n"
-    OUTPUT+="  Fix: re-run story-setup to restore missing hooks.\n\n"
+    OUTPUT+="[WARN] .story-deployed 存在但缺少 hook：$MISSING_HOOKS\n"
+    OUTPUT+="  修复：重新运行 /story-setup 恢复缺失的 hook。\n\n"
     HAS_CONTENT=true
   fi
 else
-  OUTPUT+="[WARN] Writing infrastructure not deployed. Run story-setup to initialize.\n\n"
+  OUTPUT+="[WARN] 写作环境未部署。运行 /story-setup 初始化。\n\n"
   HAS_CONTENT=true
 fi
 
 # 显示分支和最近 commit（仅在有 git 历史时）
 BRANCH=$(git branch --show-current 2>/dev/null || echo "")
 if [ -n "$BRANCH" ]; then
-  OUTPUT+="=== Story Writing ===\n"
-  OUTPUT+="Branch: $BRANCH\n"
+  OUTPUT+="=== 写作进度 ===\n"
+  OUTPUT+="分支：$BRANCH\n"
   RECENT=$(git log --oneline -5 2>/dev/null || true)
   if [ -n "$RECENT" ]; then
     OUTPUT+="$RECENT\n"
@@ -53,7 +59,7 @@ fi
 if [ -d "拆文库" ]; then
   PROGRESS_COUNT=$(find 拆文库 -name "_progress.md" 2>/dev/null | wc -l | tr -d ' ')
   if [ "$PROGRESS_COUNT" -gt 0 ]; then
-    OUTPUT+="[INFO] $PROGRESS_COUNT incomplete analysis in 拆文库/. Use story-long-analyze or story-short-analyze.\n"
+    OUTPUT+="[INFO] 拆文库/ 中有 $PROGRESS_COUNT 个未完成拆文。运行 /story-long-analyze 或 /story-short-analyze。\n"
     HAS_CONTENT=true
   fi
 fi
