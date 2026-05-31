@@ -211,6 +211,8 @@ demo/拆文库-盘龙/
   - 给插件目录安装 `skills/` + `.codex-plugin/` 包装层
   - 适合做本地 Codex 插件打包或测试
 
+> 说明：仓库根的 `.claude-plugin/marketplace.json` 仅保留为历史兼容元数据。当前 Codex 分支应优先使用 `scripts/install-codex-project.sh` / `scripts/install-codex-plugin.sh`，不要再把 `.claude-plugin/*` 当作主部署入口。
+
 ## 项目文件结构
 
 一部长篇动辄几十万字、几百章。设定冲突、伏笔断线、时间线对不上——写到最后全靠记忆硬撑，迟早翻车。
@@ -309,7 +311,7 @@ demo/拆文库-盘龙/
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=worldwonderer%2Foh-story-claudecode&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=ronghuaxueleng%2Foh-story-claudecode&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />

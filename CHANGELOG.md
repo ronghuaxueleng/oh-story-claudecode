@@ -17,6 +17,7 @@ All notable changes to this project will be documented in this file.
 - **共享文件守卫**：修复 `story-long-write/references/character-relations.md` 与其余副本的两处措辞漂移，恢复 `check-shared-files.sh` 可通过状态；同时把一批已重新确认字节一致的共享文件（如 `opening-design.md`、`writing-craft.md`、`genre-core-mechanics.md` 等）移出忽略名单，重新纳入一致性校验。
 - **CI 接线**：`cross-platform.yml` 现已把 `scripts/codex-self-check.sh` 纳入 `static-check` job，避免 Codex 分支自检脚本长期只靠手动运行。
 - **贡献文档**：`CONTRIBUTING.md` 已对齐当前 Codex 分支的真实 CI、仓库脚本与贡献口径，避免贡献者继续按旧的 `.claude` / 旧 CI 认知操作。
+- **历史包装层说明**：`README` / `README_EN` 补充 `.claude-plugin/marketplace.json` 仅为历史兼容元数据的说明，并把 Star History 链接对齐到当前仓库；`.claude-plugin/marketplace.json` 自身的 owner / version / description 也同步到当前分支口径。
 - **story-import**：对齐 `story-long-analyze` 当前 Stage 0-6 管道与 `文风.md` 产物映射，避免导入链路继续引用旧阶段编号。
 - **术语统一**：长短篇 analyze / write / setup 文档里的 `agent`、`Agent 调用`、`chapter-extractor agent` 等旧口径继续收敛到 Codex 分支使用的“子代理”表述。
 

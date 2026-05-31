@@ -199,6 +199,8 @@ The repo ships two Codex-oriented install scripts:
   - installs the plugin wrapper plus `skills/` into a local Codex plugin directory
   - useful for local plugin packaging and smoke testing
 
+> Note: the repo-root `.claude-plugin/marketplace.json` is kept only as legacy compatibility metadata. On the current Codex branch, prefer `scripts/install-codex-project.sh` / `scripts/install-codex-plugin.sh` instead of treating `.claude-plugin/*` as the primary deployment path.
+
 ## Project File Structure
 
 A long-form novel can easily reach hundreds of thousands of words across hundreds of chapters. Setting conflicts, broken foreshadowing, timeline inconsistencies — relying on memory alone is a recipe for disaster.
@@ -290,7 +292,7 @@ I built this skill pack to help me through a job-hunting transition :joy:, and I
 
 ## Star History
 
-<a href="https://www.star-history.com/?repos=worldwonderer%2Foh-story-claudecode&type=date&legend=top-left">
+<a href="https://www.star-history.com/?repos=ronghuaxueleng%2Foh-story-claudecode&type=date&legend=top-left">
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />
