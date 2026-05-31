@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## v0.6.14
+
+> Codex 分支同步收口：部署元信息对齐 + 安装说明刷新 + 插件仓库信息去硬编码
+
+### 改进
+
+- **story-setup / 安装脚本**：`install-codex-project.sh` 与 `install-codex-plugin.sh` 统一写入 `agents_version: 9`、`target_cli: codex`、`resolver_strategy: project-local-skill-reference`、`references_dir`，并把 `agent-references` 一并部署，插件目录和项目目录的 Codex 运行时口径对齐。
+- **README / README_EN**：升级说明改为当前 Codex 分支口径，补充何时需要重新运行 `story-setup`，并新增 `install-codex-project.sh` / `install-codex-plugin.sh` 的用途说明。
+- **插件元信息**：`install-codex-plugin.sh` 不再硬编码旧上游仓库，改为优先从当前仓库 `origin` 推导 GitHub 地址，生成的 `.codex-plugin/plugin.json` 会随当前仓库来源自适应。
+- **story-import**：对齐 `story-long-analyze` 当前 Stage 0-6 管道与 `文风.md` 产物映射，避免导入链路继续引用旧阶段编号。
+- **术语统一**：长短篇 analyze / write / setup 文档里的 `agent`、`Agent 调用`、`chapter-extractor agent` 等旧口径继续收敛到 Codex 分支使用的“子代理”表述。
+
+### 验证
+
+- `bash scripts/check-hook-regex-sync.sh`
+- `bash scripts/check-story-setup-deployment.sh`
+- `bash scripts/static-check.sh`
+- `bash -n scripts/install-codex-plugin.sh`
+- `git diff --check`
+
 ## v0.6.8
 
 > story-import 重构 + skill 自包含化 + 起点扫榜与 story-review 子 Agent 修复

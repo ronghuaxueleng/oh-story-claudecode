@@ -72,13 +72,13 @@ flowchart LR
 **方式一** 在支持 skills 安装的环境中直接安装：
 
 ```
-安装这个 skill https://github.com/worldwonderer/oh-story-claudecode
+安装这个 skill https://github.com/ronghuaxueleng/oh-story-claudecode
 ```
 
 **方式二** 命令行：
 
 ```bash
-npx skills add worldwonderer/oh-story-claudecode -y -g
+npx skills add ronghuaxueleng/oh-story-claudecode -y -g
 ```
 
 `-g` 全局安装，所有目录可用；去掉 `-g` 则只装到当前目录。更新时重新执行同一条命令即可。
@@ -311,9 +311,9 @@ demo/拆文库-盘龙/
 
 <a href="https://www.star-history.com/?repos=worldwonderer%2Foh-story-claudecode&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />
  </picture>
 </a>
 

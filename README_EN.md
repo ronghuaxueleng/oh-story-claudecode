@@ -74,13 +74,13 @@ flowchart LR
 **Option 1** Install it directly in an environment that supports skills:
 
 ```
-Install this skill https://github.com/worldwonderer/oh-story-claudecode
+Install this skill https://github.com/ronghuaxueleng/oh-story-claudecode
 ```
 
 **Option 2** Command line:
 
 ```bash
-npx skills add worldwonderer/oh-story-claudecode -y
+npx skills add ronghuaxueleng/oh-story-claudecode -y
 ```
 
 Re-run the same command to update.
@@ -292,9 +292,9 @@ I built this skill pack to help me through a job-hunting transition :joy:, and I
 
 <a href="https://www.star-history.com/?repos=worldwonderer%2Foh-story-claudecode&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=worldwonderer/oh-story-claudecode&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ronghuaxueleng/oh-story-claudecode&type=date&legend=top-left" />
  </picture>
 </a>
 

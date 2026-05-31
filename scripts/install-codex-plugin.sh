@@ -7,6 +7,17 @@ TARGET_ROOT="${1:-$REPO_ROOT/plugins/$PLUGIN_NAME}"
 TEMPLATES_ROOT="$REPO_ROOT/skills/story-setup/references/templates"
 AGENT_REFS_ROOT="$REPO_ROOT/skills/story-setup/references/agent-references"
 
+REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
+if [[ "$REMOTE_URL" =~ ^git@github\.com:(.+)\.git$ ]]; then
+  REPO_HTTP_URL="https://github.com/${BASH_REMATCH[1]}"
+elif [[ "$REMOTE_URL" =~ ^https://github\.com/(.+)\.git$ ]]; then
+  REPO_HTTP_URL="https://github.com/${BASH_REMATCH[1]}"
+elif [[ "$REMOTE_URL" =~ ^https://github\.com/.+ ]]; then
+  REPO_HTTP_URL="$REMOTE_URL"
+else
+  REPO_HTTP_URL="https://github.com/ronghuaxueleng/oh-story-claudecode"
+fi
+
 copy_path() {
   local src="$1"
   local dst="$2"
@@ -29,12 +40,12 @@ cat > "$TARGET_ROOT/.codex-plugin/plugin.json" <<'EOF'
   "version": "1.0.0",
   "description": "网络小说创作工具箱，覆盖扫榜、拆文、写作、去AI味和封面。",
   "author": {
-    "name": "worldwonderer",
-    "email": "worldwonderer@example.com",
-    "url": "https://github.com/worldwonderer"
+    "name": "oh-story contributors",
+    "email": "noreply@example.com",
+    "url": "__REPO_HTTP_URL__"
   },
-  "homepage": "https://github.com/worldwonderer/oh-story-claudecode",
-  "repository": "https://github.com/worldwonderer/oh-story-claudecode",
+  "homepage": "__REPO_HTTP_URL__",
+  "repository": "__REPO_HTTP_URL__",
   "license": "MIT",
   "keywords": ["novel", "writing", "skills", "chinese", "web-novel"],
   "skills": "./skills/",
@@ -42,10 +53,10 @@ cat > "$TARGET_ROOT/.codex-plugin/plugin.json" <<'EOF'
     "displayName": "Oh Story Skills",
     "shortDescription": "网文写作技能包",
     "longDescription": "长篇与短篇网文的扫榜、拆文、写作、去AI味、封面和浏览器采集工具。",
-    "developerName": "worldwonderer",
+    "developerName": "oh-story contributors",
     "category": "Productivity",
     "capabilities": ["Read", "Write"],
-    "websiteURL": "https://github.com/worldwonderer/oh-story-claudecode",
+    "websiteURL": "__REPO_HTTP_URL__",
     "defaultPrompt": [
       "帮我写长篇网文大纲",
       "帮我分析一本小说",
@@ -54,6 +65,7 @@ cat > "$TARGET_ROOT/.codex-plugin/plugin.json" <<'EOF'
   }
 }
 EOF
+sed -i "s|__REPO_HTTP_URL__|$REPO_HTTP_URL|g" "$TARGET_ROOT/.codex-plugin/plugin.json"
 cat > "$TARGET_ROOT/.codex/config.toml" <<'EOF'
 project_doc_fallback_filenames = ["CLAUDE.md"]
 project_doc_max_bytes = 65536

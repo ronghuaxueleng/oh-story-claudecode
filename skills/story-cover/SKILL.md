@@ -14,7 +14,7 @@ metadata:
         - jq
         - base64
     primaryEnv: GPT_IMAGE_API_KEY
-    source: https://github.com/worldwonderer/oh-story-claudecode
+    source: https://github.com/ronghuaxueleng/oh-story-claudecode
 ---
 
 # story-cover：小说封面生成
