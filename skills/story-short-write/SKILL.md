@@ -96,7 +96,7 @@ description: |
 3. 写入本篇 `设定.md` 的“对标摘要”区，写作时每个场景从中召回 1-2 个相关技法
 4. 如只找到原文、未找到拆文报告，提示用户先运行 `/story-short-analyze`；如用户要求继续，也可只按原文做弱参考
 
-#### Agent 调用：story-architect
+#### 子代理调用：story-architect
 
 构思阶段，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
 - 目标：`story-architect`
@@ -151,7 +151,7 @@ description: |
 5. 反转信息差验证（公式见 `writing-workflow.md`）
 6. 伏笔回查清单（标准见 `writing-workflow.md`）
 
-#### Agent 调用：character-designer
+#### 子代理调用：character-designer
 
 设计任务完成后，如果项目已部署 `character-designer`（检查 `.codex/agents/character-designer.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
 - 目标：`character-designer`
@@ -190,7 +190,7 @@ description: |
 
 **写作指令：按三维度织入逐场景写作，不是翻译大纲。每个场景让读者和主角一起经历。三个维度（发生、感知、反应）同时织入同一段连续正文——不按维度分段，不用"先写发生再补感知"的方式写作。织入后仍必须按镜头断段：一段只承载一个动作/信息变化，优先一段一句，避免一段到底。输出前做密度重排：段落 >60 字按句号/动作转折拆开，单句 >45 字拆短。**
 
-#### Agent 调用：narrative-writer
+#### 子代理调用：narrative-writer
 
 正文写作阶段默认由主会话按 2-3 节/批分批写正文，主会话输出是短篇正文的标准形态。不要要求单次子代理写完 8000+ 字全文。每批写完后先更新“已写小节摘要”（3-5 条：已揭示信息、情绪位置、未回收伏笔、下一批衔接句），下一批必须先读取该摘要和 `正文.md` 尾部 300-500 字再续写。只有在用户明确要求子代理、主会话上下文不足，或需要隔离一段试写时，才检查 `.codex/agents/narrative-writer.md` 并 spawn 一个子代理，同时传入以下信息：
 - 目标：`narrative-writer`
@@ -336,7 +336,7 @@ description: |
 加载 `references/writing-workflow.md` 中的精修清单完成检查。
 重点：开头钩子、情绪曲线、反转铺垫、每句话价值、格式规范、AI 腔排查。
 
-#### Agent 调用：narrative-writer（去AI味）+ consistency-checker
+#### 子代理调用：narrative-writer（去AI味）+ consistency-checker
 
 精修阶段，如果项目已部署对应子代理，可 spawn：
 - 一个 `narrative-writer` 子代理，传入：项目目录 `"{dir}"`、任务描述 `去AI味+格式检查`、检查范围 `"{正文文件}"`；用于执行去AI味（6 Gate）和格式合规检查

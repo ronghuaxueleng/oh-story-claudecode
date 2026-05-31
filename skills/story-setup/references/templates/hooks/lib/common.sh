@@ -3,7 +3,7 @@
 # 注意：不加 set -euo pipefail，避免 source 时覆盖调用方的 shell options
 
 # project_root — 稳定解析项目根目录
-# 优先使用 Claude Code 注入的 CLAUDE_PROJECT_DIR；其次使用 git root；最后退回当前目录。
+# 优先使用宿主注入的 CLAUDE_PROJECT_DIR；其次使用 git root；最后退回当前目录。
 # 输出绝对路径，避免 hook 从嵌套 cwd 执行时误读/误写。
 project_root() {
   if [ -n "${CLAUDE_PROJECT_DIR:-}" ] && [ -d "$CLAUDE_PROJECT_DIR" ]; then
