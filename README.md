@@ -167,16 +167,25 @@ demo/拆文库-盘龙/
 
 各子代理按需加载 `references/` 中的写作理论（角色设计、对话技法、反转工具箱等 100+ 份方法论文件），不预占上下文。
 
-## 升级到 v0.6.6
+## 升级到当前 Codex 版
 
 如果你已经在写作项目中运行过 `story-setup`，升级 skill 后请在项目根目录重新运行一次 `story-setup`。
 
-本版将 `agents_version` 升级到 v7，重点修复 40+ 章长篇日更后的 token 膨胀问题：
+当前 Codex 分支建议以 `agents_version: 9` 为准。重新部署后会同步更新 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`、`.codex/skills/story-setup/references/agent-references/`，并刷新 `.story-deployed` 元信息。
 
-- `story-long-write 日更` 进入批量流程后，同一批次里的“继续 / 续写 / 日更”会继续留在 `workflow-daily.md`，不会跳出流程直接写正文。
-- 每章开始前必须读取本轮真实项目文件：细纲、上一章正文、`追踪/上下文.md`、`追踪/伏笔.md`、`追踪/时间线.md`、角色状态/角色设定。
-- SessionStart hook 只提示 `已过期` 或异常伏笔状态；正常开放伏笔（`未埋` / `已埋`）不再触发全量伏笔审计。
-- 日更流程只处理本轮增量伏笔；需要全量审计时请显式运行 `story-review`。
+这条分支当前已经对齐的重点：
+
+- `story-long-write` / `story-review` / `story-deslop` 统一按 Codex 子代理、闸门、失败码体系运行
+- `story-long-scan -> 设定/选题决策.md -> story-long-write` 已打通
+- `story-import` 已对齐 `story-long-analyze` 的 Stage 0-6 管线与 `文风.md` 产物
+- `story-setup` 重新部署后会校验 hook 缺失、版本过旧、references bundle 缺失
+- SessionStart hook 只提示 `已过期` 或异常伏笔状态；正常开放伏笔（`未埋` / `已埋`）不再触发全量伏笔审计
+
+如果项目里已有旧版 `.story-deployed`，看到以下任一情况都建议重新运行 `story-setup`：
+
+- `agents_version < 9`
+- `.story-deployed` 缺少 `target_cli` / `resolver_strategy` / `references_dir`
+- `.codex/skills/story-setup/references/agent-references/` 不存在
 
 ## 自动化 Hooks
 
@@ -190,6 +199,17 @@ demo/拆文库-盘龙/
 | pre-compact.sh | 上下文压缩前 | 保存进度快照路径和行数摘要 |
 | post-compact.sh | 上下文压缩后 | 提示读取进度快照恢复上下文 |
 | validate-story-commit.sh | git commit 时 | 检查硬编码属性、设定必填字段（仅警告，不阻断） |
+
+## Codex 安装脚本
+
+仓库内置两个 Codex 安装脚本：
+
+- `scripts/install-codex-project.sh`
+  - 给具体写作项目安装 `.codex/` 运行时目录
+  - 会部署 hooks、rules、子代理、`agent-references`、`CLAUDE.md`、`.story-deployed`
+- `scripts/install-codex-plugin.sh`
+  - 给插件目录安装 `skills/` + `.codex-plugin/` 包装层
+  - 适合做本地 Codex 插件打包或测试
 
 ## 项目文件结构
 

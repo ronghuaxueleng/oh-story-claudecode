@@ -1,4 +1,4 @@
-<!-- Last synced with README.md: 2026-05-21 -->
+<!-- Last synced with README.md: 2026-05-31 -->
 
 **English** | [中文](README.md)
 
@@ -155,16 +155,25 @@ Writing skills internally coordinate 7 specialized subagent protocols:
 
 Subagent protocols load writing theory from `references/` on demand (character design, dialogue techniques, twist toolbox, etc. — 100+ methodology files), without reserving context window space.
 
-## Upgrading to v0.6.6
+## Upgrading the Current Codex Branch
 
 If you have already run `story-setup` inside a writing project, run `story-setup` again from the project root after updating this skill pack.
 
-This release bumps `agents_version` to v7 and focuses on reducing token blow-ups in 40+ chapter daily long-form writing projects:
+For the current Codex branch, treat `agents_version: 9` as the baseline. Re-deployment refreshes `.codex/agents/`, `.codex/hooks/`, `.codex/rules/`, `.codex/skills/story-setup/references/agent-references/`, and the `.story-deployed` metadata file.
 
-- After `story-long-write 日更` enters the daily batch flow, same-batch “continue / rewrite / daily write” requests stay inside `workflow-daily.md` instead of jumping directly to prose writing.
-- Before each chapter, the workflow must read concrete project files from the current run: chapter outline, previous chapter prose, `追踪/上下文.md`, `追踪/伏笔.md`, `追踪/时间线.md`, and character status/settings.
-- The SessionStart hook now warns only for `已过期` or abnormal foreshadowing states; normal open states (`未埋` / `已埋`) no longer trigger full foreshadowing audits.
-- Daily writing only handles incremental foreshadowing changes for the current batch; run `story-review` explicitly when you need a full audit.
+Major Codex-side alignments already included in this branch:
+
+- `story-long-write`, `story-review`, and `story-deslop` now share the Codex subagent / gate / failure-code model
+- `story-long-scan -> 设定/选题决策.md -> story-long-write` is wired end to end
+- `story-import` is aligned with the `story-long-analyze` Stage 0-6 pipeline and `文风.md`
+- `story-setup` now validates missing hooks, outdated deployment versions, and missing reference bundles
+- The SessionStart hook warns only for overdue or abnormal foreshadowing states; normal open states no longer trigger full audits
+
+Re-run `story-setup` if any of the following is true:
+
+- `agents_version < 9`
+- `.story-deployed` is missing `target_cli`, `resolver_strategy`, or `references_dir`
+- `.codex/skills/story-setup/references/agent-references/` does not exist
 
 ## Automation Hooks
 
@@ -178,6 +187,17 @@ This release bumps `agents_version` to v7 and focuses on reducing token blow-ups
 | pre-compact.sh | Before context compaction | Save progress snapshot path and line-count summary |
 | post-compact.sh | After context compaction | Prompt to read progress snapshot for context recovery |
 | validate-story-commit.sh | git commit | Check hardcoded attributes, setting required fields (warning only, non-blocking) |
+
+## Codex Install Scripts
+
+The repo ships two Codex-oriented install scripts:
+
+- `scripts/install-codex-project.sh`
+  - installs the runtime `.codex/` layout into a concrete writing project
+  - deploys hooks, rules, subagents, `agent-references`, `CLAUDE.md`, and `.story-deployed`
+- `scripts/install-codex-plugin.sh`
+  - installs the plugin wrapper plus `skills/` into a local Codex plugin directory
+  - useful for local plugin packaging and smoke testing
 
 ## Project File Structure
 

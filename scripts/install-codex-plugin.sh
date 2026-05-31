@@ -5,6 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PLUGIN_NAME="oh-story-skills"
 TARGET_ROOT="${1:-$REPO_ROOT/plugins/$PLUGIN_NAME}"
 TEMPLATES_ROOT="$REPO_ROOT/skills/story-setup/references/templates"
+AGENT_REFS_ROOT="$REPO_ROOT/skills/story-setup/references/agent-references"
 
 copy_path() {
   local src="$1"
@@ -64,5 +65,15 @@ copy_path "$REPO_ROOT/demo" "$TARGET_ROOT/assets"
 copy_path "$TEMPLATES_ROOT/subagents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
 copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
+copy_path "$AGENT_REFS_ROOT" "$TARGET_ROOT/.codex/skills/story-setup/references/agent-references"
+
+cat > "$TARGET_ROOT/.story-deployed" <<EOF
+deployed_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+agents_version: 9
+setup_skill_version: 1.0.0
+target_cli: codex
+resolver_strategy: project-local-skill-reference
+references_dir: .codex/skills/story-setup/references/agent-references
+EOF
 
 echo "Installed Codex plugin at $TARGET_ROOT"
