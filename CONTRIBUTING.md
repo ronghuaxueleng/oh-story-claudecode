@@ -20,8 +20,11 @@ skills/
 ├── story-cover/             # 封面生成
 └── browser-cdp/             # 浏览器操控
 scripts/
-├── static-check.sh          # CI 脚本：frontmatter + 引用路径 + 死文件 + 交叉引用
-└── check-shared-files.sh    # 共享文件一致性校验
+├── static-check.sh                    # frontmatter + 引用路径 + 死文件 + 交叉引用
+├── check-hook-regex-sync.sh           # hook 伏笔状态检测行为
+├── check-shared-files.sh              # 跨 skill 同名副本一致性
+├── check-story-setup-deployment.sh    # story-setup 部署完整性
+└── codex-self-check.sh                # Codex 分支仓库自检
 ```
 
 每个 skill 由一个 `SKILL.md`（入口）和 `references/` 目录（知识库）组成。
@@ -43,6 +46,8 @@ description: |
 
 ## 如何贡献
 
+当前仓库以 **Codex 分支** 为准，不再维护 `.claude/*` 与 `.codex/*` 双栈。
+
 ### 改进现有 skill
 
 1. Fork 仓库
@@ -58,17 +63,25 @@ description: |
 
 ## CI 检查
 
-PR 自动运行 `bash scripts/static-check.sh`，检查项：
-- frontmatter（name + description 必填）
-- 引用路径有效性（SKILL.md 中提到的 references 文件必须存在）
-- 死文件检测（references/ 中未被 SKILL.md 引用的文件会警告）
-- references 内部交叉引用有效性
+PR 自动运行 `.github/workflows/cross-platform.yml`。其中 `static-check` job 会强制执行：
+
+- `bash scripts/static-check.sh`
+- `bash scripts/check-hook-regex-sync.sh`
+- `bash scripts/check-shared-files.sh`
+- `bash scripts/check-story-setup-deployment.sh`
+- `bash scripts/codex-self-check.sh`
+- 采集脚本 `node --check` 语法校验
+
+另有 `windows` / `macos` job 验证 `cdp-utils` 加载和 `setup-cdp-chrome.js --dry-run`。
 
 提交前建议本地运行：
 
 ```bash
-bash scripts/static-check.sh       # CI 会跑的检查
-bash scripts/check-shared-files.sh # 共享文件一致性（CI 未强制）
+bash scripts/static-check.sh
+bash scripts/check-hook-regex-sync.sh
+bash scripts/check-shared-files.sh
+bash scripts/check-story-setup-deployment.sh
+bash scripts/codex-self-check.sh
 ```
 
 ## 共享文件规范
@@ -91,6 +104,7 @@ bash scripts/check-shared-files.sh # 共享文件一致性（CI 未强制）
 - **简洁**：用表格和模板，不要长篇叙述
 - **无冗余**：不同 skill 的 `references/` 之间可以共享文件（通过路径引用），但同一 skill 内不要重复
 - **中文**：所有内容用中文
+- **Codex 优先**：新增或修改基础设施时，优先维护 `.codex/*`、Codex workflow 和 Codex 部署脚本，不要把旧宿主路径重新带回主干
 
 ## 提交流程
 
