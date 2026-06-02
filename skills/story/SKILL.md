@@ -18,6 +18,7 @@ description: |
 | 写短篇 | 短篇、盐言、一万字 | `/story-short-write` |
 | 长篇拆文 | 拆文、分析这本书、黄金三章 | `/story-long-analyze` |
 | 短篇拆文 | 拆短篇、分析这个故事 | `/story-short-analyze` |
+| 本地 TXT 小说情节提取 | 本地txt小说情节、本地txt剧情库、提取本地txt小说情节、抽本地txt小说剧情线、txt情节库 | `/story-local-plot-extract` |
 | 长篇扫榜 | 长篇排行、什么火、起点/番茄/晋江 | `/story-long-scan` |
 | 选题决策 | 写什么能爆、帮我选题、选题方向 | `/story-long-scan` |
 | 短篇扫榜 | 短篇排行、知乎盐言排行 | `/story-short-scan` |

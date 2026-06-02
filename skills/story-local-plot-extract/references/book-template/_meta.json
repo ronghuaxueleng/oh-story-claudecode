@@ -1,0 +1,47 @@
+{
+  "book_name": "<书名>",
+  "skill_name": "story-local-plot-extract",
+  "skill_version": "1.2.0",
+  "mode": "Codex 模型直抽",
+  "source_file": "<本地TXT小说文件路径>",
+  "output_dir": "<本地TXT情节库/{书名}>",
+  "current_version": "<版本号>",
+  "coverage": {
+    "continuous_plots": "<如: 1-120>",
+    "skeleton": "<如: 1-120>",
+    "construction_segments": "<如: 1-120>",
+    "cross_chapter_events": "<如: 1-120>",
+    "relations": "<如: 1-120>",
+    "character_states": "<如: 1-120>"
+  },
+  "counts": {
+    "continuous_plots": 0,
+    "construction_segments": 0,
+    "cross_chapter_events": 0,
+    "relations": 0,
+    "character_states": 0,
+    "skeleton_arcs": 0
+  },
+  "jsonl_files": {
+    "continuous_plots": "连续剧情库.jsonl",
+    "construction_segments": "细粒度剧情施工库.jsonl",
+    "cross_chapter_events": "跨章情节事件库.jsonl",
+    "relations": "人物关系网.jsonl",
+    "character_states": "角色状态线.jsonl"
+  },
+  "markdown_files": {
+    "skeleton": "剧情骨架库.md",
+    "continuous_plots": "连续剧情库.md",
+    "construction_segments": "细粒度剧情施工库.md",
+    "cross_chapter_events": "跨章情节事件库.md",
+    "relations": "人物关系网.md",
+    "character_states": "角色状态线.md",
+    "notes": "抽取说明.md",
+    "progress": "进度.md"
+  },
+  "next_checkpoint": "<如: 第121章>",
+  "next_tasks": [
+    "<下一步任务1>",
+    "<下一步任务2>"
+  ]
+}
