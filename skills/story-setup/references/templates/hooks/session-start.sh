@@ -40,8 +40,8 @@ if sentinel_exists "$ROOT/.story-deployed"; then
       HAS_CONTENT=true
       ;;
     *)
-      if [ "$AGENTS_VERSION" -lt 9 ]; then
-        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v9。重新运行 /story-setup 刷新 hooks、agents 和 references。\n\n"
+      if [ "$AGENTS_VERSION" -lt 14 ]; then
+        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v14。重新运行 /story-setup 刷新 hooks、agents、templates、references 和项目级脚本。\n\n"
         HAS_CONTENT=true
       fi
       ;;
@@ -82,11 +82,46 @@ fi
 
 # 上下文.md 摘要（只看当前位置部分，前 10 行）
 BOOK_DIR=$(discover_active_book)
+if [ -n "$BOOK_DIR" ]; then
+  if [ -f "$BOOK_DIR/写作执行铁律.md" ]; then
+    OUTPUT+="[INFO] 写作前先读：${BOOK_DIR#$ROOT/}/写作执行铁律.md\n\n"
+    HAS_CONTENT=true
+  elif [ -d "$BOOK_DIR/追踪" ] || [ -d "$BOOK_DIR/正文" ] || [ -d "$BOOK_DIR/设定" ] || [ -d "$BOOK_DIR/大纲" ]; then
+    OUTPUT+="[WARN] 当前书目录缺少 写作执行铁律.md：${BOOK_DIR#$ROOT/}\n"
+    OUTPUT+="  进入 story-long-write 前先补书籍级铁律，不得只靠 CLAUDE.md 继续正文流程。\n\n"
+    HAS_CONTENT=true
+  fi
+fi
+
 if [ -n "$BOOK_DIR" ] && [ -f "$BOOK_DIR/追踪/上下文.md" ]; then
   OUTPUT+="--- 当前位置 ---\n"
   SNAPSHOT=$(head -10 "$BOOK_DIR/追踪/上下文.md")
   OUTPUT+="${SNAPSHOT}\n---\n\n"
   HAS_CONTENT=true
+fi
+
+# 追踪主表核对提示
+if [ -n "$BOOK_DIR" ]; then
+  TRACKING_FILES="追踪/上下文.md 追踪/时间线.md 追踪/角色状态.md 追踪/伏笔.md"
+  MISSING_TRACKING=""
+  for rel in $TRACKING_FILES; do
+    if [ ! -f "$BOOK_DIR/$rel" ]; then
+      MISSING_TRACKING+="${rel#追踪/} "
+    fi
+  done
+
+  if [ -n "$MISSING_TRACKING" ]; then
+    OUTPUT+="[WARN] 追踪主表缺失：$MISSING_TRACKING\n"
+    OUTPUT+="  续写、回炉、审查前先补齐追踪主表，不得直接动正文。\n\n"
+    HAS_CONTENT=true
+  else
+    OUTPUT+="[INFO] 续写前必读：追踪/上下文.md、时间线.md、角色状态.md、伏笔.md"
+    if [ -f "$BOOK_DIR/追踪/情报台账.md" ]; then
+      OUTPUT+="、情报台账.md"
+    fi
+    OUTPUT+="\n\n"
+    HAS_CONTENT=true
+  fi
 fi
 
 # 未完成拆文（阈值 > 0 才报告）

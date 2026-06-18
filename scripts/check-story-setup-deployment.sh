@@ -59,8 +59,8 @@ write_sentinel() {
   local root="$1"
 cat > "$root/.story-deployed" <<'SENTINEL'
 deployed_at: 2026-05-25T00:00:00Z
-agents_version: 9
-setup_skill_version: 1.0.0
+agents_version: 14
+setup_skill_version: 1.4.1
 target_cli: codex
 resolver_strategy: project-local-skill-reference
 references_dir: .codex/skills/story-setup/references/agent-references
@@ -84,7 +84,7 @@ assert_grep '\.codex/\*' "$SKILL_FILE" "SKILL.md must document Codex-only deploy
 assert_no_grep '写入 .*\.claude/|复制到 .*\.claude/|部署到 .*\.claude/' "$SKILL_FILE" "SKILL.md must not instruct deploying into .claude paths"
 assert_grep 'templates/subagents/' "$SKILL_FILE" "SKILL.md must document subagents template directory"
 assert_grep 'scripts/install-codex-project\.sh' "$SKILL_FILE" "SKILL.md must document install-codex-project.sh"
-assert_grep 'agents_version: 9' "$SKILL_FILE" "SKILL.md must document current agents_version"
+assert_grep 'agents_version: 14' "$SKILL_FILE" "SKILL.md must document current agents_version"
 assert_grep 'target_cli: codex' "$SKILL_FILE" "SKILL.md must document target_cli"
 assert_grep 'resolver_strategy: project-local-skill-reference' "$SKILL_FILE" "SKILL.md must document resolver_strategy"
 assert_grep 'references_dir: \.codex/skills/story-setup/references/agent-references' "$SKILL_FILE" "SKILL.md must document references_dir"
@@ -121,6 +121,7 @@ assert_dir "$project_root/.codex/hooks"
 assert_dir "$project_root/.codex/rules"
 assert_dir "$project_root/.codex/skills/story-setup/references/agent-references"
 assert_file "$project_root/CLAUDE.md"
+assert_file "$project_root/写作执行铁律.md"
 assert_file "$project_root/.story-deployed"
 assert_no_grep '\.claude/' "$project_root/.codex/config.toml" "Codex config must not contain .claude references"
 for subagent in \
@@ -142,7 +143,22 @@ for hook in \
   validate-story-commit.sh; do
   assert_file "$project_root/.codex/hooks/$hook"
 done
-assert_grep '^agents_version: 9$' "$project_root/.story-deployed" "sentinel must record agents_version 9"
+for project_script in \
+  scene_lint.py \
+  draft_purity_guard.py \
+  template_exhaustion_lint.py \
+  scene_narrowness_lint.py \
+  script_version_check.py \
+  validate_tracking_state.py \
+  verdict_conflict_lint.py \
+  chapter_hook_repeat_lint.py \
+  detect_key_character_promotion.py \
+  character_agency_lint.py \
+  story_review_regression.py; do
+  assert_file "$project_root/scripts/$project_script"
+done
+assert_grep '^agents_version: 14$' "$project_root/.story-deployed" "sentinel must record agents_version 14"
+assert_grep '^setup_skill_version: 1.4.1$' "$project_root/.story-deployed" "sentinel must record setup_skill_version 1.4.1"
 assert_grep '^target_cli: codex$' "$project_root/.story-deployed" "sentinel must record target_cli"
 assert_grep '^resolver_strategy: project-local-skill-reference$' "$project_root/.story-deployed" "sentinel must record resolver_strategy"
 assert_grep '^references_dir: \.codex/skills/story-setup/references/agent-references$' "$project_root/.story-deployed" "sentinel must record references_dir"
@@ -181,7 +197,7 @@ done < <(
 echo "  OK TS5 reference bundle integrity"
 
 # TS6 — Upgrade notes align with current branch rules.
-assert_grep 'agents_version: 8|`agents_version: 8`|agents_version`.*8' "$UPGRADING_FILE" "UPGRADING.md must document agents_version 8"
+assert_grep 'agents_version: 14|`agents_version: 14`|agents_version`.*14' "$UPGRADING_FILE" "UPGRADING.md must document agents_version 14"
 assert_grep 'story-setup' "$UPGRADING_FILE" "UPGRADING.md must instruct rerunning story-setup"
 assert_grep '\.codex/hooks/' "$UPGRADING_FILE" "UPGRADING.md must mention .codex hooks"
 assert_no_grep '\.claude/' "$UPGRADING_FILE" "UPGRADING.md must not mention .claude in codex branch"

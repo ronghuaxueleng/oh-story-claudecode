@@ -19,6 +19,16 @@ else
   echo "Active state: not found"
 fi
 
+# 追踪主表状态摘要
+if [ -n "$BOOK_DIR" ]; then
+  for rel in 追踪/时间线.md 追踪/角色状态.md 追踪/伏笔.md 追踪/情报台账.md; do
+    if [ -f "$BOOK_DIR/$rel" ]; then
+      LINE_COUNT=$(wc -l < "$BOOK_DIR/$rel" | tr -d ' ')
+      echo "Tracking file: ${BOOK_DIR#$ROOT/}/$rel ($LINE_COUNT lines)"
+    fi
+  done
+fi
+
 # Git 未提交变更计数
 CHANGED=$(git -C "$ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ') || CHANGED=0
 STAGED=$(git -C "$ROOT" diff --name-only --cached 2>/dev/null | wc -l | tr -d ' ') || STAGED=0

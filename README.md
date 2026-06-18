@@ -97,7 +97,7 @@ Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `
 
 | Skill | 触发 | 说明 |
 |:------|:-----|:-----|
-| `story-setup` | `story-setup`、`准备写书` | 环境部署 · hooks/rules/子代理/CLAUDE.md 一键部署（已有配置安全合并） |
+| `story-setup` | `story-setup`、`准备写书` | 环境部署 · hooks/rules/子代理/项目级脚本/CLAUDE.md/写作执行铁律 一键部署（已有配置安全合并） |
 | `story` | `story`、`网文` | 工具箱路由 · 模糊意图自动分发到对应 skill |
 | `story-long-write` | `story-long-write`、`写长篇` | 长篇写作 · 大纲搭建、人物设定、正文输出 |
 | `story-long-analyze` | `story-long-analyze`、`长篇拆文` | 长篇拆文 · 黄金三章、爽点设计、节奏分析 |
@@ -171,7 +171,7 @@ demo/拆文库-盘龙/
 
 如果你已经在写作项目中运行过 `story-setup`，升级 skill 后请在项目根目录重新运行一次 `story-setup`。
 
-当前 Codex 分支建议以 `agents_version: 9` 为准。重新部署后会同步更新 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`、`.codex/skills/story-setup/references/agent-references/`，并刷新 `.story-deployed` 元信息。
+当前 Codex 分支建议以 `agents_version: 14` 为准。重新部署后会同步更新 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`、`.codex/skills/story-setup/references/agent-references/`、项目级 `scripts/*.py`，并刷新 `.story-deployed` 元信息。
 
 这条分支当前已经对齐的重点：
 
@@ -183,7 +183,7 @@ demo/拆文库-盘龙/
 
 如果项目里已有旧版 `.story-deployed`，看到以下任一情况都建议重新运行 `story-setup`：
 
-- `agents_version < 9`
+- `agents_version < 14`
 - `.story-deployed` 缺少 `target_cli` / `resolver_strategy` / `references_dir`
 - `.codex/skills/story-setup/references/agent-references/` 不存在
 
@@ -193,11 +193,11 @@ demo/拆文库-盘龙/
 
 | Hook | 触发时机 | 功能 |
 |:-----|:---------|:-----|
-| session-start.sh | 会话开始 | 显示分支、进度快照、拆文状态 |
+| session-start.sh | 会话开始 | 显示分支、进度快照、拆文状态，并提示追踪主表缺失/部署过旧 |
 | session-end.sh | 会话结束 | 记录会话日志到 `追踪/session-log.txt` |
 | detect-story-gaps.sh | 会话开始 | 检测设定缺口、大纲缺失、伏笔断线 |
-| pre-compact.sh | 上下文压缩前 | 保存进度快照路径和行数摘要 |
-| post-compact.sh | 上下文压缩后 | 提示读取进度快照恢复上下文 |
+| pre-compact.sh | 上下文压缩前 | 保存进度快照路径和追踪主表行数摘要 |
+| post-compact.sh | 上下文压缩后 | 提示读取进度快照，并补读时间线/角色状态/伏笔/情报台账 |
 | validate-story-commit.sh | git commit 时 | 检查硬编码属性、设定必填字段（仅警告，不阻断） |
 
 ## Codex 安装脚本
@@ -206,10 +206,10 @@ demo/拆文库-盘龙/
 
 - `scripts/install-codex-project.sh`
   - 给具体写作项目安装 `.codex/` 运行时目录
-  - 会部署 hooks、rules、子代理、`agent-references`、`CLAUDE.md`、`.story-deployed`
+  - 会部署 hooks、rules、子代理、`agent-references`、项目级 `scripts/*.py`、`CLAUDE.md`、`写作执行铁律.md`、`.story-deployed`
 - `scripts/install-codex-plugin.sh`
   - 给插件目录安装 `skills/` + `.codex-plugin/` 包装层
-  - 适合做本地 Codex 插件打包或测试
+  - 会同步带上 `.codex` runtime、`agent-references` 与项目级 `scripts/*.py`，适合本地 Codex 插件打包或测试
 
 > 说明：仓库根的 `.claude-plugin/marketplace.json` 仅保留为历史兼容元数据。当前 Codex 分支应优先使用 `scripts/install-codex-project.sh` / `scripts/install-codex-plugin.sh`，不要再把 `.claude-plugin/*` 当作主部署入口。
 

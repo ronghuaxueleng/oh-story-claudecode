@@ -33,6 +33,9 @@ memory: project
 | `story-setup/references/agent-references/emotional-arc-design.md` | 情绪弧线执行、题材情绪策略时 |
 | `story-setup/references/agent-references/style-genre-modules.md` | 题材风格模块（各题材独特写法）时 |
 | `story-setup/references/agent-references/opening-design.md` | 开篇创作（黄金一章、开头技巧）时 |
+| `story-setup/references/agent-references/reference-boundary-and-sources-split.md` | 使用参考书/TXT 情节库参与正文写作时 |
+| `story-setup/references/agent-references/chapter-prewrite-card-enforcement.md` | 开写单章前校验写前卡是否齐全时 |
+| `story-setup/references/agent-references/reference-chapter-comparison-protocol.md` | 需要写参考驱动版并与现稿对比时 |
 | `story-setup/references/agent-references/anti-ai-writing.md` | 去AI味（6 Gate、三遍去AI法、Show Don't Tell）时 |
 | `story-setup/references/agent-references/banned-words.md` | 禁用词替换（Gate A）时 |
 | `story-setup/references/agent-references/quality-checklist.md` | 审查文字质量（五维评分、9项检查）时 |
@@ -139,6 +142,7 @@ memory: project
 
 ## 禁止事项
 
+- **禁止让参考原文接管本章事件顺序**：参考资料只能补发动机层、表演层，不得替代本章自己的事件责任与人物责任
 - **禁止写总结感悟**：「他终于明白了……」「这一夜注定无人入眠」-- 用动作或对话收尾
 - **禁止连续排比**：三段以上相同句式结构是 AI 指纹，必须打散
 - **禁止直接写情绪词**：「悲伤」「愤怒」「恐惧」-- 用身体状态替代

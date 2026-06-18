@@ -18,6 +18,18 @@
 - `.codex/hooks/` — 所有 hook 脚本
 - `.codex/agents/` — 所有子代理定义
 - `.codex/rules/` — 所有 path-scoped 规则
+- `scripts/install-codex-project.sh` — 项目级基础设施安装/刷新脚本
+- `scripts/scene_lint.py` — 正文场面质检脚本
+- `scripts/draft_purity_guard.py` — 正文纯净度守门脚本
+- `scripts/validate_tracking_state.py` — 追踪状态与章组总表校验脚本
+- `scripts/detect_key_character_promotion.py` — 关键角色晋升与缺卡检测脚本
+- `scripts/template_exhaustion_lint.py` — 模板榨干与模板术语回流质检脚本
+- `scripts/scene_narrowness_lint.py` — 中段会议化 / 作者代判句 / 过程写窄质检脚本
+- `scripts/script_version_check.py` — 项目脚本版本与双层目录路径校验脚本
+- `scripts/verdict_conflict_lint.py` — 并入口径冲突校验脚本
+- `scripts/chapter_hook_repeat_lint.py` — 连续章章尾撞型校验脚本
+- `scripts/character_agency_lint.py` — 人物能动性与软肋角色回针校验脚本
+- `scripts/story_review_regression.py` — 统一回归汇总脚本
 
 ### 需合并（不覆盖）
 
@@ -44,7 +56,13 @@
 - `agents_version: 6` → 旧版，需重新部署以获取日更续写与伏笔 hook 修复
 - `agents_version: 7` → 旧版，需重新部署以获取子代理参考文件路径修复
 - `agents_version: 8` → 旧版，需重新部署以补齐 references bundle、sentinel 字段与根路径感知 hook
-- `agents_version: 9` → 当前版本
+- `agents_version: 9` → 旧版，需重新部署以补齐项目级正文质检脚本
+- `agents_version: 10` → 旧版，需重新部署以获取追踪同步硬闸、compact/续写追踪主表核对与 hook 提示补强
+- `agents_version: 11` → 旧版，需重新部署以补齐项目级追踪校验脚本
+- `agents_version: 12` → 旧版，需重新部署以补齐统一回归脚本
+- `agents_version: 13` → 旧版，需重新部署以补齐新版根模板、兼容层 rules 模板与完整项目脚本链
+- `agents_version: 14` → 旧版，需重新部署以补齐参考边界卡、单章写前卡与参考章节对比协议到项目内 agent-references
+- `agents_version: 15` → 当前版本
 
 ## 版本变更
 
@@ -90,9 +108,61 @@
 - 子代理模板新增参考文件路径规则：优先从 `.codex/skills/` 或 `skills/` 拼接解析 `story-setup/references/agent-references/*.md` 规范路径，避免依赖当前工作目录且不跨 skill 引用 references
 - 已部署项目需重新运行 `story-setup`，以覆盖 `.codex/agents/` 并获得新版参考文件路径规则
 
-### v9 (当前)
+### v9
 
 - `install-codex-project.sh` 现在会同步部署 `.codex/skills/story-setup/references/agent-references/`
 - `.story-deployed` 新增 `target_cli`、`resolver_strategy`、`references_dir` 字段，session-start 可据此检查部署完整性
 - `session-start.sh` 改为统一使用项目根解析与 sentinel 检查，能从嵌套目录稳定定位书目、拆文库和 references bundle
 - `detect-story-gaps.sh` 改为统一使用 `discover_all_books`，并彻底中文化提示文案
+
+### v10
+
+- `story-setup` 现在会同步部署项目级 `scripts/scene_lint.py` 与 `scripts/draft_purity_guard.py`，避免写作/审查首次运行时再临时补脚本
+- 已部署项目需重新运行 `story-setup`，以补齐 `scripts/` 下的正文质检脚本并让版本标记升级到 `agents_version: 10`
+
+### v11
+
+- `CLAUDE.md` 模板新增长篇正文收尾硬闸：单章正文落盘后必须完成 `scene_lint.py -> 写后验收 -> 追踪同步 -> 反读追踪`
+- `写作执行铁律` 模板新增追踪同步 `F5` 截停规则：若 `正文/` 最大章节号已前推，但 `追踪/上下文.md`、`时间线.md`、`角色状态.md`、`伏笔.md`、情报流所需的 `情报台账.md` 未同步，默认当前章未收口
+- `session-start.sh`、`pre-compact.sh`、`post-compact.sh` 模板新增追踪主表提示与摘要，不再只盯 `上下文.md`
+- 已部署项目需重新运行 `story-setup`，以覆盖 `CLAUDE.md` 模板合并结果、小说目录内 `写作执行铁律.md` 以及 `.codex/hooks/`，并让版本标记升级到 `agents_version: 11`
+
+### v12
+
+- `story-setup` 现在会同步部署项目级 `scripts/validate_tracking_state.py` 与 `scripts/detect_key_character_promotion.py`
+- 已部署项目需重新运行 `story-setup`，以补齐 `scripts/` 下的追踪校验脚本并让版本标记升级到 `agents_version: 12`
+
+### v13
+
+- `story-setup` 现在会同步部署项目级 `scripts/story_review_regression.py`
+- 统一回归脚本会串联 `scene_lint.py`、`validate_tracking_state.py`、`detect_key_character_promotion.py` 的结果，并落盘 `测试/story-review_回归脚本汇总.md` 与 `.json`
+- `validate_tracking_state.py` 现已修复两处兼容性问题：
+  - 章组总表校验不再要求文件名必须与“最近章节范围”精确相等；只要总表章节区间覆盖最近连续章节范围，即判为有效
+  - Markdown 表格分隔线现在支持 `:` 对齐写法，不再把 `|---|---:|...|` 误判成 `追踪/情报台账.md` 的数据行
+- 已部署项目需重新运行 `story-setup`，以补齐统一回归脚本并让版本标记升级到 `agents_version: 13`
+
+### v14
+
+- `CLAUDE.md` 与 `写作执行铁律` 模板升级到新版冷启动协议：
+  - 主准入链改为 `短执行核 + 写前闸门 + 新脚本门禁`
+  - 新链路彻底移除独立首稿读取产物，不再生成额外首稿读取记录文件
+  - 写后固定顺序补齐到 `template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、连续章钩子与人物专项脚本
+  - 新增 `H1-A` 纯测试记录态与双层目录执行口径
+- `.codex/rules` 模板降为兼容层，不再把旧“60 字硬限 / 第二章固定示例 / 泛化格式死规矩”重新注回项目
+- `references/templates/scripts/` 现已补齐完整项目脚本链：
+  - `template_exhaustion_lint.py`
+  - `scene_narrowness_lint.py`
+  - `script_version_check.py`
+  - `verdict_conflict_lint.py`
+  - `chapter_hook_repeat_lint.py`
+  - `character_agency_lint.py`
+- 已部署项目需重新运行 `story-setup`，以覆盖根模板、rules 模板、完整脚本链，并让版本标记升级到 `agents_version: 14`
+
+### v15 (当前)
+
+- `story-setup` 现在会把三张新规则卡一起部署到项目内 `.codex/skills/story-setup/references/agent-references/`：
+  - `reference-boundary-and-sources-split.md`
+  - `chapter-prewrite-card-enforcement.md`
+  - `reference-chapter-comparison-protocol.md`
+- `narrative-writer` 子代理模板新增对应入口，使用参考书/TXT 情节库写作时，会先按项目内参考边界卡收口，不再只靠主 skill 口头约束
+- 已部署项目需重新运行 `story-setup`，以补齐项目内 references bundle 并让版本标记升级到 `agents_version: 15`

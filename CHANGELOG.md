@@ -8,7 +8,7 @@ All notable changes to this project will be documented in this file.
 
 ### 改进
 
-- **story-setup / 安装脚本**：`install-codex-project.sh` 与 `install-codex-plugin.sh` 统一写入 `agents_version: 9`、`target_cli: codex`、`resolver_strategy: project-local-skill-reference`、`references_dir`，并把 `agent-references` 一并部署，插件目录和项目目录的 Codex 运行时口径对齐。
+- **story-setup / 安装脚本**：`install-codex-project.sh` 与 `install-codex-plugin.sh` 统一升级到 `agents_version: 13` / `setup_skill_version: 1.4.0`，并同步部署项目级 `scripts/*.py`、`写作执行铁律.md`、`agent-references`；项目安装脚本同时补齐 `.codex/config.toml` 最小必需项并对已有 `CLAUDE.md` 做保守合并。
 - **README / README_EN**：升级说明改为当前 Codex 分支口径，补充何时需要重新运行 `story-setup`，并新增 `install-codex-project.sh` / `install-codex-plugin.sh` 的用途说明。
 - **插件元信息**：`install-codex-plugin.sh` 不再硬编码旧上游仓库，改为优先从当前仓库 `origin` 推导 GitHub 地址，生成的 `.codex-plugin/plugin.json` 会随当前仓库来源自适应。
 - **发布工作流**：`publish-clawhub.yml` 的 canonical repo 条件改到当前维护仓库，并增加 `CLAWHUB_TOKEN` preflight；缺 token 时会给 warning 并跳过，不再把镜像仓库或未配置仓库跑成误失败。
@@ -21,6 +21,22 @@ All notable changes to this project will be documented in this file.
 - **README 分支口径**：移除首页对具体 `codex-main` 分支名的写死表述，改为中性“当前维护线为 Codex 专用分支”，避免分支重命名或多维护线时误导。
 - **story-import**：对齐 `story-long-analyze` 当前 Stage 0-6 管道与 `文风.md` 产物映射，避免导入链路继续引用旧阶段编号。
 - **术语统一**：长短篇 analyze / write / setup 文档里的 `agent`、`Agent 调用`、`chapter-extractor agent` 等旧口径继续收敛到 Codex 分支使用的“子代理”表述。
+
+## v0.6.15
+
+> story-setup 收口：模板口径追平 + 项目脚本链补齐 + 部署版本升级
+
+### 改进
+
+- **story-setup / 根模板**：`CLAUDE.md.tmpl`、`写作执行铁律.md.tmpl` 升级到当前冷启动协议，补齐 `短执行核` 主准入链、`H1-A`、双层目录执行口径，以及完整写后脚本顺序。
+- **story-setup / rules 模板**：4 份 `.codex/rules` 模板降为兼容层，去掉旧的“60 字硬限”“第二章固定示例”等会把旧协议重新注入新项目的口径。
+- **story-setup / scripts 模板**：`references/templates/scripts/` 现已补齐 `template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`character_agency_lint.py`。
+- **story-setup / 版本线**：`agents_version` 升到 `14`，`setup_skill_version` 升到 `1.4.1`；`session-start.sh`、`README`、`UPGRADING.md`、部署自检脚本全部同步到新版阈值。
+
+### Bug 修复
+
+- 修复 `story-setup` 出现“说明文档写的是新版，但实际模板仍部署旧版根文件和旧 rules”的断层。
+- 修复 `story-setup` 项目脚本清单长期落后于 `story-long-write` 当前真实门禁链，导致新项目安装后缺少关键脚本的问题。
 
 ### 验证
 

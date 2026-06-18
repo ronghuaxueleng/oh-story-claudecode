@@ -44,6 +44,98 @@ EXPLANATION_PATTERNS = [
     "值钱的是",
 ]
 
+DIALOGUE_OUTLINE_PATTERNS = [
+    "缺哪口",
+    "补哪口",
+    "先把这口",
+    "先拿执行权",
+    "执行权拿住",
+    "先把盘面",
+    "这纸、这牌、这口责任",
+    "责任，就都得算清",
+    "我先接下来",
+    "后面再慢慢清",
+]
+
+DIALOGUE_ABSTRACT_TERMS = [
+    "口",
+    "盘面",
+    "执行权",
+    "责任",
+    "位置",
+    "缺口",
+    "前后顺序",
+    "这一手",
+]
+
+NARRATIVE_WORKSHOP_PATTERNS = [
+    "这下前后顺序",
+    "这口口子",
+    "这条执行次序",
+    "抢这口",
+    "占这口",
+    "护口子",
+    "这口气",
+    "这一下",
+]
+
+DIALOGUE_SUMMARY_FUNCTION_PATTERNS = {
+    "概括问题": [
+        "缺口",
+        "不够",
+        "少了",
+        "没补上",
+        "不入",
+        "不记",
+    ],
+    "列清对象": [
+        "这纸",
+        "这牌",
+        "这本旧册",
+        "北坡",
+        "东墙",
+        "卡口",
+    ],
+    "宣告处置": [
+        "得算清",
+        "我来落册",
+        "先补",
+        "先认",
+        "先拿",
+        "先按我的法子",
+    ],
+}
+
+ACTION_ANCHOR_MARKERS = [
+    "拍案",
+    "抄进手里",
+    "捏得发白",
+    "一步走到",
+    "往前逼了半步",
+    "抬手",
+    "指了指",
+    "推了半寸",
+    "按住",
+    "抽出来",
+    "放到案上",
+    "冷笑",
+    "脸色一变",
+    "脸色发黑",
+    "喉咙里",
+    "卡在",
+    "一沉",
+]
+
+ABSTRACT_KOU_PATTERNS = [
+    r"第一口(?:收益|势|现实|资源|活路|功|名|权|接口|盘面|命门)",
+    r"第二口(?:收益|现实|资源|活路|功|名|权|接口|盘面)",
+    r"(?:这|那|哪)一口(?:收益|现实|资源|活路|东西|权|接口|盘面|推进)",
+    r"一口(?:收益|现实|资源|活路|功|名|权|接口|盘面|东西)",
+    r"那下一口",
+    r"接口物",
+    r"先说了算的入口",
+]
+
 SUMMARY_PATTERNS = [
     "终于",
     "总算",
@@ -79,6 +171,8 @@ ACTION_MARKERS = [
     "按下",
 ]
 
+CHAR_COUNT_TOLERANCE = 10
+
 INFO_FLOW_MARKERS = [
     "情报",
     "系统",
@@ -89,7 +183,7 @@ INFO_FLOW_MARKERS = [
 
 INLINE_GATE_MARKERS = [
     "## 本章写前闸门",
-    "## 本章写后验收",
+    "## 本章写后检查",
 ]
 
 TRACKING_REQUIRED_COLUMNS = [
@@ -100,14 +194,19 @@ TRACKING_REQUIRED_COLUMNS = [
 ]
 
 SUGGESTIONS = {
-    ("字数", "warn"): "建议补强外部反应、群体站位变化或现场细节，不要用解释句凑字。",
+    ("字数", "warn"): "建议补强外部反应、群体前后变化或现场细节，不要用解释句凑字。",
     ("字数", "error"): "建议先回到细纲，补足硬场面、外部反应位或第二口收益后再扩写。",
     ("章尾", "error"): "建议把章尾改成新物证、新口径、新名单或新翻面，不要用总结/预告腔收口。",
     ("解释", "error"): "建议删除作者判句，改成现场动作、人物反应或器物/屏幕/环境变化。",
     ("解释", "warn"): "建议减少解释句，优先补具体动作响应。",
+    ("模板", "error"): "建议把纲层黑话改成具体对象、具体动作或具体结果，不要把“第一口/第二口/那下一口/一口收益/接口物/先说了算的入口”这类施工词写进正文。",
     ("情报", "error"): "建议补独立情报引号块、兑现动作或情报台账字段。",
     ("污染", "error"): "建议先清工具残片、流程块或执行日志，再复扫。",
     ("动作", "error"): "建议补可见动作链，不要只剩判断和说明。",
+    ("对白", "error"): "建议把功能摘要台词改成带对象、带代价、带动作后果的人话，并给前后补上打断、抢物、失态或把原话咽回去。",
+    ("对白", "warn"): "建议检查这句是否在替作者做摘要；优先拆成更短的人话，并补现场落点。",
+    ("叙述", "error"): "建议把施工词删回现场承载物，直接写谁占着灯位、谁没让、谁被挤开，不要用‘这口/口子/这一下’替代现场。",
+    ("叙述", "warn"): "建议检查这句是否是施工脑漏回正文；优先改成具体灯位、班牌、站地、外圈等承载物。",
     ("结构", "error"): "建议拆长段、补句末停顿，并检查是否大段拖叙。",
     ("流程", "error"): "建议先补齐缺失文件或角色目录，再继续正文流程。",
 }
@@ -193,6 +292,72 @@ def count_explanation_lines(text: str) -> int:
     return sum(1 for line in lines if any(pattern in line for pattern in EXPLANATION_PATTERNS))
 
 
+def dialogue_lines(text: str) -> list[str]:
+    lines: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if "“" in line and "”" in line:
+            lines.append(line)
+    return lines
+
+
+def dialogue_outline_hits(lines: list[str]) -> tuple[int, int]:
+    pattern_hits = 0
+    abstract_hits = 0
+    for line in lines:
+        quote_parts = re.findall(r"“([^”]+)”", line)
+        for part in quote_parts:
+            pattern_hits += sum(1 for needle in DIALOGUE_OUTLINE_PATTERNS if needle in part)
+            abstract_hits += sum(1 for needle in DIALOGUE_ABSTRACT_TERMS if needle in part)
+    return pattern_hits, abstract_hits
+
+
+def nearby_text(lines: list[str], idx: int, radius: int = 1) -> str:
+    start = max(0, idx - radius)
+    end = min(len(lines), idx + radius + 1)
+    return "\n".join(lines[start:end])
+
+
+def dialogue_summary_function_count(text: str) -> int:
+    hit_groups = 0
+    for needles in DIALOGUE_SUMMARY_FUNCTION_PATTERNS.values():
+        if any(needle in text for needle in needles):
+            hit_groups += 1
+    return hit_groups
+
+
+def detect_dialogue_risks(text: str) -> tuple[int, int, int]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    summary_overload_hits = 0
+    anchor_missing_hits = 0
+    abstract_risk_hits = 0
+
+    for idx, line in enumerate(lines):
+        if "“" not in line or "”" not in line:
+            continue
+        quote_parts = re.findall(r"“([^”]+)”", line)
+        if not quote_parts:
+            continue
+        context = nearby_text(lines, idx, radius=1)
+        has_anchor = any(marker in context for marker in ACTION_ANCHOR_MARKERS)
+        for part in quote_parts:
+            function_count = dialogue_summary_function_count(part)
+            abstract_count = sum(1 for needle in DIALOGUE_ABSTRACT_TERMS if needle in part)
+            if function_count >= 3:
+                summary_overload_hits += 1
+            if abstract_count >= 2 and function_count >= 2:
+                abstract_risk_hits += 1
+            if (
+                any(needle in part for needle in DIALOGUE_OUTLINE_PATTERNS)
+                or (abstract_count >= 2 and function_count >= 2)
+            ) and not has_anchor:
+                anchor_missing_hits += 1
+
+    return summary_overload_hits, anchor_missing_hits, abstract_risk_hits
+
+
 def chapter_targets(path: Path, text: str, project_root: Path) -> ChapterPolicy:
     is_chapter = (
         "正文" in path.parts
@@ -248,15 +413,37 @@ def lint_file(path: Path) -> list[Issue]:
         issues.append(make_issue(str(path), f"章尾总结/预告/盖章风险: {summary_count}", "error", "章尾"))
 
     if "正文" in path.parts or "chapter" in path.name.lower():
+        abstract_kou_hits = sum(len(re.findall(pattern, text)) for pattern in ABSTRACT_KOU_PATTERNS)
+        if abstract_kou_hits >= 1:
+            issues.append(make_issue(str(path), f"命中纲层黑话/抽象“口”字模板词: {abstract_kou_hits}", "error", "模板"))
+
+        narrative_hits = count_occurrences(text, NARRATIVE_WORKSHOP_PATTERNS)
+        if narrative_hits >= 1:
+            issues.append(make_issue(str(path), f"命中叙述层施工词/半成品表达: {narrative_hits}", "warn", "叙述"))
+
+        dlg_lines = dialogue_lines(text)
+        dlg_outline_hits, dlg_abstract_hits = dialogue_outline_hits(dlg_lines)
+        dlg_summary_overload_hits, dlg_anchor_missing_hits, dlg_abstract_risk_hits = detect_dialogue_risks(text)
+        if dlg_outline_hits >= 1:
+            issues.append(make_issue(str(path), f"命中提纲腔/功能摘要式对白: {dlg_outline_hits}", "error", "对白"))
+        elif dlg_abstract_hits >= 2:
+            issues.append(make_issue(str(path), f"对白抽象术语偏多，疑似在用摘要词顶现场: {dlg_abstract_hits}", "warn", "对白"))
+        if dlg_summary_overload_hits >= 1:
+            issues.append(make_issue(str(path), f"对白一句承担功能过多，疑似提纲压缩回流: {dlg_summary_overload_hits}", "error", "对白"))
+        if dlg_anchor_missing_hits >= 1:
+            issues.append(make_issue(str(path), f"关键功能句前后缺少动作落点: {dlg_anchor_missing_hits}", "warn", "对白"))
+        if dlg_abstract_risk_hits >= 1 and dlg_outline_hits == 0:
+            issues.append(make_issue(str(path), f"对白抽象词密度高且缺少具体对象/代价: {dlg_abstract_risk_hits}", "warn", "对白"))
+
         policy = chapter_targets(path, text, project_root)
-        if policy.hard_min and len(text) < policy.hard_min:
+        if policy.hard_min and len(text) < policy.hard_min - CHAR_COUNT_TOLERANCE:
             target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
             issues.append(make_issue(str(path), f"字数不足: {len(text)} < {policy.hard_min}{target_note}", "error", "字数"))
-        elif policy.soft_min and len(text) < policy.soft_min:
+        elif policy.soft_min and len(text) < policy.soft_min - CHAR_COUNT_TOLERANCE:
             target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
             issues.append(make_issue(str(path), f"字数接近下限，建议补强场面或外部反应: {len(text)} < {policy.soft_min}{target_note}", "warn", "字数"))
 
-        if policy.hard_max and len(text) > policy.hard_max:
+        if policy.hard_max and len(text) > policy.hard_max + CHAR_COUNT_TOLERANCE:
             target_note = f"（细纲目标 {policy.target}）" if policy.target else ""
             issues.append(make_issue(str(path), f"字数超上限: {len(text)} > {policy.hard_max}{target_note}", "error", "字数"))
         elif policy.soft_max and len(text) > policy.soft_max:
@@ -290,6 +477,25 @@ def lint_file(path: Path) -> list[Issue]:
     return issues
 
 
+def expand_input_paths(raw_inputs: list[str]) -> tuple[list[Path], list[Issue]]:
+    paths: list[Path] = []
+    issues: list[Issue] = []
+    for file_name in raw_inputs:
+        path = Path(file_name)
+        if not path.exists():
+            issues.append(make_issue(file_name, "文件不存在", "error", "流程"))
+            continue
+        if path.is_dir():
+            md_files = sorted(item for item in path.glob("*.md") if item.is_file())
+            if not md_files:
+                issues.append(make_issue(str(path), "目录下未发现可扫描的 .md 文件", "error", "流程"))
+                continue
+            paths.extend(md_files)
+            continue
+        paths.append(path)
+    return paths, issues
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Novel scene lint.")
     parser.add_argument("files", nargs="+", help="Files to lint")
@@ -297,11 +503,9 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
 
     all_issues: list[Issue] = []
-    for file_name in args.files:
-        path = Path(file_name)
-        if not path.exists():
-            all_issues.append(make_issue(file_name, "文件不存在", "error", "流程"))
-            continue
+    input_paths, input_issues = expand_input_paths(args.files)
+    all_issues.extend(input_issues)
+    for path in input_paths:
         all_issues.extend(lint_file(path))
 
     if all_issues:

@@ -6,6 +6,8 @@ PLUGIN_NAME="oh-story-skills"
 TARGET_ROOT="${1:-$REPO_ROOT/plugins/$PLUGIN_NAME}"
 TEMPLATES_ROOT="$REPO_ROOT/skills/story-setup/references/templates"
 AGENT_REFS_ROOT="$REPO_ROOT/skills/story-setup/references/agent-references"
+SETUP_SKILL_VERSION="1.4.1"
+AGENTS_VERSION="14"
 
 REMOTE_URL="$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)"
 if [[ "$REMOTE_URL" =~ ^git@github\.com:(.+)\.git$ ]]; then
@@ -32,7 +34,7 @@ copy_path() {
 }
 
 mkdir -p "$TARGET_ROOT/.codex-plugin"
-mkdir -p "$TARGET_ROOT/.codex"
+mkdir -p "$TARGET_ROOT/.codex" "$TARGET_ROOT/scripts"
 
 cat > "$TARGET_ROOT/.codex-plugin/plugin.json" <<'EOF'
 {
@@ -78,11 +80,16 @@ copy_path "$TEMPLATES_ROOT/subagents" "$TARGET_ROOT/.codex/agents"
 copy_path "$TEMPLATES_ROOT/hooks" "$TARGET_ROOT/.codex/hooks"
 copy_path "$TEMPLATES_ROOT/rules" "$TARGET_ROOT/.codex/rules"
 copy_path "$AGENT_REFS_ROOT" "$TARGET_ROOT/.codex/skills/story-setup/references/agent-references"
+copy_path "$TEMPLATES_ROOT/scripts" "$TARGET_ROOT/scripts"
+
+chmod +x "$TARGET_ROOT/.codex/hooks/"*.sh
+chmod +x "$TARGET_ROOT/.codex/hooks/lib/"*.sh
+chmod +x "$TARGET_ROOT/scripts/"*.py
 
 cat > "$TARGET_ROOT/.story-deployed" <<EOF
 deployed_at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-agents_version: 9
-setup_skill_version: 1.0.0
+agents_version: $AGENTS_VERSION
+setup_skill_version: $SETUP_SKILL_VERSION
 target_cli: codex
 resolver_strategy: project-local-skill-reference
 references_dir: .codex/skills/story-setup/references/agent-references

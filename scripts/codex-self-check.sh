@@ -17,10 +17,13 @@ check_path() {
 echo "=== Codex Self Check ==="
 
 check_path "skills/story-setup/references/templates/CLAUDE.md.tmpl"
+check_path "skills/story-setup/references/templates/写作执行铁律.md.tmpl"
 check_path "scripts/install-codex-plugin.sh"
+check_path "scripts/install-codex-project.sh"
 check_path "skills/story-setup/references/templates/subagents/story-architect.md"
 check_path "skills/story-setup/references/templates/hooks/session-start.sh"
 check_path "skills/story-setup/references/templates/rules/story-outline.md"
+check_path "skills/story-setup/references/templates/scripts/story_review_regression.py"
 
 echo "[OK] repository has no legacy .agents dependency"
 

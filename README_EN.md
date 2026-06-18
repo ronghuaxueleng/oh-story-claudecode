@@ -89,7 +89,7 @@ Re-run the same command to update.
 
 | Skill | Trigger | Description |
 |:------|:--------|:------------|
-| `story-setup` | `story-setup`, `准备写书` | Environment setup — deploy hooks/rules/subagents/CLAUDE.md in one pass |
+| `story-setup` | `story-setup`, `准备写书` | Environment setup — deploy hooks/rules/subagents/project scripts/CLAUDE.md/写作执行铁律 in one pass |
 | `story` | `story`, `网文` | Toolbox router — routes fuzzy intents to the matching skill |
 | `story-long-write` | `story-long-write`, `写长篇` | Long-form writing — outline building, character design, prose output |
 | `story-long-analyze` | `story-long-analyze`, `长篇拆文` | Long-form deconstruction — Golden First 3 Chapters, payoff design, pacing analysis |
@@ -159,7 +159,7 @@ Subagent protocols load writing theory from `references/` on demand (character d
 
 If you have already run `story-setup` inside a writing project, run `story-setup` again from the project root after updating this skill pack.
 
-For the current Codex branch, treat `agents_version: 9` as the baseline. Re-deployment refreshes `.codex/agents/`, `.codex/hooks/`, `.codex/rules/`, `.codex/skills/story-setup/references/agent-references/`, and the `.story-deployed` metadata file.
+For the current Codex branch, treat `agents_version: 13` as the baseline. Re-deployment refreshes `.codex/agents/`, `.codex/hooks/`, `.codex/rules/`, `.codex/skills/story-setup/references/agent-references/`, project-level `scripts/*.py`, and the `.story-deployed` metadata file.
 
 Major Codex-side alignments already included in this branch:
 
@@ -171,7 +171,7 @@ Major Codex-side alignments already included in this branch:
 
 Re-run `story-setup` if any of the following is true:
 
-- `agents_version < 9`
+- `agents_version < 13`
 - `.story-deployed` is missing `target_cli`, `resolver_strategy`, or `references_dir`
 - `.codex/skills/story-setup/references/agent-references/` does not exist
 
@@ -181,11 +181,11 @@ Re-run `story-setup` if any of the following is true:
 
 | Hook | Trigger | Function |
 |:-----|:---------|:---------|
-| session-start.sh | Session start | Display branch, progress snapshot, deconstruction status |
+| session-start.sh | Session start | Display branch, progress snapshot, deconstruction status, and warn for missing tracking tables / outdated deployment |
 | session-end.sh | Session end | Log session to `追踪/session-log.txt` |
 | detect-story-gaps.sh | Session start | Detect setting gaps, missing outlines, foreshadowing breaks |
-| pre-compact.sh | Before context compaction | Save progress snapshot path and line-count summary |
-| post-compact.sh | After context compaction | Prompt to read progress snapshot for context recovery |
+| pre-compact.sh | Before context compaction | Save progress snapshot path plus tracking-table line-count summary |
+| post-compact.sh | After context compaction | Prompt to reload progress snapshot, then re-check timeline / character state / foreshadowing / intelligence ledger |
 | validate-story-commit.sh | git commit | Check hardcoded attributes, setting required fields (warning only, non-blocking) |
 
 ## Codex Install Scripts
@@ -194,10 +194,10 @@ The repo ships two Codex-oriented install scripts:
 
 - `scripts/install-codex-project.sh`
   - installs the runtime `.codex/` layout into a concrete writing project
-  - deploys hooks, rules, subagents, `agent-references`, `CLAUDE.md`, and `.story-deployed`
+  - deploys hooks, rules, subagents, `agent-references`, project-level `scripts/*.py`, `CLAUDE.md`, `写作执行铁律.md`, and `.story-deployed`
 - `scripts/install-codex-plugin.sh`
   - installs the plugin wrapper plus `skills/` into a local Codex plugin directory
-  - useful for local plugin packaging and smoke testing
+  - also bundles the `.codex` runtime, `agent-references`, and project-level `scripts/*.py`, useful for local plugin packaging and smoke testing
 
 > Note: the repo-root `.claude-plugin/marketplace.json` is kept only as legacy compatibility metadata. On the current Codex branch, prefer `scripts/install-codex-project.sh` / `scripts/install-codex-plugin.sh` instead of treating `.claude-plugin/*` as the primary deployment path.
 
