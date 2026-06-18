@@ -1,12 +1,12 @@
-# `writing-workflow.md`：短篇写作工作流详解
+# `writing-workflow.md`：短篇写作工作流
 
-本文件包含 story-short-write 的详细工作流程指引。SKILL.md 中只保留摘要和触发条件。
+本文件收录 story-short-write 的详细流程，SKILL.md 只保留摘要和触发条件。
 
 ---
 
 ## Phase 2 设计任务（框架确定后执行）
 
-### 开始前先加载 references（逐项检查，不能跳过）
+### 开始前加载的 references
 
 - 写结构物件 → 加载 `writing-craft.md` ✅/❌
 - 写反派/揭露方式 → 加载 `villain-and-reveal.md` ✅/❌
@@ -73,7 +73,7 @@
             └── 写作手法.md
 ```
 
-### 操作原则
+### 基本原则
 
 - 正文直接写入文件，不要只输出在对话里
 - 精修时读取文件再改写，修改记录直接体现在设定.md的结构物件追踪中
