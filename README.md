@@ -8,9 +8,13 @@
 
 > **套路 = 确定性的情绪满足**
 
-专业作者的方法论三步走：1. 扫榜：分析热门榜单，洞察题材、人设、切入点。2. 拆文：拆解大纲节奏与剧情素材，建立个人模块库。3. 商业化写作：学习并运用钩子、爽感、期待感等核心技巧。
+专业作者的方法论三步走：
 
-围绕爆款逆向、剧情模块化重组、上下文状态分层管理、人机协同四条线展开。
+1. **扫榜**：分析热门榜单，洞察题材、人设、切入点。
+2. **拆文**：拆解大纲节奏与剧情素材，建立个人模块库。
+3. **商业化写作**：学习并运用钩子、爽感、期待感等核心技巧。
+
+围绕四条线展开：爆款逆向 · 剧情模块化重组 · 上下文状态分层管理 · 人机协同。
 
 ## 流程总览
 
@@ -26,7 +30,7 @@ flowchart LR
     entry_i{{"已有小说"}}:::entry
 
     subgraph S0 ["  环境部署"]
-        setup["story-setup"]:::phase
+        setup["/story-setup"]:::phase
     end
 
     subgraph S1 ["  扫榜选材"]
@@ -83,39 +87,33 @@ npx skills add ronghuaxueleng/oh-story-claudecode -y -g
 
 `-g` 全局安装，所有目录可用；去掉 `-g` 则只装到当前目录。更新时重新执行同一条命令即可。
 
-## Codex 分支策略
+> 升级后如果项目里已经跑过 `/story-setup`，建议在项目根重跑一次 `/story-setup`，同步 hooks / agents / references。每版变更见 [CHANGELOG.md](CHANGELOG.md)。
 
-当前分支是 **Codex 专用分支**，不再维护旧宿主到 Codex 的文本转换层。
-
-- Codex 专用逻辑直接维护在本分支
-- `main` 有更新时，再把 `main` 合并到本分支
-- Codex 通过 `.codex/config.toml` 读取仓库根 `CLAUDE.md`
-
-Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/` 从现有共享模板复制过去。
+> **多 agent 协作要先部署再新开会话**：7 个专业 agent（story-architect、narrative-writer、consistency-checker 等）由 `/story-setup` 写入项目 `.codex/agents/`。Codex 会在会话启动时读取这些 agent，所以 **`/story-setup` 跑完最好新开一个 Codex 会话**，再执行 story-review 的多视角审查或写作流程里的 agent 协作；否则仍可能降级为 solo（单视角）。
 
 ## Skills
 
 | Skill | 触发 | 说明 |
 |:------|:-----|:-----|
-| `story-setup` | `story-setup`、`准备写书` | 环境部署 · hooks/rules/子代理/项目级脚本/CLAUDE.md/写作执行铁律 一键部署（已有配置安全合并） |
-| `story` | `story`、`网文` | 工具箱路由 · 模糊意图自动分发到对应 skill |
-| `story-long-write` | `story-long-write`、`写长篇` | 长篇写作 · 大纲搭建、人物设定、正文输出 |
-| `story-long-analyze` | `story-long-analyze`、`长篇拆文` | 长篇拆文 · 黄金三章、爽点设计、节奏分析 |
-| `story-long-scan` | `story-long-scan`、`长篇扫榜` | 长篇扫榜 · 起点/番茄/晋江市场趋势 |
-| `story-short-write` | `story-short-write`、`写短篇` | 短篇写作 · 情绪设计、反转构思、精修出稿 |
-| `story-short-analyze` | `story-short-analyze`、`短篇拆文` | 短篇拆文 · 故事核、结构分析、情感线、反转设计、写作手法、共鸣分析 |
-| `story-short-scan` | `story-short-scan`、`短篇扫榜` | 短篇扫榜 · 知乎盐言/番茄短篇风口数据 |
-| `story-deslop` | `story-deslop`、`去AI味` | 去AI味 · 检测并清除 AI 写作痕迹 |
-| `story-import` | `story-import`、`导入小说` | 逆向导入 · 将已有小说反向解析为标准项目结构 |
-| `story-review` | `story-review`、`审查` | 多视角审查 · 4 个子代理并行审稿 + 番茄/起点/知乎评分标准 |
-| `story-cover` | `story-cover`、`封面` | 封面生成 · 书名题材分析 + GPT-Image-2 出图 |
-| `browser-cdp` | `browser-cdp`、`浏览器操作` | 浏览器操控 · CDP 协议复用登录态抓取数据 |
+| `story-setup` | `/story-setup` `/准备写书` | 环境部署 · hooks/rules/agents/CLAUDE.md 一键部署（已有配置安全合并） |
+| `story` | `/story` `/网文` | 工具箱路由 · 模糊意图自动分发到对应 skill |
+| `story-long-write` | `/story-long-write` `/写长篇` | 长篇写作 · 大纲搭建、人物设定、正文输出 |
+| `story-long-analyze` | `/story-long-analyze` | 长篇拆文 · 黄金三章、爽点设计、节奏分析 |
+| `story-long-scan` | `/story-long-scan` | 长篇扫榜 · 起点/番茄/晋江市场趋势 |
+| `story-short-write` | `/story-short-write` | 短篇写作 · 情绪设计、反转构思、精修出稿 |
+| `story-short-analyze` | `/story-short-analyze` | 短篇拆文 · 故事核、结构分析、情感线、反转设计、写作手法、共鸣分析 |
+| `story-short-scan` | `/story-short-scan` | 短篇扫榜 · 知乎盐言/番茄短篇风口数据 |
+| `story-deslop` | `/story-deslop` `/去AI味` | 去AI味 · 检测并清除 AI 写作痕迹 |
+| `story-import` | `/story-import` `/导入小说` | 逆向导入 · 将已有小说反向解析为标准项目结构 |
+| `story-review` | `/story-review` `/审查` | 多视角审查 · 4 Agent 多视角审稿 + 番茄/起点/知乎评分标准 |
+| `story-cover` | `/story-cover` `/封面` | 封面生成 · 书名题材分析 + GPT-Image-2 出图 |
+| `browser-cdp` | `/browser-cdp` | 浏览器操控 · CDP 协议复用登录态抓取数据 |
 
 自然语言同样触发：
 - 「帮我开书」→ `story-long-write`
 - 「这篇太 AI 了」→ `story-deslop`
 - 「把我的书导进来」→ `story-import`
-- 「沈栀现在什么状态」→ 自动调用 `story-explorer` 子代理协议
+- 「沈栀现在什么状态」→ 自动 spawn `story-explorer` agent
 
 <details>
 <summary>封面生成示例</summary>
@@ -124,16 +122,16 @@ Codex 安装时会自动生成目标目录下的 `.codex/config.toml`，并把 `
 
 </details>
 
-## 子代理体系
 <details>
 <summary>拆文 demo — 盘龙</summary>
 
-使用 `story-long-analyze` 深度模式分析《盘龙》前23章的完整输出：
+使用 `/story-long-analyze` 深度模式分析《盘龙》前23章的完整输出：
 
 ```
 demo/拆文库-盘龙/
 ├── 概要.md              # 全书概要 + 章节索引
 ├── 拆文报告.md           # 五维评分 + 爽点密度 + 可借鉴套路
+├── 文风.md              # 句长/标点/对话潜台词/情绪节奏 + 原文锚点
 ├── 章节/
 │   ├── 第1章_深度拆解.md  # 黄金三章深度分析
 │   └── 第1-23章_摘要.md   # 每章摘要 + 情节点 + 角色提及
@@ -145,18 +143,66 @@ demo/拆文库-盘龙/
 │   ├── 沃顿.md           # 功能角色
 │   └── 角色关系.md        # 关系网络
 ├── 剧情/
-│   └── 故事线.md          # 框架识别 + 4剧情 + 2故事线
+│   ├── 故事线.md          # 框架识别 + 4剧情 + 2故事线
+│   ├── 节奏.md            # 节奏/关键信息递进/情绪触发爆发节律
+│   └── 情绪模块.md        # 读者需求/情绪引擎/可复用写作模块
 └── 设定/
-    ├── 世界观.md          # 力量体系 + 地理 + 势力
-    └── 金手指.md          # 盘龙戒指 + 德林柯沃特
+    ├── 世界观/
+    │   ├── 背景设定.md    # 核心规则 + 特殊设定
+    │   ├── 力量体系.md    # 战气 + 魔法 + 等级
+    │   ├── 地理.md        # 安达卢西亚 + 玉兰大陆
+    │   └── 金手指.md      # 盘龙戒指 + 德林柯沃特
+    └── 势力/
+        └── 巴鲁克家族.md  # 龙血血脉家族档案
 ```
+
+长篇拆文会额外生成 `文风.md`，并在 `剧情/` 下产出 `节奏.md`（节奏/关键信息递进/情绪触发爆发节律）和 `情绪模块.md`（读者需求/情绪引擎/可复用写作模块）；日更写作会通过 `对标/{书名}/剧情/` 读取这些素材，避免文风、节奏和情绪模块偏离对标书。
 
 </details>
 
-写作 skill 内部通过 7 个专业子代理协议协作，各司其职：
+<details>
+<summary>拆文 demo — 曾将爱意私藏（短篇）</summary>
 
-| 子代理协议 | 默认角色 | 职责 |
-|:-----------|:---------|:-----|
+使用 `/story-short-analyze` 拆解短篇《曾将爱意私藏》（约 8500 字，追妻火葬场 · 死遁）的完整输出：
+
+```
+demo/拆文库-曾将爱意私藏/
+├── 原文/原文.txt        # 原文备份
+├── 拆文报告.md          # 故事核 + 五维评分 + 爆点6维 + 认知反转 + 共鸣9层
+├── 情节节点.md          # 54 个情节节点（原文引用 + 情绪标记 −9~+9）
+├── 写作手法.md          # POV / 对话 / 信息差 / 物件钩子 等 11 项
+└── _meta.json           # 结构计数 structure_counts（Phase 7 门控依据）
+```
+
+短篇拆文产出 `拆文报告 / 情节节点 / 写作手法`，下游 `/story-short-write` 据此写同题材新短篇。
+
+</details>
+
+<details>
+<summary>导入 demo — 让你管账号，你高燃混剪炸全网（长篇续写工程）</summary>
+
+使用 `/story-import` 把作者已发布的前 20 章（约 3.7 万字）逆向重建为可续写的写作工程，接 `/story-long-write` 日更续写第 21 章：
+
+```
+demo/让你管账号，你高燃混剪炸全网/
+├── 正文/        第001–020章（已发布原文）
+├── 大纲/        大纲.md · 卷纲_第1卷.md · 细纲_第001–020章.md（1 章 1 文件）
+├── 设定/        角色/{江晨·钟嘉嘉·周薄森·张耀祖·吴伟·李林}
+│                世界观/{背景设定·金手指} · 关系.md · 题材定位.md · 文风.md
+├── 追踪/        伏笔.md · 时间线.md · 角色状态.md · 上下文.md
+└── 参考资料/    作品信息.md
+```
+
+逐章提取（事件 / 角色 / 设定 / 伏笔 / 时间线）反推为续写 bible，作者从第 21 章无缝接着写。
+
+</details>
+
+## Agent 体系
+
+写作 skill 内部通过 7 个专业 Agent 协作，各司其职：
+
+| Agent | 模型 | 职责 |
+|:------|:-----|:-----|
 | **story-architect** | Opus | 故事架构 · 题材定位、大纲结构、钩子/反转设计、情绪弧线 |
 | **character-designer** | Sonnet | 角色设计 · 角色档案、语言风格、动机链、对话创作 |
 | **narrative-writer** | Sonnet | 叙事写手 · 正文写作、去AI味、格式合规 |
@@ -165,53 +211,21 @@ demo/拆文库-盘龙/
 | **story-explorer** | Haiku | 故事查询 · 角色/伏笔/设定/进度只读查询，日更上下文快速加载 |
 | **chapter-extractor** | Haiku | 章节提取 · 摘要+情节点+角色提及，并行拆文核心单元 |
 
-各子代理按需加载 `references/` 中的写作理论（角色设计、对话技法、反转工具箱等 100+ 份方法论文件），不预占上下文。
-
-## 升级到当前 Codex 版
-
-如果你已经在写作项目中运行过 `story-setup`，升级 skill 后请在项目根目录重新运行一次 `story-setup`。
-
-当前 Codex 分支建议以 `agents_version: 14` 为准。重新部署后会同步更新 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`、`.codex/skills/story-setup/references/agent-references/`、项目级 `scripts/*.py`，并刷新 `.story-deployed` 元信息。
-
-这条分支当前已经对齐的重点：
-
-- `story-long-write` / `story-review` / `story-deslop` 统一按 Codex 子代理、闸门、失败码体系运行
-- `story-long-scan -> 设定/选题决策.md -> story-long-write` 已打通
-- `story-import` 已对齐 `story-long-analyze` 的 Stage 0-6 管线与 `文风.md` 产物
-- `story-setup` 重新部署后会校验 hook 缺失、版本过旧、references bundle 缺失
-- SessionStart hook 只提示 `已过期` 或异常伏笔状态；正常开放伏笔（`未埋` / `已埋`）不再触发全量伏笔审计
-
-如果项目里已有旧版 `.story-deployed`，看到以下任一情况都建议重新运行 `story-setup`：
-
-- `agents_version < 14`
-- `.story-deployed` 缺少 `target_cli` / `resolver_strategy` / `references_dir`
-- `.codex/skills/story-setup/references/agent-references/` 不存在
+Agent 按需加载 `references/` 中的写作理论（角色设计、对话技法、反转工具箱等 100+ 份方法论文件），不预占上下文。
 
 ## 自动化 Hooks
 
-`story-setup` 部署后自动生效的 6 个 hook：
+`/story-setup` 部署后自动生效的 7 个 hook：
 
 | Hook | 触发时机 | 功能 |
 |:-----|:---------|:-----|
-| session-start.sh | 会话开始 | 显示分支、进度快照、拆文状态，并提示追踪主表缺失/部署过旧 |
+| session-start.sh | 会话开始 | 显示分支、进度快照、拆文状态 |
 | session-end.sh | 会话结束 | 记录会话日志到 `追踪/session-log.txt` |
 | detect-story-gaps.sh | 会话开始 | 检测设定缺口、大纲缺失、伏笔断线 |
-| pre-compact.sh | 上下文压缩前 | 保存进度快照路径和追踪主表行数摘要 |
-| post-compact.sh | 上下文压缩后 | 提示读取进度快照，并补读时间线/角色状态/伏笔/情报台账 |
+| pre-compact.sh | 上下文压缩前 | 保存进度快照路径和行数摘要 |
+| post-compact.sh | 上下文压缩后 | 提示读取进度快照恢复上下文 |
 | validate-story-commit.sh | git commit 时 | 检查硬编码属性、设定必填字段（仅警告，不阻断） |
-
-## Codex 安装脚本
-
-仓库内置两个 Codex 安装脚本：
-
-- `scripts/install-codex-project.sh`
-  - 给具体写作项目安装 `.codex/` 运行时目录
-  - 会部署 hooks、rules、子代理、`agent-references`、项目级 `scripts/*.py`、`CLAUDE.md`、`写作执行铁律.md`、`.story-deployed`
-- `scripts/install-codex-plugin.sh`
-  - 给插件目录安装 `skills/` + `.codex-plugin/` 包装层
-  - 会同步带上 `.codex` runtime、`agent-references` 与项目级 `scripts/*.py`，适合本地 Codex 插件打包或测试
-
-> 说明：仓库根的 `.claude-plugin/marketplace.json` 仅保留为历史兼容元数据。当前 Codex 分支应优先使用 `scripts/install-codex-project.sh` / `scripts/install-codex-plugin.sh`，不要再把 `.claude-plugin/*` 当作主部署入口。
+| guard-outline-before-prose.sh | 写正文前（Write/Edit） | 缺对应细纲/小节大纲时阻止首次创建正文（阻断），强制先搭大纲 |
 
 ## 项目文件结构
 
@@ -241,8 +255,9 @@ demo/拆文库-盘龙/
 │   └── {对标书名}/
 │       ├── 原文/            # 对标书原文章节
 │       ├── 角色/            # 结构化角色卡（从 analyze 输出同步）
-│       ├── 剧情/            # 结构化剧情线（从 analyze 输出同步）
+│       ├── 剧情/            # 结构化剧情线/节奏/情绪模块（从 analyze 输出同步）
 │       ├── 设定/            # 结构化设定（从 analyze 输出同步）
+│       ├── 文风.md          # 日更前读取，用来贴近对标书文风
 │       └── 拆文报告.md      # analyze skill 输出的拆文报告
 ├── 追踪/                # 连续性管理（分层追踪）
 │   ├── 上下文.md        # 写作上下文（compact 恢复用）
@@ -259,7 +274,6 @@ demo/拆文库-盘龙/
 短篇/{标题}/
 ├── 正文.md              # 完成稿
 ├── 小节大纲.md          # 8 节结构 + 情绪曲线
-├── 自检_{标题}.md       # 精修检查记录
 └── 拆文库/              # 如有参考小说（analyze 输出）
     └── {书名}/
         ├── 拆文报告.md
@@ -267,13 +281,16 @@ demo/拆文库-盘龙/
         └── 写作手法.md
 ```
 
-**拆文库：** 拆文 skill 默认输出到项目根目录 `拆文库/{书名}/`，产出结构化目录（角色/剧情/设定/章节），是 analyze 的源数据（source of truth）。写作 skill 通过 `对标/` 子目录消费这些资产（项目级引用视图），或自动回退读取 `拆文库/`。
+**拆文库：** 拆文 skill 默认输出到项目根目录 `拆文库/{书名}/`，产出结构化目录（角色/剧情/设定/章节），其中长篇剧情目录包含 `节奏.md` 和 `情绪模块.md`，是 analyze 的源数据（source of truth）。写作 skill 通过 `对标/{书名}/剧情/` 等子目录消费这些资产（项目级引用视图），或自动回退读取 `拆文库/`。
 
 **`.active-book`：** 项目根目录的文本文件，内容是当前活跃书目的**相对路径**（如 `长篇/我的小说`），hook 和写作 skill 据此定位当前项目。
 
 ## 知识体系
 
 各 skill 自带 `references/` 知识库，按需加载，不占上下文。
+
+<details>
+<summary>展开各 skill 知识库主题清单</summary>
 
 | 主题 | 内容 | 所在 skill |
 |:-----|:-----|:-----------|
@@ -299,13 +316,15 @@ demo/拆文库-盘龙/
 | 封面风格 | 10 大题材视觉风格 · 色彩构图 · 提示词模板 | story-cover |
 | 多视角审稿 | 多视角审稿 · 评分标准 · 毒点排查 | story-review |
 
+</details>
+
 ## 适用平台
 
 **长篇** 起点中文网 · 番茄小说 · 晋江文学城 · 七猫小说 · 刺猬猫
 
 **短篇** 知乎盐言故事 · 番茄短篇 · 七猫短篇
 
-真实产出样例见 [demo/](demo/)：短篇《曾将爱意私藏》约 8500 字 · 封面《剑道独尊》示例图。
+真实产出样例见 [demo/](demo/)：短篇拆文《曾将爱意私藏》· 长篇拆文《盘龙》· 长篇续写工程《让你管账号，你高燃混剪炸全网》· 封面《剑道独尊》示例图。
 
 这套 skill 现在能让我度过找工作的过渡期 :joy:，希望也能帮到有需要的朋友。
 
@@ -323,9 +342,10 @@ demo/拆文库-盘龙/
 
 欢迎贡献新 skill、补充知识库、更新市场数据。详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-## License
+## 交流
 
-[MIT](./LICENSE)
+- **Telegram 群**：<https://t.me/ohstoryclaudecode> —— 日常交流、踩坑、新功能讨论。
+- **GitHub Discussions**：[提问 / 求助 / 分享用法](https://github.com/ronghuaxueleng/oh-story-claudecode/discussions)，方便检索。
 
 ## 致谢
 
