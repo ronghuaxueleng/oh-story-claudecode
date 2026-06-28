@@ -39,6 +39,7 @@ description: |
 - 读取 `skills/story-setup/references/templates/CLAUDE.md.tmpl`
 - 替换占位符（见下方「模板占位符」段）
 - 写入项目根目录 `CLAUDE.md`（如已存在，按「CLAUDE.md 合并策略」处理）
+- 模板落盘统一由 `scripts/install-codex-project.sh` 执行；模板文件自带 `<!-- managed-by: story-setup -->` 标记，后续重部署只覆盖受管文件，不强盖用户手写文件
 - 新版模板必须包含“正文落盘后四连收尾”和“compact/续写前追踪主表核对”要求，避免只同步 `上下文.md` 而漏掉 `时间线.md`、`角色状态.md`、`伏笔.md`、`情报台账.md`
 - 当处于“宿主模式”时，`CLAUDE.md` 的文件结构段必须保留 `<书名>/...` 占位说明，不得把 `正文/设定/大纲/追踪/对标/` 直接写成项目根已存在目录
 
@@ -46,7 +47,7 @@ description: |
 - 读取 `skills/story-setup/references/templates/写作执行铁律.md.tmpl`
 - 若项目内存在明确书名目录，则写入对应小说目录
 - 若不存在明确书名目录，跳过本步骤；不得在项目根目录预写 `写作执行铁律.md`
-- 如果已存在，按“合并而非替换”处理：保留用户自定义附加条款，但必须覆盖/保留硬闸、读前顺序、冲突优先级
+- 如果已存在且带 `<!-- managed-by: story-setup -->`，允许重部署覆盖；如果是不带标记的用户手写文件，默认跳过，不覆盖
 - 新版铁律必须包含“`scene_lint.py -> 写后验收 -> 追踪同步 -> 反读追踪` 四连收尾”与“正文章节号前推但追踪主表未同步时直接按 `F5` 截停”
 
 ### 2.3 部署宿主环境文件
@@ -57,6 +58,7 @@ description: |
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 生成 `.codex/skills/story-setup/references/agent-references/`
 - `agent-references/` 必须包含新一轮参考边界卡：`reference-boundary-and-sources-split.md`、`chapter-prewrite-card-enforcement.md`、`reference-chapter-comparison-protocol.md`，避免部署后正文写作仍缺“可借层/禁借层/参考对比”口径
+- `agent-references/` 还必须包含短篇资料包副本：`material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，避免短篇写作和拆文部署后缺“情节融合 / 口气模板 / 人物功能位”材料库
 - 生成项目级 `scripts/`，并复制 `references/templates/scripts/*.py` 全套模板脚本；当前最小应包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 - 确保项目 `scripts/*.py` 也有执行权限（chmod +x）
@@ -72,6 +74,7 @@ description: |
 - 读取 `skills/story-setup/references/templates/上下文.md.tmpl`
 - 如有书名目录，复制到 `{书名}/追踪/` 下
 - 如无书名目录，跳过；不得为冷启动宿主项目预建 `追踪/` 或 `上下文.md`
+- 若 `追踪/上下文.md` 已存在且带 `<!-- managed-by: story-setup -->`，允许重部署覆盖；若为用户手写文件，默认跳过
 
 ### 2.6 宿主配置处理
 - 如不存在 `.codex/config.toml`，创建最小必需配置
@@ -83,7 +86,7 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 15
+  agents_version: 17
   setup_skill_version: 1.4.2
   target_cli: codex
   resolver_strategy: project-local-skill-reference
@@ -91,7 +94,7 @@ description: |
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
 - 仅当存在真实书籍目录时，才允许创建或更新 `.active-book`
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 15，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules/scripts（v15 补齐参考边界卡、单章写前卡、参考章节对比协议到 agent-references，并把参考原文使用边界下沉到部署后的子代理；v14 补齐新版根模板、兼容层 rules 模板、项目级完整脚本链；v13 补齐项目级 `story_review_regression.py` 并串联正文/追踪回归链；v12 补齐项目级 `validate_tracking_state.py` 与 `detect_key_character_promotion.py`；v11 补齐追踪同步四连收尾、compact/续写前追踪主表核对、hook 级追踪提醒；v10 补齐项目级 `scene_lint.py` 与 `draft_purity_guard.py`；v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 17，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules/scripts（v17 把根 `CLAUDE.md`、书内 `写作执行铁律.md`、`追踪/上下文.md` 的模板落盘正式并入安装脚本，并用 `<!-- managed-by: story-setup -->` 保护用户手写文件；v16 补齐短篇资料包副本 `material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，并把短篇起盘字段、人物功能位、口气模板要求下沉到部署后的子代理；v15 补齐参考边界卡、单章写前卡、参考章节对比协议到 agent-references，并把参考原文使用边界下沉到部署后的子代理；v14 补齐新版根模板、兼容层 rules 模板、项目级完整脚本链；v13 补齐项目级 `story_review_regression.py` 并串联正文/追踪回归链；v12 补齐项目级 `validate_tracking_state.py` 与 `detect_key_character_promotion.py`；v11 补齐追踪同步四连收尾、compact/续写前追踪主表核对、hook 级追踪提醒；v10 补齐项目级 `scene_lint.py` 与 `draft_purity_guard.py`；v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
@@ -141,8 +144,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 15` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 15 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts，`CLAUDE.md` 走合并策略，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 17` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 17 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -158,4 +161,7 @@ description: |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
 | references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
+| references/agent-references/material-packs-setting-plot.md | 短篇情节/设定/冲突/融合写法资料包副本，供起盘、补冲突、做融合写作时调用 |
+| references/agent-references/material-packs-expression.md | 短篇表达/口气/开头句/虐点表达资料包副本，供角色口气设计与正文修辞调用 |
+| references/agent-references/material-packs-character.md | 短篇人物功能位/关系重组/接住者与对照组资料包副本，供人物与关系设计调用 |
 | references/templates/上下文.md.tmpl | 写作上下文模板（仅书籍模式部署） |

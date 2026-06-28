@@ -19,7 +19,6 @@ FORBIDDEN_SUBSTRINGS = [
     "analysis",
     "assistant to=",
     "tool output",
-    "狠狠干",
 ]
 
 SELF_EDIT_PATTERNS = [
@@ -42,6 +41,43 @@ EXPLANATION_PATTERNS = [
     "不管怎么回事",
     "换句话说",
     "值钱的是",
+]
+
+REACTION_VERDICT_PATTERNS = [
+    r"她大概没想到我会这么平",
+    r"他显然没料到我会这么说",
+    r"他这才意识到自己输了",
+    r"我看着他，只觉得空",
+]
+
+EFFECT_VERDICT_PATTERNS = [
+    r"我知道，我这句话进去了",
+    r"这句一出去，起效了",
+    r"我知道，他听进去了",
+    r"这一下算是扎到了",
+]
+
+OBJECTLESS_ABSTRACT_PATTERNS = [
+    r"脑子里全是喜欢[。！？]",
+    r"心里只剩委屈[。！？]",
+    r"最在意的就是体面[。！？]",
+    r"忽然觉得难堪[。！？]",
+]
+
+SENSORY_BREAK_PATTERNS = [
+    r"静下来，静得我耳朵都嗡",
+    r"看着屏幕，心里一下静了",
+    r"天一黑，后背都发麻",
+]
+
+HEARING_OVEREXPLAIN_PATTERNS = [
+    r"不是哭，是气急了又压着，憋得胸口发闷那种喘",
+]
+
+NONHUMAN_PHRASE_PATTERNS = [
+    r"往里垫",
+    r"把话塞进去",
+    r"回头摸墙",
 ]
 
 ABSTRACT_KOU_PATTERNS = [
@@ -123,6 +159,10 @@ SUGGESTIONS = {
     ("动作", "error"): "建议补可见动作链，不要只剩判断和说明。",
     ("结构", "error"): "建议拆长段、补句末停顿，并检查是否大段拖叙。",
     ("流程", "error"): "建议先补齐缺失文件或角色目录，再继续正文流程。",
+    ("代判", "error"): "建议删掉作者盖章句，改成沉默、停顿、脸色、站位或接不上话等现场反应。",
+    ("悬空", "error"): "建议把抽象词补实：喜欢谁、委屈什么、体面给谁看，别把承重信息省掉。",
+    ("感官", "error"): "建议拆开硬焊句，保留同一条感官链，或改成现场能自然推出的感受。",
+    ("口气", "error"): "建议先保句子功能，再把怪词退回常用口语层，不要为了新鲜硬拧句子。",
 }
 
 
@@ -201,9 +241,24 @@ class ChapterPolicy:
     target: int | None = None
 
 
+def detect_project_mode(project_root: Path) -> str:
+    # scene_lint.py 是长短篇共用门禁。
+    # 这里只做轻量项目形态识别，把明显的短篇专项规则收进 short 分支，
+    # 避免把短篇句型门禁直接打到长篇正文上。
+    if (project_root / "正文").is_dir():
+        return "long"
+    if (project_root / "正文.md").exists():
+        return "short"
+    return "generic"
+
+
 def count_explanation_lines(text: str) -> int:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return sum(1 for line in lines if any(pattern in line for pattern in EXPLANATION_PATTERNS))
+
+
+def count_regex_hits(text: str, patterns: list[str]) -> int:
+    return sum(len(re.findall(pattern, text)) for pattern in patterns)
 
 
 def chapter_targets(path: Path, text: str, project_root: Path) -> ChapterPolicy:
@@ -236,6 +291,8 @@ def lint_file(path: Path) -> list[Issue]:
     text = path.read_text(encoding="utf-8")
     stripped = text.strip()
     project_root = project_root_for(path)
+    project_mode = detect_project_mode(project_root)
+    is_prose = "正文" in path.parts or "chapter" in path.name.lower()
 
     for needle in FORBIDDEN_SUBSTRINGS:
         if needle in text:
@@ -249,21 +306,49 @@ def lint_file(path: Path) -> list[Issue]:
         if marker in text:
             issues.append(make_issue(str(path), f"正文文件混入流程块: {marker}", "error", "污染"))
 
-    explanation_count = count_occurrences(text, EXPLANATION_PATTERNS)
-    if explanation_count >= 1:
-        issues.append(make_issue(str(path), f"解释腔/作者判句过多: {explanation_count}", "error", "解释"))
-    explanation_line_count = count_explanation_lines(text)
-    if explanation_line_count >= 3:
-        issues.append(make_issue(str(path), f"解释句密度过高: {explanation_line_count}", "error", "解释"))
+    if is_prose:
+        explanation_count = count_occurrences(text, EXPLANATION_PATTERNS)
+        if explanation_count >= 1:
+            issues.append(make_issue(str(path), f"解释腔/作者判句过多: {explanation_count}", "error", "解释"))
+        explanation_line_count = count_explanation_lines(text)
+        if explanation_line_count >= 3:
+            issues.append(make_issue(str(path), f"解释句密度过高: {explanation_line_count}", "error", "解释"))
 
-    summary_count = count_occurrences(tail(text), SUMMARY_PATTERNS)
-    if summary_count >= 1 and len(stripped) > 0:
-        issues.append(make_issue(str(path), f"章尾总结/预告/盖章风险: {summary_count}", "error", "章尾"))
+        summary_count = count_occurrences(tail(text), SUMMARY_PATTERNS)
+        if summary_count >= 1 and len(stripped) > 0:
+            issues.append(make_issue(str(path), f"章尾总结/预告/盖章风险: {summary_count}", "error", "章尾"))
 
-    if "正文" in path.parts or "chapter" in path.name.lower():
         abstract_kou_hits = sum(len(re.findall(pattern, text)) for pattern in ABSTRACT_KOU_PATTERNS)
         if abstract_kou_hits >= 1:
             issues.append(make_issue(str(path), f"命中纲层黑话/抽象“口”字模板词: {abstract_kou_hits}", "error", "模板"))
+
+        # 下面这批是短篇专项高精度句型门禁：
+        # 高频、字面稳定、误伤可控，但更贴近短篇第一人称现实情感写法。
+        # 长篇继续走公共层门禁，不默认吃这批短篇专项。
+        if project_mode == "short":
+            reaction_verdict_hits = count_regex_hits(text, REACTION_VERDICT_PATTERNS)
+            if reaction_verdict_hits >= 1:
+                issues.append(make_issue(str(path), f"命中人物反应代判句: {reaction_verdict_hits}", "error", "代判"))
+
+            effect_verdict_hits = count_regex_hits(text, EFFECT_VERDICT_PATTERNS)
+            if effect_verdict_hits >= 1:
+                issues.append(make_issue(str(path), f"命中效果判词/起效代判句: {effect_verdict_hits}", "error", "代判"))
+
+            objectless_abstract_hits = count_regex_hits(text, OBJECTLESS_ABSTRACT_PATTERNS)
+            if objectless_abstract_hits >= 1:
+                issues.append(make_issue(str(path), f"命中抽象词悬空/对象省略过度句: {objectless_abstract_hits}", "error", "悬空"))
+
+            sensory_break_hits = count_regex_hits(text, SENSORY_BREAK_PATTERNS)
+            if sensory_break_hits >= 1:
+                issues.append(make_issue(str(path), f"命中感官逻辑断裂/状态-感官硬焊句: {sensory_break_hits}", "error", "感官"))
+
+            hearing_overexplain_hits = count_regex_hits(text, HEARING_OVEREXPLAIN_PATTERNS)
+            if hearing_overexplain_hits >= 1:
+                issues.append(make_issue(str(path), f"命中听觉描写解释过满句: {hearing_overexplain_hits}", "error", "感官"))
+
+            nonhuman_phrase_hits = count_regex_hits(text, NONHUMAN_PHRASE_PATTERNS)
+            if nonhuman_phrase_hits >= 1:
+                issues.append(make_issue(str(path), f"命中高精度非人话表达样本: {nonhuman_phrase_hits}", "error", "口气"))
 
         policy = chapter_targets(path, text, project_root)
         if policy.hard_min and len(text) < policy.hard_min - CHAR_COUNT_TOLERANCE:
@@ -286,7 +371,7 @@ def lint_file(path: Path) -> list[Issue]:
         if len(text) > 0 and len(re.findall(r"[。！？]", text)) < 5:
             issues.append(make_issue(str(path), "句末标点偏少，可能存在大段拖叙", "error", "结构"))
 
-    if has_any(text, INFO_FLOW_MARKERS):
+    if is_prose and has_any(text, INFO_FLOW_MARKERS):
         if "「" not in text or "」" not in text:
             issues.append(make_issue(str(path), "情报流文本缺少独立情报引号块", "error", "情报"))
 
@@ -296,10 +381,6 @@ def lint_file(path: Path) -> list[Issue]:
             missing_columns = [col for col in TRACKING_REQUIRED_COLUMNS if col not in tracking_text]
             if missing_columns:
                 issues.append(make_issue(str(tracking_path), f"情报台账缺少字段: {', '.join(missing_columns)}", "error", "情报"))
-
-    role_dir = project_root / "设定" / "角色"
-    if not role_dir.exists():
-        issues.append(make_issue(str(role_dir), "缺少设定/角色目录", "error", "流程"))
 
     if re.search(r"\b(commentary|analysis|assistant to=|functions\.|multi_tool_use\.)\b", text):
         issues.append(make_issue(str(path), "检测到工具/渠道残片", "error", "污染"))
@@ -335,6 +416,12 @@ def main(argv: list[str]) -> int:
     all_issues: list[Issue] = []
     input_paths, input_issues = expand_input_paths(args.files)
     all_issues.extend(input_issues)
+    project_roots = sorted({project_root_for(path) for path in input_paths}, key=lambda p: str(p))
+    for project_root in project_roots:
+        role_dir = project_root / "设定" / "角色"
+        role_file = project_root / "设定.md"
+        if not role_dir.exists() and not role_file.exists():
+            all_issues.append(make_issue(str(role_dir), "缺少角色设定入口（未发现设定/角色目录或设定.md）", "error", "流程"))
     for path in input_paths:
         all_issues.extend(lint_file(path))
 

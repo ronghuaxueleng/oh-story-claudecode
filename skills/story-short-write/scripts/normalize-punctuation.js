@@ -256,7 +256,7 @@ function normalizeQuotes(line, quoteMode, quoteOpen, lineNo) {
       const replacement = quoteOpen || ch === '”' ? '」' : '「';
       output += replacement;
       quoteOpen = replacement === '「';
-      findings.push({ line: lineNo, column: i + 1, type: 'quote-style', message: '按显式 quote-mode 转为盐言引号。' });
+      findings.push({ line: lineNo, column: i + 1, type: 'quote-style', message: '按显式 quote-mode 转为投稿版引号。' });
       continue;
     }
     output += ch;

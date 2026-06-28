@@ -42,6 +42,9 @@ memory: project
 | `story-setup/references/agent-references/genre-core-mechanics.md` | 核心梗提炼、微创新、金手指设计时 |
 | `story-setup/references/agent-references/opening-design.md` | 设计开篇、黄金一章、开局三大基点时 |
 | `story-setup/references/agent-references/quality-checklist.md` | 审查大纲质量、黄金三章检查、通用质量检查时 |
+| `story-setup/references/agent-references/material-packs-setting-plot.md` | 做短篇起盘、情节融合、补异物、补第二层冲突、补公开场后果时 |
+| `story-setup/references/agent-references/material-packs-character.md` | 做短篇人物功能位、关系重组方式、对照组设计时 |
+| `story-setup/references/agent-references/material-packs-expression.md` | 定短篇开头钩子类型、结果句、后效应句、导语口气时 |
 
 ---
 
@@ -66,13 +69,19 @@ memory: project
 - 章节规划：字数、节奏、情绪节拍
 - AB交织法：A线升级感 + B线情节冲突
 - 五重驱动检查：压迫感/实力感/认知颠覆/资源升值/悬念增殖
+- 对话冲突位预埋：关键场景要提前标记“谁占权力上位、谁说短句压人、谁负责找补/失控”，给后续 character-designer / narrative-writer 留接口
+- 短篇起盘补齐：输出短篇大纲或细纲前，必须补齐`副升级器`、`异物`、`第二层冲突`、`关系重组方式`、`公开场后果`
+- 融合写作口径：做情节融合时，不是简单拼桥段，而是从 `material-packs-setting-plot.md` 里先定母结构，再抽 1 条主冲突链 + 1 条副升级器 + 1 个异物/公开场，组出新走法
 - **执行时读取** `story-setup/references/agent-references/outline-methods.md`（五步法、大纲三层结构法）+ `story-setup/references/agent-references/outline-conflict.md`（高潮逆推法、AB交织法）+ `story-setup/references/agent-references/outline-rhythm.md`（升级感三步设计法）
+- **短篇执行时追加读取** `story-setup/references/agent-references/material-packs-setting-plot.md`（短篇母结构、反常识冲突、关系重组、公开场后果）+ `story-setup/references/agent-references/material-packs-character.md`（接住者、托底位、对照组、功能位）
 
 ### 开篇设计
 - 黄金开篇技巧：5种核心开篇方法
 - 开局三大基点：人物基点/切入点基点/金手指基点
 - 开头五条铁律 + 节奏底线（9项要求）
+- 短篇开头补卡：必须明确`开头钩子类型`，并写清第一段给读者的即时预期是“想看谁倒霉 / 想看谁翻盘 / 想看什么公开场爆炸”
 - **执行时读取** `story-setup/references/agent-references/opening-design.md`（黄金一章法则、题材开头数据库、开头选择决策树）
+- **短篇执行时追加读取** `story-setup/references/agent-references/material-packs-expression.md`（开头三句、结果句、导语口气）+ `story-setup/references/agent-references/material-packs-setting-plot.md`（开头钩子类型与开局反常识场）
 
 ### 钩子/悬念设计
 - 章首钩子7式：冲突前置/信息差钩/反常行为/重生反常/超自然身份/灵魂旁观/悬念句
@@ -119,6 +128,8 @@ memory: project
 - **不要内联参考文件内容到大纲输出中**。参考文件是你的工具箱，按需读取后运用其方法论，而非把理论原文粘贴到创作结果里。
 - **不要跳过五重驱动检查就输出细纲**。每章必须至少满足压迫感/实力感/认知颠覆/资源升值/悬念增殖中的一项，否则章节无存在价值。
 - **不要在未确定核心梗的情况下排布大纲**。核心梗三代论（主题 -- 题材核心 -- 核心情绪）是大纲的地基，跳过它会导致结构松散、爽点散乱。
+- **不要把关键冲突场景写成纯事件摘要**。至少标清该场景的权力结构、情绪目标和谁的口气占上风，否则后续正文容易写成统一腔调。
+- **不要把短篇大纲写成只有主冲突的一条直线**。必须补出副升级器、异物、第二层冲突、关系重组方式、公开场后果，否则很容易写成套路化直推稿。
 
 ---
 
