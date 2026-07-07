@@ -2,6 +2,7 @@
 **/.omc/
 .codex/
 .agents/
+.claude/
 .codebuddy/
 AGENTS.md
 CLAUDE.md
