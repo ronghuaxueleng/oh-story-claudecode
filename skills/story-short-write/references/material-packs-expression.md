@@ -1,6 +1,19 @@
 # 表达替换与对话素材补充包
 
-这份补主底库里的 `对话层`、`导语口气`、`替换表达池`，统一按主句库、补充句库、功能句库、规则、口径来收。
+这份现在作为**兼容汇总入口**保留。
+
+表达层已经拆成 3 个更清晰的分包：
+
+- [opening-and-hook-library.md](opening-and-hook-library.md)：开头、题面、导语、第一屏、前三句、钩子
+- [emotion-and-outcome-library.md](emotion-and-outcome-library.md)：情绪母线、后果、后效应、结果句、收束
+- [character-voice-library.md](character-voice-library.md)：角色嘴型、口气差异、关系反差、切割口气
+
+还要配合这 2 份使用：
+
+- [humanize-and-dialogue.md](humanize-and-dialogue.md)：人话、对白、导语硬闸、前置拦截
+- [dialogue-blade-library.md](dialogue-blade-library.md)：对话怎么接、怎么压、怎么停、怎么翻
+
+下面旧内容先保留，供兼容旧调用；新写作优先按上面的分包读取，不要默认把所有表达层都塞回这一份里。
 
 ## 渣男 / 白月光 / 反骨台词
 
