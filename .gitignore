@@ -9,3 +9,7 @@ CLAUDE.md
 _archive/
 skills-lock.json
 docs/plans/
+skills/**/scripts/__pycache__/
+skills/**/SKILL-重写预检.json
+skills/**/SKILL-重写预检.md
+demo/拆文库-曾将爱意私藏/
