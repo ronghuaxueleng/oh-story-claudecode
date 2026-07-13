@@ -69,6 +69,24 @@
 - 如果大纲看起来“什么都有”，但没有哪一下特别疼、特别狠、特别丢脸、特别掉位，说明还没起稳
 - 题面不等于故事。题面只是入口，后面至少还要有起因、关系错位、再加的那层事、高潮场合和关键证据
 - 开头不要只让主角难受，要让读者知道“她后面会怎么翻，或者对方后面会怎么倒霉”
+- 回炉排序固定为：桥段承重件/后果链 > 场戏功能和人物关系漏出 > 段落局部压味 > 短段节奏微调。不要先拿“短段不短段”当主问题。
+- 字数回炉也服从同一个顺序：如果只是轻微超出目标字数，不要先为压字数删桥段承重件、微动作、秩序件和人味段。先把桥段写对、场面写稳，再回头压重复解释、匀速段和废流程。
+- 如果已经有 `book.profile.json / project.profile.json`，桥段层默认不只检查 `must_keep`，还要一起检查：
+  - `opening_pattern`
+  - `recommended_sequence`
+  - `fake_signals`
+- 桥段回炉默认顺序：
+  - 先看原桥段怎么起手
+  - 再看原桥段顺序有没有被写乱
+  - 再看承重件缺没缺
+  - 最后才看句子顺不顺
+- 如果内部审计把全文判成 `single_global_block`：
+  - 禁止先做句面回修、短段整理、同义词替换
+  - 必须先重构主桥起手、桥段顺序、场戏分工、人物偏手、烂关系漏出
+  - 必须先看粗粒度大块，再看正文块，再看局部段落
+- 如果内部审计判成 `coarse_blocks`：
+  - 先修前 1-2 个粗粒度大块
+  - 每个大块里仍按 `起手 -> 顺序 -> 承重件 -> 句面` 的顺序回炉
 
 ### 原文里反复出现、要写进方法的几条
 
@@ -233,6 +251,33 @@
 - 只拿“故事梗概”去融，最后大概率会变成拼盘
 - 先读功能，再换外壳；不要先抄名词，再硬改设定
 
+### 融合 profile 重生口径
+
+如果这一轮：
+
+- 新增了拆书
+- 补强了 `profile_source.md`
+- 补强了 `同桥段过检规则.md`
+- 重生了单书 `book.profile.json`
+
+那写新稿前，默认先重生一次本轮题材的 `project.profile.json`，不要沿用旧融合包。
+
+默认命令：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+  --merge-profile-dir '拆文库' \
+  --name '{项目名}' \
+  --output 'profiles/{项目名}.project.profile.json'
+```
+
+口径：
+
+- 有整批题材拆文时，优先用 `--merge-profile-dir`
+- 只在你明确只选少数几本书做融合时，才手工写多个 `--merge-profile`
+- 重生完以后，正文和审计一律读取这次新出的 `project.profile.json`
+- 不要一边补单书 profile，一边继续拿昨天的旧融合包写今天的新稿
+
 ### 融合写作落地卡
 
 融合不是把两个热梗缝一起。
@@ -293,6 +338,11 @@
 - 题面负责点击，不负责替你推进全文
 - 如果想冲更高价位，至少再补一层：更狠的冲突 / 更强的升级器 / 更清楚的新变量
 - 上游参考稿如果没有拆出 `导语拆解表 / 顺序事件表 / 物件表 / 动作表 / 对白功能表 / 对话衔接表 / 误判表 / 钩子表 / 微动作表 / 安静压迫场表`，先回拆文阶段补，不要硬起新稿
+- 上游参考稿如果没有 `样本分级与可学层.md`，先回拆文阶段补，不要直接把整本当 DNA 源
+- 上游参考稿如果是 `B类骨架样本`，只拿它的骨架、承重件、后果链和场面秩序，不拿它的现成句法壳
+- 上游参考稿如果是 `C类负样本`，只并入反面规则，不并入正向融合 profile
+- 上游资料如果新增了 `profile_source.md`、补强了 `同桥段过检规则.md`，或新增了拆书样本，开写前必须重生 `project.profile.json`
+- 融合包不允许跨书把同序号桥段糊成同一条通用桥段规则
 
 ### 最短闭环检查链
 
@@ -314,6 +364,18 @@
 7. `爽点类型` 和结尾落点对不对得上
 
 这 2 条答不上来，说明你可能知道故事在发生什么，但还不知道读者为什么会爽。
+
+### bridge_rule_audit 口径
+
+如果内部审计已经产出 `bridge_rule_audit`，回炉顺序固定按这 5 步走：
+
+1. `opening_pattern_missing`
+2. `recommended_sequence_missing / recommended_sequence_out_of_order`
+3. `must_keep_missing`
+4. `must_avoid_hit / fake_signal_hit`
+5. 句壳、热点、短段节奏
+
+不要倒着做。先修句壳，再回补桥段，通常只会把正文修成更顺的说明稿。
 
 ### 更值钱的爽点长什么样
 
@@ -1018,12 +1080,14 @@
 
 回炉时固定顺序是：
 
-1. 先修骨架
-2. 再修开头
-3. 再修中段升级
-4. 再修高潮回收
-5. 再修情绪走法
-6. 最后才修句子和表演层
+1. 先看 `high_risk_segments`，定这轮只修哪几个片段
+2. 再看 `paragraph_scores`，定每个片段先动哪几个局部段落
+3. 再修骨架
+4. 再修开头
+5. 再修中段升级
+6. 再修高潮回收
+7. 再修情绪走法
+8. 最后才修句子和表演层
 
 顺序反了，最容易出现“句子修了很多遍，根子没动”。
 
@@ -1037,6 +1101,122 @@
 - 不狠：不公平不够刺、后果不够大、对方没掉位
 - 不像人：人物口气混、动作空、解释句太多
 - 不顺：句子拧、节奏散、段落太齐
+
+局部回炉时再补一句：
+
+- `先定片段，再定段落，再定改法；不要一看到问题列表就整篇乱修`
+
+新增固定口径：
+
+- 读取 `rulebook_audit / rulebook_impact_items`
+- 命中 `开头反假`
+  - 先拆 `先讲道理 / 卖点串烧 / 抽象定性 / 漂亮收刀`
+- 命中 `信息漏出顺序`
+  - 先拆 `事故关系前史结论一口气到齐 / 物证一出立刻定性 / 前史解释压过当前动作`
+- 命中 `后果链`
+  - 先拆 `手续流 / 安顿流 / 场场完整回击`
+- 命中 `人物偏手`
+  - 先拆 `男主过早解释 / 女主完整情绪宣言`
+- 命中 `失控说话`
+  - 先拆 `对白句句正答 / 追妻期成熟完整忏悔`
+- 命中 `烂关系漏出`
+  - 先拆 `关系只靠台词解释 / 物件像证据桌`
+- 命中 `朱雀影响项映射`
+  - 先拆 `作者替角色下结论`
+- 命中 `作者站位过高`
+  - 先拆 `角色当下不可能想这么明白 / 台词更像写给读者听 / 段尾总在点题`
+- 这些项的优先级高于纯句面润色
+
+补一条硬口径：
+
+- `references/myconfig-import/虚词模板词典.json` 不直接进自动批量替换
+- 只可作为人工改写时的松句、钝化、补废气参考
+- 原因见 `myconfig-rule-integration.md`
+
+如果要把这一轮跑成标准化产物，默认直接用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" \
+  当前短篇目录 \
+  --internal-standard profiles/internal_audit_standard.json
+```
+
+它会把：
+
+- `审计`
+- `任务单`
+- `任务单自检`
+- `受限重写 gate 执行单`
+- `gate 回执 JSON`
+
+放进同一轮目录，避免手工散着跑。
+
+不传 `--output-root` 时，默认使用 `当前书目录/数据/审计循环`。
+同一篇正文连续回炉时，默认复用同一个 `output-root`。脚本会自动找上一轮 `cycle_summary.json` 对应的 `full_audit.json` 做本轮对比，不用每次手填上一轮路径。
+
+注意：
+
+- 这里的“循环”不是让审计脚本对同一份没改过的正文反复空跑
+- 正确闭环是：`审计 -> 看桥段和大块 -> 改正文 -> 再审计`
+- 桥段没对齐前，不要先为了总分去修短段、节奏或局部漂亮句
+
+如果目录里有 `profiles/`，脚本还会自动找最新的规则包。也就是说，标准目录下默认可以直接在书目录级别启动，不必每次手写 `正文.md` 和 profile 路径。
+如果当前书目录还没有规则包，但已经有 `01_主骨架与融合方案.md`，脚本会先从里面提取主骨架/辅桥来源，再去 `拆文库/{书名}/book.profile.json` 自动合成一本当前书专属 `profiles/{当前书名}.project.profile.json`，然后本轮直接使用。
+
+如果目录里暂时还没有标准 `正文.md`，脚本也会兼容旧版版本稿命名，自动选最新的“含正文字样”的 `.md` 文件。这样旧项目不需要先重排文件名，也能先接上回炉闭环。
+
+如果已经出了 `model_rewrite_task.json / .md`，默认再验两句：
+
+- `桥段任务前排` 是否覆盖了 `segment_focus` 里真正命中的桥段
+- `paragraph_focus` 前排里是否混进了只有 `短段对白密` 的段落
+- `display_block_focus` 前排是否真的覆盖了 `内部最高块风险分` 对应的正文块
+
+这两句对应任务单里的 `task_validation`。只要有一项不通过，先修任务单，不直接回修正文。
+
+如果已经出了 `rewrite_gate_task.md / failure_gate_task.md`，还要再验：
+
+- `rewrite_gate_receipt.json` 是否已经从 `pending` 改成真实执行结果
+- `failure_gate_receipt.json` 是否已经写明 `passed / failed`
+
+只生成执行单、不回填回执，视为这一轮 gate 没真正执行完。
+
+如果这个题材还没有做过校准，先补这一步，再进入日常回炉：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_zhuque.py" \
+  zhuque_test/题材目录 \
+  --audit-dir zhuque_test/题材目录/_score_align \
+  --output profiles/zhuque_alignment.csv \
+  --summary-output profiles/zhuque_alignment_summary.json \
+  --internal-standard-output profiles/internal_audit_standard.json
+```
+
+后续就固定使用同一份：
+
+- `profiles/internal_audit_standard.json`
+
+来驱动：
+
+- `run_full_ai_audit.py`
+- `auto_revise_ai_flavor.py`
+- `run_revision_cycle.py`
+
+日常判断口径固定为：
+
+- 先看 `当前判定`
+- 再看 `内部最高块风险分`
+- 再看 `正文块风险排行`
+- 最后才看全文重审计分
+
+这里要额外区分两层：
+
+- `直接计分层`：会直接推高 `heavy_summary.score`
+- `结构不过层`：不一定直接推高分数，但会让桥段、正文块、片段长期不过
+
+不要把这两层混成一个“总分问题”。
+详细拆解见：
+
+- [heavy-audit-breakdown.md](heavy-audit-breakdown.md)
 
 ### 短篇回炉自检单
 

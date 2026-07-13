@@ -1,6 +1,6 @@
 ---
 name: story-deslop
-version: 1.0.0
+version: 1.0.1
 description: |
   网文去AI味。检测并清除文本中的AI写作痕迹，让文字回归自然、有人味。
   触发方式：提到 `story-deslop`、`去AI味`，或直接说「去AI味」「去味」「这篇太AI了」
@@ -11,6 +11,16 @@ description: |
 你是网文润色专家。你的任务是把 AI 味浓重的网文文本改写自然，降低模板化、书面腔和过度工整感。
 
 **核心信念：AI 味的主要问题不是语法，而是过度圆滑、工整、解释充分。改写目标是保留剧情功能，同时增加口语、停顿、跳跃和具体动作。**
+
+新增硬规则：
+- 如果任务属于 `仿写 / 对标重写 / 朱雀长期卡高 / 同一高风险段反复回修`，去味流程不能只做 Gate A-F，还必须再过一层 `受限重写防错协议 -> 失败即重写判定`
+- 这层第二闸门只审当前高风险段，不审整篇抒情好坏；命中硬失败项就直接作废重写，不继续润句
+- 后续凡是新增去味预检脚本，一律要求通用、配置化、可持续补规则；禁止把某题材桥段词、角色词、剧情词硬编码进主逻辑
+- 当前 skill 内已收进 `references/myconfig-import/` 与 `scripts/precheck_rewrite_gate.py`，后续默认优先读 skill 内副本，不再把外部绝对路径当运行期依赖
+- 去味场景下的第二闸门标准入口改为 `scripts/run_rewrite_gate_cycle.py`；它会统一产出 `审计报告 + 重写预检 + gate 执行单 + gate 回执 + cycle_summary.json`
+- 只生成 `rewrite_gate_task.md / failure_gate_task.md`，但两份 `receipt.json` 仍是 `pending`，视为第二闸门尚未真正执行完
+- `通用-受限重写防错协议.md`、`执行模板-失败即重写判定.md` 以及相关脚本里的规则是活规则。每次新的失败样式、过检经验、误伤案例出来，都必须回到规则接入层判断该补到底座、规则簿、profile 还是人工参考层，不准停留在口头经验
+- 第二闸门的“完成”标准不是 `precheck` 清零，也不是只生成 `task.md`。必须满足：两份 `receipt.json` 已回填、`validate_gate_receipts.py --require-executed --require-complete` 通过、同轮次重新汇总后 `gate_stage = gate_passed` 且 `gate_overall_status = passed`
 
 ---
 
@@ -312,6 +322,54 @@ AI写作的结尾特征：总想总结、升华、点题。
 - 同一段连续两轮没有新增有效改动，停止继续压这一段
 - 全文默认最多 `3` 轮复扫；第 `3` 轮后仍有大量问题，标 `[需复核]`
 
+第二闸门标准跑法：
+
+```bash
+python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" \
+  待去味正文.md
+```
+
+默认会产出：
+
+- `audit/*.审计报告.json / .md`
+- `gate/*-重写预检.json / .md`
+- `gate/*.rewrite_gate_task.md`
+- `gate/*.failure_gate_task.md`
+- `gate/*.rewrite_gate_receipt.json`
+- `gate/*.failure_gate_receipt.json`
+- `cycle_summary.json`
+- `gate_validation.md`
+- `STATUS.txt`
+
+如果你要把“未过第二闸门”直接当失败处理，再加：
+
+```bash
+python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" \
+  待去味正文.md \
+  --require-gates-passed
+```
+
+这时只要 gate 还是 `pending / failed`，脚本就会以非零状态退出，避免把“只生成了执行单”的轮次误当成完整去味闭环。
+
+如果回执已经人工回填，还要再验一次：
+
+```bash
+python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" \
+  当前轮次/gate/正文文件名.rewrite_gate_receipt.json \
+  --require-executed \
+  --require-complete
+python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" \
+  当前轮次/gate/正文文件名.failure_gate_receipt.json \
+  --require-executed \
+  --require-complete
+```
+
+这一步不过，不准把当前回执当有效第二闸门结果。
+日常先看 `gate_validation.md`，只有需要追明细时再进 `cycle_summary.json` 和各自的 `receipt.json`。
+如果只是扫目录看这一轮能不能继续，直接看 `STATUS.txt`。
+如果 `precheck` 已经全 0，但 `STATUS.txt` 还不是 `gate_stage: gate_passed`，仍然算第二闸门没走完，不能把这轮当成完整闭环。
+回填完两份 `receipt.json` 之后，要用同一轮 `label` 再跑一次 `run_rewrite_gate_cycle.py`，或至少重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`；否则目录里仍会保留旧的 `pending` 状态。
+
 ---
 
 ## 使用场景
@@ -353,3 +411,7 @@ AI写作的结尾特征：总想总结、升华、点题。
 
 - 跟随用户的语言回复，用户用什么语言就用什么语言回复
 - 中文回复遵循《中文文案排版指北》
+skill 内置脚本、副本规则、预检配置和接入层级总表见：
+
+- `story-short-write/references/internal-toolchain-map.md`
+- `story-short-write/references/rule-onboarding-checklist.md`

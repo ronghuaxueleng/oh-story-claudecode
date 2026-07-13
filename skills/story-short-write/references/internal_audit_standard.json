@@ -1,0 +1,42 @@
+{
+  "version": "1.0",
+  "type": "internal_audit_standard",
+  "calibrated_from": "zhuque_pdf_alignment",
+  "sample_count": 36,
+  "parse_failure_count": 19,
+  "segment_count_range": {
+    "min": 1,
+    "max": 13,
+    "avg": 6.14
+  },
+  "calibration_models": {
+    "zhuque_weighted_avg": null,
+    "zhuque_max_seg": null
+  },
+  "recommendation": {
+    "primary_tracking_metric": null,
+    "secondary_tracking_metric": null,
+    "note": "优先盯最高外部块的正相关代理值，因此先看 vs_zhuque_max_seg 的正相关指标；全文平均只作辅助。"
+  },
+  "passline": {
+    "priority": "max_block",
+    "max_block": {
+      "high_risk_gt": 0.75,
+      "needs_revision_gte": 0.6,
+      "ready_for_check_lt": 0.6
+    },
+    "overall": {
+      "needs_revision_gte": 0.55
+    }
+  },
+  "legacy_source": {
+    "best_metric_vs_zhuque_weighted_avg": null,
+    "best_metric_vs_zhuque_max_seg": null,
+    "fallback_metric_vs_zhuque_weighted_avg": null,
+    "fallback_metric_vs_zhuque_max_seg": null
+  },
+  "notes": [
+    "这是一份固定内部标准文件。日常回炉默认使用本文件。",
+    "判定优先看最高块风险分，其次再看整体风险分。"
+  ]
+}
