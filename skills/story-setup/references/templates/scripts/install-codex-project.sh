@@ -41,8 +41,10 @@ cp -f "$TEMPLATES_DIR/hooks/lib/"*.sh "$PROJECT_ROOT/.codex/hooks/lib/"
 cp -f "$TEMPLATES_DIR/rules/"*.md "$PROJECT_ROOT/.codex/rules/"
 cp -f "$TEMPLATES_DIR/subagents/"*.md "$PROJECT_ROOT/.codex/agents/"
 cp -f "$TEMPLATES_DIR/scripts/"*.py "$PROJECT_ROOT/scripts/"
+cp -f "$TEMPLATES_DIR/scripts/"*.js "$PROJECT_ROOT/scripts/"
 cp -f "$TEMPLATES_DIR/scripts/install-codex-project.sh" "$PROJECT_ROOT/scripts/"
 cp -f "$AGENT_REFERENCES_DIR/"*.md "$PROJECT_ROOT/.codex/skills/story-setup/references/agent-references/"
+cp -f "$AGENT_REFERENCES_DIR/"*.json "$PROJECT_ROOT/.codex/skills/story-setup/references/agent-references/"
 
 chmod +x "$PROJECT_ROOT/.codex/hooks/"*.sh "$PROJECT_ROOT/.codex/hooks/lib/"*.sh
 chmod +x "$PROJECT_ROOT/scripts/"*.py "$PROJECT_ROOT/scripts/install-codex-project.sh"
@@ -104,8 +106,8 @@ fi
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 cat > "$PROJECT_ROOT/.story-deployed" <<EOF
 deployed_at: $TIMESTAMP
-agents_version: 17
-setup_skill_version: 1.4.2
+agents_version: 18
+setup_skill_version: 1.5.0
 target_cli: codex
 resolver_strategy: project-local-skill-reference
 references_dir: .codex/skills/story-setup/references/agent-references

@@ -3,7 +3,7 @@ name: output-contract
 description: |
   story-short-analyze 输出契约。定义 Stage → 文件映射、_meta.json schema、
   下游消费规范（story-short-write 读全套 markdown + 原文 + _meta.json 写新短篇）。
-sync-source: skills/story-short-analyze/references/output-contract.md
+sync-source: skills/story-short-analyze/references/pipeline/output-contract.md
 sync-policy: |
   本文件在 story-short-analyze 与 story-short-write 之间需保持字节一致（byte-equal）。
   修改任一副本后，必须同步另一副本，并通过 bash scripts/check-shared-files.sh 验证。
@@ -22,24 +22,45 @@ sync-policy: |
 ```
 拆文库/{书名}/
 ├── 原文/                  # 管道前置步骤产出，存放源文件备份
-├── 可直接仿写_导语拆解表.md  # 可选：仿写/融合/去原作化时建议落盘
-├── 可直接仿写_顺序事件表.md  # 可选：仿写/融合/去原作化时建议落盘
-├── 可直接仿写_物件表.md      # 可选
-├── 可直接仿写_动作表.md      # 可选
-├── 可直接仿写_对白功能表.md  # 可选
-├── 可直接仿写_对话衔接表.md  # 可选
-├── 可直接仿写_误判表.md      # 可选
-├── 可直接仿写_钩子表.md      # 可选
-├── 可直接仿写_微动作表.md    # 可选
-├── 可直接仿写_安静压迫场表.md # 可选
-├── 可直接仿写_人物偏手表.md   # 高情绪题材强烈建议落盘
-├── 可直接仿写_失控说话表.md   # 高情绪题材强烈建议落盘
-├── 可直接仿写_烂关系漏出表.md # 高情绪题材强烈建议落盘
-├── 可直接仿写_外部秩序表.md   # 高情绪题材强烈建议落盘
-├── 可直接仿写_公开炸场表.md   # 高情绪题材强烈建议落盘
-├── 可直接仿写_后果链表.md     # 高情绪题材强烈建议落盘
+├── 可直接仿写_导语拆解表.md
+├── 可直接仿写_顺序事件表.md
+├── 可直接仿写_物件表.md
+├── 可直接仿写_动作表.md
+├── 可直接仿写_对白功能表.md
+├── 可直接仿写_对话衔接表.md
+├── 可直接仿写_误判表.md
+├── 可直接仿写_钩子表.md
+├── 可直接仿写_微动作表.md
+├── 可直接仿写_安静压迫场表.md
+├── 可直接仿写_人物偏手表.md
+├── 可直接仿写_失控说话表.md
+├── 可直接仿写_烂关系漏出表.md
+├── 可直接仿写_外部秩序表.md
+├── 可直接仿写_公开炸场表.md
+├── 可直接仿写_后果链表.md
+├── 原文细节库/
+│   ├── 场景细节库.md
+│   ├── 关系细节库.md
+│   ├── 情绪细节库.md
+│   ├── 对白细节库.md
+│   ├── 翻车细节库.md
+│   ├── 旧伤细节库.md
+│   ├── 动作细节库.md
+│   └── 场面细节库.md
 ├── 写作资产/
+│   ├── 母结构_故事走法.md
+│   ├── 主冲突_副升级器.md
+│   ├── 异物清单.md
+│   ├── 第二层冲突清单.md
+│   ├── 角色口气模板.md
+│   ├── 关系重组方式.md
+│   ├── 公开场_关键硬牌_后果.md
+│   ├── 平台适配提醒.md
+│   ├── 情绪母线.md
+│   ├── 新状态清单.md
+│   ├── 虐点对照细节.md
 │   ├── 样本分级与可学层.md   # 判定整本是否可提DNA，哪些层可学/禁学
+│   ├── 高敏桥段识别.md       # 高敏桥与过检机制
 │   ├── 作者DNA指纹.md         # 仿写/融合/去原作化硬门槛
 │   ├── 仿写约束_禁写清单.md   # 仿写/融合/去原作化硬门槛
 │   ├── 同桥段过检规则.md      # 仿写/融合/去原作化硬门槛
@@ -51,12 +72,18 @@ sync-policy: |
 └── _meta.json             # 管道元数据 + 结构计数（resume + Phase 7 门控数值依据）
 ```
 
+**默认产出约定**：上面列出的文件和目录，进入正式拆书后必须全部自动落盘；不存在“可选文件后补”。缺任意 1 项，默认不能进入 `ready-for-write`。
+
 **文件名约定**：`拆文报告.md / 情节节点.md / 写作手法.md / book.profile.json` 由短篇写作链路固定消费，不能改名。分析叙事走 markdown，数字和枚举走 `_meta.json.structure_counts`，结构化规则走 `book.profile.json`。
 
 **语义约定**：`样本分级与可学层 / 作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则 / profile_source` 不能只是非空文件，必须是“证据型资产”：
 
 - `样本分级与可学层.md`：必须明确写出 `A类正样本 / B类骨架样本 / C类负样本` 三选一，并拆清：
   - `是否可用于DNA提取`
+  - `原文检测结论`
+  - `原文整体分数`
+  - `原文高风险块`
+  - `分数使用口径`
   - `可学层`
   - `禁学层`
   - `判定证据`
@@ -64,8 +91,10 @@ sync-policy: |
 - `作者DNA指纹.md`：至少覆盖句长切句、停顿、口气差、动作替代、旧伤触发器、反面句型
 - `仿写约束_禁写清单.md`：每条禁写项后面都要带“为什么假 / 会把文写坏在哪”
 - `同桥段过检规则.md`：每个桥段都要带“原文承重件 / 新稿高风险假点 / 不能丢的东西”
+- `写作手法.md`：除了 POV / 对话 / 时间 / 信息控制，还必须补 `开场入口 / 回忆职责 / 关键断场点 / 尾声入口 / 收口落点`
+- `写作手法.md`：必须按固定骨架落盘，至少包含 `1.POV策略 / 2.对话手法 / 3.时间操控 / 4.章法硬拆 / 5.章法失效测试 / 6.信息控制 / 7.其他手法 / 8.意象物件追踪 / 9.手法总评与迁移提醒`
 - `写作资产/profile_source.md`：必须把模型读完整篇后提出来的原始 profile 材料写清，至少覆盖：
-  - `样本分级 / 是否可用于DNA提取 / 可学层 / 禁学层`
+  - `样本分级 / 是否可用于DNA提取 / 原文检测结论 / 原文整体分数 / 原文高风险块 / 分数使用口径 / 可学层 / 禁学层`
   - `题材流派 / 主梗 / 副梗`
   - `作者DNA`
   - `桥段承重件`
@@ -78,6 +107,10 @@ sync-policy: |
     - `why_order_matters`
     - `fake_signals`
     - `why_original_passes`
+  - 另外有 2 个格式硬要求是脚本直接验的：
+    - `开头高信息量信号` 里至少写 3 行独立的 `- 开头信号：`
+    - `禁句 / 禁写法` 里至少写 2 行独立的 `- 为什么假：`
+  - 这两项不能写成合并长句，也不能写成 `为什么假1 / 为什么假2`
 
 ---
 
@@ -137,11 +170,11 @@ sync-policy: |
 
 ## Phase 7 门控接入点
 
-Stage 6 内容写完后、`stages_completed[6]` append 前，跑四道门控：
+Stage 6 内容写完后、`stages_completed[6]` append 前，跑五道门控：
 
 ### 7.1 拆文报告 AI 腔自检
 
-扫描 `拆文报告.md` 全文，对照 `references/banned-words.md` + `references/anti-ai-writing.md`。
+扫描 `拆文报告.md` 全文，对照 `skills/story-short-analyze/references/governance/banned-words.md` + `skills/story-short-analyze/references/governance/anti-ai-writing.md`。
 命中就不要写 `stages_completed[6]`，列出位置，让用户修订**拆文报告本身**的 AI 腔（源文里有 AI 腔不算，这里扫的是分析师写的报告）。
 
 ### 7.2 `_meta.json.structure_counts` 数值校验
@@ -158,12 +191,34 @@ Stage 6 内容写完后、`stages_completed[6]` append 前，跑四道门控：
 
 > 情节节点数（15-60 个，按字数分档）走 `情节节点.md` 自己的密度校验（见 `material-decomposition.md`），不在本表。`beats` 是结构段数，不是情节节点数。
 
-### 7.3 `story-short-analyze/references/output-templates.md` BLOCK 项扫描
+### 7.3 `story-short-analyze/references/pipeline/output-templates.md` BLOCK 项扫描
 
-扫 `story-short-analyze/references/output-templates.md` 里所有 `[BLOCK]` 标注项，看对应产出段是否在 `拆文报告.md` 出现。
+扫 `story-short-analyze/references/pipeline/output-templates.md` 里所有 `[BLOCK]` 标注项，看对应产出段是否在 `拆文报告.md` 出现。
 任一缺失就阻断。`[WARN]` 项则写入拆文报告末尾的“待补”清单，不阻断。
 
-### 7.4 仿写资产完整性校验
+### 7.4 全量产物自动落盘校验
+
+默认必须运行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finalize.py" "拆文库/{书名}"
+```
+
+只要出现以下任一情况，就不能进入 `ready-for-write`：
+
+- 少任意一个定义文件
+- `原文细节库/` 8 类缺任意 1 类
+- `写作资产/` 的全量文件缺任意 1 类
+- 16 张 `可直接仿写_*.md` 缺任意 1 张
+- `拆文报告.md / 写作手法.md / profile_source.md` 缺关键骨架标题
+- `_meta.json / book.profile.json` 缺关键字段
+- 16 张表的施工层没有引用本表具体条目
+- 16 张表多处复用同一句迁移提醒或顺序原因
+- `原文细节库/` 大量内容仍是统一模板壳句
+- `原文细节库/` 多个 `##` 小节五条答案大面积复用，只换标题
+- `book.profile.json` 虽存在，但 `scene_assets / banned_phrases / author_stance_patterns / must_keep` 等关键资产抽空或抽碎
+
+### 7.5 仿写资产完整性校验
 
 如果该拆文目标包含 `仿写 / 融合 / 去原作化 / 去AI味回修` 中任意一种，额外检查以下 5 份文件必须存在且非空：
 
@@ -185,18 +240,30 @@ Stage 6 内容写完后、`stages_completed[6]` append 前，跑四道门控：
 - `仿写约束_禁写清单.md` 里如果只有禁令，没有“为什么假”，视为未通过
 - `同桥段过检规则.md` 里如果只有桥段名，没有承重件、假点和保留件，视为未通过
 - `同桥段过检规则.md` 里如果缺“原文怎么起手 / 为什么顺序不能乱 / 原文为什么能过”里的任意 1 类，视为未通过
+- 高敏桥如果缺 `重大证据前隔开的现实后果 / 尾声入口给了谁 / 为什么不给另一条线 / 人物不同脸证据` 里的任意 2 类，视为未通过
+- `写作手法.md` 里如果缺 `开场入口 / 时间线类型 / 回忆职责 / 关键断场点 / 尾声入口 / 收口落点` 里的任意 2 类，视为未通过
+- `写作手法.md` 里如果没有按固定骨架落盘，或缺 `章法失效测试 / 手法总评与迁移提醒` 任意 1 节，视为未通过
+- 16 张表如果没先按 `事件顺序类 / 物件动作类 / 对白口气类 / 关系秩序类` 判断写法，只是统一说明腔，视为未通过
+- 原文细节库如果没先按 `场景 / 物件 / 动作 / 对白 / 关系掉位` 判断证据核心，五条内容大量互相通用，视为未通过
+
+执行提醒：
+
+- Stage 4 开始前，默认先读 `output-templates.md` 的 `写作手法.md 固定骨架`
+- 如果实际落盘标题顺序和固定骨架不一致，默认按未通过处理，不接受“意思差不多”的自由发挥
 - `写作资产/profile_source.md` 里如果只有几条抽象标签，没有字段化原始材料，视为未通过
 - `写作资产/profile_source.md` 里如果 `桥段承重件` 缺 `原文怎么起手 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过` 里的任意 2 类，视为未通过
+- `写作资产/profile_source.md` 里如果没有至少 3 行独立的 `- 开头信号：`，视为未通过
+- `写作资产/profile_source.md` 里如果没有至少 2 行独立的 `- 为什么假：`，视为未通过
 - 这 5 份里任意 1 份缺“正面可学项 + 负面禁写项”双侧信息，默认仍是 `blocked-on-assets`
 
-### 7.5 生成单书 profile
+### 7.6 生成单书 profile
 
 先由模型补出 `写作资产/profile_source.md`，再调用本地 skill 脚本生成 `book.profile.json`。
 
 `profile_source.md` 不是最终规则包，而是“模型先提、脚本后收”的中间层。
 禁止跳过这一层，直接让脚本从全部 Markdown 盲抽。
 
-通过 7.4 后，调用本地 skill 脚本生成：
+收口脚本内部会自动完成这一步；需要单独排查时，才手动调用：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -222,7 +289,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 如果桥段只有 `must_keep / must_avoid`，默认仍没拆到可直接支撑同桥段仿写与去 AI 味回修的层级。
 
-### 7.6 通过
+### 7.7 通过
 
 清空 `_meta.json.last_stage_in_progress`，append `6` 到 `stages_completed[]`，再提示用户「拆解完成，可调用 `/story-short-write` 写下一篇」。
 
@@ -243,7 +310,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 | `可直接仿写_*.md`（强烈建议，仿写时视作必读） | 仿写/融合直接输入 | 优先按 `导语拆解 → 顺序事件 → 物件 → 动作 → 对白功能 → 对话衔接 → 误判 → 钩子 → 微动作 → 安静压迫场 → 人物偏手 → 失控说话 → 烂关系漏出 → 外部秩序 → 公开炸场 → 后果链` 顺序读取；高情绪题材缺任意 3 张以上，默认仍停在概括层 |
 | `拆文报告.md` | 分析叙事主体 | 读「故事核」「结构」「情感曲线」「爆点」「反转分析」「人物」「五维评分」「共鸣分析」「可复用结构」「同类型写作动作」段，是 writer 的主输入 |
 | `情节节点.md` | 节奏锚点 | 看每个节点的字数位置 + 功能 + 触发事件，给新故事排节奏 |
-| `写作手法.md` | 手法库 | POV / 对话 / 时间 / 信息控制 等具体手法 + 原文示例，新篇里复用 |
+| `写作手法.md` | 手法库 | 按固定 9 节骨架输出 POV / 对话 / 时间 / 信息控制 / 意象物件 / 总评，供新篇直接复用 |
+| `写作手法.md`（高敏任务） | 章法库 | 除常规手法外，必须读 `章法硬拆 + 章法失效测试 + 手法总评与迁移提醒`，先判断原文怎么藏住成品感 |
 | `原文/` | 语感源 | 抄对话调子、节奏、画面感、打脸张力。**不抄具体情节**，只抄写法。 |
 
 ### 写作流程建议
@@ -263,11 +331,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 ### 维护者本地烟雾测试
 
 ```bash
-ls 拆文库/{书名}/   # 应有：原文/ 写作资产/ 拆文报告.md 情节节点.md 写作手法.md book.profile.json _meta.json
+ls 拆文库/{书名}/   # 应有：原文/ 16张可直接仿写表 / 原文细节库/ / 写作资产/ / 拆文报告.md / 情节节点.md / 写作手法.md / book.profile.json / _meta.json
 test -f 拆文库/{书名}/写作资产/profile_source.md
+python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finalize.py" "拆文库/{书名}"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/audit_novel_ai_flavor.py" 新稿.md --profile 拆文库/{书名}/book.profile.json --json
 /story-short-write 拆文库/{书名}/
-# 通过：上游 3 份写作资产 + `profile_source.md` + `book.profile.json` 齐全，且输出 8000+ 字同题材新短篇，prose 带着源文的对话节奏和画面感
+# 通过：16张表 + 原文细节库 + 写作资产全包 + `profile_source.md` + `book.profile.json` 齐全，且输出 8000+ 字同题材新短篇，prose 带着源文的对话节奏和画面感
 # 失败：写得像填空，或 short-write 读不到关键 markdown / 写作资产
 ```
 

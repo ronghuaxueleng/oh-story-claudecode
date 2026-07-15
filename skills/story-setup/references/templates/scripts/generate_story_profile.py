@@ -293,16 +293,7 @@ ASSET_LABEL_PREFIXES = (
 
 def strip_asset_wrappers(text: str) -> str:
     stripped = text.strip().strip("：:，。；;、 ")
-    stripped = re.sub(
-        r"^(证据\d*|反面\d*|典型口气|常见模式|禁句型|禁写法|空总结句|成品体面对话|轻飘过渡句"
-        r"|推荐迁移顺序|不能丢的顺序|为什么这个顺序不能乱|原文为什么能过|原文为什么过检"
-        r"|最容易写假的点|新稿最容易写假的点|人物不同脸证据|谁先解释谁先压场|不同角色的动作权限差"
-        r"|重大证据前隔开的现实后果|后果回灌方式|尾声入口归属|尾声入口给了谁"
-        r"|不给另一条线的原因|尾声入口给了谁\s*/\s*为什么不给另一条线"
-        r")\s*[：:]\s*",
-        "",
-        stripped,
-    )
+    stripped = re.sub(r"^(证据\d*|反面\d*|典型口气|常见模式|禁句型|禁写法|空总结句|成品体面对话|轻飘过渡句)\s*[：:]\s*", "", stripped)
     stripped = stripped.strip("：:，。；;、 ")
     return stripped
 
@@ -458,14 +449,6 @@ def collect_profile_source_reason_lines(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
-def filter_character_guardrail_lines(values: list[str]) -> list[str]:
-    role_pattern = re.compile(
-        r"(男主|女主|主角|反派|配角|旧爱|第三人|丈夫|妻子|姐姐|妹妹|母亲|父亲|医生|护士|长辈|客户|上司|同事|周|唐|宋)"
-    )
-    filtered = [value for value in values if role_pattern.search(value)]
-    return normalize_items(filtered)
-
-
 def collect_profile_source_bridge_fragments(values: list[str], max_len: int = 40) -> list[str]:
     cleaned: list[str] = []
     for value in values:
@@ -524,15 +507,9 @@ def collect_profile_source_style_fragments(values: list[str]) -> list[str]:
 
 def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequence_pairs: dict[str, list[str]]) -> dict[str, object]:
     character_face_split = {
-        "different_face_evidence": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(author_pairs.get("人物不同脸证据", []))
-        ),
-        "reaction_order_split": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(author_pairs.get("谁先解释谁先压场", []))
-        ),
-        "action_authority_split": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(author_pairs.get("不同角色的动作权限差", []))
-        ),
+        "different_face_evidence": collect_profile_source_reason_lines(author_pairs.get("人物不同脸证据", [])),
+        "reaction_order_split": collect_profile_source_reason_lines(author_pairs.get("谁先解释谁先压场", [])),
+        "action_authority_split": collect_profile_source_reason_lines(author_pairs.get("不同角色的动作权限差", [])),
     }
     character_face_split = {
         key: value for key, value in character_face_split.items() if value
@@ -565,19 +542,15 @@ def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequen
 
 
 def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[str, object]:
-    shared_face_bundle = collect_labeled_values(
-        text,
-        ("人物不同脸证据 / 谁先解释谁先压场 / 动作权限差",),
-    )
-    face_evidence = collect_labeled_values(text, ("人物不同脸证据", "不同脸证据")) or shared_face_bundle or collect_text_lines_with_keywords(
+    face_evidence = collect_labeled_values(text, ("人物不同脸证据", "不同脸证据")) or collect_text_lines_with_keywords(
         text, ("说话怎么伤人", "身体怎么反应", "遇事先偏向谁", "失控时会干什么", "遮住名字"), max_items=6
     ) or collect_heading_block_lines(
         text, ("人物不同脸", "去同脸", "一张脸"), max_items=8
     )
-    reaction_order = collect_labeled_values(text, ("谁先解释谁先压场", "第一反应偏向", "第一反应")) or shared_face_bundle or collect_text_lines_with_keywords(
+    reaction_order = collect_labeled_values(text, ("谁先解释谁先压场", "第一反应偏向", "第一反应")) or collect_text_lines_with_keywords(
         text, ("先解释", "先压场", "第一反应"), max_items=6
     )
-    action_authority = collect_labeled_values(text, ("动作权限差", "权限差")) or shared_face_bundle or collect_text_lines_with_keywords(
+    action_authority = collect_labeled_values(text, ("动作权限差", "权限差")) or collect_text_lines_with_keywords(
         text, ("权限差", "先把人护住", "先过去处理", "找靠山", "站边上"), max_items=6
     )
 
@@ -598,20 +571,14 @@ def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[st
     ) or collect_heading_block_lines(
         text, ("尾声入口",), max_items=6
     )
-    tail_exclusion = collect_labeled_values(text, ("不给另一条线的原因", "尾声入口为什么不给次线", "尾声入口给了谁 / 为什么不给另一条线")) or collect_text_lines_with_keywords(
+    tail_exclusion = collect_labeled_values(text, ("不给另一条线的原因", "尾声入口为什么不给次线")) or collect_text_lines_with_keywords(
         text, ("余波区", "不给另一条线", "不准重新吃掉尾声入口", "抢尾声入口"), max_items=6
     )
 
     character_face_split = {
-        "different_face_evidence": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(face_evidence)
-        ),
-        "reaction_order_split": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(reaction_order)
-        ),
-        "action_authority_split": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(action_authority)
-        ),
+        "different_face_evidence": collect_profile_source_reason_lines(face_evidence),
+        "reaction_order_split": collect_profile_source_reason_lines(reaction_order),
+        "action_authority_split": collect_profile_source_reason_lines(action_authority),
     }
     character_face_split = {key: value for key, value in character_face_split.items() if value}
 
@@ -794,11 +761,9 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         return []
     pairs = collect_profile_source_pairs(bridge_lines)
     rules: list[dict] = []
-    bridge_index = 0
     for key in list(pairs.keys()):
         if not key.startswith("桥段") or "::" in key:
             continue
-        bridge_index += 1
         title = key
         def collect_aliases(*aliases: str) -> list[str]:
             values: list[str] = []
@@ -841,7 +806,7 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         )
         rules.append(
             {
-                "bridge": f"桥段{bridge_index}：{title.removeprefix('桥段：').removeprefix('桥段').strip()}",
+                "bridge": title,
                 "opening_pattern": normalize_items(opening),
                 "must_keep": normalize_items(must_keep),
                 "must_avoid": normalize_items(must_avoid),
@@ -987,16 +952,14 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     }
     result["opening_terms"] = collect_profile_source_fragments(
         opening_pairs.get("首屏高信息量件", []) +
-        opening_pairs.get("最容易堆满的信号组", []) +
-        opening_pairs.get("开头信号", [])
+        opening_pairs.get("最容易堆满的信号组", [])
     )
 
     chain_lines = sections.get("5. 标准翻刀链", [])
     chain_pairs = collect_profile_source_pairs(chain_lines)
     result["opening_chain_patterns"] = {}
     explicit_chain_terms = collect_profile_source_fragments(
-        chain_pairs.get("opening_chain_patterns.profile_chain", []) +
-        chain_pairs.get("翻刀链", [])
+        chain_pairs.get("opening_chain_patterns.profile_chain", [])
     )
     if explicit_chain_terms:
         escaped = [re.escape(term) for term in explicit_chain_terms if term]
@@ -1010,17 +973,15 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         banned_pairs.get("禁解释句", []) +
         banned_pairs.get("禁成品宣言句", []) +
         banned_pairs.get("禁公开场假爽句", []) +
-        banned_pairs.get("禁补字废话", []) +
-        banned_pairs.get("禁句型", []) +
-        banned_pairs.get("禁写法", [])
+        banned_pairs.get("禁补字废话", [])
     )
 
-    scene_lines = sections.get("8. 场面资产", []) or sections.get("8. 场面资产 / 后果链", [])
+    scene_lines = sections.get("8. 场面资产", [])
     scene_pairs = collect_profile_source_pairs(scene_lines)
     result["scene_assets"] = {
         "public_explosion": collect_profile_source_fragments(
             scene_pairs.get("scene_assets.public_explosion", []) or
-            (scene_pairs.get("公开场硬件", []) + scene_pairs.get("关系翻牌场", []) + scene_pairs.get("场面资产", []))
+            (scene_pairs.get("公开场硬件", []) + scene_pairs.get("关系翻牌场", []))
         ),
         "external_order": collect_profile_source_fragments(
             scene_pairs.get("scene_assets.external_order", []) or
@@ -1028,44 +989,34 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         ),
         "consequence_chain": collect_profile_source_fragments(
             scene_pairs.get("scene_assets.consequence_chain", []) or
-            scene_pairs.get("迟到挽回场", []) + scene_pairs.get("后果链", [])
+            scene_pairs.get("迟到挽回场", [])
         ),
     }
     result["scene_assets"] = {
         key: value for key, value in result["scene_assets"].items() if value
     }
 
-    consequence_lines = sections.get("9. 后果链", []) or sections.get("8. 场面资产 / 后果链", [])
+    consequence_lines = sections.get("9. 后果链", [])
     consequence_pairs = collect_profile_source_pairs(consequence_lines)
     result["consequence_terms"] = collect_profile_source_fragments(
         consequence_pairs.get("感情伤抬升到现实伤的节点", []) +
         consequence_pairs.get("秩序回正节点", []) +
         consequence_pairs.get("长尾惩罚节点", []) +
-        consequence_pairs.get("离场 / 换图节点", []) +
-        consequence_pairs.get("后果链", [])
+        consequence_pairs.get("离场 / 换图节点", [])
     )
-
-    author_lines = sections.get("3. 作者DNA", [])
-    author_pairs = collect_profile_source_pairs(author_lines)
 
     stance_lines = sections.get("10. 作者站位高危句", [])
     stance_pairs = collect_profile_source_pairs(stance_lines)
     result["author_stance_terms"] = clean_banned_phrase_terms(
         stance_pairs.get("容易写成作者判词的句型", []) +
         stance_pairs.get("容易写成主题总结的句型", []) +
-        stance_pairs.get("容易写成整齐揭露的句型", []) +
-        author_pairs.get("反面句型", []) +
-        banned_pairs.get("禁句型", [])
+        stance_pairs.get("容易写成整齐揭露的句型", [])
     )
 
     style_lines = sections.get("11. style_assets 原始材料", [])
     style_pairs = collect_profile_source_pairs(style_lines)
     result["style_assets"] = {
-        "opening_hooks": clean_style_asset_terms(
-            collect_profile_source_style_fragments(
-                style_pairs.get("opening_hooks", []) + opening_pairs.get("开头信号", [])
-            )
-        ),
+        "opening_hooks": collect_profile_source_style_fragments(style_pairs.get("opening_hooks", [])),
         "misdirection": collect_profile_source_style_fragments(style_pairs.get("misdirection", [])),
         "object_pressure": collect_profile_source_style_fragments(style_pairs.get("object_pressure", [])),
         "action_axis": collect_profile_source_style_fragments(style_pairs.get("action_axis", [])),
@@ -1080,6 +1031,8 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         key: value for key, value in result["style_assets"].items() if value
     }
 
+    author_lines = sections.get("3. 作者DNA", [])
+    author_pairs = collect_profile_source_pairs(author_lines)
     story_guardrails = build_profile_story_guardrails(author_pairs, consequence_pairs)
     if story_guardrails:
         result["story_guardrails"] = story_guardrails
@@ -1663,19 +1616,14 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
     merged: list[dict] = []
     index_by_key: dict[str, int] = {}
     for rules in rule_lists:
-        position = 0
         for item in rules:
             if not isinstance(item, dict):
                 continue
             bridge = item.get("bridge")
             if not isinstance(bridge, str) or not bridge.strip():
                 continue
-            position += 1
             sequence = extract_bridge_sequence(bridge)
-            if merge_by_sequence:
-                key = f"seq::{sequence or position}"
-            else:
-                key = normalize_bridge_key(bridge)
+            key = f"seq::{sequence}" if merge_by_sequence and sequence else normalize_bridge_key(bridge)
             normalized_item = {
                 "bridge": bridge.strip(),
                 "opening_pattern": normalize_items(item.get("opening_pattern", [])),
@@ -1722,26 +1670,15 @@ def build_opening_signal_groups(collected: dict[str, list[str]]) -> dict[str, li
 
 
 def build_bridge_rules(text: str) -> list[dict]:
+    blocks = re.split(r"\n##\s+桥段", text)
     rules: list[dict] = []
-    pattern = re.compile(
-        r"^##\s+(桥段\s*\d+|桥段\s*[一二三四五六七八九十]+|桥\d+|桥[一二三四五六七八九十]+)\s*(.*)$",
-        flags=re.M,
-    )
-    matches = list(pattern.finditer(text))
-    for idx, match in enumerate(matches):
-        body_start = match.end()
-        body_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        block = text[body_start:body_end]
+    for block in blocks[1:]:
         lines = [line.rstrip() for line in block.splitlines() if line.strip()]
         if not lines:
             continue
-        seq_marker = match.group(1).strip()
-        title_suffix = match.group(2).strip().lstrip("：: ").strip()
-        sequence = extract_bridge_sequence(seq_marker)
-        if sequence:
-            title = f"桥段{sequence}：{title_suffix}"
-        else:
-            title = f"桥段：{title_suffix}" if title_suffix else "桥段"
+        title = lines[0]
+        if not title.startswith("桥段"):
+            title = "桥段" + title
         must_keep: list[str] = []
         must_avoid: list[str] = []
         why: list[str] = []
@@ -1819,13 +1756,6 @@ def build_bridge_rules(text: str) -> list[dict]:
 
 
 def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
-    opening_hook_blacklist = {
-        "场景",
-        "人物",
-        "再替换人物",
-        "再让人物意识跟上",
-        "顺序乱了就会像功能按钮",
-    }
     collected: dict[str, list[str]] = defaultdict(list)
     bridge_rules: list[dict] = []
     sample_source_entries: list[dict[str, str]] = []
@@ -2159,17 +2089,10 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         if key.startswith("profile_style_asset::"):
             style_assets_raw[key.split("::", 1)[1]].extend(value)
     style_assets = {
-        key: clean_style_asset_terms(value)
+        key: normalize_items(value)
         for key, value in style_assets_raw.items()
-        if clean_style_asset_terms(value)
+        if normalize_items(value)
     }
-    if "opening_hooks" in style_assets:
-        style_assets["opening_hooks"] = [
-            item for item in style_assets["opening_hooks"]
-            if item not in opening_hook_blacklist and len(item.strip()) > 2
-        ]
-        if not style_assets["opening_hooks"]:
-            style_assets.pop("opening_hooks", None)
 
     bridge_rules = merge_bridge_rule_lists(bridge_rules)
 

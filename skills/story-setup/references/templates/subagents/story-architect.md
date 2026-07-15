@@ -45,6 +45,8 @@ memory: project
 | `story-setup/references/agent-references/material-packs-setting-plot.md` | 做短篇起盘、情节融合、补异物、补第二层冲突、补公开场后果时 |
 | `story-setup/references/agent-references/material-packs-character.md` | 做短篇人物功能位、关系重组方式、对照组设计时 |
 | `story-setup/references/agent-references/material-packs-expression.md` | 定短篇开头钩子类型、结果句、后效应句、导语口气时 |
+| `story-setup/references/agent-references/short-write-execution-core.md` | 短篇起盘前确认 profile 闭环、桥段链优先级与高敏任务路由时 |
+| `story-setup/references/agent-references/story-profile-schema.md` | 需要根据 `story_guardrails` 反推起盘、换链与细纲顺序时 |
 
 ---
 
@@ -71,9 +73,14 @@ memory: project
 - 五重驱动检查：压迫感/实力感/认知颠覆/资源升值/悬念增殖
 - 对话冲突位预埋：关键场景要提前标记“谁占权力上位、谁说短句压人、谁负责找补/失控”，给后续 character-designer / narrative-writer 留接口
 - 短篇起盘补齐：输出短篇大纲或细纲前，必须补齐`副升级器`、`异物`、`第二层冲突`、`关系重组方式`、`公开场后果`
+- 短篇高敏桥补齐：若任务属于仿写 / 同桥 / 原情节实验，起盘前必须从 `story_guardrails` 明确三件事：
+  - 重大证据前隔着什么现实后果
+  - 尾声入口给谁
+  - 关键人物为什么不是同一张脸
 - 融合写作口径：做情节融合时，不是简单拼桥段，而是从 `material-packs-setting-plot.md` 里先定母结构，再抽 1 条主冲突链 + 1 条副升级器 + 1 个异物/公开场，组出新走法
 - **执行时读取** `story-setup/references/agent-references/outline-methods.md`（五步法、大纲三层结构法）+ `story-setup/references/agent-references/outline-conflict.md`（高潮逆推法、AB交织法）+ `story-setup/references/agent-references/outline-rhythm.md`（升级感三步设计法）
 - **短篇执行时追加读取** `story-setup/references/agent-references/material-packs-setting-plot.md`（短篇母结构、反常识冲突、关系重组、公开场后果）+ `story-setup/references/agent-references/material-packs-character.md`（接住者、托底位、对照组、功能位）
+- **短篇高敏执行时再追加读取** `story-setup/references/agent-references/short-write-execution-core.md` + `story-setup/references/agent-references/story-profile-schema.md`
 
 ### 开篇设计
 - 黄金开篇技巧：5种核心开篇方法

@@ -36,6 +36,10 @@ memory: project
 | `story-setup/references/agent-references/reference-boundary-and-sources-split.md` | 使用参考书/TXT 情节库参与正文写作时 |
 | `story-setup/references/agent-references/chapter-prewrite-card-enforcement.md` | 开写单章前校验写前卡是否齐全时 |
 | `story-setup/references/agent-references/reference-chapter-comparison-protocol.md` | 需要写参考驱动版并与现稿对比时 |
+| `story-setup/references/agent-references/short-write-execution-core.md` | 短篇 profile 闭环、写前写后审计顺序、高敏桥回修优先级时 |
+| `story-setup/references/agent-references/story-profile-schema.md` | 需要读取 `book.profile.json / project.profile.json / story_guardrails` 时 |
+| `story-setup/references/agent-references/no-external-block-audit-self-check.md` | 没有外部分块结果时，先做块级完整推进风险兜底自检时 |
+| `story-setup/references/agent-references/high-sensitivity-block-audit-rewrite-playbook.md` | 同桥仿写、原情节实验、长期卡高等短篇高敏回修时 |
 | `story-setup/references/agent-references/anti-ai-writing.md` | 去AI味（6 Gate、三遍去AI法、Show Don't Tell）时 |
 | `story-setup/references/agent-references/banned-words.md` | 禁用词替换（Gate A）时 |
 | `story-setup/references/agent-references/quality-checklist.md` | 审查文字质量（五维评分、9项检查）时 |
@@ -108,6 +112,17 @@ memory: project
 - Pass 2：去书面化 -- 书面腔替换为口语/动作
 - Pass 3：回自然感 -- 注入停顿、犹豫、矛盾和口语感
 
+### 短篇 profile / 审计链
+
+- 短篇正文不接受“只看题材摘要直接开写”；开写前优先读取 `short-write-execution-core.md`
+- 如果 prompt 提供 `book.profile.json / project.profile.json`，先按 `story-profile-schema.md` 查 `bridge_rules / style_assets / story_guardrails`
+- 高敏桥或多轮回修任务，固定补看：
+  - `现实后果隔层`
+  - `尾声入口`
+  - `人物不同脸`
+- 没有外部分块结果时，先按 `no-external-block-audit-self-check.md` 做块级风险判断，不要直接退回词句润色
+- 任何自检或回修说明，必须逐条引用正文句子；不准只写“已处理”“已优化”
+
 ### 节长达标（最高优先级）
 
 **⚠️ 字数达标是硬性要求，不是建议。未达标的章节视为未完成。**
@@ -154,6 +169,8 @@ memory: project
 - **禁止角色千篇一律**：对话必须匹配 character-designer 的语言风格档案，不能互换
 - **禁止模板节拍**：连续多段都写成「动作一句 + 心理一句 + 台词一句」时，必须打散并改成不同句法推进
 - **禁止自我重复**：同一身体部位/同一比喻/同一句式全文出现超过上限即触发修改
+- **禁止空口自检**：回修报告、自检记录、gate 回执必须贴正文原句；贴不出句子，默认等于没处理
+- **禁止跳过高敏结构护栏**：同桥高敏段不检查“现实后果隔层 / 尾声入口 / 人物不同脸”，不得宣称收口
 
 ---
 

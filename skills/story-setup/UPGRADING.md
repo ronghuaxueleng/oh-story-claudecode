@@ -62,7 +62,10 @@
 - `agents_version: 12` → 旧版，需重新部署以补齐统一回归脚本
 - `agents_version: 13` → 旧版，需重新部署以补齐新版根模板、兼容层 rules 模板与完整项目脚本链
 - `agents_version: 14` → 旧版，需重新部署以补齐参考边界卡、单章写前卡与参考章节对比协议到项目内 agent-references
-- `agents_version: 15` → 当前版本
+- `agents_version: 15` → 旧版，需重新部署以补齐短篇资料包副本到项目内 agent-references
+- `agents_version: 16` → 旧版，需重新部署以补齐托管模板落盘与受管文件保护
+- `agents_version: 17` → 旧版，需重新部署以补齐短篇 profile / 审计 / 回修脚本链与治理副本
+- `agents_version: 18` → 当前版本
 
 ## 版本变更
 
@@ -158,7 +161,7 @@
   - `character_agency_lint.py`
 - 已部署项目需重新运行 `story-setup`，以覆盖根模板、rules 模板、完整脚本链，并让版本标记升级到 `agents_version: 14`
 
-### v15 (当前)
+### v15
 
 - `story-setup` 现在会把三张新规则卡一起部署到项目内 `.codex/skills/story-setup/references/agent-references/`：
   - `reference-boundary-and-sources-split.md`
@@ -166,3 +169,48 @@
   - `reference-chapter-comparison-protocol.md`
 - `narrative-writer` 子代理模板新增对应入口，使用参考书/TXT 情节库写作时，会先按项目内参考边界卡收口，不再只靠主 skill 口头约束
 - 已部署项目需重新运行 `story-setup`，以补齐项目内 references bundle 并让版本标记升级到 `agents_version: 15`
+
+### v16
+
+- `story-setup` 现在会把短篇资料包副本一起部署到项目内 `agent-references/`：
+  - `material-packs-setting-plot.md`
+  - `material-packs-expression.md`
+  - `material-packs-character.md`
+- `story-architect` 子代理模板补齐短篇起盘入口，部署后的项目可以直接读到人物功能位、关系重组、表达资料包
+- 已部署项目需重新运行 `story-setup`，以补齐项目内短篇资料包并让版本标记升级到 `agents_version: 16`
+
+### v17
+
+- `install-codex-project.sh` 正式接管 `CLAUDE.md`、`写作执行铁律.md`、`追踪/上下文.md` 的模板落盘
+- 受管模板统一使用 `<!-- managed-by: story-setup -->` 标记；重部署只覆盖受管文件，默认保留用户手写文件
+- 已部署项目需重新运行 `story-setup`，以获取托管模板落盘和受管文件保护，并让版本标记升级到 `agents_version: 17`
+
+### v18 (当前)
+
+- `story-setup` 现在会同步部署短篇 profile / 审计 / 回修脚本链到项目 `scripts/`：
+  - `generate_story_profile.py`
+  - `run_full_ai_audit.py`
+  - `auto_revise_ai_flavor.py`
+  - `run_revision_cycle.py`
+  - `precheck_rewrite_gate.py`
+  - `validate_gate_receipts.py`
+  - `compare_with_external_block_audit.py`
+  - `audit_ai_flavor.py`
+  - `audit_novel_ai_flavor.py`
+  - `apply_humanizer.py`
+  - `normalize-punctuation.js`
+- `story-setup` 现在会同步部署短篇治理副本到项目 `.codex/skills/story-setup/references/agent-references/`：
+  - `short-write-execution-core.md`
+  - `no-external-block-audit-self-check.md`
+  - `high-sensitivity-block-audit-rewrite-playbook.md`
+  - `gate-pass-checklist.md`
+  - `audit-rulebook-coverage.md`
+  - `story-profile-schema.md`
+  - `profile-source-template.md`
+  - `internal-toolchain-map.md`
+  - `audit-rulebook.json`
+  - `precheck_rewrite_gate.config.json`
+  - `通用高风险词类词典.json`
+  - `虚词模板词典.json`
+- 部署后的 `narrative-writer` 和 `story-architect` 子代理已可直接读取短篇 profile 闭环、高敏桥护栏和“逐条引用正文句子”自检口径
+- 已部署项目需重新运行 `story-setup`，以补齐短篇脚本链与治理副本，并让版本标记升级到 `agents_version: 18`

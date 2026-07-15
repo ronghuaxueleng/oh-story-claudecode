@@ -1,6 +1,6 @@
 ---
 name: story-setup
-version: 1.4.2
+version: 1.5.0
 description: |
   网文写作工具集基础设施部署。将 `.codex/agents`、hooks、rules、项目级 scripts、`CLAUDE.md` 等宿主基础设施部署到用户项目目录；仅在已存在真实书籍目录时，再补齐 `写作执行铁律.md`、`追踪/上下文.md` 等书内文件。
   触发方式：提到 `/story-setup`、`story-setup`，或直接说「准备写书」「帮我搭一下环境」「配置写作项目」
@@ -59,7 +59,8 @@ description: |
 - 生成 `.codex/skills/story-setup/references/agent-references/`
 - `agent-references/` 必须包含新一轮参考边界卡：`reference-boundary-and-sources-split.md`、`chapter-prewrite-card-enforcement.md`、`reference-chapter-comparison-protocol.md`，避免部署后正文写作仍缺“可借层/禁借层/参考对比”口径
 - `agent-references/` 还必须包含短篇资料包副本：`material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，避免短篇写作和拆文部署后缺“情节融合 / 口气模板 / 人物功能位”材料库
-- 生成项目级 `scripts/`，并复制 `references/templates/scripts/*.py` 全套模板脚本；当前最小应包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`
+- `agent-references/` 还必须包含短篇治理与审计副本：`short-write-execution-core.md`、`no-external-block-audit-self-check.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`gate-pass-checklist.md`、`audit-rulebook-coverage.md`、`story-profile-schema.md`、`profile-source-template.md`、`internal-toolchain-map.md`，以及 `audit-rulebook.json`、`precheck_rewrite_gate.config.json`、`通用高风险词类词典.json`、`虚词模板词典.json`，避免部署后短篇高敏回修仍缺正式规则包
+- 生成项目级 `scripts/`，并复制 `references/templates/scripts/*` 全套模板脚本；当前最小应包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`，以及短篇拆书 / profile / 审计 / 回修链：`prepare_short_analyze_job.py`、`validate_short_analyze_outputs.py`、`run_short_analyze_finalize.py`、`generate_story_profile.py`、`run_full_ai_audit.py`、`auto_revise_ai_flavor.py`、`run_revision_cycle.py`、`precheck_rewrite_gate.py`、`validate_gate_receipts.py`、`compare_with_external_block_audit.py`、`audit_ai_flavor.py`、`audit_novel_ai_flavor.py`、`apply_humanizer.py`、`normalize-punctuation.js`
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 - 确保项目 `scripts/*.py` 也有执行权限（chmod +x）
 - 同时复制 `.codex/hooks/lib/` 公共脚本
@@ -86,21 +87,23 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 17
-  setup_skill_version: 1.4.2
+  agents_version: 18
+  setup_skill_version: 1.5.0
   target_cli: codex
   resolver_strategy: project-local-skill-reference
   references_dir: .codex/skills/story-setup/references/agent-references
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
 - 仅当存在真实书籍目录时，才允许创建或更新 `.active-book`
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 17，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules/scripts（v17 把根 `CLAUDE.md`、书内 `写作执行铁律.md`、`追踪/上下文.md` 的模板落盘正式并入安装脚本，并用 `<!-- managed-by: story-setup -->` 保护用户手写文件；v16 补齐短篇资料包副本 `material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，并把短篇起盘字段、人物功能位、口气模板要求下沉到部署后的子代理；v15 补齐参考边界卡、单章写前卡、参考章节对比协议到 agent-references，并把参考原文使用边界下沉到部署后的子代理；v14 补齐新版根模板、兼容层 rules 模板、项目级完整脚本链；v13 补齐项目级 `story_review_regression.py` 并串联正文/追踪回归链；v12 补齐项目级 `validate_tracking_state.py` 与 `detect_key_character_promotion.py`；v11 补齐追踪同步四连收尾、compact/续写前追踪主表核对、hook 级追踪提醒；v10 补齐项目级 `scene_lint.py` 与 `draft_purity_guard.py`；v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 18，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules/scripts（v18 把短篇 profile/审计/回修脚本链正式并入部署脚本，并同步下发短篇治理副本：`short-write-execution-core`、`no-external-block-audit-self-check`、`high-sensitivity-block-audit-rewrite-playbook`、`story-profile-schema`、`audit-rulebook` 与相关词典配置；同时让部署后的子代理能直接读取“逐条引用正文句子”“现实后果隔层 / 尾声入口 / 人物不同脸”这套短篇高敏口径；v17 把根 `CLAUDE.md`、书内 `写作执行铁律.md`、`追踪/上下文.md` 的模板落盘正式并入安装脚本，并用 `<!-- managed-by: story-setup -->` 保护用户手写文件；v16 补齐短篇资料包副本 `material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，并把短篇起盘字段、人物功能位、口气模板要求下沉到部署后的子代理；v15 补齐参考边界卡、单章写前卡、参考章节对比协议到 agent-references，并把参考原文使用边界下沉到部署后的子代理；v14 补齐新版根模板、兼容层 rules 模板、项目级完整脚本链；v13 补齐项目级 `story_review_regression.py` 并串联正文/追踪回归链；v12 补齐项目级 `validate_tracking_state.py` 与 `detect_key_character_promotion.py`；v11 补齐追踪同步四连收尾、compact/续写前追踪主表核对、hook 级追踪提醒；v10 补齐项目级 `scene_lint.py` 与 `draft_purity_guard.py`；v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
 
 ## Phase 3：验证安装
 
 1. 验证宿主环境文件：
    - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
    - 检查 `scripts/scene_lint.py`、`scripts/draft_purity_guard.py`、`scripts/template_exhaustion_lint.py`、`scripts/scene_narrowness_lint.py`、`scripts/script_version_check.py`、`scripts/validate_tracking_state.py`、`scripts/verdict_conflict_lint.py`、`scripts/chapter_hook_repeat_lint.py`、`scripts/detect_key_character_promotion.py`、`scripts/character_agency_lint.py`、`scripts/story_review_regression.py`
+   - 检查 `scripts/prepare_short_analyze_job.py`、`scripts/validate_short_analyze_outputs.py`、`scripts/run_short_analyze_finalize.py`、`scripts/generate_story_profile.py`、`scripts/run_full_ai_audit.py`、`scripts/auto_revise_ai_flavor.py`、`scripts/run_revision_cycle.py`、`scripts/precheck_rewrite_gate.py`、`scripts/validate_gate_receipts.py`、`scripts/compare_with_external_block_audit.py`、`scripts/audit_ai_flavor.py`、`scripts/audit_novel_ai_flavor.py`、`scripts/apply_humanizer.py`、`scripts/normalize-punctuation.js`
+   - 检查 `.codex/skills/story-setup/references/agent-references/short-write-execution-core.md`、`no-external-block-audit-self-check.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`story-profile-schema.md`、`audit-rulebook.json`
 2. 若为书籍模式，再额外验证书内文件：
    - 检查 `{书名}/写作执行铁律.md`
    - 检查 `{书名}/追踪/上下文.md`
@@ -144,8 +147,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 17` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 17 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 18` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 18 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -157,11 +160,16 @@ description: |
 | references/templates/写作执行铁律.md.tmpl | 书籍目录内公共执行铁律模板（仅书籍模式部署） |
 | references/templates/hooks/ | 6 个 hook 脚本模板 |
 | references/templates/hooks/lib/ | hook 依赖的公共 shell 函数 |
-| references/templates/scripts/ | 项目级正文/追踪/回归质检脚本模板（包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`） |
+| references/templates/scripts/ | 项目级正文/追踪/回归质检脚本模板，以及短篇拆书入口 / 验收 / profile / 审计 / 回修脚本链（包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`、`prepare_short_analyze_job.py`、`validate_short_analyze_outputs.py`、`run_short_analyze_finalize.py`、`generate_story_profile.py`、`run_full_ai_audit.py`、`auto_revise_ai_flavor.py`、`run_revision_cycle.py`、`precheck_rewrite_gate.py`、`validate_gate_receipts.py`、`compare_with_external_block_audit.py`、`audit_ai_flavor.py`、`audit_novel_ai_flavor.py`、`apply_humanizer.py`、`normalize-punctuation.js`） |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
 | references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
 | references/agent-references/material-packs-setting-plot.md | 短篇情节/设定/冲突/融合写法资料包副本，供起盘、补冲突、做融合写作时调用 |
 | references/agent-references/material-packs-expression.md | 短篇表达/口气/开头句/虐点表达资料包副本，供角色口气设计与正文修辞调用 |
 | references/agent-references/material-packs-character.md | 短篇人物功能位/关系重组/接住者与对照组资料包副本，供人物与关系设计调用 |
+| references/agent-references/short-write-execution-core.md | 短篇 profile 闭环、审计优先级、逐条引用正文句子的自检口径副本 |
+| references/agent-references/no-external-block-audit-self-check.md | 无外部分块审计时的块级自检副本，要求每个判断贴正文原句 |
+| references/agent-references/high-sensitivity-block-audit-rewrite-playbook.md | 短篇高敏桥段第二闸门与回修停机口径副本 |
+| references/agent-references/story-profile-schema.md | `book.profile.json / project.profile.json / story_guardrails` 结构合同副本 |
+| references/agent-references/audit-rulebook.json | 短篇正式审计规则簿副本，供项目内审计脚本直接读取 |
 | references/templates/上下文.md.tmpl | 写作上下文模板（仅书籍模式部署） |

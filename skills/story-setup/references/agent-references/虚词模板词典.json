@@ -1,0 +1,214 @@
+{
+  "version": 1,
+  "categories": {
+    "time_sentence": [
+      {
+        "pattern": "X时发生了Y",
+        "template": "X的时候就发生了Y",
+        "tokens": ["就"],
+        "notes": "适合开篇、时间起句"
+      },
+      {
+        "pattern": "X点开始",
+        "template": "X点的时候就开始了",
+        "tokens": ["就"],
+        "notes": "适合事件启动句"
+      },
+      {
+        "pattern": "事情发生",
+        "template": "事情已经发生了",
+        "tokens": ["已经"],
+        "notes": "适合结果状态句"
+      }
+    ],
+    "observation_sentence": [
+      {
+        "pattern": "A还在，B没了",
+        "template": "A倒还在，B却没了",
+        "tokens": ["倒", "还", "却"],
+        "notes": "适合反常观察句"
+      },
+      {
+        "pattern": "外面没声音",
+        "template": "外面还真一点声音都没有",
+        "tokens": ["还真", "都"],
+        "notes": "适合悬疑、惊悚观察句"
+      },
+      {
+        "pattern": "灯亮着",
+        "template": "灯倒还亮着",
+        "tokens": ["倒", "还"],
+        "notes": "适合场景细节句"
+      }
+    ],
+    "emotion_sentence": [
+      {
+        "pattern": "他慌了",
+        "template": "他一下就慌了",
+        "tokens": ["一下", "就"],
+        "notes": "适合短情绪反应"
+      },
+      {
+        "pattern": "他很难受",
+        "template": "他心里顿时就很不是滋味",
+        "tokens": ["顿时", "就"],
+        "notes": "适合把精准情绪句改钝"
+      },
+      {
+        "pattern": "手指发麻",
+        "template": "手指已经变得冰凉发麻了",
+        "tokens": ["已经"],
+        "notes": "适合生理反应句"
+      }
+    ],
+    "transition_sentence": [
+      {
+        "pattern": "他看向X",
+        "template": "他先朝X看去",
+        "tokens": ["先"],
+        "notes": "适合镜头转场"
+      },
+      {
+        "pattern": "X变了",
+        "template": "X也变了",
+        "tokens": ["也"],
+        "notes": "适合顺手补充句"
+      },
+      {
+        "pattern": "门口围了人",
+        "template": "门口就围了人",
+        "tokens": ["就"],
+        "notes": "适合事态升级句"
+      }
+    ],
+    "complaint_sentence": [
+      {
+        "pattern": "他以为是X",
+        "template": "他以为又是X",
+        "tokens": ["又"],
+        "notes": "适合职业、日常场景"
+      },
+      {
+        "pattern": "他说一句……会被骂",
+        "template": "他说一句……都能被骂",
+        "tokens": ["都"],
+        "notes": "适合吐槽句"
+      },
+      {
+        "pattern": "他们演上了",
+        "template": "他们还真演上了",
+        "tokens": ["还真"],
+        "notes": "适合口语判断句"
+      }
+    ],
+    "sequence_sentence": [
+      {
+        "pattern": "X发生，Y承担后果",
+        "template": "X发生后，Y先承担后果",
+        "tokens": ["后", "先"],
+        "notes": "适合规则说明句外层叙述"
+      },
+      {
+        "pattern": "他说完做了动作",
+        "template": "说完之后就做了动作",
+        "tokens": ["之后", "就"],
+        "notes": "适合动作承接句"
+      },
+      {
+        "pattern": "广播响了",
+        "template": "广播就自己响起来了",
+        "tokens": ["就", "自己"],
+        "notes": "适合诡异触发句"
+      }
+    ],
+    "group_sentence": [
+      {
+        "pattern": "所有人都……",
+        "template": "大家都……",
+        "tokens": ["都"],
+        "notes": "适合群体反应句"
+      },
+      {
+        "pattern": "围观的人反应过来",
+        "template": "围观的人这时候才反应过来",
+        "tokens": ["这时候", "才"],
+        "notes": "适合时间滞后感"
+      },
+      {
+        "pattern": "几个人跑得更快",
+        "template": "那几个大人就跑得更快了",
+        "tokens": ["就"],
+        "notes": "适合群像混乱句"
+      }
+    ],
+    "post_dialogue_action": [
+      {
+        "pattern": "他说着做了动作",
+        "template": "说完之后就……",
+        "tokens": ["之后", "就"],
+        "notes": "适合对话后动作"
+      },
+      {
+        "pattern": "他踹了一脚",
+        "template": "他就用脚踹了一下",
+        "tokens": ["就", "一下"],
+        "notes": "适合动作钝化"
+      },
+      {
+        "pattern": "他弯腰去捡",
+        "template": "说完之后就弯下腰去捡",
+        "tokens": ["之后", "就"],
+        "notes": "适合承接动作句"
+      }
+    ],
+    "explanation_sentence": [
+      {
+        "pattern": "原本是……",
+        "template": "原来……",
+        "tokens": ["原来"],
+        "notes": "适合背景说明句"
+      },
+      {
+        "pattern": "现在是……",
+        "template": "但是此时……",
+        "tokens": ["但是", "此时"],
+        "notes": "适合强对比转场"
+      },
+      {
+        "pattern": "情况很乱",
+        "template": "目前……很乱",
+        "tokens": ["目前"],
+        "notes": "适合松开系统腔"
+      }
+    ],
+    "abnormal_sentence": [
+      {
+        "pattern": "A还在，B没了",
+        "template": "A倒还在，B却没了",
+        "tokens": ["倒", "还", "却"],
+        "notes": "适合惊悚和悬疑"
+      },
+      {
+        "pattern": "东西还在，但声音没了",
+        "template": "东西倒还在，就是声音没了",
+        "tokens": ["倒", "还", "就是"],
+        "notes": "适合反常感强化"
+      },
+      {
+        "pattern": "看起来正常，实际不正常",
+        "template": "看着还正常，可就是不对劲",
+        "tokens": ["还", "就是"],
+        "notes": "适合主观观察句"
+      }
+    ]
+  },
+  "safe_tokens": ["就", "还", "都", "已经", "才"],
+  "danger_tokens": ["就", "已经", "倒", "还真"],
+  "forbidden_contexts": [
+    "规则公告句",
+    "系统面板句",
+    "爆点短句",
+    "章尾钩子句",
+    "已经很长的解释句"
+  ]
+}

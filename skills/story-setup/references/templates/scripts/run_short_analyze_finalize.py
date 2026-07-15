@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+
+def project_root_from_script() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+
+
+def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
+    return {
+        "root": str(root),
+        "ok": bool(validator_payload.get("ok")),
+        "status": "ready-for-write" if validator_payload.get("ok") else "blocked-on-assets",
+        "profile_generated": profile_generated,
+        "error_count": validator_payload.get("error_count", 0),
+        "errors": validator_payload.get("errors", []),
+        "notes": notes + validator_payload.get("notes", []),
+    }
+
+
+def parse_validator_output(stdout: str) -> dict:
+    try:
+        return json.loads(stdout)
+    except json.JSONDecodeError:
+        return {
+            "ok": False,
+            "error_count": 1,
+            "errors": [stdout.strip() or "验收脚本输出无法解析"],
+            "notes": [],
+        }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="短篇拆书收口：生成 profile 并执行全量验收")
+    parser.add_argument("root", help="拆文库/{书名} 目录")
+    parser.add_argument("--name", help="书名；默认取目录名")
+    parser.add_argument("--skip-profile", action="store_true", help="跳过 book.profile.json 生成，只做验收")
+    parser.add_argument("--json", action="store_true", help="输出 JSON")
+    args = parser.parse_args()
+
+    root = Path(args.root).resolve()
+    book_name = args.name or root.name
+    notes: list[str] = []
+    errors: list[str] = []
+    profile_generated = False
+
+    if not root.exists() or not root.is_dir():
+        payload = {
+            "root": str(root),
+            "ok": False,
+            "status": "blocked-on-assets",
+            "profile_generated": False,
+            "error_count": 1,
+            "errors": [f"目录不存在：{root}"],
+            "notes": [],
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"root: {root}")
+            print("status: blocked-on-assets")
+            print(f"- 目录不存在：{root}")
+        return 2
+
+    project_root = project_root_from_script()
+    profile_source = root / "写作资产" / "profile_source.md"
+    profile_output = root / "book.profile.json"
+    generator = project_root / "scripts" / "generate_story_profile.py"
+    validator = project_root / "scripts" / "validate_short_analyze_outputs.py"
+
+    if not args.skip_profile:
+        if not profile_source.exists():
+            errors.append(f"缺少文件：{profile_source}")
+        elif not generator.exists():
+            errors.append(f"缺少脚本：{generator}")
+        else:
+            cmd = [
+                sys.executable,
+                str(generator),
+                "--source",
+                str(root),
+                "--name",
+                book_name,
+                "--output",
+                str(profile_output),
+            ]
+            result = run_command(cmd)
+            if result.returncode != 0:
+                stderr = result.stderr.strip() or result.stdout.strip() or "未知错误"
+                errors.append(f"生成 book.profile.json 失败：{stderr}")
+            else:
+                profile_generated = True
+                notes.append("book.profile.json 已重新生成。")
+
+    if errors:
+        payload = {
+            "root": str(root),
+            "ok": False,
+            "status": "blocked-on-assets",
+            "profile_generated": profile_generated,
+            "error_count": len(errors),
+            "errors": errors,
+            "notes": notes,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"root: {root}")
+            print("status: blocked-on-assets")
+            for item in errors:
+                print(f"- {item}")
+        return 2
+
+    result = run_command([sys.executable, str(validator), str(root), "--json"])
+    if result.returncode not in {0, 1, 2}:
+        payload = {
+            "root": str(root),
+            "ok": False,
+            "status": "blocked-on-assets",
+            "profile_generated": profile_generated,
+            "error_count": 1,
+            "errors": [result.stderr.strip() or result.stdout.strip() or "验收脚本执行失败"],
+            "notes": notes,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"root: {root}")
+            print("status: blocked-on-assets")
+            for item in payload["errors"]:
+                print(f"- {item}")
+        return 2
+
+    validator_payload = parse_validator_output(result.stdout)
+    payload = build_payload(root, profile_generated, validator_payload, notes)
+
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"root: {root}")
+        print(f"status: {payload['status']}")
+        print(f"profile_generated: {str(profile_generated).lower()}")
+        print(f"error_count: {payload['error_count']}")
+        if payload["notes"]:
+            print("notes:")
+            for item in payload["notes"]:
+                print(f"- {item}")
+        if payload["errors"]:
+            print("errors:")
+            for item in payload["errors"]:
+                print(f"- {item}")
+
+    return 0 if payload["ok"] else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -16,6 +16,8 @@
 - [../pipeline/output-templates.md](../pipeline/output-templates.md)
 - [../pipeline/material-decomposition.md](../pipeline/material-decomposition.md)
 - [../pipeline/quality-checklist.md](../pipeline/quality-checklist.md)
+- [../pipeline/auto-full-output-task.md](../pipeline/auto-full-output-task.md)
+- [../pipeline/short-analyze-execution-prompt.md](../pipeline/short-analyze-execution-prompt.md)
 
 ---
 
@@ -62,5 +64,6 @@
 原则：
 
 - 拆书主流程先看 `analyze-execution-core`
+- 正式执行时主会话再加载 `short-analyze-execution-prompt`
 - 需要落可直接仿写层时再进对应专项库
 - 需要为写作备料时再回收 `material-packs-*`

@@ -1,0 +1,558 @@
+{
+  "version": 2,
+  "purpose": "Short-fiction anti-AI lexicon for Chinese narrative rewriting. Use only for short story prose, dialogue, and system-text scenes.",
+  "sources": [
+    {
+      "name": "qu-ai-wei",
+      "url": "https://github.com/LifelongLazyLearner/qu-ai-wei",
+      "notes": "Useful for spotting over-formal connectors, translationese, and repeated phrase shells."
+    },
+    {
+      "name": "shuorenhua",
+      "url": "https://github.com/MrGeDiao/shuorenhua",
+      "notes": "Useful for scenario-aware rewriting instead of one-size-fits-all synonym swaps."
+    },
+    {
+      "name": "Pangram Blog",
+      "url": "https://www.pangram.com/blog/pangram-ai-phrases",
+      "notes": "Repeated phrase families are more meaningful than a single hit."
+    }
+  ],
+  "usage_rules": {
+    "core_principle": "Prefer delete > loosen > rewrite. Keep plot facts and character intent unchanged.",
+    "scope": [
+      "short_story",
+      "microfiction",
+      "dialogue_scene",
+      "system_flow_fiction"
+    ],
+    "safe_order": [
+      "delete_empty_connectors",
+      "translationese_markers",
+      "downgrade_formal_verbs",
+      "precision_emotion_templates",
+      "system_panel_decompression",
+      "narrative_particle_relaxers"
+    ]
+  },
+  "categories": {
+    "delete_empty_connectors": {
+      "strategy": "Delete first if the sentence still works. If deletion breaks rhythm, replace with a lighter spoken bridge.",
+      "tokens": [
+        "与此同时",
+        "值得注意的是",
+        "需要指出的是",
+        "由此可见",
+        "综上所述",
+        "总的来说",
+        "进一步来看",
+        "从某种意义上说"
+      ],
+      "preferred_replacements": {
+        "与此同时": [
+          "这时",
+          "同时",
+          ""
+        ],
+        "值得注意的是": [
+          "其实",
+          ""
+        ],
+        "需要指出的是": [
+          "要说的是",
+          ""
+        ],
+        "由此可见": [
+          "所以",
+          ""
+        ],
+        "综上所述": [
+          "总的说",
+          ""
+        ],
+        "总的来说": [
+          "总的说",
+          ""
+        ]
+      }
+    },
+    "downgrade_formal_verbs": {
+      "strategy": "Replace bookish or report-like verbs with everyday story verbs.",
+      "tokens": [
+        "进行",
+        "展开",
+        "实现",
+        "构建",
+        "打造",
+        "优化",
+        "完善"
+      ],
+      "preferred_replacements": {
+        "进行": [
+          "做",
+          "开始",
+          ""
+        ],
+        "展开": [
+          "做",
+          "开始",
+          "铺开"
+        ],
+        "实现": [
+          "做到",
+          "成了"
+        ],
+        "构建": [
+          "搭起",
+          "弄出",
+          "做成"
+        ],
+        "打造": [
+          "做",
+          "弄成",
+          "搭"
+        ],
+        "优化": [
+          "改",
+          "调",
+          "弄顺"
+        ],
+        "完善": [
+          "补齐",
+          "补好",
+          "改全"
+        ]
+      }
+    },
+    "downgrade_abstract_buzzwords": {
+      "strategy": "Only keep abstractions that often leak into short-fiction narration or author commentary. Replace with concrete motive, consequence, or action.",
+      "tokens": [
+        "底层逻辑",
+        "全链路",
+        "系统性",
+        "深度",
+        "路径",
+        "范式"
+      ],
+      "preferred_replacements": {
+        "底层逻辑": [
+          "真正的原因",
+          "背后的路数"
+        ],
+        "全链路": [
+          "从头到尾",
+          "前后整段"
+        ],
+        "系统性": [
+          "成套地",
+          "一整套地"
+        ],
+        "深度": [
+          "更深一点",
+          ""
+        ],
+        "路径": [
+          "办法",
+          "路子"
+        ],
+        "范式": [
+          "路数",
+          "做法"
+        ]
+      }
+    },
+    "translationese_markers": {
+      "strategy": "Downgrade translated or pseudo-essay turns that make story prose sound explained rather than lived.",
+      "tokens": [
+        "并非...而是...",
+        "不再是...而是...",
+        "对于...而言",
+        "在...层面",
+        "某种程度上",
+        "换言之",
+        "换句话说",
+        "这一点",
+        "某种意义上"
+      ],
+      "preferred_replacements": {
+        "对于...而言": [
+          "对...来说"
+        ],
+        "在...层面": [
+          "在...上",
+          "就...这事"
+        ],
+        "某种程度上": [
+          "多少",
+          "有点",
+          ""
+        ],
+        "换言之": [
+          "也就是说",
+          "说白了"
+        ],
+        "换句话说": [
+          "说白了",
+          "换个说法"
+        ],
+        "这一点": [
+          "这事",
+          "这里"
+        ]
+      }
+    },
+    "sentence_shells": {
+      "strategy": "Target repeated explanatory shells and binary turns common in AI-smoothed short fiction. Replace with direct action, dialogue, or scene consequence.",
+      "tokens": [
+        "真正的问题在于",
+        "问题不在于",
+        "不是因为",
+        "不是A，而是B",
+        "并非",
+        "不再是",
+        "说到底",
+        "归根结底",
+        "这意味着",
+        "这说明"
+      ],
+      "preferred_replacements": {
+        "真正的问题在于": [
+          "麻烦在",
+          "问题就在"
+        ],
+        "问题不在于": [
+          "不是",
+          ""
+        ],
+        "不是因为": [
+          "不是",
+          ""
+        ],
+        "说到底": [
+          "说白了",
+          ""
+        ],
+        "归根结底": [
+          "说白了",
+          ""
+        ],
+        "这意味着": [
+          "也就是说",
+          ""
+        ],
+        "这说明": [
+          "这就说明",
+          ""
+        ]
+      }
+    },
+    "fiction_reaction_templates": {
+      "strategy": "Replace mechanical bodily-reaction bundles with looser, less audit-friendly reactions.",
+      "tokens": [
+        "喉结滚动",
+        "呼吸一滞",
+        "心跳漏了半拍",
+        "太阳穴突突直跳",
+        "后槽牙咬紧",
+        "指尖微微发颤",
+        "瞳孔骤然收缩",
+        "脸色肉眼可见地变了"
+      ],
+      "preferred_replacements": {
+        "喉结滚动": [
+          "喉咙动了一下"
+        ],
+        "呼吸一滞": [
+          "一下没喘上气"
+        ],
+        "心跳漏了半拍": [
+          "心口空了一下"
+        ],
+        "太阳穴突突直跳": [
+          "太阳穴直跳"
+        ],
+        "后槽牙咬紧": [
+          "牙关咬住了"
+        ],
+        "指尖微微发颤": [
+          "指尖有点发抖"
+        ],
+        "瞳孔骤然收缩": [
+          "瞳孔猛地一缩"
+        ],
+        "脸色肉眼可见地变了": [
+          "脸色一下变了"
+        ]
+      }
+    },
+    "fiction_action_templates": {
+      "strategy": "Downgrade over-repeated polished动作句 to plainer spoken narration.",
+      "tokens": [
+        "深吸一口气",
+        "抿了抿唇",
+        "皱了皱眉",
+        "微微一笑",
+        "缓缓开口",
+        "垂下眼眸",
+        "目光落在",
+        "视线扫过"
+      ],
+      "preferred_replacements": {
+        "深吸一口气": [
+          "吸了口气",
+          ""
+        ],
+        "抿了抿唇": [
+          "抿嘴"
+        ],
+        "皱了皱眉": [
+          "皱眉"
+        ],
+        "微微一笑": [
+          "笑了一下"
+        ],
+        "缓缓开口": [
+          "开口"
+        ],
+        "垂下眼眸": [
+          "垂下眼"
+        ],
+        "目光落在": [
+          "看向"
+        ],
+        "视线扫过": [
+          "扫了一眼"
+        ]
+      }
+    },
+    "atmosphere_templates": {
+      "strategy": "Flag stock atmosphere and empty-cinematic lines often overused in suspense and horror shorts.",
+      "tokens": [
+        "空气中弥漫着",
+        "气氛一时间凝固",
+        "时间仿佛静止",
+        "四周安静得可怕",
+        "映入眼帘的是",
+        "月光洒在",
+        "寒意顺着脊背爬上来"
+      ],
+      "preferred_replacements": {
+        "空气中弥漫着": [
+          "空气里都是"
+        ],
+        "气氛一时间凝固": [
+          "一下没人说话了"
+        ],
+        "时间仿佛静止": [
+          "那一瞬像停住了"
+        ],
+        "四周安静得可怕": [
+          "四周静得吓人"
+        ],
+        "映入眼帘的是": [
+          "他看见"
+        ],
+        "月光洒在": [
+          "月光落在"
+        ],
+        "寒意顺着脊背爬上来": [
+          "背后那股凉意一下窜了上来"
+        ]
+      }
+    },
+    "direct_psychology_markers": {
+      "strategy": "Mark direct emotional explanation and realization phrasing. In short fiction, prefer action, pause, or dialogue implication.",
+      "tokens": [
+        "他意识到",
+        "她意识到",
+        "他明白了",
+        "她明白了",
+        "他知道",
+        "她知道",
+        "他感到",
+        "她感到",
+        "他觉得",
+        "她觉得"
+      ],
+      "preferred_replacements": {
+        "他意识到": [
+          "他这才反应过来"
+        ],
+        "她意识到": [
+          "她这才反应过来"
+        ],
+        "他明白了": [
+          "他一下明白过来"
+        ],
+        "她明白了": [
+          "她一下明白过来"
+        ],
+        "他知道": [
+          "他心里清楚"
+        ],
+        "她知道": [
+          "她心里清楚"
+        ],
+        "他感到": [
+          "他只觉得"
+        ],
+        "她感到": [
+          "她只觉得"
+        ],
+        "他觉得": [
+          "他只觉得"
+        ],
+        "她觉得": [
+          "她只觉得"
+        ]
+      }
+    },
+    "explanatory_summary_markers": {
+      "strategy": "Remove small essay-like explanation bridges and uplift lines from story prose.",
+      "tokens": [
+        "更重要的是",
+        "某种意义上",
+        "从这个角度来看",
+        "这不仅仅是",
+        "归根到底",
+        "本质上"
+      ],
+      "preferred_replacements": {
+        "更重要的是": [
+          "更麻烦的是",
+          ""
+        ],
+        "某种意义上": [
+          "多少",
+          ""
+        ],
+        "从这个角度来看": [
+          "这么看",
+          ""
+        ],
+        "这不仅仅是": [
+          "这不只是",
+          ""
+        ],
+        "归根到底": [
+          "说到底",
+          ""
+        ],
+        "本质上": [
+          "说白了",
+          ""
+        ]
+      }
+    },
+    "precision_emotion_templates": {
+      "strategy": "Replace rule-friendly reaction templates with looser bodily or explanatory reactions.",
+      "tokens": [
+        "背后一凉",
+        "心脏猛地一沉",
+        "胃里一阵翻涌",
+        "瞳孔缩紧",
+        "冷得发麻",
+        "声音尖得刺耳",
+        "血色一下退干净了"
+      ],
+      "preferred_replacements": {
+        "背后一凉": [
+          "背后感到一阵凉"
+        ],
+        "心脏猛地一沉": [
+          "心里顿时感到很沉重"
+        ],
+        "胃里一阵翻涌": [
+          "觉得胃很不舒服"
+        ],
+        "瞳孔缩紧": [
+          "瞳孔一缩"
+        ],
+        "冷得发麻": [
+          "已经变得冰凉发麻了"
+        ],
+        "声音尖得刺耳": [
+          "声音很尖锐"
+        ],
+        "血色一下退干净了": [
+          "脸上的血色立刻就消失了"
+        ]
+      }
+    },
+    "narrative_particle_relaxers": {
+      "strategy": "Narrative only. Add a small amount of particles to break over-clean rhythm, especially in short horror or suspense prose.",
+      "tokens": [
+        "就",
+        "还",
+        "都",
+        "已经",
+        "才",
+        "倒",
+        "先",
+        "这时",
+        "此时"
+      ],
+      "patterns": [
+        {
+          "from": "X发生了",
+          "to": "X就发生了"
+        },
+        {
+          "from": "他看向Y",
+          "to": "他先朝Y看去"
+        },
+        {
+          "from": "A还在，B没了",
+          "to": "A倒还在，B却没了"
+        },
+        {
+          "from": "围观的人反应过来",
+          "to": "围观的人这时候才反应过来"
+        }
+      ]
+    },
+    "system_panel_decompression": {
+      "strategy": "For short-fiction system text only. Replace product-manager compression with mixed, uneven, more human phrasing.",
+      "tokens": [
+        "当前",
+        "已",
+        "不可",
+        "不得",
+        "必须",
+        "将被视为",
+        "优先承担"
+      ],
+      "preferred_replacements": {
+        "当前": [
+          "目前",
+          "现在"
+        ],
+        "已": [
+          "已经"
+        ],
+        "不可": [
+          "不能"
+        ],
+        "不得": [
+          "不能"
+        ],
+        "必须": [
+          "都要",
+          "得"
+        ],
+        "将被视为": [
+          "就是"
+        ],
+        "优先承担": [
+          "先承担"
+        ]
+      }
+    }
+  },
+  "whitelist_examples": [
+    "角色刻意使用的口头禅",
+    "系统流小说里必须统一的面板术语",
+    "人物刻意说出的书面腔对白",
+    "作者有意保留的网络黑话或论坛腔"
+  ]
+}
