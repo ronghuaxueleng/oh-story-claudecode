@@ -105,6 +105,7 @@ description: |
 - [references/pipeline/analyze-execution-core.md](references/pipeline/analyze-execution-core.md)
 - [../story/references/short-high-risk/reference-index.md](../story/references/short-high-risk/reference-index.md)
 - [references/imitation/high-sensitivity-bridge-imitation.md](references/imitation/high-sensitivity-bridge-imitation.md)
+- [references/imitation/章法手法硬拆清单.md](references/imitation/章法手法硬拆清单.md)
 - [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
 如果识别为 `追妻`，额外挂：
@@ -157,6 +158,12 @@ description: |
 如果任务目标明确是后续继续写，`Stage 6` 后默认再补一层：
 
 6. `Stage 6.5`：可直接施工层收口
+
+执行硬约束：
+
+- 进入 `Stage 4` 前，先加载 `references/pipeline/output-templates.md`
+- 产出 `写作手法.md` 时，必须按其中的 `写作手法.md 固定骨架` 落盘
+- 不允许把 `写作手法.md` 写成自由散文式分析
 
 `Stage 6.5` 至少补完：
 
@@ -240,6 +247,7 @@ description: |
 - [references/imitation/micro-action-library.md](references/imitation/micro-action-library.md)
 - [references/imitation/quiet-pressure-scene-library.md](references/imitation/quiet-pressure-scene-library.md)
 - [references/imitation/high-sensitivity-bridge-imitation.md](references/imitation/high-sensitivity-bridge-imitation.md)
+- [references/imitation/章法手法硬拆清单.md](references/imitation/章法手法硬拆清单.md)
 - [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
 回收写作资产时常用：

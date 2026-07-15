@@ -27,6 +27,7 @@
 - [../imitation/micro-action-library.md](../imitation/micro-action-library.md)
 - [../imitation/quiet-pressure-scene-library.md](../imitation/quiet-pressure-scene-library.md)
 - [../imitation/high-sensitivity-bridge-imitation.md](../imitation/high-sensitivity-bridge-imitation.md)
+- [../imitation/章法手法硬拆清单.md](../imitation/章法手法硬拆清单.md)
 
 ---
 
