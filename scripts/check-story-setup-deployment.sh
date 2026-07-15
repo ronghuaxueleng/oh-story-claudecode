@@ -61,7 +61,7 @@ write_sentinel() {
   cat > "$root/.story-deployed" <<'SENTINEL'
 deployed_at: 2026-05-24T00:00:00Z
 agents_version: 17
-setup_skill_version: 1.2.6
+setup_skill_version: 1.2.7
 target_cli: claude-code
 resolver_strategy: project-local-skill-reference
 references_dir: .claude/skills/story-setup/references/agent-references
@@ -155,10 +155,18 @@ for group in 'templates/hooks/' 'templates/rules' 'templates/agents' 'agent-refe
 done
 assert_file "$SKILL_DIR/references/openclaw/AGENTS.md.tmpl"
 assert_file "$SKILL_DIR/references/generic/AGENTS.md.tmpl"
+assert_file "$SKILL_DIR/references/zcode/AGENTS.md.tmpl"
+assert_file "$SKILL_DIR/references/zcode/config.json.patch"
+assert_file "$SKILL_DIR/references/zcode/hooks/hooks.json"
+assert_file "$SKILL_DIR/references/zcode/hooks/story_zcode_hook.js"
 assert_grep 'references/openclaw/AGENTS\.md\.tmpl' "$SKILL_FILE" "deployment manifest missing OpenClaw AGENTS template"
 assert_grep 'OpenClaw skills-only|target_cli 含 openclaw' "$SKILL_FILE" "story-setup must document OpenClaw skills-only deployment"
 assert_grep 'references/generic/AGENTS\.md\.tmpl' "$SKILL_FILE" "deployment manifest missing generic AGENTS template"
 assert_grep 'target_cli 含 generic|通用 Web AI / 其他 Agent' "$SKILL_FILE" "story-setup must document generic Web AI deployment"
+assert_grep 'references/zcode/AGENTS\.md\.tmpl' "$SKILL_FILE" "deployment manifest missing ZCode AGENTS template"
+assert_grep 'target_cli 含 zcode|target_cli = zcode' "$SKILL_FILE" "story-setup must document ZCode deployment"
+assert_grep '\.zcode/config\.json' "$SKILL_FILE" "story-setup must document ZCode config merge"
+assert_grep '不部署.*\.zcode/agents|不创建.*\.zcode/agents' "$SKILL_FILE" "story-setup must document ZCode agent boundary"
 assert_grep 'references_dir' "$SKILL_FILE" "sentinel references_dir must be documented"
 assert_grep 'resolver_strategy' "$SKILL_FILE" "sentinel resolver_strategy must be documented"
 assert_grep 'target_cli' "$SKILL_FILE" "sentinel target_cli must be documented"
@@ -247,7 +255,7 @@ copy_hooks "$bad_sentinel_root"
 cat > "$bad_sentinel_root/.story-deployed" <<'SENTINEL'
 deployed_at: 2026-05-24T00:00:00Z
 agents_version: 17
-setup_skill_version: 1.2.6
+setup_skill_version: 1.2.7
 resolver_strategy: project-local-skill-reference
 references_dir: .claude/skills/story-setup/references/agent-references
 SENTINEL
