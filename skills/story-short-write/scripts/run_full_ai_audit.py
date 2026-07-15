@@ -1599,6 +1599,7 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
     bridge_rules = profile.get("bridge_rules", []) if isinstance(profile, dict) else []
     scene_assets = profile.get("scene_assets", {}) if isinstance(profile.get("scene_assets"), dict) else {}
     style_assets = get_style_assets(profile)
+    story_guardrails = profile.get("story_guardrails", {}) if isinstance(profile.get("story_guardrails"), dict) else {}
     scene_nonempty = {key: value for key, value in scene_assets.items() if isinstance(value, list) and value}
     style_nonempty = {key: value for key, value in style_assets.items() if isinstance(value, list) and value}
 
@@ -1610,6 +1611,15 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
         key for key in ("micro_actions", "character_bias", "dialogue_bridges", "rotten_relationship")
         if not style_nonempty.get(key)
     ]
+    missing_guardrail_keys = []
+    consequence_guard = story_guardrails.get("consequence_structure", {}) if isinstance(story_guardrails, dict) else {}
+    if not (isinstance(consequence_guard, dict) and consequence_guard.get("pre_evidence_reality_consequences")):
+        missing_guardrail_keys.append("pre_evidence_reality_consequences")
+    if not (isinstance(consequence_guard, dict) and consequence_guard.get("tail_entry_owner")):
+        missing_guardrail_keys.append("tail_entry_owner")
+    face_guard = story_guardrails.get("character_face_split", {}) if isinstance(story_guardrails, dict) else {}
+    if not (isinstance(face_guard, dict) and face_guard.get("different_face_evidence")):
+        missing_guardrail_keys.append("different_face_evidence")
 
     warnings: list[str] = []
     if not bridge_rules:
@@ -1620,6 +1630,8 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
         warnings.append("scene_assets 覆盖不完整：" + " / ".join(missing_scene_keys))
     if missing_style_keys:
         warnings.append("style_assets 关键层缺失：" + " / ".join(missing_style_keys))
+    if missing_guardrail_keys:
+        warnings.append("story_guardrails 缺失：" + " / ".join(missing_guardrail_keys))
 
     return {
         "bridge_rule_count": len(bridge_rules) if isinstance(bridge_rules, list) else 0,
@@ -1629,6 +1641,7 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
         "style_asset_counts": {key: len(value) for key, value in style_nonempty.items()},
         "missing_scene_asset_keys": missing_scene_keys,
         "missing_style_asset_keys": missing_style_keys,
+        "missing_story_guardrail_keys": missing_guardrail_keys,
         "has_public_scene": bool(consequence_audit.get("has_public_scene")) if isinstance(consequence_audit, dict) else False,
         "has_external_order": bool(consequence_audit.get("has_external_order")) if isinstance(consequence_audit, dict) else False,
         "has_consequence_chain": bool(consequence_audit.get("has_consequence_chain")) if isinstance(consequence_audit, dict) else False,
@@ -1682,6 +1695,26 @@ def build_asset_coverage_impact_items(asset_coverage: dict, guidance: dict) -> l
                 source_family="asset_coverage",
                 focus_layer="consequence_chain",
                 asset_kind="scene_assets",
+            )
+        )
+    if asset_coverage.get("missing_story_guardrail_keys"):
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "profile 缺少高敏结构护栏",
+                    "priority": "P0",
+                    "why_it_hits_audit": "如果 profile 里没有现实后果隔层、尾声入口归属、人物不同脸这些高敏结构证据，后续回修任务单就容易只剩通用压味，而抓不到真正的结构炸点。",
+                    "evidence": [
+                        "缺失 story_guardrails: " + " / ".join(asset_coverage.get("missing_story_guardrail_keys", [])[:6])
+                    ],
+                    "fix_methods": [
+                        "先回拆书资产或 profile_source，补齐高敏结构护栏字段。",
+                        "重生成 profile 后，再跑全文审计和回修任务单。",
+                    ],
+                },
+                source_family="asset_coverage",
+                focus_layer="bridge_structure",
+                asset_kind="story_guardrails",
             )
         )
     return items
@@ -3277,7 +3310,7 @@ def main() -> int:
         heavy_lexicon = heavy_root / "词典" / "通用高风险词类词典.json"
     else:
         heavy_script = root / "scripts" / "audit_ai_flavor.py"
-        heavy_lexicon = root / "references" / "通用高风险词类词典.json"
+        heavy_lexicon = root / "references" / "governance" / "通用高风险词类词典.json"
 
     if not light_script.exists():
         print(f"轻审计脚本不存在: {light_script}", file=sys.stderr)
@@ -3367,6 +3400,7 @@ def main() -> int:
     combined = {
         "file": str(file_path),
         "profile": str(profile_path) if profile_path else None,
+        "profile_payload": profile,
         "light_report": light_report,
         "light_summary": summarize_light(light_report),
         "heavy_report": heavy_report,

@@ -51,6 +51,12 @@
 - `可直接仿写_烂关系漏出表.md`
 - `原文细节库/*.md`
 
+这些输入里，至少还要明确留下 3 类高敏结构证据：
+
+- `重大证据前隔开的现实后果`
+- `尾声入口归属与不给另一条线的原因`
+- `同桥不同脸的口气 / 权限 / 动作差`
+
 ## 输出结构
 
 ```json
@@ -116,6 +122,19 @@
     "public_explosion": ["<来自拆书的公开炸场件1>", "<来自拆书的公开炸场件2>"],
     "external_order": ["<来自拆书的外部秩序件1>", "<来自拆书的外部秩序件2>"],
     "consequence_chain": ["<来自拆书的后果链件1>", "<来自拆书的后果链件2>"]
+  },
+  "story_guardrails": {
+    "character_face_split": {
+      "different_face_evidence": ["<谁像谁不像谁的证据1>"],
+      "reaction_order_split": ["<谁先解释谁先压场>"],
+      "action_authority_split": ["<不同角色的动作权限差>"]
+    },
+    "consequence_structure": {
+      "pre_evidence_reality_consequences": ["<重大证据前隔开的现实后果1>"],
+      "consequence_rebound_modes": ["<后果回灌方式1>"],
+      "tail_entry_owner": ["<尾声入口给了谁>"],
+      "tail_entry_exclusion_reason": ["<为什么不给另一条线>"]
+    }
   },
   "style_assets": {
     "opening_hooks": ["<来自拆书的开头钩子资产>"],
@@ -212,6 +231,22 @@
 
 - 从各类仿写表里提取高频秩序件、公开件、后果件。
 - 后续写前检查、写后扫描都可以复用。
+- 如果桥段依赖“先被现实后果压住，再让证据慢半拍闯入”，这层也应该在来源文档里写明，不要只留“有后果链”四个字。
+
+### `story_guardrails`
+
+- 这是高敏同桥的结构护栏层。
+- 目前脚本已经正式消费：
+  - `character_face_split`
+  - `consequence_structure`
+- 它的作用不是替代 `bridge_rules / style_assets`，而是把过去只留在复盘文档里的三类高值判断结构化带进审计和任务单：
+  - `现实后果隔层`
+  - `尾声入口归属`
+  - `人物不同脸`
+- 这层默认来源：
+  - `写作资产/profile_source.md`
+  - `写作资产/高敏桥段识别.md`
+  - `写作资产/同桥段过检规则.md`
 
 ### `style_assets`
 
@@ -235,6 +270,11 @@
   - 烂关系漏出
   - 对话衔接
   这类过去只留在 Markdown 里的隐性规则。
+- 如果当前项目是高敏同桥，`style_assets` 之外还要回看 Markdown 资产里的：
+  - `人物不同脸证据`
+  - `重大证据前隔开的现实后果`
+  - `尾声入口归属`
+  这些结构判断目前允许保留在来源文档，不强行塞成脚本硬字段。
 
 - 进入局部回炉时，`profile` 还负责给 `segment_scores / paragraph_scores / high_risk_segments` 提供解释层。
   也就是说，分段分数不是孤立数字，后面要能顺着 `bridge_rules / scene_assets / style_assets`
@@ -249,6 +289,7 @@
 5. 同一字段允许保留重复来源，后续再去重。
 6. 融合 `project.profile.json` 时，只允许在同一本书内部按桥段序号合并，不允许把不同书的 `桥段1 / 桥段2` 直接拼成同一条桥段规则。
 7. 一旦补了拆书、补了 `profile_source.md` 或 `同桥段过检规则.md`，就要重生 `project.profile.json`，不要继续沿用旧融合包。
+8. 结构性高敏判断如果脚本暂时不消费，也必须保留在 `profile_source.md / 高敏桥段识别.md / 同桥段过检规则.md`，不能只停留在聊天记录里。
 
 ## `profile_source.md` 最低字段
 

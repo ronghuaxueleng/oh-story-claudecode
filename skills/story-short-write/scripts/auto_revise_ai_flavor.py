@@ -418,6 +418,87 @@ def apply_sample_grading_task_bias(task: dict, guidance: dict) -> dict:
     return task
 
 
+def build_story_guardrail_guidance(profile: dict) -> dict:
+    guardrails = profile.get("story_guardrails", {}) if isinstance(profile, dict) else {}
+    if not isinstance(guardrails, dict):
+        return {}
+    out: dict[str, object] = {}
+    face = guardrails.get("character_face_split", {})
+    if isinstance(face, dict):
+        face_out = {
+            key: [item for item in values if isinstance(item, str)][:6]
+            for key, values in face.items()
+            if isinstance(values, list) and values
+        }
+        if face_out:
+            out["character_face_split"] = face_out
+    consequence = guardrails.get("consequence_structure", {})
+    if isinstance(consequence, dict):
+        consequence_out = {
+            key: [item for item in values if isinstance(item, str)][:6]
+            for key, values in consequence.items()
+            if isinstance(values, list) and values
+        }
+        if consequence_out:
+            out["consequence_structure"] = consequence_out
+    return out
+
+
+def build_story_guardrail_tasks(guardrails: dict) -> list[dict]:
+    tasks: list[dict] = []
+    consequence = guardrails.get("consequence_structure", {}) if isinstance(guardrails, dict) else {}
+    if isinstance(consequence, dict):
+        evidence = []
+        if consequence.get("pre_evidence_reality_consequences"):
+            evidence.append("重大证据前该隔开的现实后果: " + " / ".join(consequence["pre_evidence_reality_consequences"][:4]))
+        if consequence.get("consequence_rebound_modes"):
+            evidence.append("后果回灌方式: " + " / ".join(consequence["consequence_rebound_modes"][:4]))
+        if consequence.get("tail_entry_owner"):
+            evidence.append("尾声入口归属: " + " / ".join(consequence["tail_entry_owner"][:4]))
+        if consequence.get("tail_entry_exclusion_reason"):
+            evidence.append("尾声入口不给次线的原因: " + " / ".join(consequence["tail_entry_exclusion_reason"][:4]))
+        if evidence:
+            tasks.append(
+                {
+                    "type": "guardrail_item",
+                    "priority": "P0",
+                    "title": "高敏结构护栏：现实后果隔层与尾声入口",
+                    "why": "这类桥最容易回弹成标准成品链。当前轮必须先确认重大证据前隔着现实后果，而不是只隔时间；尾声入口也不能被次线抢走。",
+                    "evidence": evidence[:6],
+                    "fix_methods": [
+                        "重大证据前先补现实后果，不要只写‘过了几天’。",
+                        "把次线收在余波区，不要在真尾声前再给它完整说开戏。",
+                        "若尾声必须落主核，就删掉结尾前最完整的次线收口。 ",
+                    ],
+                }
+            )
+    face = guardrails.get("character_face_split", {}) if isinstance(guardrails, dict) else {}
+    if isinstance(face, dict):
+        evidence = []
+        if face.get("different_face_evidence"):
+            evidence.append("人物不同脸证据: " + " / ".join(face["different_face_evidence"][:4]))
+        if face.get("reaction_order_split"):
+            evidence.append("谁先解释谁先压场: " + " / ".join(face["reaction_order_split"][:4]))
+        if face.get("action_authority_split"):
+            evidence.append("动作权限差: " + " / ".join(face["action_authority_split"][:4]))
+        if evidence:
+            tasks.append(
+                {
+                    "type": "guardrail_item",
+                    "priority": "P0",
+                    "title": "高敏结构护栏：人物不能写回同一张脸",
+                    "why": "不同位置的人不能只剩立场差，还要有权限差、动作差和节拍差。否则越改越像统一作者口气在分角色念台词。",
+                    "evidence": evidence[:6],
+                    "fix_methods": [
+                        "先区分谁先压场、谁先解释、谁先办手上事务。",
+                        "给关键人物补权限差，不要人人都先看着对方再说一句整齐的话。",
+                        "删掉最像成熟解释模板的共用句壳。 ",
+                    ],
+                }
+            )
+    return tasks
+
+
 def paragraph_priority_tuple(item: dict, segment_map: dict[int, dict]) -> tuple[int, int, int, float]:
     flags = item.get("flags", []) or []
     seg = segment_map.get(item.get("segment_index")) or {}
@@ -672,6 +753,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
     global_risk_shape = normalize_global_risk_shape(curr.get("global_risk_shape"))
     coarse_segment_scores = curr.get("coarse_segment_scores", []) or []
     shape = global_risk_shape.get("shape", "local_blocks")
+    story_guardrails = build_story_guardrail_guidance(curr.get("profile_payload", {}))
 
     tasks: list[dict] = []
     shape_task = global_shape_task(global_risk_shape)
@@ -680,6 +762,8 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
     for item in bridge_audit[:2]:
         if item.get("must_keep_missing") or item.get("must_avoid_hit"):
             tasks.append(apply_sample_grading_task_bias(bridge_task_from_audit(item), sample_grading_guidance))
+    for item in build_story_guardrail_tasks(story_guardrails):
+        tasks.append(apply_sample_grading_task_bias(item, sample_grading_guidance))
     for item in consequence_items[:2]:
         tasks.append(
             apply_sample_grading_task_bias(
@@ -736,6 +820,13 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
             must_not.append(item)
     if bridge_issue and bridge_issue.get("must_avoid_hit"):
         must_not.append("先删已踩中的 must_avoid，再谈润句。")
+    consequence_guard = story_guardrails.get("consequence_structure", {}) if isinstance(story_guardrails, dict) else {}
+    if isinstance(consequence_guard, dict) and consequence_guard:
+        must_not.append("不要把重大证据前的缓冲只写成时间空档，先补现实后果。")
+        must_not.append("不要让次线在真尾声前吃掉完整说开戏或告别戏。")
+    face_guard = story_guardrails.get("character_face_split", {}) if isinstance(story_guardrails, dict) else {}
+    if isinstance(face_guard, dict) and face_guard:
+        must_not.append("不要把不同角色写成同一套成熟解释口气。")
 
     focus = []
     if bridge_issue:
@@ -860,6 +951,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
         "current_summary": audit_summary(curr),
         "global_risk_shape": global_risk_shape,
         "sample_grading_guidance": sample_grading_guidance,
+        "story_guardrails": story_guardrails,
         "comparison": compare_audits(prev, curr),
         "recommendations": recommendations[:8],
         "coarse_block_focus": coarse_block_focus,
@@ -918,6 +1010,37 @@ def markdown_task_card(source_file: Path, curr: dict, prev: dict | None, payload
             lines.append(f"- 禁学层: {' / '.join(sample.get('forbidden_layers', [])[:6])}")
         for item in sample.get("audit_notes", [])[:4]:
             lines.append(f"- 提示: {item}")
+    guardrails = payload.get("story_guardrails", {})
+    if guardrails:
+        lines.extend(["", "## 高敏结构护栏", ""])
+        consequence = guardrails.get("consequence_structure", {})
+        if isinstance(consequence, dict):
+            if consequence.get("pre_evidence_reality_consequences"):
+                lines.append("- 重大证据前应先隔现实后果:")
+                for item in consequence["pre_evidence_reality_consequences"][:4]:
+                    lines.append(f"  - {item}")
+            if consequence.get("consequence_rebound_modes"):
+                lines.append("- 后果回灌方式:")
+                for item in consequence["consequence_rebound_modes"][:4]:
+                    lines.append(f"  - {item}")
+            if consequence.get("tail_entry_owner"):
+                lines.append("- 尾声入口归属:")
+                for item in consequence["tail_entry_owner"][:4]:
+                    lines.append(f"  - {item}")
+        face = guardrails.get("character_face_split", {})
+        if isinstance(face, dict):
+            if face.get("different_face_evidence"):
+                lines.append("- 人物不同脸证据:")
+                for item in face["different_face_evidence"][:4]:
+                    lines.append(f"  - {item}")
+            if face.get("reaction_order_split"):
+                lines.append("- 反应顺序差:")
+                for item in face["reaction_order_split"][:4]:
+                    lines.append(f"  - {item}")
+            if face.get("action_authority_split"):
+                lines.append("- 动作权限差:")
+                for item in face["action_authority_split"][:4]:
+                    lines.append(f"  - {item}")
     lines.extend(["", "## 和上一轮对比", ""])
     for note in payload["comparison"]:
         lines.append(f"- {note}")
@@ -1132,6 +1255,8 @@ def rewrite_gate_task_card(source_file: Path, payload: dict) -> str:
     lines.append("- 当前高风险段改完后，不再明显命中：作者解释句、提前判断、高功能对白、整齐收口。")
     lines.append("- 当前高风险段不能再一刀完成多个主任务。")
     lines.append("- 当前高风险段不能再把桥段写成标准承载方式。")
+    if payload.get("story_guardrails"):
+        lines.append("- 当前高风险段必须再核对：现实后果隔层、尾声入口归属、人物不同脸。")
     lines.append("- 通过后才允许进入失败即重写判定。")
     lines.append("")
     return "\n".join(lines)
@@ -1161,6 +1286,8 @@ def failure_gate_task_card(source_file: Path, payload: dict) -> str:
     lines.append("- 只判当前高风险段，不顺手点评整篇。")
     lines.append("- 只要出现明显违规，不准用“基本可用”之类模糊话术。")
     lines.append("- 如果失败，必须明确指出：最该删的句子、最该拆的对白、最该砍的收口。")
+    if payload.get("story_guardrails"):
+        lines.append("- 还必须指出：是不是只隔了时间没隔现实后果、是不是次线抢了尾声、是不是人物写回同脸。")
     lines.append("- 如果通过，才允许回到内部审计复跑。")
     lines.append("")
     return "\n".join(lines)

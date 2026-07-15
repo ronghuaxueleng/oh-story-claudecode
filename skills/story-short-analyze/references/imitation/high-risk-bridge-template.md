@@ -66,11 +66,26 @@
 - 原文过检关键2：
 - 原文过检关键3：
 
+#### 2.3A 现实后果隔层与尾声入口
+
+- 重大证据前隔开的现实后果1：
+- 重大证据前隔开的现实后果2：
+- 后果回灌方式：
+- 尾声入口给了谁：
+- 为什么不给另一条线：
+
 #### 2.4 新稿最容易写假的点
 
 - 假点1：
 - 假点2：
 - 假点3：
+
+#### 2.4A 人物不同脸
+
+- 人物不同脸证据1：
+- 人物不同脸证据2：
+- 谁先解释谁先压场：
+- 不同角色的动作权限差：
 
 #### 2.5 这桥到底能学什么
 
@@ -90,6 +105,23 @@
 - 融合写作时怎么用：
 - 去AI味回修时怎么用：
 - 是否只适合提过检原理，不适合直接复现：
+
+#### 2.8 脚本映射字段
+
+- `opening_pattern`：
+- `must_keep`：
+- `must_avoid`：
+- `fake_signals`：
+- `recommended_sequence`：
+- `why_order_matters`：
+- `why_original_passes`：
+- `story_guardrails.character_face_split.different_face_evidence`：
+- `story_guardrails.character_face_split.reaction_order_split`：
+- `story_guardrails.character_face_split.action_authority_split`：
+- `story_guardrails.consequence_structure.pre_evidence_reality_consequences`：
+- `story_guardrails.consequence_structure.consequence_rebound_modes`：
+- `story_guardrails.consequence_structure.tail_entry_owner`：
+- `story_guardrails.consequence_structure.tail_entry_exclusion_reason`：
 
 ---
 
@@ -128,3 +160,4 @@
 - 不要把“原文这桥偶尔低分”直接当“这桥安全”
 - 不要把“桥段名相同”当“桥段承重方式也能直接复现”
 - 不要把高敏桥段直接塞进正向句法 DNA
+- 如果缺 `现实后果隔层 / 尾声入口 / 人物不同脸` 这 3 组字段，默认这张桥卡还不能给脚本稳定消费

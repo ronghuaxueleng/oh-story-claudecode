@@ -293,6 +293,9 @@ description: |
 8. 至少 3 组原文级证据，说明这个作者怎么切句、怎么停、怎么在动作后补一刀
 9. 至少 3 组原文级证据，说明不同角色说话的口气差到底落在哪
 10. 至少 2 组反面句型，明确“这种句子虽然通顺，但不像这个作者会写”
+11. 至少 1 组 `人物不同脸证据`
+12. 至少 1 组 `谁先解释谁先压场`
+13. 至少 1 组 `不同角色的动作权限差`
 
 写法提醒：
 
@@ -339,6 +342,9 @@ description: |
 7. 至少 1 组“原文能过 / 仿稿会假”的正反对照
 8. 要明确这个桥是靠动作、物件、旧伤、口气、秩序还是后果承重
 9. 要明确“桥本身俗不俗”不是重点，重点是“怎么把俗桥写得不像加工成品”
+10. 高敏桥至少补 1 组 `重大证据前隔开的现实后果`
+11. 高敏桥至少补 1 组 `尾声入口给了谁 / 为什么不给另一条线`
+12. 高敏桥至少补 1 组 `人物不同脸证据 / 谁先解释谁先压场 / 动作权限差`
 
 字段化要求：
 
@@ -351,6 +357,13 @@ description: |
 5. `recommended_sequence`
 6. `why_order_matters`
 7. `why_original_passes`
+8. `story_guardrails.character_face_split.different_face_evidence`
+9. `story_guardrails.character_face_split.reaction_order_split`
+10. `story_guardrails.character_face_split.action_authority_split`
+11. `story_guardrails.consequence_structure.pre_evidence_reality_consequences`
+12. `story_guardrails.consequence_structure.consequence_rebound_modes`
+13. `story_guardrails.consequence_structure.tail_entry_owner`
+14. `story_guardrails.consequence_structure.tail_entry_exclusion_reason`
 
 对应口径：
 
@@ -361,8 +374,16 @@ description: |
 - `推荐迁移顺序 / 不能丢的顺序` -> `recommended_sequence`
 - `为什么这个顺序不能乱` -> `why_order_matters`
 - `原文为什么能过` -> `why_original_passes`
+- `人物不同脸证据` -> `story_guardrails.character_face_split.different_face_evidence`
+- `谁先解释谁先压场` -> `story_guardrails.character_face_split.reaction_order_split`
+- `不同角色的动作权限差` -> `story_guardrails.character_face_split.action_authority_split`
+- `重大证据前隔开的现实后果` -> `story_guardrails.consequence_structure.pre_evidence_reality_consequences`
+- `后果回灌方式` -> `story_guardrails.consequence_structure.consequence_rebound_modes`
+- `尾声入口给了谁` -> `story_guardrails.consequence_structure.tail_entry_owner`
+- `为什么不给另一条线` -> `story_guardrails.consequence_structure.tail_entry_exclusion_reason`
 
 如果只写“承重件 + 假点”，没写起手和顺序原因，默认还没拆到可直接给 profile 吃的层。
+如果只写“桥规则”没写 `人物不同脸 / 现实后果隔层 / 尾声入口`，默认高敏桥仍未拆透。
 
 写法提醒：
 

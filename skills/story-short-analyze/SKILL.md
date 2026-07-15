@@ -112,6 +112,12 @@ description: |
 
 - [references/genre/genre-zuoqi-execution-checklist.md](references/genre/genre-zuoqi-execution-checklist.md)
 
+高敏专项默认还要拆清 3 件事：
+
+- 重大证据前隔开的到底是现实后果还是纯时间空档
+- 尾声入口最后给了谁，为什么不给另一条线
+- 同桥里的关键人物为什么不是同一张脸
+
 ---
 
 ## 输出目录

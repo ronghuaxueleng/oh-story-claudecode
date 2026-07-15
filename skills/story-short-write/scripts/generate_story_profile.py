@@ -104,6 +104,90 @@ def parse_markdown_sections(text: str) -> dict[str, list[str]]:
     return sections
 
 
+def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
+    items: list[str] = []
+    capture = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            capture = any(keyword in stripped for keyword in heading_keywords)
+            continue
+        if not capture or not stripped:
+            continue
+        if stripped.startswith(("- ", "* ")):
+            items.append(stripped[2:].strip())
+        elif re.match(r"^\d+\.\s+", stripped):
+            items.append(re.sub(r"^\d+\.\s+", "", stripped).strip())
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def collect_labeled_values(text: str, label_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(("- ", "* ")):
+            continue
+        body = stripped[2:].strip()
+        key, sep, value = body.partition("：")
+        if not sep:
+            key, sep, value = body.partition(":")
+        if not sep:
+            continue
+        if any(keyword in key for keyword in label_keywords):
+            cleaned = value.strip()
+            if cleaned:
+                items.append(cleaned)
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def collect_text_lines_with_keywords(text: str, keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if not any(keyword in stripped for keyword in keywords):
+            continue
+        stripped = re.sub(r"^[-*]\s*", "", stripped)
+        stripped = re.sub(r"^\d+\.\s*", "", stripped)
+        items.append(stripped)
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def collect_following_list_after_trigger_keywords(text: str, trigger_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
+    items: list[str] = []
+    capture = False
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not capture and any(keyword in stripped for keyword in trigger_keywords):
+            capture = True
+            continue
+        if not capture:
+            continue
+        if stripped.startswith("#"):
+            if items:
+                break
+            capture = False
+            continue
+        if not stripped:
+            if items:
+                break
+            continue
+        if stripped.startswith(("- ", "* ")):
+            items.append(stripped[2:].strip())
+        elif re.match(r"^\d+\.\s+", stripped):
+            items.append(re.sub(r"^\d+\.\s+", "", stripped).strip())
+        if len(items) >= max_items:
+            break
+    return items
+
+
 def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
     result: dict[str, list[str]] = defaultdict(list)
     current_parent: str | None = None
@@ -419,6 +503,127 @@ def collect_profile_source_style_fragments(values: list[str]) -> list[str]:
             if keep_style_asset(frag):
                 cleaned.append(frag)
     return normalize_items(cleaned)
+
+
+def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequence_pairs: dict[str, list[str]]) -> dict[str, object]:
+    character_face_split = {
+        "different_face_evidence": collect_profile_source_reason_lines(author_pairs.get("人物不同脸证据", [])),
+        "reaction_order_split": collect_profile_source_reason_lines(author_pairs.get("谁先解释谁先压场", [])),
+        "action_authority_split": collect_profile_source_reason_lines(author_pairs.get("不同角色的动作权限差", [])),
+    }
+    character_face_split = {
+        key: value for key, value in character_face_split.items() if value
+    }
+
+    consequence_structure = {
+        "pre_evidence_reality_consequences": collect_profile_source_reason_lines(
+            consequence_pairs.get("重大证据前隔开的现实后果", [])
+        ),
+        "consequence_rebound_modes": collect_profile_source_reason_lines(
+            consequence_pairs.get("后果回灌方式", [])
+        ),
+        "tail_entry_owner": collect_profile_source_reason_lines(
+            consequence_pairs.get("尾声入口归属", [])
+        ),
+        "tail_entry_exclusion_reason": collect_profile_source_reason_lines(
+            consequence_pairs.get("不给另一条线的原因", [])
+        ),
+    }
+    consequence_structure = {
+        key: value for key, value in consequence_structure.items() if value
+    }
+
+    out: dict[str, object] = {}
+    if character_face_split:
+        out["character_face_split"] = character_face_split
+    if consequence_structure:
+        out["consequence_structure"] = consequence_structure
+    return out
+
+
+def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[str, object]:
+    face_evidence = collect_labeled_values(text, ("人物不同脸证据", "不同脸证据")) or collect_text_lines_with_keywords(
+        text, ("说话怎么伤人", "身体怎么反应", "遇事先偏向谁", "失控时会干什么", "遮住名字"), max_items=6
+    ) or collect_heading_block_lines(
+        text, ("人物不同脸", "去同脸", "一张脸"), max_items=8
+    )
+    reaction_order = collect_labeled_values(text, ("谁先解释谁先压场", "第一反应偏向", "第一反应")) or collect_text_lines_with_keywords(
+        text, ("先解释", "先压场", "第一反应"), max_items=6
+    )
+    action_authority = collect_labeled_values(text, ("动作权限差", "权限差")) or collect_text_lines_with_keywords(
+        text, ("权限差", "先把人护住", "先过去处理", "找靠山", "站边上"), max_items=6
+    )
+
+    pre_evidence = collect_labeled_values(text, ("重大证据前隔开的现实后果",)) or collect_following_list_after_trigger_keywords(
+        text, ("它中间还隔了很多现实后果", "原文真实顺序", "先找原文中间隔着的现实后果"), max_items=8
+    ) or collect_heading_block_lines(
+        text, ("现实后果", "证据迟到", "证据触发顺序"), max_items=8
+    )
+    consequence_rebound = collect_labeled_values(text, ("后果回灌方式", "证据迟到方式", "公开风光压人方式")) or collect_text_lines_with_keywords(
+        text, ("后果回灌", "迟到方式", "继续公开", "继续风光", "继续挑衅"), max_items=6
+    ) or collect_following_list_after_trigger_keywords(
+        text, ("后面仿写时的固定施工顺序", "固定施工顺序", "章节顺序模板"), max_items=6
+    )
+    tail_owner = collect_labeled_values(text, ("尾声入口归属", "尾声入口给了谁", "真正尾声入口")) or collect_text_lines_with_keywords(
+        text, ("尾声入口直接", "真正尾声入口", "尾声只收", "真正核心"), max_items=6
+    ) or collect_following_list_after_trigger_keywords(
+        text, ("尾声只收", "真正尾声入口直接", "直接转真正核心场域"), max_items=6
+    ) or collect_heading_block_lines(
+        text, ("尾声入口",), max_items=6
+    )
+    tail_exclusion = collect_labeled_values(text, ("不给另一条线的原因", "尾声入口为什么不给次线")) or collect_text_lines_with_keywords(
+        text, ("余波区", "不给另一条线", "不准重新吃掉尾声入口", "抢尾声入口"), max_items=6
+    )
+
+    character_face_split = {
+        "different_face_evidence": collect_profile_source_reason_lines(face_evidence),
+        "reaction_order_split": collect_profile_source_reason_lines(reaction_order),
+        "action_authority_split": collect_profile_source_reason_lines(action_authority),
+    }
+    character_face_split = {key: value for key, value in character_face_split.items() if value}
+
+    consequence_structure = {
+        "pre_evidence_reality_consequences": collect_profile_source_reason_lines(pre_evidence),
+        "consequence_rebound_modes": collect_profile_source_reason_lines(consequence_rebound),
+        "tail_entry_owner": collect_profile_source_reason_lines(tail_owner),
+        "tail_entry_exclusion_reason": collect_profile_source_reason_lines(tail_exclusion),
+    }
+    consequence_structure = {key: value for key, value in consequence_structure.items() if value}
+
+    out: dict[str, object] = {}
+    if character_face_split:
+        out["character_face_split"] = character_face_split
+    if consequence_structure:
+        out["consequence_structure"] = consequence_structure
+    if out:
+        out["source_kind"] = source_kind
+    return out
+
+
+def merge_story_guardrail_dicts(*guardrails_list: dict) -> dict[str, object]:
+    character_face_split: dict[str, list[str]] = defaultdict(list)
+    consequence_structure: dict[str, list[str]] = defaultdict(list)
+    for guardrails in guardrails_list:
+        if not isinstance(guardrails, dict):
+            continue
+        face = guardrails.get("character_face_split", {})
+        if isinstance(face, dict):
+            for key, items in face.items():
+                if isinstance(items, list):
+                    character_face_split[key].extend(item for item in items if isinstance(item, str))
+        consequence = guardrails.get("consequence_structure", {})
+        if isinstance(consequence, dict):
+            for key, items in consequence.items():
+                if isinstance(items, list):
+                    consequence_structure[key].extend(item for item in items if isinstance(item, str))
+    out: dict[str, object] = {}
+    face_out = {key: normalize_items(value) for key, value in character_face_split.items() if value}
+    consequence_out = {key: normalize_items(value) for key, value in consequence_structure.items() if value}
+    if face_out:
+        out["character_face_split"] = face_out
+    if consequence_out:
+        out["consequence_structure"] = consequence_out
+    return out
 
 
 def parse_sample_grading_text(text: str) -> dict[str, object]:
@@ -826,6 +1031,12 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         key: value for key, value in result["style_assets"].items() if value
     }
 
+    author_lines = sections.get("3. 作者DNA", [])
+    author_pairs = collect_profile_source_pairs(author_lines)
+    story_guardrails = build_profile_story_guardrails(author_pairs, consequence_pairs)
+    if story_guardrails:
+        result["story_guardrails"] = story_guardrails
+
     result["bridge_rules"] = build_profile_source_bridge_rules(text)
     return result
 
@@ -1118,6 +1329,16 @@ def merge_bridge_safety_warning(profiles: list[dict]) -> dict:
             counts[route] += 1
         out["rewrite_route"] = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
     return out
+
+
+def merge_story_guardrails(profiles: list[dict]) -> dict:
+    return merge_story_guardrail_dicts(
+        *[
+            profile.get("story_guardrails", {})
+            for profile in profiles
+            if isinstance(profile, dict)
+        ]
+    )
 
 
 def merge_sample_grading(profiles: list[dict]) -> dict:
@@ -1576,6 +1797,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     for root in sources:
         local_profile_source_bridges: list[dict] = []
         local_bridge_rules: list[dict] = []
+        local_story_guardrails: list[dict] = []
         source_entry: dict[str, str] = {"name": root.name}
         sample_grading = existing_file(root, "写作资产/样本分级与可学层.md")
         if sample_grading:
@@ -1717,6 +1939,17 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                 collected[f"profile_style_asset::{asset_name}"].extend(items)
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
+            story_guardrails = parsed.get("story_guardrails", {})
+            if isinstance(story_guardrails, dict):
+                local_story_guardrails.append(story_guardrails)
+                for group_name, group in story_guardrails.items():
+                    if not isinstance(group, dict):
+                        continue
+                    for key, items in group.items():
+                        if isinstance(items, list):
+                            collected[f"profile_story_guardrail::{group_name}::{key}"].extend(
+                                item for item in items if isinstance(item, str)
+                            )
             local_profile_source_bridges.extend(parsed.get("bridge_rules", []))
 
         dna = existing_file(root, "写作资产/作者DNA指纹.md")
@@ -1724,6 +1957,9 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             text = read_text(dna)
             collected["dna_terms"].extend(extract_quoted_terms(text))
             collected["dna_terms"].extend(collect_nested_bullets(text))
+            aux_guardrails = build_story_guardrails_from_aux_text(text, "作者DNA指纹")
+            if aux_guardrails:
+                local_story_guardrails.append(aux_guardrails)
 
         bridge = existing_file(root, "写作资产/同桥段过检规则.md")
         if bridge:
@@ -1731,6 +1967,16 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             collected["bridge_terms"].extend(extract_quoted_terms(text))
             collected["bridge_terms"].extend(collect_nested_bullets(text))
             local_bridge_rules.extend(build_bridge_rules(text))
+            aux_guardrails = build_story_guardrails_from_aux_text(text, "同桥段过检规则")
+            if aux_guardrails:
+                local_story_guardrails.append(aux_guardrails)
+
+        high_risk_bridge = existing_file(root, "写作资产/高敏桥段识别.md")
+        if high_risk_bridge:
+            text = read_text(high_risk_bridge)
+            aux_guardrails = build_story_guardrails_from_aux_text(text, "高敏桥段识别")
+            if aux_guardrails:
+                local_story_guardrails.append(aux_guardrails)
 
         banned = existing_file(root, "写作资产/仿写约束_禁写清单.md")
         if banned:
@@ -1770,10 +2016,20 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             for path in detail_dir.glob("*.md"):
                 collected["detail_terms"].extend(clean_asset_terms(extract_quoted_terms(read_text(path))))
 
-            if local_profile_source_bridges or local_bridge_rules:
-                bridge_rules.extend(
-                    merge_bridge_rule_lists(local_profile_source_bridges, local_bridge_rules, merge_by_sequence=True)
-                )
+        if local_profile_source_bridges or local_bridge_rules:
+            bridge_rules.extend(
+                merge_bridge_rule_lists(local_profile_source_bridges, local_bridge_rules, merge_by_sequence=True)
+            )
+        if local_story_guardrails:
+            merged_local_guardrails = merge_story_guardrail_dicts(*local_story_guardrails)
+            for group_name, group in merged_local_guardrails.items():
+                if not isinstance(group, dict):
+                    continue
+                for key, items in group.items():
+                    if isinstance(items, list):
+                        collected[f"profile_story_guardrail::{group_name}::{key}"].extend(
+                            item for item in items if isinstance(item, str)
+                        )
         if len(source_entry) > 1:
             sample_source_entries.append(source_entry)
 
@@ -1868,6 +2124,24 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             counts[route] += 1
         bridge_safety_warning["rewrite_route"] = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[0][0]
 
+    story_guardrails: dict[str, object] = {}
+    face_prefix = "profile_story_guardrail::character_face_split::"
+    face_out = {
+        key.split(face_prefix, 1)[1]: normalize_items(value)
+        for key, value in collected.items()
+        if key.startswith(face_prefix) and normalize_items(value)
+    }
+    consequence_prefix = "profile_story_guardrail::consequence_structure::"
+    consequence_out = {
+        key.split(consequence_prefix, 1)[1]: normalize_items(value)
+        for key, value in collected.items()
+        if key.startswith(consequence_prefix) and normalize_items(value)
+    }
+    if face_out:
+        story_guardrails["character_face_split"] = face_out
+    if consequence_out:
+        story_guardrails["consequence_structure"] = consequence_out
+
     profile = {
         "meta": {
             "name": name,
@@ -1899,6 +2173,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         profile["source_noise_risk"] = source_noise_risk
     if bridge_safety_warning:
         profile["bridge_safety_warning"] = bridge_safety_warning
+    if story_guardrails:
+        profile["story_guardrails"] = story_guardrails
     sample_grading: dict[str, object] = {}
     if collected["sample_level"]:
         severity_rank = {"C类负样本": 3, "B类骨架样本": 2, "A类正样本": 1}
@@ -2020,6 +2296,9 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
     bridge_safety_warning = merge_bridge_safety_warning(profiles)
     if bridge_safety_warning:
         merged["bridge_safety_warning"] = bridge_safety_warning
+    story_guardrails = merge_story_guardrails(profiles)
+    if story_guardrails:
+        merged["story_guardrails"] = story_guardrails
     sample_grading = merge_sample_grading(profiles)
     sample_source_buckets = build_sample_source_buckets(source_entries)
     if sample_grading and sample_source_buckets:
