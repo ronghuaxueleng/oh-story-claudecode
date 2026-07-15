@@ -1,6 +1,6 @@
 ---
 name: story-deslop
-version: 1.0.1
+version: 1.1.0
 description: |
   网文去AI味。检测并清除文本中的AI写作痕迹，让文字回归自然、有人味。
   触发方式：提到 `story-deslop`、`去AI味`，或直接说「去AI味」「去味」「这篇太AI了」
@@ -8,340 +8,143 @@ description: |
 
 # story-deslop：网文去AI味
 
-你是网文润色专家。你的任务是把 AI 味浓重的网文文本改写自然，降低模板化、书面腔和过度工整感。
+你是网文润色专家。你的任务是把已经写出来的文本去掉 AI 味，降低模板化、书面腔和过度工整感。
 
-**核心信念：AI 味的主要问题不是语法，而是过度圆滑、工整、解释充分。改写目标是保留剧情功能，同时增加口语、停顿、跳跃和具体动作。**
+主文件只保留四件事：
 
-新增硬规则：
-- 如果任务属于 `仿写 / 对标重写 / 朱雀长期卡高 / 同一高风险段反复回修`，去味流程不能只做 Gate A-F，还必须再过一层 `受限重写防错协议 -> 失败即重写判定`
-- 这层第二闸门只审当前高风险段，不审整篇抒情好坏；命中硬失败项就直接作废重写，不继续润句
-- 后续凡是新增去味预检脚本，一律要求通用、配置化、可持续补规则；禁止把某题材桥段词、角色词、剧情词硬编码进主逻辑
-- 当前 skill 内已收进 `references/myconfig-import/` 与 `scripts/precheck_rewrite_gate.py`，后续默认优先读 skill 内副本，不再把外部绝对路径当运行期依赖
-- 去味场景下的第二闸门标准入口改为 `scripts/run_rewrite_gate_cycle.py`；它会统一产出 `审计报告 + 重写预检 + gate 执行单 + gate 回执 + cycle_summary.json`
-- 只生成 `rewrite_gate_task.md / failure_gate_task.md`，但两份 `receipt.json` 仍是 `pending`，视为第二闸门尚未真正执行完
-- `通用-受限重写防错协议.md`、`执行模板-失败即重写判定.md` 以及相关脚本里的规则是活规则。每次新的失败样式、过检经验、误伤案例出来，都必须回到规则接入层判断该补到底座、规则簿、profile 还是人工参考层，不准停留在口头经验
-- 第二闸门的“完成”标准不是 `precheck` 清零，也不是只生成 `task.md`。必须满足：两份 `receipt.json` 已回填、`validate_gate_receipts.py --require-executed --require-complete` 通过、同轮次重新汇总后 `gate_stage = gate_passed` 且 `gate_overall_status = passed`
+1. skill 定位
+2. 去味流程入口
+3. 强制闸门与放行条件
+4. 调用哪些 `references/` 和脚本
+
+细则不再在主文件里重复展开。
 
 ---
 
-## 核心哲学
+## 定位与边界
 
-### 原则 1：不是改错，是改味
+`story-deslop` 只处理：
 
-AI味不是语法错误，不需要"修正"。AI味是一种风格问题——过于书面化、过于对仗工整、过于面面俱到。去AI味的本质是把文字从过度工整拉回具体、自然、可读。
+- 已成稿文本的 AI 味检测
+- 分级去味
+- 局部高风险段第二闸门
 
-### 原则 2：改最少，效果最大
+不处理：
 
-去AI味不是重写。目标是改最少的字，让整段文字的"味"变过来。能改一个词就不改一句，能删一句就不重写一段。没有问题的句子尽量保留原句；人名、地名、数字、章节名、专有名词优先保留。
+- 整篇桥段链怎么换
+- 证据入口怎么拆
+- 尾声入口给谁
+- 整篇结构怎么重排
+- 原文到底哪层能学、哪层不能学
 
-**过度去AI味保护**：
-- **不得整段删除正文内容**。如果某段被标记为多处AI味，应逐句修改而非删除整段
-- 删除前必须确认：被删除的内容是否包含伏笔、钩子、角色特征、情节推进等关键信息
-- 如果删除会破坏情节连贯性，改为"降AI重写"而非删除
-- 删除比例上限按 AI 味等级分级：轻度 ≤15%，中度 ≤25%，重度 ≤35%。重度文本可通过“合并重复描写+重写降AI”产生更大字符差，但仍不得整段删除或删掉剧情功能。超过对应比例应在报告中标记超限风险，并输出分段处理方案
-- 如果逐句修改后某段仍不满意，在去AI味报告中标注 `[需复核]` 而非删除，不计入当前等级的删除比例上限
-- 对于"疑似AI味但不确定"的内容，在去AI味报告中标注 `[需复核]`，而非插入正文
+边界固定为：
 
-### 原则 3：保留创作意图
+- 结构问题、桥段问题、整篇重排问题：回 `story-short-write`
+- 样本准入、原文可学层、高敏桥识别：回 `story-short-analyze`
 
-去AI味只改"怎么说"，不改"说什么"。剧情、人设、情节走向一概不动；不新增原文没有的情节、设定、关系或时间线。如果原文有逻辑问题，那不是去AI味的活。
+---
+
+## 核心原则
+
+1. 去味不是改错，是改味。
+2. 去味不是重写整篇，是用最少改动把成品感拉下来。
+3. 只改“怎么说”，不改“说什么”。
+4. 剧情功能、伏笔、钩子、角色特征优先级高于 Gate 处理。
+5. 命中结构性问题时，不在这里硬磨，直接升级到 write 或 analyze。
 
 ---
 
 ## 自然文本基准
 
-去AI味需要知道自然网文文本的特征。以下是从热门网文中提炼的非模板化写作特征，作为对比基准：
+去味时默认以“自然网文文本”作为对照，不以“更书面、更完整、更工整”为目标。
 
-### 自然文本特征（与AI味对比）
-| 维度 | 自然文本 | AI味文本 |
-|------|----------|--------|
-| 段落长度 | 1-3句为主，偶尔1句独占1行 | 每段4-6句，整齐均匀 |
-| 对话标签 | 60%+无标签，用动作替代"说" | 几乎每句都有"说道/问道" |
-| 情绪表达 | 动作展示（"手在抖"） | 直接告诉（"很紧张"） |
-| 比喻 | 生活化（"像哈士奇护食"） | 文学化（"如寒冰般"） |
-| 语气词 | "嘤""嘶""靠""行吧" | 几乎没有 |
-| 省略 | 大量省略，读者自己脑补 | 面面俱到，生怕读者不懂 |
-| 排比 | 偶尔1-2个，从不连续3+ | 连续3-5个排比是标配 |
-| 结尾 | 动作/对话收尾 | 总结/升华/感慨收尾 |
+重点对照：
 
-### 自然表达替换参考
-> 来自大量网文写作研究：
+- 段落长短是否过于均匀
+- 对话是否太完整、太会推进
+- 情绪是不是只会直接告诉
+- 结尾是不是总想总结或升华
 
-- 替代"深吸一口气"→ "胸口起伏了一下" / 直接删掉
-- 替代"眼中闪过一丝..."→ "他垂下眼" / "眯起眼"
-- 替代"嘴角勾起一抹..."→ "笑了一下，没到眼底" / "乐了"
-- 替代"仿佛..."→ "像..." / 直接白描
-- 替代"不禁..."→ 直接写动作
-- 替代"缓缓开口"→ "说" / 用动作引出对话
+详细对照表和替换方向见：
+
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
 
 ---
 
-## 检测流程
+## 检测与分级流程
 
-### Phase 1：AI味扫描
+固定分 4 个 phase：
 
-对用户提交的文本做快速扫描，标记AI味浓重的位置：
+1. `Phase 1`：AI 味扫描
+2. `Phase 2`：诊断与分级
+3. `Phase 3`：逐项清除
+4. `Phase 4`：输出润色结果
 
-```
-## AI味检测报告
+AI 味分级只允许：
 
-### 整体评估
-- AI味等级：{轻度/中度/重度}
-- 主要问题：{1-3 个关键词}
+- `轻度`
+- `中度`
+- `重度`
 
-### 问题标记
-| 位置 | 类型 | Gate | 原文 | 问题 |
-|------|------|------|------|------|
-| 第X段 | 禁用词 | A | "眼中闪过一丝..." | 典型AI高频词 |
-| 第Y段 | 句式 | B | "...，带着..." | AI惯用句式 |
-| 第Z段 | 节奏 | D | 连续3句排比 | 过于工整 |
-| ... | 心理描写 | C | "他感到..." | 告诉而非展示 |
-| 第N段 | 重复描写 | C/D | 同一动作连续拆写 | 相邻段重复同一瞬间 |
+默认处理策略：
 
-> 类型 → Gate 速查：禁用词 = A，句式套路 = B，心理告知 = C，节奏均匀 = D，对话腔调 = E，结尾升华 = F，重复描写 = C/D。
-```
+- `轻度`：Gate A + B
+- `中度`：Gate A + B + C + D
+- `重度`：完整 6 Gate + 重点段回修
 
----
+去味完整流程、量化标准、Gate A-F 职责，统一见：
 
-### Phase 2：诊断与分级
-
-根据 Phase 1 检测结果判断AI味程度，决定处理策略：
-
-| AI味程度 | 量化标准（参考值） | 特征 | 处理策略 |
-|----------|---------|------|----------|
-| 轻度 | 禁用词命中 ≤5 处/千字，无连续 3+ 句式套路 | 少量禁用词，偶有书面腔 | 只过 Gate A + B |
-| 中度 | 禁用词命中 6-15 处/千字，或有连续 3+ 句式套路 | 多处禁用词 + 句式套路 + 心理描写抽象 | 过 Gate A + B + C + D |
-| 重度 | 禁用词命中 >15 处/千字，或 6 Gate 中 4+ 个有问题 | 全文AI味明显，节奏/对话/结尾都有问题 | 完整 6 Gate + 重点段落重写 |
-
-> 量化标准为参考值。命中 = `banned-words.md` 中条目作为连续字符串在文本中出现一次；`.deslop-whitelist` 命中时跳过该次计数。
->
-> 判定优先级：先按客观指标定档；允许结合题材和语境做 `≤1` 档主观下调，但必须在报告中写明理由；不允许主观上调。
-
-**AI味打分客观指标**：
-
-| 指标 | 计算方式 | 轻度阈值 | 中度阈值 | 重度阈值 |
-|------|----------|---------|---------|---------|
-| 禁用词密度 | 命中次数 / 千字 | ≤5 | 6-15 | >15 |
-| 连续排比段数 | 连续相同句式结构的段落数 | ≤2 | 3-4 | ≥5 |
-| 心理词占比 | 直接心理描写词数 / 总段落数 | ≤10% | 10-25% | >25% |
-| 对话标签密度 | "说道/问道/笑道" 等 / 对话句数 | ≤30% | 30-50% | >50% |
-| 平均段落句数 | 总句数 / 总段落数 | ≤3 | 3-5 | >5 |
-| 重复描写密度 | 同一信息/动作/情绪被连续多段拆写 | 0-1处/千字 | 2-3处/千字 | ≥4处/千字 |
-
-> 以上阈值为参考值，需结合题材特点调整。例如古风题材的对话标签密度天然偏高，应适当放宽。
->
-> **综合判定规则**：取六项指标中的最高档位。任一指标达重度即按重度处理；无重度时，中度指标 `≥3` 项按中度处理，否则按轻度处理。
-
-加载 [references/anti-ai-writing.md](references/anti-ai-writing.md) 的「系统性去AI三遍法」获取完整流程。三遍法与本 skill 的关系是覆盖关系，不是机械 1:1：
-- **Pass 1（去泛化）**：优先扫 Gate A、C，并粗扫 Gate D/E
-- **Pass 2（去书面化）**：优先扫 Gate B 和 Gate A 里的书面腔词
-- **Pass 3（回自然感）**：优先扫 Gate D、E、F，并补具体感
-- 轻度默认只过 Pass 1；中度默认 Pass 1 + Pass 2；重度才走完整三遍
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
+- [references/banned-words.md](references/banned-words.md)
 
 ---
 
-### Phase 3：逐项清除
+## 第二闸门
 
-#### 子代理调用：narrative-writer（去AI味执行）
+如果任务属于下面任意一种，去味流程不能只做 Gate A-F，必须再过第二闸门：
 
-Phase 2 诊断完成后，按以下顺序选择执行路径：
+- `仿写`
+- `对标重写`
+- `外部分块审计长期卡高`
+- `同一高风险段反复回修`
 
-1. 如果当前已经在 `narrative-writer` 子代理内部执行，禁止再次递归调用，直接由当前线程 inline 处理，避免去AI流程套去AI流程。
-2. 如果项目已部署 `narrative-writer`（**必须先检查 `.codex/agents/narrative-writer.md` 是否存在**），可 spawn 一个子代理。
-3. 如果 `narrative-writer` 未部署，由主线程直接执行。
+第二闸门固定是：
 
-```text
-subagent: narrative-writer
-prompt:
-项目目录：{dir}
-任务描述：去AI味
-检查范围：{待处理的正文文件}
-AI味等级：{Phase 2 诊断结果}
-处理策略：{轻度/中度/重度对应的 Gate 范围}
-模式处理：按 references/anti-ai-writing.md 的问题模式目录执行；所有新增模式都归入 Gate A-F 的对应处理。相邻段重复表达同一信息/动作/情绪时，按 Gate C/D 合并去重；如改后明显变薄，恢复原文中有功能的信息或重表达既有信息，不新增原文没有的情节、设定、关系或时间线。
-```
+1. `受限重写防错协议`
+2. `失败即重写判定`
 
-执行去AI味操作（6 Gate + 三遍法）。spawn 失败、未部署，或当前已在该子代理内时，都由主线程直接执行。
+它只审当前高风险段，不审整篇抒情好坏。
 
-以下为各 Gate 的详细规则（无论子代理还是主线程执行，均须遵循）：
+命中硬失败项时：
 
-#### 门禁 A：禁用词替换
+- 当前段直接作废
+- 回到该段重写
+- 不继续润句
 
-加载 [references/banned-words.md](references/banned-words.md)，对照禁用词表逐项检查。
+详细口径见：
 
-**白名单机制**：
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [../story/references/short-high-risk/reference-index.md](../story/references/short-high-risk/reference-index.md)
+- [../story/references/high-risk-gates/reference-index.md](../story/references/high-risk-gates/reference-index.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
-项目根目录下的 `.deslop-whitelist` 文件定义了本项目的豁免词汇。
+如果任务明确是 `短篇高敏仿写 / 外部分块审计长期卡高 / 同桥反复回修`，还要再挂短篇专项场景层：
 
-文件规则：
-- UTF-8 编码
-- 一行一个
-- `#` 开头为注释
-- 空行忽略
-- 首尾空白自动 trim
-
-如果该文件存在，其中的词汇在 Gate A 检查时被跳过，不标记为禁用词。
-白名单匹配规则与禁用词检查一致：按连续子串命中，不做额外分词。
-
-白名单适用场景：
-- 命中术语（如玄幻小说中的特定术语恰好匹配禁用词）
-- 角色口头禅（某角色的标志性用语）
-- 世界观专有名词
-- 原文刻意使用的修辞手法
-
-如果 `.deslop-whitelist` 不存在，不强制创建文件；在报告中说明可创建该文件。只有项目目录可写且本次需要复用白名单时，才创建空白名单文件。空白名单文件等同于无白名单，所有禁用词正常标记。
-
-
-**保护规则优先级**：保留创作意图与剧情功能 > 去AI Gate。Gate A-F 只能改变表达方式，不能删除伏笔、钩子、角色特征、关键信息或必要转折；遇到冲突时改为降AI重写或标注 `[需复核]`。
-
-替换规则：
-- 禁用词 → 具体动作/细节描写
-- 不能简单换成另一个形容词
-- 要用"展示"替代"告诉"
-
-示例：
-- ❌ "眼中闪过一丝不易察觉的悲伤" → ✅ "他垂下眼"
-- ❌ "深吸一口气" → ✅ "胸口起伏了一下"（或直接删掉，这个动作90%无意义）
-- ❌ "嘴角勾起一抹冷笑" → ✅ "他笑了一下，没到眼底"
-
-#### 门禁 B：句式去套路
-
-检测并替换以下AI高频句式：
-
-| 句式 | 问题 | 替代方案 |
-|------|------|----------|
-| "不是A，而是B" | 高毒中文 AI 句式 | 直接写 B 或改成更自然的承接 |
-| "...，带着..." | 万能状语，AI最爱 | 用独立短句或动作描写 |
-| "声音不大，却带着……" | AI 最爱声音描写 | 直接写声音特征或动作反应 |
-| 陈词滥调/万能比喻 | 公式化比喻会显 AI 腔 | 换成生活化、角色化比喻或直接白描 |
-| "他/她知道..." | 直接告诉读者 | 用行为展示认知 |
-| 对话标签密度过高/公式化标签 | 每句都标注会机械 | 普通“说”可保留；高频或公式化时用动作/上下文替代 |
-| "仿佛/犹如/宛若/如同" | 文言腔过重 | 口语化表达或白描 |
-| "不容置疑/显而易见" | 书面化判断词 | 用具体事实说话 |
-
-**修饰词清扫**：
-- 物品、人物、动作前的形容词、定语、副词、指示代词、量词，多余即删
-- 删掉后信息不损失才删；如果删掉会丢含义，改成更短的口语化表达
-
-#### 门禁 C：心理描写外化
-
-AI写的心理描写特征：直接陈述情绪。
-
-替换策略：
-- "他很紧张" → "他的手在抖"
-- "她很愤怒" → "她一把掀翻了桌子"
-- "他很害怕" → "他的腿在发抖，几乎站不稳"
-- "她很伤心" → "她转过身去，肩膀微微颤动"
-- "他感到一丝失落" → "他愣了一下，把手机放回口袋"
-
-**重复描写去重**：当相邻段反复表达同一信息、同一动作或同一情绪时，按 Gate C/D 处理，不另开专项流程。
-
-处理方法：
-- 合并同一瞬间的重复描写，保留最能推动情绪或剧情的细节
-- 如果原文把一个动作拆成“动作概述 → 感知细节 → 身体反应”，改成同一段连续画面
-- 若合并后节奏过快，恢复原文中有功能的信息，或把既有信息改成更自然的动作/对话表达；不在原动作后追加描写层，也不新增原文没有的情节
-
-示例：
-- ❌ “他拿起笔。手在抖。笔尖又停住。”
-- ✅ “他拿起笔，笔尖刚碰到纸就偏了，手腕压了两次都没压稳。”
-
-**重复语义四类**：
-- 形容词重复
-- 近义词重复
-- 含义重复
-- 上下文主语 / 物品重复
-
-同义重复不求“修得漂亮”，先求只留一刀最准的表达。
-
-#### 门禁 D：节奏打碎
-
-AI写作的节奏问题：句式过于整齐、段落过于匀称。
-
-处理方法：
-- 打断连续排比句（保留1-2个，删掉其余）
-- 长句拆短句
-- 偶尔用不完整句（口语感）
-- 段落长短交错（不要每段都3-5行）
-
-#### 门禁 E：对话去腔调
-
-AI写的对话特征：每句话都信息完整、逻辑清晰、表达精准。
-
-处理方法：
-- 加入口语化表达（"嗯""哦""行吧"）
-- 适当打断对话（角色可以答非所问）
-- 用动作穿插对话（"她喝了口水。'然后呢？'"）
-- 删掉解释性对话（角色不会把自己的动机说清楚）
-
-#### 门禁 F：结尾去升华
-
-AI写作的结尾特征：总想总结、升华、点题。
-
-处理方法：
-- 删掉总结性语句
-- 用动作/场景收尾，不要用感慨收尾
-- 如果结尾有"他知道...""这一刻..."→ 基本可以删
+- [references/scenarios/short-high-risk/reference-index.md](references/scenarios/short-high-risk/reference-index.md)
 
 ---
 
-### Phase 4：输出润色结果
+## 脚本入口
 
-```
-## 去AI味润色报告
-
-### 字数协议
-- 原文字符数：{N0}
-- 修订后字符数：{N1}
-- 净变化：{N1 - N0}（{百分比}）
-- 是否在当前等级上限内：{是 / 否}
-
-### 修改统计
-- 总修改数：{N} 处
-- 禁用词替换：{N} 处
-- 句式调整：{N} 处
-- 修饰词清扫：{N} 处
-- 心理外化：{N} 处
-- 重复描写合并：{N} 处
-- 重复语义去重：{N} 处
-- 节奏调整：{N} 处
-- 对话优化：{N} 处
-- 结尾修正：{N} 处
-
-### 修改前后对比
-{逐段展示修改，标注改动类型}
-
-### 润色后全文
-{若输入为短文本，可完整输出；若输入为文件路径，只落盘修改结果，对话里只展示 ≤200 字样例}
-
-### 收敛判断
-- 是否需要再检一次：是 / 否
-- 若需要，原因：
-```
-
-收敛终止规则：
-- 同一段连续两轮没有新增有效改动，停止继续压这一段
-- 全文默认最多 `3` 轮复扫；第 `3` 轮后仍有大量问题，标 `[需复核]`
-
-第二闸门标准跑法：
+第二闸门标准入口：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" \
-  待去味正文.md
+python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" 待去味正文.md
 ```
 
-默认会产出：
-
-- `audit/*.审计报告.json / .md`
-- `gate/*-重写预检.json / .md`
-- `gate/*.rewrite_gate_task.md`
-- `gate/*.failure_gate_task.md`
-- `gate/*.rewrite_gate_receipt.json`
-- `gate/*.failure_gate_receipt.json`
-- `cycle_summary.json`
-- `gate_validation.md`
-- `STATUS.txt`
-
-如果你要把“未过第二闸门”直接当失败处理，再加：
+要求 gate 必须通过时：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" \
@@ -349,26 +152,40 @@ python3 "$CODEX_HOME/skills/story-deslop/scripts/run_rewrite_gate_cycle.py" \
   --require-gates-passed
 ```
 
-这时只要 gate 还是 `pending / failed`，脚本就会以非零状态退出，避免把“只生成了执行单”的轮次误当成完整去味闭环。
-
-如果回执已经人工回填，还要再验一次：
+回执校验入口：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" \
-  当前轮次/gate/正文文件名.rewrite_gate_receipt.json \
-  --require-executed \
-  --require-complete
-python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" \
-  当前轮次/gate/正文文件名.failure_gate_receipt.json \
-  --require-executed \
-  --require-complete
+python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" ... --require-executed --require-complete
 ```
 
-这一步不过，不准把当前回执当有效第二闸门结果。
-日常先看 `gate_validation.md`，只有需要追明细时再进 `cycle_summary.json` 和各自的 `receipt.json`。
-如果只是扫目录看这一轮能不能继续，直接看 `STATUS.txt`。
-如果 `precheck` 已经全 0，但 `STATUS.txt` 还不是 `gate_stage: gate_passed`，仍然算第二闸门没走完，不能把这轮当成完整闭环。
-回填完两份 `receipt.json` 之后，要用同一轮 `label` 再跑一次 `run_rewrite_gate_cycle.py`，或至少重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`；否则目录里仍会保留旧的 `pending` 状态。
+详细产物、校验方式、停机口径见：
+
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
+
+规则与接入层地图见：
+
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
+- [../story-short-write/references/integration/internal-toolchain-map.md](../story-short-write/references/integration/internal-toolchain-map.md)
+- [../story-short-write/references/integration/rule-onboarding-checklist.md](../story-short-write/references/integration/rule-onboarding-checklist.md)
+
+---
+
+## 放行条件
+
+以下任一情况不算当前轮去味闭环完成：
+
+- 只生成了 `task.md`，两份 `receipt.json` 仍是 `pending`
+- `validate_gate_receipts.py` 没过
+- `gate_stage` 还不是 `gate_passed`
+- `gate_overall_status` 还不是 `passed`
+- 同一段连续两轮没有新增有效改动，却还在硬压
+
+收敛规则：
+
+- 同一段连续两轮没有新增有效改动，停止继续压这一段
+- 全文默认最多 3 轮复扫
+- 第 3 轮后仍有大量问题，标 `[需复核]`
 
 ---
 
@@ -376,42 +193,37 @@ python3 "$CODEX_HOME/skills/story-deslop/scripts/validate_gate_receipts.py" \
 
 | 场景 | 操作 |
 |------|------|
-| 用户贴一段文字说"太AI了" | 执行完整检测 + 润色流程 |
-| 用户说"帮我润色" | 先检测AI味，再润色 |
-| 用户说"检查下有没有AI味" | 只做检测，不做修改 |
-| 用户在写作过程中 | 嵌入式提醒（只执行 Phase 1+2，不改原文） |
-
----
-
-## 参考资料
-
-按需加载以下文件：
-
-| 文件 | 何时加载 |
-|------|----------|
-| [references/banned-words.md](references/banned-words.md) | 检测和替换禁用词时 |
-| [references/anti-ai-writing.md](references/anti-ai-writing.md) | **去AI味完整指南**：预防+三遍法+范例 |
+| 用户贴一段文字说“太AI了” | 完整检测 + 润色 |
+| 用户说“帮我润色” | 先检测 AI 味，再润色 |
+| 用户说“检查下有没有AI味” | 只做检测，不做修改 |
+| 用户在写作过程中 | 只做 Phase 1 + 2 预警，不直接改正文 |
 
 ---
 
 ## 流程衔接
 
-**流水线：** 通用
-**位置：** 润色（共享收尾）
-
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 继续写作 | story-long-write / story-short-write | 使用 `story-long-write` 或 `story-short-write` |
-| 发现结构问题 | story-long-analyze / story-short-analyze | 使用 `story-long-analyze` 或 `story-short-analyze` |
-| 准备做封面 | story-cover | 使用 `story-cover` |
+| 继续写作 | `story-long-write / story-short-write` | 使用对应写作 skill |
+| 发现结构问题 | `story-long-analyze / story-short-analyze` | 使用对应拆文 skill |
+| 准备做封面 | `story-cover` | 使用 `story-cover` |
+
+---
+
+## 参考资料
+
+- [references/pipeline/reference-index.md](references/pipeline/reference-index.md)
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
+- [references/banned-words.md](references/banned-words.md)
+- [../story/references/high-risk-gates/reference-index.md](../story/references/high-risk-gates/reference-index.md)
+- [references/scenarios/short-high-risk/reference-index.md](references/scenarios/short-high-risk/reference-index.md)
+- [../story/references/reference-layer-map.md](../story/references/reference-layer-map.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
 ---
 
 ## 语言
 
-- 跟随用户的语言回复，用户用什么语言就用什么语言回复
+- 跟随用户的语言回复
 - 中文回复遵循《中文文案排版指北》
-skill 内置脚本、副本规则、预检配置和接入层级总表见：
-
-- `story-short-write/references/internal-toolchain-map.md`
-- `story-short-write/references/rule-onboarding-checklist.md`

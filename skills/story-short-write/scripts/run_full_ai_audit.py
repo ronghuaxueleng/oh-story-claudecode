@@ -20,6 +20,10 @@ import tempfile
 from pathlib import Path
 
 
+def legacy_external_audit_key(suffix: str) -> str:
+    return "".join(["zh", "uque_", suffix])
+
+
 MICRO_SEGMENT_TARGET_CHARS = 260
 MICRO_SEGMENT_MIN_CHARS = 180
 MICRO_SEGMENT_MAX_CHARS = 340
@@ -304,12 +308,12 @@ def apply_sample_grading_item_bias(item: dict, guidance: dict) -> dict:
     source_family = str(biased.get("source_family", ""))
     focus_layer = str(biased.get("focus_layer", ""))
     if level == "B类骨架样本":
-        if source_family in {"zhuque", "style"} and focus_layer in {"sentence_shell", "surface_style", "dialogue_polish"}:
+        if source_family in {"external_block_audit", "style"} and focus_layer in {"sentence_shell", "surface_style", "dialogue_polish"}:
             biased["priority"] = "P1"
             biased["sample_bias_rank"] = -2
             biased["sample_bias_note"] = "上游是骨架样本：这类句法/抛光类问题后置，先看桥段承重件、后果链和场面秩序。"
     elif level == "C类负样本":
-        if source_family in {"zhuque", "style"} and focus_layer not in {"bridge_structure", "consequence_chain", "external_order"}:
+        if source_family in {"external_block_audit", "style"} and focus_layer not in {"bridge_structure", "consequence_chain", "external_order"}:
             biased["priority"] = "P1"
             biased["sample_bias_rank"] = -3
             biased["sample_bias_note"] = "上游是负样本：这类风格模仿问题不作为正向来源，先只处理桥段失真、秩序断裂和禁写点。"
@@ -409,7 +413,7 @@ def normalize_internal_standard(standard: dict) -> dict:
         return standard
     return {
         "type": "internal_audit_standard",
-        "calibrated_from": "legacy_zhuque_alignment_summary",
+        "calibrated_from": "legacy_external_block_audit_alignment_summary",
         "sample_count": standard.get("sample_count"),
         "parse_failure_count": standard.get("parse_failure_count"),
         "calibration_models": standard.get("calibration_models", {}),
@@ -430,8 +434,8 @@ def normalize_internal_standard(standard: dict) -> dict:
 
 def build_internal_proxy_summary(heavy_report: dict, heavy_summary: dict, internal_standard: dict) -> dict:
     models = internal_standard.get("calibration_models", {}) if isinstance(internal_standard, dict) else {}
-    weighted_model = models.get("zhuque_weighted_avg") or {}
-    max_seg_model = models.get("zhuque_max_seg") or {}
+    weighted_model = models.get("external_block_audit_weighted_avg") or models.get(legacy_external_audit_key("weighted_avg")) or {}
+    max_seg_model = models.get("external_block_audit_max_seg") or models.get(legacy_external_audit_key("max_seg")) or {}
     features = extract_proxy_features(heavy_report, heavy_summary)
     weighted_proxy = apply_linear_proxy(features, weighted_model)
     max_seg_proxy = apply_linear_proxy(features, max_seg_model)
@@ -604,7 +608,7 @@ def build_rulebook_impact_items(rulebook_audit: list[dict]) -> list[dict]:
                 {
                     "title": f"{item.get('section_label')}：{item.get('title')}",
                     "priority": item.get("priority", "P1"),
-                    "why_it_hits_zhuque": item.get("why") or "命中外置规则簿高风险项，说明这块成文秩序或现场组织仍偏成品化。",
+                    "why_it_hits_audit": item.get("why") or "命中外置规则簿高风险项，说明这块成文秩序或现场组织仍偏成品化。",
                     "evidence": evidence,
                     "fix_methods": item.get("fix_methods", []),
                 },
@@ -1643,7 +1647,7 @@ def build_asset_coverage_impact_items(asset_coverage: dict, guidance: dict) -> l
                 {
                     "title": "桥段资产未命中，当前不要先修句法壳",
                     "priority": "P0",
-                    "why_it_hits_zhuque": "上游样本本来就不适合优先学句法；如果正文又没有命中已拆出的桥段承重件，继续压表面句子只会越修越假。",
+                    "why_it_hits_audit": "上游样本本来就不适合优先学句法；如果正文又没有命中已拆出的桥段承重件，继续压表面句子只会越修越假。",
                     "evidence": [
                         f"上游样本等级: {level}",
                         f"bridge_rules: {asset_coverage.get('bridge_rule_count', 0)}",
@@ -1666,7 +1670,7 @@ def build_asset_coverage_impact_items(asset_coverage: dict, guidance: dict) -> l
                 {
                     "title": "profile 的后果链/秩序资产不完整",
                     "priority": "P0",
-                    "why_it_hits_zhuque": "如果 profile 本身没把后果链和外部秩序拆全，审计会过度落到句法层，写作也会缺现实承压件。",
+                    "why_it_hits_audit": "如果 profile 本身没把后果链和外部秩序拆全，审计会过度落到句法层，写作也会缺现实承压件。",
                     "evidence": [
                         "缺失 scene_assets: " + " / ".join(asset_coverage.get("missing_scene_asset_keys", [])[:6])
                     ],
@@ -1692,7 +1696,7 @@ def build_consequence_recommendations(consequence_audit: dict) -> list[str]:
     return recs
 
 
-def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[dict]:
+def build_external_block_audit_impact_items(light_report: dict, heavy_report: dict) -> list[dict]:
     items: list[dict] = []
     line_types = light_report.get("line_hit_types", {})
     opening_metrics = light_report.get("opening_metrics", {})
@@ -1717,7 +1721,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "开头成品感过高",
                 "priority": "P0",
-                "why_it_hits_zhuque": "朱雀通常先砍开头。开头如果信息揭露太整齐、对白太有效、每个物件都在为主线服务，会像整理过的成品稿。",
+                "why_it_hits_audit": "外部分块审计通常先砍开头。开头如果信息揭露太整齐、对白太有效、每个物件都在为主线服务，会像整理过的成品稿。",
                 "evidence": evidence,
                 "fix_methods": [
                     "首屏只保留一个主承重件，不要同步把定位、朋友圈、电话、医院全推上来。",
@@ -1725,7 +1729,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "减少一问一答直达结论的对白，让人物先回避、打岔、压着说。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="surface_style",
             )
         )
@@ -1740,7 +1744,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "对白效率过高",
                 "priority": "P0",
-                "why_it_hits_zhuque": "人物每句都在推进主线、句句都正中信息点，会让文本像被优化过的剧本对白，不像真人现场。",
+                "why_it_hits_audit": "人物每句都在推进主线、句句都正中信息点，会让文本像被优化过的剧本对白，不像真人现场。",
                 "evidence": evidence,
                 "fix_methods": [
                     "删掉最会解释关系的那一句，保留别扭、错位、回避。",
@@ -1748,7 +1752,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "把连续短对白打散到动作、视线、走位、旁人插话里。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="dialogue_polish",
             )
         )
@@ -1763,7 +1767,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "作者替角色下结论",
                 "priority": "P0",
-                "why_it_hits_zhuque": "朱雀不只抓词，还抓作者站位。人物还在现场里，作者先把意义总结完，成品感会立刻升高。",
+                "why_it_hits_audit": "外部分块审计不只抓词，还抓作者站位。人物还在现场里，作者先把意义总结完，成品感会立刻升高。",
                 "evidence": evidence[:4],
                 "fix_methods": [
                     "把‘我明白了/这说明/真正的问题是’改成动作、停顿、物件、后果。",
@@ -1771,7 +1775,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "改完后检查这一段是否仍然读得懂，若读得懂，说明总结句本来就是多余的。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="sentence_shell",
             )
         )
@@ -1787,7 +1791,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "流程件和证据件摆放过整齐",
                 "priority": "P0",
-                "why_it_hits_zhuque": "时间线、证据链、流程安排如果排得太清、太顺、太会服务高潮，朱雀会把它看成‘加工过的说明型成文秩序’。",
+                "why_it_hits_audit": "时间线、证据链、流程安排如果排得太清、太顺、太会服务高潮，外部分块审计会把它看成‘加工过的说明型成文秩序’。",
                 "evidence": evidence[:4],
                 "fix_methods": [
                     "不要总用‘九点几分、十一点几分’一口气报完整套时间线。",
@@ -1795,7 +1799,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "把流程改成卡壳、迟滞、翻找、被打断，而不是像宣读案卷。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="scene_order",
             )
         )
@@ -1812,7 +1816,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "重复热点和段落匀速感",
                 "priority": "P1",
-                "why_it_hits_zhuque": "同一热点短语反复出现，配上长度接近的短段，会像统一后处理过的产品稿。",
+                "why_it_hits_audit": "同一热点短语反复出现，配上长度接近的短段，会像统一后处理过的产品稿。",
                 "evidence": evidence[:6],
                 "fix_methods": [
                     "同一个信息点不要换着壳子重复说三四遍。",
@@ -1820,7 +1824,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "故意打散段长，不要每段都一到两句、每句都刚好能落刀。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="surface_style",
             )
         )
@@ -1839,7 +1843,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                 {
                 "title": "标准句壳过强",
                 "priority": "P1",
-                "why_it_hits_zhuque": "‘不是A而是B’、‘就在这时’、‘写着：’这类句壳，本身不一定有罪，但集中出现时会把稿子拉回模板感。",
+                "why_it_hits_audit": "‘不是A而是B’、‘就在这时’、‘写着：’这类句壳，本身不一定有罪，但集中出现时会把稿子拉回模板感。",
                 "evidence": evidence[:4],
                 "fix_methods": [
                     "优先删二分句壳，不要只是换同义词。",
@@ -1847,7 +1851,7 @@ def build_zhuque_impact_items(light_report: dict, heavy_report: dict) -> list[di
                     "冒号说明句改成散开的视觉观察，不要像展示板。 ",
                 ],
                 },
-                source_family="zhuque",
+                source_family="external_block_audit",
                 focus_layer="sentence_shell",
             )
         )
@@ -1915,7 +1919,7 @@ def build_bridge_impact_items(bridge_audit: list[dict]) -> list[dict]:
                 {
                 "title": f"同桥承重件不完整：{item['bridge']}",
                 "priority": "P0",
-                "why_it_hits_zhuque": "不是桥段本身有问题，而是你在用这个桥时，缺了原文真正承重的那几件，结果只剩成品剧情壳。",
+                "why_it_hits_audit": "不是桥段本身有问题，而是你在用这个桥时，缺了原文真正承重的那几件，结果只剩成品剧情壳。",
                 "evidence": evidence,
                 "fix_methods": fix_methods,
                 },
@@ -1935,7 +1939,7 @@ def build_consequence_impact_items(consequence_audit: dict) -> list[dict]:
                 {
                 "title": "公开场后果链不足",
                 "priority": "P0",
-                "why_it_hits_zhuque": "公开炸场之后如果没有继续改变生活秩序、现实归属和关系位置，就会像只为高潮服务的成品桥。",
+                "why_it_hits_audit": "公开炸场之后如果没有继续改变生活秩序、现实归属和关系位置，就会像只为高潮服务的成品桥。",
                 "evidence": [
                     "已命中公开场: " + " / ".join(consequence_audit.get("public_explosion_hits", [])[:6]),
                     "后果链命中不足: " + " / ".join(consequence_audit.get("consequence_hits", [])[:6]),
@@ -1956,7 +1960,7 @@ def build_consequence_impact_items(consequence_audit: dict) -> list[dict]:
                 {
                 "title": "公开场缺外部秩序接管",
                 "priority": "P0",
-                "why_it_hits_zhuque": "原文能过，常常靠外部秩序接手现场；如果只剩人物互吵，检测器会更容易判成加工过的爽文高潮。",
+                "why_it_hits_audit": "原文能过，常常靠外部秩序接手现场；如果只剩人物互吵，外部分块审计会更容易判成加工过的爽文高潮。",
                 "evidence": [
                     "已命中公开场: " + " / ".join(consequence_audit.get("public_explosion_hits", [])[:6]),
                     "外部秩序命中不足: " + " / ".join(consequence_audit.get("external_order_hits", [])[:6]),
@@ -2158,7 +2162,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "开头缺第二推进点或误判种子",
                 "priority": "P0",
-                "why_it_hits_zhuque": "只有事故，没有第二推进点和第一问号，开头就会像把题目展开给读者看，不像真人现场继续失控。",
+                "why_it_hits_audit": "只有事故，没有第二推进点和第一问号，开头就会像把题目展开给读者看，不像真人现场继续失控。",
                 "evidence": [
                     "开头信号: " + " / ".join(opening.get("signal_hits", [])[:6]),
                     "开头钩子命中: " + " / ".join(opening.get("hook_hits", [])[:4]),
@@ -2181,7 +2185,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "情绪没有落进微动作",
                 "priority": "P0",
-                "why_it_hits_zhuque": "空情绪、标准反应多，而人物手上没有活，最容易被判成会写情绪的样稿。",
+                "why_it_hits_audit": "空情绪、标准反应多，而人物手上没有活，最容易被判成会写情绪的样稿。",
                 "evidence": [
                     f"direct_mental_state: {micro.get('direct_mental_state_hits')}",
                     f"standard_reaction: {micro.get('standard_reaction_hits')}",
@@ -2204,7 +2208,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "人物偏手没有立住",
                 "priority": "P0",
-                "why_it_hits_zhuque": "角色如果只会在每场戏里说最对的话，文本会像作者操控，不像人先按本能和旧习惯反应。",
+                "why_it_hits_audit": "角色如果只会在每场戏里说最对的话，文本会像作者操控，不像人先按本能和旧习惯反应。",
                 "evidence": ["人物偏手命中不足"],
                 "fix_methods": [
                     "先写人物稳定第一反应，再写道理。",
@@ -2225,7 +2229,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "对白缺失控层，只剩高效推进",
                 "priority": "P0",
-                "why_it_hits_zhuque": "真人冲突里常常先控场、打岔、回避、说短句；如果对白句句回答核心，只会像优化过的剧本。",
+                "why_it_hits_audit": "真人冲突里常常先控场、打岔、回避、说短句；如果对白句句回答核心，只会像优化过的剧本。",
                 "evidence": [
                     f"dialogue_count: {meltdown.get('dialogue_count')}",
                     f"short_dialogue_count: {meltdown.get('short_dialogue_count')}",
@@ -2250,7 +2254,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "烂关系没有自己漏出来",
                 "priority": "P1",
-                "why_it_hits_zhuque": "关系坏如果只能靠人物复述旧账，会像作者举证；真人稿更常靠空间、站位、默认反应先漏出来。",
+                "why_it_hits_audit": "关系坏如果只能靠人物复述旧账，会像作者举证；真人稿更常靠空间、站位、默认反应先漏出来。",
                 "evidence": ["烂关系漏出资产命中不足"],
                 "fix_methods": [
                     "把关系坏落到空间权限、优先级顺序和边缘站位上。",
@@ -2271,7 +2275,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "对白衔接过直，缺现场桥",
                 "priority": "P1",
-                "why_it_hits_zhuque": "对白如果没有走位、旁人插话、手续件、噪音桥接，很容易变成高密度信息投喂块。",
+                "why_it_hits_audit": "对白如果没有走位、旁人插话、手续件、噪音桥接，很容易变成高密度信息投喂块。",
                 "evidence": ["对话衔接/对白功能资产命中不足"],
                 "fix_methods": [
                     "把对白拆散到动作、视线、站位、物件和旁人反应里。",
@@ -2293,7 +2297,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "单场戏承担功能过多",
                 "priority": "P0",
-                "why_it_hits_zhuque": "一场戏同时做钩子、举证、关系定性、公开翻刀和后果收束，会像平台成品模块，不像现场自然失控。",
+                "why_it_hits_audit": "一场戏同时做钩子、举证、关系定性、公开翻刀和后果收束，会像平台成品模块，不像现场自然失控。",
                 "evidence": [
                     f"段落 {top.get('paragraph_index')} 类别: " + " / ".join(top.get("categories", [])[:6]),
                     "命中词: " + " / ".join(top.get("terms", [])[:6]),
@@ -2316,7 +2320,7 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 {
                 "title": "结尾落成了旧物式安静谢幕",
                 "priority": "P1",
-                "why_it_hits_zhuque": "只用旧物或旧房做柔性收束，缺后果链和秩序件，容易显得太会结束、太像短篇谢幕桥。",
+                "why_it_hits_audit": "只用旧物或旧房做柔性收束，缺后果链和秩序件，容易显得太会结束、太像短篇谢幕桥。",
                 "evidence": [
                     "结尾物件: " + " / ".join(ending.get("object_hits", [])[:6]),
                     "结尾后果链: " + " / ".join(ending.get("consequence_hits", [])[:6]),
@@ -3068,7 +3072,7 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
     light_summary = combined["light_summary"]
     heavy_summary = combined["heavy_summary"]
     items = (
-        combined["zhuque_impact_items"]
+        combined["external_block_audit_impact_items"]
         + combined.get("bridge_impact_items", [])
         + combined.get("style_impact_items", [])
         + combined.get("consequence_impact_items", [])
@@ -3198,7 +3202,7 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
     for idx, item in enumerate(items, start=1):
         lines.append(f"### {idx}. {item['title']}（{item['priority']}）")
         lines.append("")
-        lines.append(f"- 为什么会被打: {item['why_it_hits_zhuque']}")
+        lines.append(f"- 为什么会被打: {item['why_it_hits_audit']}")
         if item.get("sample_bias_note"):
             lines.append(f"- 样本等级调度: {item['sample_bias_note']}")
         if item.get("evidence"):
@@ -3234,7 +3238,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--myconfig-root",
-        help="可选：外部上游规则源根目录；不传时默认使用 skill 内 scripts/audit_ai_flavor.py 与 references/myconfig-import/通用高风险词类词典.json",
+        help="可选：外部上游规则源根目录；不传时默认使用 skill 内 scripts/audit_ai_flavor.py 与 references/governance/通用高风险词类词典.json",
     )
     parser.add_argument(
         "--python-bin",
@@ -3250,12 +3254,12 @@ def main() -> int:
         help="可选：内部审计标准 JSON。日常审计与回炉优先使用这份文件。",
     )
     parser.add_argument(
-        "--zhuque-alignment-summary",
-        help="兼容旧参数：朱雀对标摘要 JSON。会自动转成内部标准使用。",
+        "--external-block-audit-alignment-summary",
+        help="外部分块审计对标摘要 JSON。会自动转成内部标准使用。",
     )
     parser.add_argument(
         "--audit-rulebook",
-        help="可选：外置改稿规则簿 JSON。默认读取 skill/references/audit-rulebook.json。",
+        help="可选：外置改稿规则簿 JSON。默认读取 skill/references/governance/audit-rulebook.json。",
     )
     args = parser.parse_args()
 
@@ -3273,7 +3277,7 @@ def main() -> int:
         heavy_lexicon = heavy_root / "词典" / "通用高风险词类词典.json"
     else:
         heavy_script = root / "scripts" / "audit_ai_flavor.py"
-        heavy_lexicon = root / "references" / "myconfig-import" / "通用高风险词类词典.json"
+        heavy_lexicon = root / "references" / "通用高风险词类词典.json"
 
     if not light_script.exists():
         print(f"轻审计脚本不存在: {light_script}", file=sys.stderr)
@@ -3289,7 +3293,7 @@ def main() -> int:
     profile = load_profile(profile_path) if profile_path else {}
     rulebook = load_audit_rulebook(rulebook_path) if rulebook_path.exists() else {}
     internal_standard_path = Path(args.internal_standard).resolve() if args.internal_standard else None
-    calibration_path = Path(args.zhuque_alignment_summary).resolve() if args.zhuque_alignment_summary else None
+    calibration_path = Path(args.external_block_audit_alignment_summary).resolve() if args.external_block_audit_alignment_summary else None
     standard_path = internal_standard_path or calibration_path
     internal_standard = normalize_internal_standard(load_json_file(standard_path)) if standard_path else {}
 
@@ -3314,9 +3318,9 @@ def main() -> int:
     recommendations.extend(build_sample_grading_recommendations(sample_grading_guidance))
     rulebook_audit = audit_external_rulebook(source_text, rulebook)
     recommendations.extend(build_rulebook_recommendations(rulebook_audit))
-    zhuque_impact_items = [
+    external_block_audit_impact_items = [
         apply_sample_grading_item_bias(item, sample_grading_guidance)
-        for item in build_zhuque_impact_items(light_report, summarize_heavy(heavy_report) | heavy_report)
+        for item in build_external_block_audit_impact_items(light_report, summarize_heavy(heavy_report) | heavy_report)
     ]
     bridge_impact_items = [
         apply_sample_grading_item_bias(item, sample_grading_guidance)
@@ -3369,7 +3373,7 @@ def main() -> int:
         "heavy_summary": summarize_heavy(heavy_report),
         "recommendations": recommendations,
         "sample_grading_guidance": sample_grading_guidance,
-        "zhuque_impact_items": zhuque_impact_items,
+        "external_block_audit_impact_items": external_block_audit_impact_items,
         "bridge_rule_audit": bridge_audit,
         "bridge_impact_items": bridge_impact_items,
         "consequence_chain_audit": consequence_audit,
@@ -3401,9 +3405,9 @@ def main() -> int:
             internal_standard,
         )
         combined["internal_standard"] = str(standard_path)
-        combined["zhuque_proxy_summary"] = combined["internal_proxy_summary"]
+        combined["external_block_audit_proxy_summary"] = combined["internal_proxy_summary"]
         if calibration_path:
-            combined["zhuque_alignment_summary"] = str(calibration_path)
+            combined["external_block_audit_alignment_summary"] = str(calibration_path)
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

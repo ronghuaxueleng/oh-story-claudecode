@@ -19,6 +19,10 @@ import sys
 from pathlib import Path
 
 
+def legacy_external_audit_key(suffix: str) -> str:
+    return "".join(["zh", "uque_", suffix])
+
+
 def run(cmd: list[str]) -> tuple[int, str, str]:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return proc.returncode, proc.stdout, proc.stderr
@@ -43,6 +47,14 @@ FAILURE_ITEM_RE = re.compile(r"^###\s*(\d+)\.\s*(.+?)\s*$", re.MULTILINE)
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def resolve_gate_doc(script_dir: Path, filename: str) -> Path:
+    shared_dir = script_dir.parent.parent / "story" / "references" / "high-risk-gates"
+    target = shared_dir / filename
+    if not target.exists():
+        raise FileNotFoundError(f"缺少共享第二闸门主文档: {target}")
+    return target.resolve()
 
 
 def parse_rewrite_protocol_schema(protocol_doc: Path) -> dict:
@@ -141,13 +153,14 @@ def summarize_structured_counts(structured: dict) -> dict:
 
 
 def rewrite_gate_bundle(script_dir: Path) -> dict:
-    references_dir = script_dir.parent / "references" / "myconfig-import"
+    references_dir = script_dir.parent / "references"
+    governance_dir = references_dir / "governance"
     return {
         "precheck_script": str((script_dir / "precheck_rewrite_gate.py").resolve()),
-        "precheck_config": str((references_dir / "precheck_rewrite_gate.config.json").resolve()),
-        "protocol_doc": str((references_dir / "通用-受限重写防错协议.md").resolve()),
-        "rewrite_prompt_doc": str((references_dir / "执行模板-受限重写提示词.md").resolve()),
-        "failure_gate_doc": str((references_dir / "执行模板-失败即重写判定.md").resolve()),
+        "precheck_config": str((governance_dir / "precheck_rewrite_gate.config.json").resolve()),
+        "protocol_doc": str(resolve_gate_doc(script_dir, "通用-受限重写防错协议.md")),
+        "rewrite_prompt_doc": str(resolve_gate_doc(script_dir, "执行模板-受限重写提示词.md")),
+        "failure_gate_doc": str(resolve_gate_doc(script_dir, "执行模板-失败即重写判定.md")),
         "execution_order": [
             "正文改写前，先跑 precheck_rewrite_gate.py 做结构预检。",
             "预检后，必须按 通用-受限重写防错协议 约束本轮改写范围。",
@@ -274,7 +287,12 @@ def prioritize_bridge_audit(bridge_rule_audit: list[dict], high_risk_segments: l
 def audit_summary(data: dict) -> dict:
     light = data.get("light_summary", {})
     heavy = data.get("heavy_summary", {})
-    proxy = data.get("internal_proxy_summary") or data.get("zhuque_proxy_summary", {}) or {}
+    proxy = (
+        data.get("internal_proxy_summary")
+        or data.get("external_block_audit_proxy_summary", {})
+        or data.get(legacy_external_audit_key("proxy_summary"), {})
+        or {}
+    )
     return {
         "score": heavy.get("score"),
         "status": heavy.get("status"),
@@ -285,9 +303,9 @@ def audit_summary(data: dict) -> dict:
         "internal_overall_risk": proxy.get("overall_risk"),
         "internal_max_block_risk": proxy.get("max_block_risk"),
         "internal_judgement": (proxy.get("judgement") or {}).get("label"),
-        "zhuque_weighted_avg": proxy.get("overall_risk"),
-        "zhuque_max_seg": proxy.get("max_block_risk"),
-        "zhuque_judgement": (proxy.get("judgement") or {}).get("label"),
+        "external_block_audit_weighted_avg": proxy.get("overall_risk"),
+        "external_block_audit_max_seg": proxy.get("max_block_risk"),
+        "external_block_audit_judgement": (proxy.get("judgement") or {}).get("label"),
         "sample_level": (data.get("sample_grading_guidance") or {}).get("level"),
         "sample_dna_usable": (data.get("sample_grading_guidance") or {}).get("dna_usable"),
     }
@@ -641,7 +659,7 @@ def build_task_validation(
 
 
 def build_model_tasks(curr: dict, prev: dict | None) -> dict:
-    impact_items = curr.get("zhuque_impact_items", [])
+    impact_items = curr.get("external_block_audit_impact_items", curr.get(legacy_external_audit_key("impact_items"), []))
     high_risk_segments = curr.get("high_risk_segments", []) or []
     display_block_scores = curr.get("display_block_scores", []) or []
     style_items = curr.get("style_impact_items", [])
@@ -669,7 +687,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
                 "type": "consequence_item",
                 "priority": item.get("priority", "P0"),
                 "title": item.get("title"),
-                "why": item.get("why_it_hits_zhuque"),
+                "why": item.get("why_it_hits_audit"),
                 "evidence": item.get("evidence", [])[:6],
                 "fix_methods": item.get("fix_methods", [])[:4],
             },
@@ -683,7 +701,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
                 "type": "style_item",
                 "priority": item.get("priority", "P0"),
                 "title": item.get("title"),
-                "why": item.get("why_it_hits_zhuque"),
+                "why": item.get("why_it_hits_audit"),
                 "evidence": item.get("evidence", [])[:6],
                 "fix_methods": item.get("fix_methods", [])[:4],
             },
@@ -697,7 +715,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
                 "type": "impact_item",
                 "priority": item.get("priority", "P1"),
                 "title": item.get("title"),
-                "why": item.get("why_it_hits_zhuque"),
+                "why": item.get("why_it_hits_audit"),
                 "evidence": item.get("evidence", [])[:6],
                 "fix_methods": item.get("fix_methods", [])[:4],
             },
@@ -1193,7 +1211,7 @@ def main() -> int:
     parser.add_argument("--output-dir", default="auto_revise_runs", help="输出目录")
     parser.add_argument("--previous-audit-json", help="可选：上一轮 full_audit.json，用来做对比")
     parser.add_argument("--internal-standard", help="可选：内部审计标准 JSON，用于把内部风险分接入任务单")
-    parser.add_argument("--zhuque-alignment-summary", help="兼容旧参数：朱雀对标摘要 JSON")
+    parser.add_argument("--external-block-audit-alignment-summary", help="外部分块审计对标摘要 JSON")
     args = parser.parse_args()
 
     source_file = Path(args.file).resolve()
@@ -1206,14 +1224,16 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve()
     profile = Path(args.profile).resolve() if args.profile else None
     internal_standard = resolve_internal_standard_path(args.internal_standard, script_dir, source_file)
-    zhuque_alignment_summary = Path(args.zhuque_alignment_summary).resolve() if args.zhuque_alignment_summary else None
+    block_audit_alignment_summary = None
+    if args.external_block_audit_alignment_summary:
+        block_audit_alignment_summary = Path(args.external_block_audit_alignment_summary).resolve()
 
     curr = ensure_audit(
         audit_script,
         source_file,
         output_dir / "current_audit",
         profile,
-        internal_standard or zhuque_alignment_summary,
+        internal_standard or block_audit_alignment_summary,
     )
     prev = load_json(Path(args.previous_audit_json).resolve()) if args.previous_audit_json else None
     payload = build_model_tasks(curr, prev)

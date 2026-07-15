@@ -47,6 +47,14 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def resolve_gate_doc(script_dir: Path, filename: str) -> Path:
+    shared_dir = script_dir.parent.parent / "story" / "references" / "high-risk-gates"
+    target = shared_dir / filename
+    if not target.exists():
+        raise FileNotFoundError(f"缺少共享第二闸门主文档: {target}")
+    return target.resolve()
+
+
 def parse_rewrite_protocol_schema(protocol_doc: Path) -> dict:
     text = read_text(protocol_doc)
     common_errors = [
@@ -153,14 +161,15 @@ def build_label(user_label: str | None) -> str:
 
 
 def rewrite_gate_bundle(script_dir: Path) -> dict:
-    references_dir = script_dir.parent / "references" / "myconfig-import"
+    references_dir = script_dir.parent / "references"
+    governance_dir = references_dir / "governance"
     return {
-        "lexicon_json": str((references_dir / "通用高风险词类词典.json").resolve()),
+        "lexicon_json": str((governance_dir / "通用高风险词类词典.json").resolve()),
         "precheck_script": str((script_dir / "precheck_rewrite_gate.py").resolve()),
-        "precheck_config": str((references_dir / "precheck_rewrite_gate.config.json").resolve()),
-        "protocol_doc": str((references_dir / "通用-受限重写防错协议.md").resolve()),
-        "rewrite_prompt_doc": str((references_dir / "执行模板-受限重写提示词.md").resolve()),
-        "failure_gate_doc": str((references_dir / "执行模板-失败即重写判定.md").resolve()),
+        "precheck_config": str((governance_dir / "precheck_rewrite_gate.config.json").resolve()),
+        "protocol_doc": str(resolve_gate_doc(script_dir, "通用-受限重写防错协议.md")),
+        "rewrite_prompt_doc": str(resolve_gate_doc(script_dir, "执行模板-受限重写提示词.md")),
+        "failure_gate_doc": str(resolve_gate_doc(script_dir, "执行模板-失败即重写判定.md")),
         "execution_order": [
             "先看去味审计报告，确定当前高风险段和主要污染类型。",
             "正文改写前，先跑 precheck_rewrite_gate.py 做第二闸门预检。",

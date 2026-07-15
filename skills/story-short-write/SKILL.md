@@ -1,6 +1,6 @@
 ---
 name: story-short-write
-version: 1.2.1
+version: 1.3.0
 description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
@@ -10,1640 +10,461 @@ description: |
 
 你是短篇网文写作执行器。从起盘到成稿，把一篇短篇真正写出来。
 
-**先别急着写句子。短篇最怕的不是不会写，而是顺序乱了。**
-先把平台、骨架、冲突、开头、高潮、情绪定住，再下正文。
+主文件只保留四件事：
 
-从现在开始，这个 skill 默认走 `profile` 驱动流程，不再接受“只看题材概括 / 只看拆文报告摘要 / 只靠提示词临场发挥”就直接开正文。
-本 skill 自带写作工具链脚本，放在 `story-short-write/scripts/`：
+1. skill 定位
+2. 主流程入口
+3. 强制闸门
+4. 调用哪些 `references/` 和 `scripts/`
+
+细则不再在主文件里重复展开。
+
+---
+
+## 定位与边界
+
+本 skill 负责：
+
+- 起盘
+- 换链
+- 细纲
+- 正文
+- 分块回炉
+
+不负责：
+
+- 把拆书工作混进写作主流程
+- 把整篇去味流程混成写作默认动作
+- 把通用脚本说明手册塞进正文入口
+
+固定边界见：
+
+- [references/governance/skill-boundaries.md](references/governance/skill-boundaries.md)
+
+硬口径：
+
+- `story-short-write`：起盘、换链、写正文、定点回炉
+- `story-short-analyze`：拆书、样本分级、高敏桥识别
+- `story-deslop`：已成稿去味、局部高风险段第二闸门
+
+---
+
+## 工具链
+
+本 skill 默认走 `profile` 驱动流程，不接受“只看题材概括 / 只看拆文摘要 / 只靠提示词临场发挥”直接开正文。
+
+内置脚本位于 `story-short-write/scripts/`：
 
 - `generate_story_profile.py`
-- `audit_novel_ai_flavor.py`
 - `run_full_ai_audit.py`
-- `compare_with_zhuque.py`
+- `audit_novel_ai_flavor.py`
 - `auto_revise_ai_flavor.py`
 - `run_revision_cycle.py`
 - `precheck_rewrite_gate.py`
 - `validate_gate_receipts.py`
+- `compare_with_external_block_audit.py`
 
-这些脚本属于短篇写作流程的一部分，不再要求用户额外切到外部项目脚本目录里执行。
-`profile_source.md` 的模板在：
+工具链地图和规则接入说明见：
 
-- `story-short-write/references/profile-source-template.md`
-- `story-short-write/references/internal-toolchain-map.md`
-- `story-short-write/references/rule-onboarding-checklist.md`
-- `story-short-write/references/audit-rulebook-coverage.md`
+- [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
+- [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
+- [references/integration/rule-onboarding-checklist.md](references/integration/rule-onboarding-checklist.md)
 
-来自外部上游规则源的受限重写 / 失败即重写 / 施工自检规则原件，现已收进：
+高风险回修必须额外挂载：
 
-- `story-short-write/references/myconfig-import/`
+- [../story/references/short-high-risk/reference-index.md](../story/references/short-high-risk/reference-index.md)
+- [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [../story/references/high-risk-gates/reference-index.md](../story/references/high-risk-gates/reference-index.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
 ---
 
 ## 执行规则
 
-1. **先定平台，再定故事口气**。同一套骨架，发盐选、发小程序、发知乎，开头速度、题面力度、高潮兑现和结尾口气都不一样，别混着写。
-2. **先分清这题高在讲法还是高在桥段链，再定故事怎么走**。不要一上来先想书名、金句、外貌。先判断它是 `讲法型 / 桥段链型 / 混合型`，再把故事走法、主要矛盾、中段再加的那层事、人物关系、开头钩子、高潮放在哪儿和情绪走向定住。
-3. **短篇默认从“最后一章”切进去**。别从长篇开头写起。默认人物关系已经形成，矛盾已经积累，事情马上要爆。
-4. **主角不能只受压，必须一直有动作**。哪怕前段很惨，也得有动作，比如离开、留证、做戏、让位、结盟、埋底牌、等大场。
-5. **爽点不是骂赢，是位置变了**。判断一篇文值不值钱，优先看主角有没有离开旧位置、对方有没有掉位、结尾还有没有余味。
-6. **开头 3 句定生死，高潮定值钱，结尾定后劲**。开头要起事，高潮不能只是吵，结尾不能只是总结。
-7. **默认第一人称**。短篇网文大多数时候第一人称代入最稳。除非题材明确更适合第三人称，比如多视角悬疑，否则默认用「我」。
-8. **过稿不是靠文艺，是靠编辑一眼看懂值钱点**。题材要在主赛道里，开头要直，一句话卖点要能讲清“谁、被怎么对待、她怎么翻”。
-9. **平台口气要一起换**。换平台不只是换题面，开头速度、情绪浓度、高潮表现和结尾落点都要一起调。
-10. **写前先防退稿点**。怕套路，就先补中段那层更麻烦的事；怕张力不足，就先补后果预期、持续升级和高潮前卡点；怕文笔空，就先砍解释句、补动作和人物口气。
-11. **先过硬闸，再落正文**。开头没起事、高潮只是吵、回炉时还在乱修句子，这三种最容易把短篇写废。
-12. **写前必须有规则包**。写单本仿写稿，要读对应 `book.profile.json`；写融合稿，要先合成 `project.profile.json`，没有就不直接开稿。
-13. **规则包来自拆书，不来自硬编码**。禁止在 skill 里凭空内置题材默认包，所有规则都应从拆书产物和 `profile` 读取。
-14. **写前写后都要审计**。写前查开头/桥段/禁句风险，写后跑全量审计，再决定是修结构、修场面还是修句壳。
-15. **桥安全不能靠原文低分想当然**。如果拆书显示原文存在 OCR / 水印 / 杂符号污染，默认只学正文写法，不直接迷信桥安全。
-16. **写前先看原文分数，不准把高分原文整本当正向 DNA**。如果 `样本分级与可学层` 或 `profile` 里已经写明原文开头高、桥段高、整本高，就必须降级处理：高分原文默认只提骨架、承重件、后果链或反面规则，不直接学句法和开篇讲法。
-17. **桥段链高敏时先换链，不许硬磨字句**。如果这题被判断为 `桥段链型`，必须先回到细纲拆链，不允许直接冲正文。
-18. **外部沉淀出的改稿规则要走外置规则簿，不走代码硬写死**。当前默认规则簿包含：`开头反假 / 信息漏出顺序 / 后果链 / 人物偏手 / 失控说话 / 烂关系漏出 / 朱雀影响项映射 / 作者站位过高`，由 `references/audit-rulebook.json` 驱动。
-19. **`虚词模板词典` 和 `apply_humanizer.py` 不直接自动改正文**。它们只属于人工改写参考层，不进入第一层排序，也不直接做批量模板替换，避免把稿子改成另一种油滑模板腔。接入说明见 `references/myconfig-rule-integration.md` 与 `references/apply-humanizer-reference.md`。
-20. **审计分段和正文分段是两套东西，绝对不能混用**。`coarse_segment / display_block / paragraph_scores` 只服务内部审计与定位高风险块，不得反过来指导正文排版。正文必须保持正常短篇小说的自然分段、对话分段和场景呼吸，不能因为审计要切块，就把正文写成碎句施工稿或一坨不分段长块。
-21. **写后必须使用多个规则并行审计，不能只看单一分数或单一规则**。至少同时看：`轻审计句壳命中`、`重审计分`、`bridge_rules 命中/缺失`、`style_assets 命中/缺口`、`rulebook_audit`、`global_risk_shape / display_block_scores / high_risk_segments`、`样本分级与可学层限制`。任何一层明显异常，都不能因为另一层分数好看就直接停。
-22. **高风险回修必须加第二道“受限重写自检闸门”**。凡是 `仿写 / 对标重写 / 去AI味回修 / 朱雀长期卡高 / 同桥段反复不过`，内部审计之后，必须再过两份口径：`通用-受限重写防错协议` 与 `失败即重写判定`。它们不是参考阅读，而是回修前后的强制闸门。
-23. **失败即重写是硬判定，不是建议**。如果自检命中 `场面过于整齐 / 高功能对白>=2 / 真相或重大信息闭环链过强 / 检测切片下形成完整推进单元 / 一刀同时完成大任务过多` 里的任一项，当前高风险段直接作废，回到该段重写，不继续润句。
-24. **后续自检脚本必须通用、配置化、可增量补规则**。禁止把题材词、桥段词、人物词、固定剧情词直接硬编码进脚本主逻辑。脚本只负责：`预检 finding`、`失败项判定`、`回修任务单输入`；规则来源必须来自 `profile / rulebook / 词典 / 参考配置`，允许后面继续补新规则和新词典，而不用改死代码。
-25. **skill 内置规则副本优先于 skill 外绝对路径**。只要 `references/myconfig-import/` 和 `scripts/precheck_rewrite_gate.py` 已存在，默认优先读取 skill 内副本；外部规则仓只作为上游同步源，不再当运行期硬依赖。
-26. **每场只干一件大事，每段只保留一个主任务**。发现异常、补一层旧伤、做一次关系转折、给一个后果回弹，这几类任务不要在同一场或同一段里打包完成；一旦一刀里同时做完事件、解释、判断、决定，默认先拆场拆段，不先润词。
-27. **插叙只补一个原因，不补整份案情说明**。插叙必须先有触发物，再只回答一个问题：为什么这句话扎人、为什么这个动作异常、为什么主角在意；不要顺手把家庭旧账、关系来源、后续结论一起补全。
-28. **对话优先写试探、回避、失手，不优先写结论**。人物说半句、装没听懂、故意岔开、先做动作再开口，通常都比一长串完整归纳更像现场；重要台词越完整，越像作者借角色发总结陈词。
-29. **每三场里至少一场不直接推进主冲突**。要允许买药、等车、吃东西、拿快递、看房路上被打断这类小场存在，它们不是废戏，而是把高功能冲突链拉回生活层的必要缓冲。
-30. **外部分块高分时，先判“块级完整推进风险”，不要先判词句不自然**。如果朱雀这类外部分块里，某一块单独拿出来已经像一个完成度过高的剧情组件，优先检查：`开头是否像成品样板 / 小事实是否被组织成主题句 / 一块里是否连续完成偏心实锤、关系定性、后果回弹、决定落地 / 结尾是否收得过满`。这类问题先拆块内主任务和结论链，不先润词。
-31. **“显性命中清零”不等于“外部分块安全”**。即使 `pretty_detail / author_explain / high_function_dialogue / tidy_closure` 全部归零，只要外部分块仍表现出 `太整齐 / 太明白 / 太像交付好的成品`，仍按高风险处理，继续回到块级场面和推进链修，不准因为句壳分数好看就停。
-32. **外部分块自检时，优先检查 4 类块病**。分别是：`成品化开头块`、`偏心实锤块`、`连续承重虐点块`、`完整收束结尾块`。它们共同特征不是词花，而是“切一块出来就能完整讲清一个主题”。命中后优先拆：`提前关系判断 / 主题句 / 过顺后果链 / 一块多任务 / 结尾过满`。
-33. **`通用-受限重写防错协议.md`、`执行模板-失败即重写判定.md` 以及相关脚本里的规则是活规则，不是一次性文档**。每次送检复盘、手工回修成功案例、新失败样式，都必须回到 `rule-onboarding-checklist.md` 判断该补进 `底座 / 规则簿 / profile / 人工参考层` 的哪一层；不准只停留在聊天结论里。
+1. 先定平台，再定故事口气。
+2. 先判这题是 `讲法型 / 桥段链型 / 混合型`，再决定写法。
+3. 短篇默认从“事情马上要爆”的位置切入，不从长篇式铺垫开写。
+4. 主角不能只受压，必须持续有动作。
+5. 爽点不是骂赢，是位置变化、后果变化和关系变化。
+6. 开头三句定起事，高潮定值钱，结尾定余味。
+7. 写前必须有规则包：单书读 `book.profile.json`，融合稿读 `project.profile.json`。
+8. 规则包来自拆书产物，不来自 skill 内硬编码题材默认值。
+9. 桥段链高敏时，先回细纲换链，不许直接磨句子。
+10. 写前写后都要审计，不能只看送检结果倒推补丁。
+11. 审计分段只服务定位风险，不反向指导正文排版。
+12. 一场只做一件大事，一段只保留一个主任务。
+13. 插叙只补一个原因，不补整份说明书。
+14. 对话优先写试探、回避、失手，不优先写结论。
+15. 每三场里至少一场不直接推进主冲突，要给生活层缓冲。
+16. 外部分块高分时，优先判“块级完整推进风险”，不先判词句漂不漂亮。
+17. “显性命中清零”不等于安全，只要整块仍然太整齐、太明白、太像成品，就继续回块级问题。
+18. 新沉淀出的成功经验必须回写规则层，不能只停在聊天里。
 
 ---
 
-## profile 驱动闭环
+## 高敏任务路由
 
-### 目标
+当前任务如果属于以下任一类，必须走高敏流程：
 
-- 让短篇写作不再停留在“懂了很多规则，但正文还是临场走样”
-- 把拆书结论变成可执行约束，而不是只留在 Markdown 里
-- 让“同桥段为什么原文能过、我们写的为什么会高”在写前就被拦住
+- `同桥仿写`
+- `原情节实验`
+- `对标重写`
+- `外部分块审计长期卡高`
+- `改很多轮后越来越像施工稿`
 
-### 默认流程
+强制流程：
 
-1. 先确认上游拆书是否完整
-2. 先读取 `写作资产/profile_source.md`
-3. 再读取单书 `book.profile.json`
-4. 如果是融合写作，先基于拆书目录重新合成 `project.profile.json`
-5. 先根据 `profile_source.md / book.profile.json` 判定：
-   - `讲法型`
-   - `桥段链型`
-   - `混合型`
-   - `原文分数可学层`
-6. 用 `profile` 做起盘和大纲约束
-7. 写正文
-8. 写后跑审计
-9. 进入项目内自检回修闭环：`检测 -> 判断 -> 生成任务单 -> 模型回修 -> 再检测`
-10. 按审计结果先回到桥段承重件和后果链，再回到高风险片段，再回到高风险段落，最后才处理通用问题；不允许只在句子表面打补丁
-11. 如果属于高风险回修，再进入 `受限重写防错协议 -> 正文改写 -> 失败即重写判定 -> 再检测` 的第二层闭环
+1. 先判任务类型，不把高敏仿写当普通自由创作。
+2. 如果已有多版稿，先选母稿，不从最新安全稿继续补丁。
+3. 改前写母稿保护卡。
+4. 写活稿时只挂最少限制，不让规则接管正文生成。
+5. 写后先做命名式滑窗审计，再判唯一主炸点。
+6. 一轮只拆一个活结，不顺手整段回炉。
 
-### 上游输入要求
+这部分完整规则和自检项，统一见：
 
-如果是参考现有拆书写新稿，默认输入不再只是：
+- [../story/references/short-high-risk/reference-index.md](../story/references/short-high-risk/reference-index.md)
+- [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
-- `拆文报告.md`
+---
 
-而必须至少包含：
+## profile 闭环
+
+### 必备输入
+
+默认至少需要：
+
+- `写作资产/profile_source.md`
+- `book.profile.json`
+
+如果上游是仿写 / 融合 / 高敏同桥，再额外要求：
 
 - `写作资产/样本分级与可学层.md`
-- `写作资产/profile_source.md`
 - `写作资产/作者DNA指纹.md`
 - `写作资产/仿写约束_禁写清单.md`
 - `写作资产/同桥段过检规则.md`
-- `book.profile.json`
 
-如果要做融合稿，还必须再补：
+如果做融合稿，还必须有：
 
-- 本次选用样本书的多个 `book.profile.json`
+- 多本 `book.profile.json`
 - 合成后的 `project.profile.json`
 
-没有这些文件时的处理口径：
+缺资产时的固定动作：
 
-- 缺少拆书资产：先回 `story-short-analyze` 补拆
-- 有拆书资产但没有 `写作资产/样本分级与可学层.md`：先补样本准入判断，不要把整本原文默认当 DNA 源
-- 有拆书资产但没有 `写作资产/profile_source.md`：先让模型补 `profile_source.md`
-- 有拆书资产但没有 `book.profile.json`：先生成 `book.profile.json`
-- 要做融合稿但没有组合规则包：先合成 `project.profile.json`
-- 有 `样本分级` 但没写原文分数快照：视为样本准入未完成，不能直接开稿
-- 禁止跳过这些步骤直接写正文
+- 缺拆书资产：回 `story-short-analyze`
+- 缺 `profile_source.md`：先补 `profile_source.md`
+- 缺 `book.profile.json`：先生成 `book.profile.json`
+- 融合稿缺 `project.profile.json`：先合成融合包
 
-额外硬规则：
+### 默认闭环
 
-- `project.profile.json` 默认优先从拆书目录重新生成，不优先复用很早之前的旧融合包
-- 如果本轮新增了拆书、补强了 `profile_source.md`、补了 `同桥段过检规则.md`，就必须重生 `project.profile.json`
-- 融合 profile 只允许“同一本书内部”按桥段序号合并，不允许把不同书的 `桥段1 / 桥段2` 串成一个大杂烩桥段
-- 如果 `profile_source.md` 已经明确这题是 `桥段链型`，默认不得跳过细纲重排直接开正文
-- 如果拆书资产明确提示 `source_noise_risk` 高，默认不得把原文低分当作“桥安全证据”
-- 如果上游参考稿是 `B类骨架样本`，默认只允许提骨架、桥段承重件、后果链和场面秩序，不允许把它当句法 DNA 源
-- 如果上游参考稿是 `C类负样本`，默认只允许进入反面规则与禁写清单，不允许并入正向融合 profile
-- 如果上游参考稿原文检测显示“开头桥段高分 / 整本高分 / 单块长期高分”，默认不得拿它做首屏讲法样本；除非样本分级明确写了“仅局部高、后段可学”
-- 融合 `project.profile.json` 生成后，必须检查 `sample_source_buckets`
-  - `negative_only_sources` 里的书默认自动排除出正向融合，只可进入反面规则
-  - `skeleton_only_sources` 里的书默认只供骨架、承重件、后果链、场面秩序
-  - `positive_dna_sources` 为空时，默认不得直接开正文，先补足至少 1 本可做正向 DNA 的来源
-  - `blocked_opening_sources` 里的书默认不得拿来学首屏讲法和开头口气
+默认顺序固定是：
 
-### 写作阶段怎么用 profile
+1. 读取拆书资产
+2. 读取 `profile_source.md`
+3. 读取 `book.profile.json / project.profile.json`
+4. 判断 `讲法型 / 桥段链型 / 混合型`
+5. 起盘与细纲
+6. 正文
+7. 内部审计
+8. 生成回修任务单
+9. 定点回炉
+10. 重新审计
+11. 高风险任务再过第二闸门
 
-#### 起盘阶段
+这部分展开口径见：
 
-- 先看 `profile_source.md`，确认模型提炼的流派判断和桥段起效原因有没有偏
-- 先看 `profile_source.md` 里的：
-  - `高敏层级判断`
-  - `risk_layer_type`
-  - `source_noise_risk`
-  - `bridge_safety_warning`
-  - `sample_grading.source_score_judgement / source_score_policy`
-- 用 `bridge_rules` 选主骨架桥段，不靠空题材名定主线
-- 用 `bridge_rules.opening_pattern` 约束每个桥段怎么起手，避免一上来就把桥写成结果说明
-- 用 `bridge_rules.recommended_sequence` 约束每个桥段先后顺序，避免把后果、审判、翻盘提前说穿
-- 用 `bridge_rules.fake_signals` 过滤最容易写假的桥段用法，避免把原文现场写成模板陈述
-- 用 `scene_assets` 补公开场、外部秩序、后果链
-- 用 `style_assets` 补开头钩子、误判、微动作、人物偏手、失控说话和烂关系漏出
-- 用 `opening_signal_groups` 控开头信号密度，避免首屏把所有高信息量件一口气塞完
-- 用 `opening_chain_patterns` 防“标准翻刀链”写得太整齐
+- [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/integration/story-profile-schema.md](references/integration/story-profile-schema.md)
+- [references/integration/profile-source-template.md](references/integration/profile-source-template.md)
 
-起盘分流规则：
+### 回修优先级
 
-- `讲法型`
-  - 优先压：作者控场感、标准情绪句、功能对白、首屏打满
-- `桥段链型`
-  - 优先拆：平台最佳顺序、太正好的人物出场、整套成品桥链
-  - 默认要删掉至少 1 个标准大桥，或补 1 段非功能性生活推进来打散模板链
-- `混合型`
-  - 先保骨架承重，再同时处理讲法与顺序，不许只改一句两句
+回修顺序固定为：
 
-桥段链型硬拦截：
+1. 题面是否成立
+2. 主桥和后果链是否成立
+3. 开头和高潮是否过闸
+4. `global_risk_shape` 是整篇、粗块还是局部热点
+5. 人物关系和情绪是否在走
+6. 最后才修句子
 
-- 不允许直接进入正文
-- 必须先回到细纲重排顺序
-- 必须判断“哪一桥最像平台标准桥”
-- 必须补一段非功能性现场推进，让桥从日子里拐出来
+禁止：
 
-#### 细纲阶段
+- 只因全文均分下降就停
+- 只因轻审计命中变少就停
+- 跳过桥段承重件和顺序，直接润句
 
-- 每一场都要对照 `must_keep`
-- 每一场都要对照 `opening_pattern`
-- 每一场都要对照 `recommended_sequence`
-- 每一场都要主动避开 `must_avoid`
-- 每一场都要主动避开 `fake_signals`
-- 遇到重复桥段，优先检查“承重件是否还在”，而不是先润色句子
-- 如果同桥段原文是“先物件后判定”或“先公开场后硬证”，正文里就不能改成“先判定后补证”
-- 每一场都要判断这场戏是否 `功能过满`
-  - 如果一场同时完成冲突升级、情绪爆发、立场确认、翻盘铺垫，默认先拆戏
-- 每一场都要判断桥段是不是被写在 `前景里发光`
-  - 如果桥段标签比人物现场更显眼，默认退回重排
-- 如果这题是 `桥段链型`，禁止把：
-  - 受辱
-  - 撞见
-  - 兜底
-  - 翻盘
-  - 反噬
-  这种旧链按平台最佳顺序整齐串起来
+### 脚本入口
 
-#### 正文阶段
-
-- 先写动作、物件归属、秩序变动，再写情绪判断
-- 对照 `banned_phrases` 和 `author_stance_patterns`，压作者总结句、空感悟句、成品宣言句
-- 如果一句话只是“说明白了”，而不是“写发生了什么”，默认重写
-- 主动补 `不整齐的人际现场感`
-  - 允许人物不体面
-  - 允许话说半句
-  - 允许动作先于判断
-  - 允许桥段藏在生活阻力里，不在前景直接亮标签
-
-#### 回炉阶段
-
-- 先看 `global_risk_shape`
-  - 如果是 `single_global_block`
-    - 这一轮先按整篇大块修，不先修局部句子
-    - 先改主桥起手、顺序、场戏分工、人物偏手、烂关系漏出
-    - 禁止先做句面回修、短段整理、同义词替换
-  - 如果是 `coarse_blocks`
-    - 先看 `coarse_segment_scores`，只修前 1 到 2 个粗粒度大块
-    - 每个大块内部仍按 `opening_pattern -> recommended_sequence -> must_keep -> must_avoid / fake_signals -> 句面` 的顺序回炉
-  - 如果是 `local_blocks`
-    - 再按原来的正文块 / 片段 / 段落顺序修
-- 再看 `display_block_scores`，决定这轮先修哪 1 到 3 个正文大块
-- 再看 `high_risk_segments`，决定这轮只修哪 3 到 5 个片段
-- 再看 `paragraph_scores`，决定每个片段里先动哪几个段落；`短段` 只做末位节奏提醒，不抢桥段和场戏问题的优先级
-- 再看 `rulebook_audit / rulebook_impact_items`
-  - `开头反假` 命中：先拆“先讲道理 / 卖点串烧 / 抽象定性”
-  - `信息漏出顺序` 命中：先拆“事故关系前史结论一口气到齐 / 物证一出立刻定性”
-  - `后果链` 命中：先压“手续流 / 新生活安顿流 / 完整回击流”
-- `opening_signal_overload` 高：先拆开头信号量
-- `opening_reveal_chain` 高：先拆翻刀链，不要继续修词
-- `author_stance_overreach` 高：先删作者站位句和解释句
-- 桥段审计不通过：回到 `bridge_rules` 检查承重件和顺序，而不是加更多情绪词
-- 同桥过检审计不通过：先补 `opening_pattern`，再补 `must_keep / recommended_sequence`，再删 `must_avoid / fake_signals`，最后才处理句面
-- 如果审计显示更像 `讲法问题`
-  - 先压作者控场、标准情绪句、功能对白
-- 如果审计显示更像 `桥段链问题`
-  - 先回细纲拆链
-  - 不要继续在同一桥上打磨措辞
-- 如果只有局部片段高，不要为了几段高分回修整篇
-- 只允许把外部检测当终检，不允许把外部检测站点当内部训练回路
-
-### 内部自检回修闭环
-
-这条现在是默认流程，不是可选项。
-
-正确顺序：
-
-1. `run_full_ai_audit.py` 跑内部审计
-2. 读取 `full_audit.md / revision_plan.md`
-3. 先读取 `global_risk_shape / coarse_segment_scores / display_block_scores`
-4. 再读取 `segment_scores / paragraph_scores / high_risk_segments`
-5. 先判断当前是：
-   - `single_global_block`
-   - `coarse_blocks`
-   - `local_blocks`
-6. 按形状决定这一轮先修整篇、粗块，还是局部热点
-7. 如果提供了 `book.profile.json / project.profile.json`，必须同时读取 `bridge_rules`
-8. 先定这轮只修哪几个正文块 / 片段
-9. 再定每个片段先动哪几个段落
-10. 最后才看通用 `P0 / P1` 项
-11. 再次跑内部审计
-12. 对比上一轮和这一轮有没有下降
-13. 没下降时，回到桥段层和正文大块层，不继续空修句子
-14. 如果当前任务属于 `仿写 / 对标重写 / 去AI味回修 / 长期卡高段`，在“改正文”之前必须先执行一次 `受限重写防错协议`，改完后必须再执行一次 `失败即重写判定`
-15. 第二道闸门只裁决当前高风险段，不顺手点评整篇；任一硬失败项命中，当前段作废，直接重写，不继续做表层润色
-16. 第二道闸门配套脚本以后必须保持通用：规则走配置，finding 走结构化输出，不能把某一题材的桥段词表写死在代码里
-
-如果当前题材已经做过朱雀对标：
-
-- 先用 `compare_with_zhuque.py` 生成 `internal_audit_standard.json`
-- 再把这份内部标准通过 `run_full_ai_audit.py --internal-standard ...` 接进审计
-- 写后除了看内部重审计分，也要同时看：
-  - `内部整体风险分`
-  - `内部最高块风险分`
-- 优先修 `内部最高块风险分` 对应的大块问题，不要只盯全文平均
-
-### 代理分判定线
-
-- `内部最高块风险分 > 0.75`
-  - 判定：`高危`
-  - 处理：不建议直接送检，先回修桥段块、开头块、高效对白块和流程件过整齐的大块
-- `内部最高块风险分 0.60 - 0.75`
-  - 判定：`建议回修`
-  - 处理：优先修最高风险大块，不要先修零散句子；整体代理分只作辅助
-- `内部最高块风险分 < 0.60`
-  - 判定：`可送检`
-  - 处理：可进入外部终检，但仍要复核开头和最高风险块
-
-补充规则：
-
-- `最高块风险分` 优先级高于 `整体风险分`
-- `整体风险分` 偏高时，优先回修作者腔、总结腔、流程件整齐感和重复热点
-- 代理分只是内部预警线，不等于外部站点的绝对承诺值；终检仍以外部检测为准
-
-硬规则：
-
-- 朱雀、其他外部检测站点只能做终检
-- 内部循环必须能在不依赖外部站点的情况下完成：
-  - 自检
-  - 自判
-  - 产任务单
-  - 模型回修
-  - 再检
-
-这意味着 skill 默认要同时做两类审计：
-
-1. 反面审计
-   - 抓开头成品感、对白效率、作者站位、流程件整齐度、热点重复
-2. 正面审计
-   - 读 `profile.bridge_rules`
-   - 读 `profile.style_assets`
-   - 判断当前正文最像在用哪几个桥
-   - 检查这些桥的 `opening_pattern / must_keep / recommended_sequence / must_avoid / fake_signals / why_original_passes`
-   - 检查微动作承情、人物偏手、失控说话、烂关系漏出、单场戏功能堆叠
-   - 判断当前问题更偏：
-     - `讲法型风险`
-     - `桥段链型风险`
-   - 判断当前是否存在：
-     - `桥安全误判`
-     - `原文低分被噪声污染后误学`
-
-没有第二类，回修就只会停在“哪里像 AI”，不会知道“为什么原文能过而这稿会假”。
-
-进一步硬化后，单轮回修默认不是“看一个分数”，而是至少并行读取 7 组审计结果：
-
-1. `light_audit`
-   - 句壳、作者腔、开头口气、段长匀速、抛光对白标签
-2. `heavy_audit`
-   - 总分、状态、热点、重复热点、整块压力
-3. `bridge_audit`
-   - 当前最像哪条桥、缺哪几个承重件、顺序有没有乱
-4. `style_assets_audit`
-   - 微动作承情、人物偏手、失控说话、烂关系漏出、安静压迫场
-5. `rulebook_audit`
-   - 开头反假、信息漏出顺序、后果链、作者站位、朱雀影响项
-6. `shape_audit`
-   - `global_risk_shape / coarse_segment_scores / display_block_scores / high_risk_segments`
-7. `sample_grading_guard`
-   - 当前上游样本是 `A类正样本 / B类骨架样本 / C类负样本`
-   - 这决定本轮能不能学句法，只能学骨架，还是只能看反面规则
-
-硬规则：
-
-- 不能只因为 `heavy_audit.score` 降了，就判定这一轮有效。
-- 不能只因为 `light_audit` 命中少了，就忽略桥段顺序和后果链。
-- 不能只看 `bridge_audit`，不看 `sample_grading_guard`，否则很容易把骨架样本的句法壳误学进去。
-- 不能只看 `shape_audit` 的最高块，不看 `rulebook_audit`，否则会漏掉“为什么会被朱雀类模型打高”的通用结构病。
-- 回修结论必须来自多规则交叉，不允许单一规则单独决定整轮改稿方向。
-
-### 分段审计默认产物
-
-`run_full_ai_audit.py` 现在默认必须额外产出：
-
-- `global_risk_shape`
-- `coarse_segment_scores`
-- `display_block_scores`
-- `segment_scores`
-- `paragraph_scores`
-- `high_risk_segments`
-
-使用口径：
-
-- `global_risk_shape`
-  - 先判断当前更像 `single_global_block / coarse_blocks / local_blocks`
-  - 不同形状决定这轮是修整篇、修粗块，还是修局部热点
-- `coarse_segment_scores`
-  - 用来确定前 1 到 2 个粗粒度大块
-- `display_block_scores`
-  - 用来确定这轮先修哪 1 到 3 个正文块
-- `segment_scores`：决定这一轮先修哪几大块，不再只看全文总分
-- `paragraph_scores`：决定每个片段里先改哪几个局部段落
-- `high_risk_segments`：直接作为回炉顺序输入，默认优先修前 3 到 5 个
-
-特别说明：
-
-- 这里的“分段审计”是检测层切块，不是正文排版规则。
-- 审计块可以是粗粒度大块、显示块、局部段落热点；正文仍然必须按小说阅读节奏自然分段。
-- 禁止把 `paragraph_scores` 误用成“正文应该一两句一断”。
-- 禁止为了迎合审计块，把正文改成没有正常呼吸的碎段稿或整块墙文。
-- 审计结果只决定“先修哪块”，不决定“正文应该怎样排版”。
-
-硬规则：
-
-- 如果 `global_risk_shape.shape = single_global_block`，禁止跳过整篇大块判断，直接钻进段落微修
-- 如果 `global_risk_shape.shape = coarse_blocks`，禁止前 1 到 2 个粗块还没动，就先大面积修散点段落
-- 全文分下降，不代表局部已经修干净
-- 只要 `high_risk_segments` 里还有 `medium/high`，就不能只因为总分好看就停止回修
-- 片段风险优先级高于通用问题列表
-- 如果只有少数段落高，优先局部改段，不要为了几段高分把整篇打散重修
-
-### 推荐脚本调用
-
-正文后的默认单轮回炉入口：
+常用入口只保留下面 4 个：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" \
-  当前短篇目录 \
-  --internal-standard profiles/internal_audit_standard.json
+python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" 当前短篇目录
 ```
 
-默认会一口气产出：
-
-- 本轮 `full_audit`
-- 本轮 `model_rewrite_task`
-- 本轮 `rewrite_gate_task / failure_gate_task`
-- 本轮 `rewrite_gate_receipt.json / failure_gate_receipt.json`
-- 本轮 `cycle_summary.json`
-- 本轮 `gate_validation.md`
-- 本轮 `STATUS.txt`
-
-如果不传 `--output-root`，循环产物默认落到 `当前书目录/数据/审计循环/时间戳轮次/`，不会散在书根目录。
-如果同一个 `output-root` 里已经有上一轮产物，脚本会自动接上上一轮 `full_audit.json` 做对比；只有在你想强制指定别的上一轮时，才额外传 `--previous-audit-json`。
-如果你要明确阻止“第二闸门还没通过就继续往下走”，可以加 `--require-gates-passed`。这时只要 `rewrite_gate` 或 `failure_gate` 还处于 `pending / failed`，脚本就会以非零状态退出。
-
-如果 `当前短篇目录/profiles/` 下存在规则包，脚本会优先自动选最新的 `*.project.profile.json`；没有时再回退到最新的 `*.json`。只有你想强制指定别的规则包时，才额外传 `--profile`。
-如果当前书目录还没有任何规则包，但已经有 `01_主骨架与融合方案.md`，脚本会先自动读取其中的 `主骨架` 和 `辅桥` 来源书名，再去同项目 `拆文库/{书名}/book.profile.json` 合成一本当前书专属 `profiles/{当前书名}.project.profile.json`，然后本轮直接使用它。
-如果当前选中的 `project.profile.json` 早于同项目 `拆文库/` 中任意一本 `book.profile.json`，脚本默认会先自动重生这个 `project profile`，再继续跑审计和任务单；只有你想强制中断并手工处理时，才额外传 `--no-refresh-profile-if-stale`。
-
-正文文件默认优先找 `正文.md`；如果还在旧目录阶段，没有标准工作稿命名，脚本会兼容挑目录里最新的“含正文字样”的 `.md` 版本稿继续跑，便于旧项目平滑迁移。
-
-先看 `cycle_summary.json / model_rewrite_task.md`，确认：
-
-- `global_shape` 已写出，不是空值
-- `task_validation.bridge_alignment_ok = true`
-- `task_validation.short_paragraph_priority_ok = true`
-- `rewrite_gate.rewrite_gate.receipt_exists = true`
-- `rewrite_gate.failure_gate.receipt_exists = true`
-- `rewrite_gate.stage`
-- `rewrite_gate.ready_for_next_revision = true`
-
-这两个没过，不直接改正文。
-如果两份 gate 回执还停在 `pending`，说明这一轮只生成了执行单，还没有真正做“受限重写自检 / 失败即重写判定”，不能把这轮当成完整回炉闭环。
-完整通过标准要同时满足四件事：
-
-- `rewrite_gate_receipt.json` 已回填且校验通过
-- `failure_gate_receipt.json` 已回填且校验通过
-- 同轮次重新汇总后 `rewrite_gate.stage = gate_passed`
-- 同轮次重新汇总后 `rewrite_gate.overall_status = passed`
-
-只要少一项，都不算第二闸门真正结束。
-日常先看 `gate_validation.md`，只有需要追明细时再进 `cycle_summary.json` 和各自的 `receipt.json`。
-如果只是扫目录看这一轮能不能继续，直接看 `STATUS.txt`。
-如果两份 gate 回执已经填了，还要再跑一次：
+题材首次校准才用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" \
-  当前轮次/gate/正文文件名.rewrite_gate_receipt.json \
-  --require-executed \
-  --require-complete
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" \
-  当前轮次/gate/正文文件名.failure_gate_receipt.json \
-  --require-executed \
-  --require-complete
+python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" ...
 ```
 
-这一步不过，不准把回执当有效闸门结果。
-如果两份回执都过了，还要用同一轮产物目录再刷新一次汇总，直到 `STATUS.txt` 里明确写出 `gate_stage: gate_passed`；不能停在“回执已填，但汇总还是旧 pending”的半截状态。
-如果 `global_shape = single_global_block`，默认本轮只看“整篇大块任务 + 粗粒度大块 + 前排正文块”，不先从段落热点下刀。
-如果 `global_shape = coarse_blocks`，默认本轮先只看前 1 到 2 个 `coarse_block_focus`，不要一下子摊开全文。
-如果 `cycle_summary.json` 里显示 `profile_refresh_info.refreshed = true`，说明这轮实际使用的规则包已经不是旧包，后续正文、审计和人工复盘都以这一轮重生后的 `project profile` 为准。
-如果 `cycle_summary.json` 里显示 `book_profile_bootstrap_info.generated = true`，说明这轮是根据当前书的骨架方案自动新建了专属 profile，后续正文、审计和人工复盘默认都以这本专属 profile 为准。
+详细调用、产物、停机口径见：
 
-如果你想强制检查“旧融合包是否已过期”而不允许脚本代为重生，可以加：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" \
-  当前短篇目录 \
-  --no-refresh-profile-if-stale
-```
-
-默认停机口径：
-
-- 不是“审计脚本对同一份正文空跑很多遍”
-- 而是 `桥段优先审计 -> 生成任务单 -> 按任务单改正文 -> 再审计`
-- 如果 `task_validation.bridge_alignment_ok != true`，这一轮先别修短段、句壳和表面压味
-- 如果 `display_block_focus` 前排还是桥段/场戏承重问题，继续下一轮；不要因为总分略降就停
-
-单书 profile：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
-  --source '拆文库/{书名}' \
-  --name '{书名}' \
-  --output '拆文库/{书名}/book.profile.json'
-```
-
-融合 profile：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
-  --merge-profile '拆文库/{书名1}/book.profile.json' \
-  --merge-profile '拆文库/{书名2}/book.profile.json' \
-  --name '{项目名}' \
-  --output 'profiles/{项目名}.project.profile.json'
-```
-
-如果已经有一整个题材 `拆文库/`，默认优先用批量方式直接从题材根目录重生，不手工枚举单书：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
-  --merge-profile-dir '拆文库' \
-  --name '{项目名}' \
-  --output 'profiles/{项目名}.project.profile.json'
-```
-
-如果不是标准文件名，也可以显式指定：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
-  --merge-profile-dir '拆文库' \
-  --merge-profile-name 'book.profile.json' \
-  --name '{项目名}' \
-  --output 'profiles/{项目名}.project.profile.json'
-```
-
-写后审计：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
-  正文.md \
-  --profile profiles/{项目名}.project.profile.json \
-  --internal-standard profiles/internal_audit_standard.json \
-  --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/audit-rulebook.json"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/audit_novel_ai_flavor.py" 正文.md --profile profiles/{项目名}.project.profile.json --json
-```
-
-自动回修任务单：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" \
-  正文.md \
-  --profile profiles/{项目名}.project.profile.json \
-  --output-dir auto_revise_runs \
-  --internal-standard profiles/internal_audit_standard.json
-```
-
-题材首次校准：
-
-```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_zhuque.py" \
-  zhuque_test/题材目录 \
-  --audit-dir zhuque_test/题材目录/_score_align \
-  --output profiles/zhuque_alignment.csv \
-  --summary-output profiles/zhuque_alignment_summary.json \
-  --internal-standard-output profiles/internal_audit_standard.json
-```
-
-调用原则：
-
-- `compare_with_zhuque.py` 只在做题材校准时使用，不是每轮都跑
-- 一旦生成了 `internal_audit_standard.json`，后续该题材的日常审计、任务单、回炉闭环都统一带这份内部标准
-- 日常回修优先看：
-  - `当前判定`
-  - `内部最高块风险分`
-  - `正文块风险排行`
-- 不再只看全文重审计分
-
-默认产物至少要有：
-
-- `*.full_audit.json`
-- `*.full_audit.md`
-- `*.revision_plan.md`
-- `*.model_rewrite_task.json`
-- `*.model_rewrite_task.md`
-
-其中 `full_audit.json` 默认还要有：
-
-- `segment_scores`
-- `paragraph_scores`
-- `high_risk_segments`
-
-如果提供了 `profile`，审计结果里还必须包含：
-
-- 当前正文最接近的桥段规则
-- 该桥段已命中的 `opening_pattern`
-- 缺失的 `opening_pattern`
-- 该桥段已命中的 `must_keep`
-- 缺失的 `must_keep`
-- 该桥段已命中的 `recommended_sequence`
-- 缺失的 `recommended_sequence`
-- `recommended_sequence_out_of_order`
-- 已踩中的 `must_avoid`
-- 已踩中的 `fake_signals`
-- `why_original_passes` 对应的回修提示
-- `style_assets` 对应的命中与缺口
-
-任务单里还必须额外包含：
-
-- `global_risk_shape`
-- `coarse_block_focus`
-- `segment_focus`
-- `paragraph_focus`
-- `task_validation`
-- 每个粗粒度大块的 `revision_order`
-- 每个粗粒度大块的 `actions`
-- 每个片段的 `revision_order`
-- 每个片段的 `actions`
-- 每个段落的 `revision_order`
-- 每个段落的 `actions`
-
-也就是说，任务单不能只列“问题类别”，还要列：
-
-1. 先修哪几个片段
-2. 如果是整篇/粗块型，先修哪几个大块
-3. 每个大块或片段先补什么、先删什么
-4. 每个片段里先动哪几个段落
-5. 每个段落只允许做哪类局部修改
-6. 桥段任务是否覆盖了高风险片段里真正命中的桥段
-7. 前排段落里有没有被“纯短段问题”误挤上来的项
-
-自动回修脚本的边界：
-
-- 不直接改正文
-- 不自动补剧情
-- 不自动补桥段承重件
-- 不做硬编码改写
-- 只负责把审计结果和 `profile / bridge_rules` 收束成下一轮模型任务单
-- 任务单必须优先按片段顺序组织，而不是只按问题类别组织
-- 如果任务单要求“压味”，默认也不能把现场对话压成陈述和总结
-- 如果 `task_validation.bridge_alignment_ok = false`，默认这张任务单不能直接拿去回修，先修桥段识别或排序口径
-- 如果 `task_validation.short_paragraph_priority_ok = false`，默认说明短段排序回弹，先修排序，不要照单改正文
-
-### 禁止口径
-
-- 不要只拿“追妻 / 全员背叛 / 医院误判”这种题材标签直接开写
-- 不要只读拆文报告总结段，不读原文细节库和 `profile`
-- 不要跳过 `profile_source.md`，直接让脚本盲抽最终 `book.profile.json`
-- 不要只让模型自由生成最终 `book.profile.json`，不经脚本标准化
-- 不要把某次成功稿里的句子风格误当成可复用通用方法
-- 不要只在送检后逐句打补丁，必须能回到 `profile` 和桥段规则层复盘
-- 不要在 skill 内写死默认 profile 名或默认题材规则包
-- 不要把“去 AI 味”理解成“把对话改成转述、把现场改成概述”
-- 不要让桥段检测跨书乱串，尤其不要把不同书的同序号桥段当成同一个桥
+- [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
 
 ---
 
-## 格式规范（最高优先级）
+## 格式规范
 
-详细规则见 `references/format-and-structure.md`，写作前必须加载。**主会话与 narrative-writer 子代理使用同一套工作稿格式**：正文主稿只允许保存在 `正文.md`，正文段落之间不加空行，对话使用半角双引号，短篇小节标记全文统一（默认 `###1.`/`###2.`）。如果子代理输出与主会话格式不一致，按本格式规范重排后再写入文件。
+格式细则统一见：
 
-**文件类型区分必须明确**：
-- `正文.md` 使用**工作稿格式**：小节标记、紧密段落、对话独立成行。默认保留 `###1.`/`###2.` 这类施工标记，便于回修、审查、定位。
-- 面向知乎盐选投稿时，必须额外导出一份**投稿版正文**，默认文件名可用 `盐选投稿版.md`。投稿版与工作稿分离，禁止直接在 `正文.md` 上就地改投稿排版。
-- `盐选投稿版.md` 使用**投稿排版规则**：去掉 `###1.` 这类 Markdown 小节标记；如需保留节位，改成单独一行的阿拉伯数字 `1`、`2`、`3`；对话默认不用半角双引号，优先改用 `「」`，如用户或平台后台明确要求 `【】` 则按要求覆盖；正文仍保持紧密段落，不混入 Markdown 标题。
-- `小节大纲.md` 和 `设定.md` 是 Markdown 规划文档，不使用正文小节标记规则，不要求写成正文排版。
-- `小节大纲.md` 的“每节 1 行”是**信息完整性约束**，不是要求把所有字段硬压成一整条长行；当长行影响 Markdown 预览器阅读时，必须改写为标题 + 项目符号或表格等**Markdown 可读格式**，同时保证字段不缺失。
-- 禁止把 `###1.` 这类正文小节标记误写进 `小节大纲.md`，除非用户明确要求该文件兼作正文草稿。
+- [references/workflow/format-and-structure.md](references/workflow/format-and-structure.md)
 
-**反检测格式提醒**：
-- 不要把“紧密段落”误写成“全篇一句一段”。紧密只是指段间不加空行，不等于所有段都切到同样短。
-- 工作稿和投稿版都要避免“整页等长短句密排”。同一场景里允许 1 句段、2 句段、偏长句段交替出现，避免版面机械整齐。
-- 正文排版服务于阅读和人工感，不服务于“每段都一样像模板”。
+主文件只保留硬口径：
+
+- 工作稿正文只放在 `正文.md`
+- 投稿版和工作稿必须分离
+- 正文分段服从阅读节奏，不服从审计切块
+- 不允许把正文写成“一句一段”的碎句施工稿
+- 也不允许把多个动作、信息、对白回合糊成一整块墙文
+- 自检记录必须写到独立文件，不能污染正文
 
 ---
 
 ## 核心方法
 
-除了上面的执行规则，起盘和写作时还按这套来：
-
-- **先问这篇到底卖什么**：主卖点到底是追不回、公开翻盘、身份翻牌，还是迟到悔恨。卖点不清，先别写。
-- **先定故事怎么走，不先看表面题材**：追妻、真假千金、大女主这些只是表面，真正决定新鲜度的是事情到底怎么一步步往前走。
-- **最显眼的矛盾负责把人拉进来，中段再加的那层事负责把人留下来**：比如追妻加财产、家庭清算加签字局、身份误判加行业能力。不要把这两层写成一回事。
-- **开头先压关系错位和倒霉位置**：不要上来解释背景。先让读者看见谁压谁、谁吃亏、后面会怎么更惨。
-- **中段靠“新状态”托住**：不是重复受辱，而是让主角进入新生活、新关系、新行动结构。
-- **高潮最好放在人多的地方，还要再往上抬一下**：不是把真相说出来就算完，最好还能让人回头重看前文。
-- **写每一场前先说清楚这一场要干嘛**：本场景要推什么事、压什么情绪、回收什么铺垫，答不出来就别硬写。
-- **正文不是只写事件，还要同步写表演层**：微动作、眉眼、呼吸、停顿、说话动态、称呼变化，都要拿来替代解释句。
-- **题材件必须参与推进**：古言称谓、官职、店铺名、法器名这些不是装饰，必须和压位、做局、翻盘、切割挂上。
-
 ### 3 个硬闸
 
 #### 开头硬闸
 
-前 60 到 100 字至少完成下面 3 件事里的 2 件：
+前 60 到 100 字至少完成 3 件事里的 2 件：
 
 - 关系定位
 - 冲突起事
 - 后果预期
 
-开头禁区：
-
-- 还在解释背景
-- 只有气氛，没有事
-- 只有委屈，没有后果
-- 纯回忆、纯总结关系
-
 #### 高潮硬闸
 
-高潮至少同时做到这 3 条里的 2 到 3 条：
+高潮至少做到下面 3 条里的 2 条：
 
-- 把前文一直压着的东西放出来
-- 在最该公开的场面炸开
-- 炸完以后，让前文意思变得更狠
-
-高潮禁区：
-
-- 只靠吵
-- 证据临时掉下来
-- 只知道真相，没有掉位后果
-- 翻完就完，没有余波
+- 放出前文一直压着的东西
+- 炸在最该公开的场面
+- 炸完后让前文意义变狠
 
 #### 回炉硬闸
 
-回炉顺序不能乱：
+回炉时必须先看：
 
-1. 先看题面还成不成立
-2. 再看骨架有没有中段升级
-3. 再看开头和高潮这两个大闸
-4. 再看 `global_risk_shape` 是整篇大块、粗块，还是局部热点
-5. 再看情绪是不是在走
-6. 最后才修句子
+1. 题面
+2. 骨架
+3. 开头与高潮
+4. 风险形状
+5. 情绪和关系
+6. 句子
 
-如果已经跑了 `auto_revise_ai_flavor.py`，还要额外看 3 个硬闸：
+高风险任务还要再加：
 
-1. `global_risk_shape.shape` 必须已经写出
-2. `task_validation.bridge_alignment_ok` 必须为 `true`
-3. `task_validation.short_paragraph_priority_ok` 必须为 `true`
-
-这三个里有任意一个不满足，先修任务单和审计口径，不要直接改正文。
-
-如果当前是 `仿写 / 对标重写 / 去AI味回修`，这里还要再加 2 个硬闸：
-
-4. 本轮高风险段是否先过了 `受限重写防错协议`
-5. 本轮改后段是否再过了 `失败即重写判定`
-
-这两个里有任意一个没做，或结果仍为失败，当前段不算回修完成。
-
-如果一上来就逐句修，通常只会把平稿修成更顺的平稿。
+7. `受限重写防错协议`
+8. `失败即重写判定`
 
 ### 最短自检顺序
 
-如果时间紧，至少按这 5 步扫一遍：
+时间紧时，至少扫这 5 条：
 
 1. 开头第一屏有没有起事
-2. 中段有没有一直在往更坏处推
+2. 中段有没有持续变坏或持续掉位
 3. 高潮是不是炸在最该公开的地方
-4. 人物是不是一开口就能分出来
-5. 结尾是不是不只结束，还留下了后果
+4. 人物一开口能不能分出来
+5. 结尾是不是留下后果，而不是只做总结
 
-这 5 步里只要有 2 步明显答不上来，就别精修句子，先回大纲和结构。
+这 5 条里有 2 条答不上来，不做精修，先回结构层。
 
-### 主流程强制挂载
+### 默认挂载包
 
-下面这几份补充包，写短篇时默认按场景挂着，不是“有空再看”：
+起盘和正文默认先挂：
 
-- `references/material-packs-setting-plot.md`
-- `references/opening-and-hook-library.md`
-- `references/emotion-and-outcome-library.md`
-- `references/character-voice-library.md`
-- `references/material-packs-character.md`
+- [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/craft/material-packs-setting-plot.md](references/craft/material-packs-setting-plot.md)
+- [references/craft/opening-and-hook-library.md](references/craft/opening-and-hook-library.md)
+- [references/craft/emotion-and-outcome-library.md](references/craft/emotion-and-outcome-library.md)
+- [references/craft/character-voice-library.md](references/craft/character-voice-library.md)
 
-固定用法：
+写对白、修台词、去生硬人话时，额外挂：
 
-- 定起盘、做融合、补事件链、补第二层冲突时，回 `material-packs-setting-plot.md`
-- 补题面、导语、开头三句、第一屏钩子时，回 `opening-and-hook-library.md`
-- 补情绪母线、结果句、后效应、收束结果时，回 `emotion-and-outcome-library.md`
-- 拆人物口气、关系反差、切割口气时，回 `character-voice-library.md`
-- 定角色功能、关系错位、接住者、托底位、新秩序位时，回 `material-packs-character.md`
+- [references/craft/humanize-and-dialogue.md](references/craft/humanize-and-dialogue.md)
+- [references/craft/dialogue-blade-library.md](references/craft/dialogue-blade-library.md)
 
-写到一半如果卡住，不要继续空想，先回这些补充包补承重件。
+做仿写 / 融合 / 高敏同桥时，额外挂：
+
+- [references/craft/direct-imitation-assets.md](references/craft/direct-imitation-assets.md)
+- [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
 
 ---
 
 ## 写作流程
 
-### Phase 1：先把平台和起盘卡定下来
+### Phase 1：起盘
 
-先问用户：**「这篇准备发哪？你现在手里有题材、故事核，还是只有一个模糊感觉？」**
+先定：
 
-如果用户已经有明确故事核，就直接往下定骨架。
+1. 平台
+2. 主卖点
+3. 故事怎么走
+4. 最显眼的矛盾
+5. 中段再加的那层事
+6. 高潮场合
+7. 结尾落点
 
-如果用户只有模糊想法，不要急着写梗概，先一起把下面几项摸清：
+如果用户只有模糊想法，不直接开梗概，先补：
 
-- 发哪个平台
-- 主卖点是什么
-- 读者最想看什么后果
-- 这篇更偏哪条主情绪
+- 读者最想看的后果
+- 主情绪
+- 爽点类型
+- 关系重组方式
 
-如果用户明确说要“融合版”“仿写版”“去原作化版本”，不能只拿结构总结直接开写，必须先回看拆文结果里的原文细节库，再做融合起盘。也就是说：
+起盘、题面、导语、平台适配的详细方法见：
 
-1. 先看原文细节库，不是只看拆文报告
-2. 先提炼可迁移的细节，而不是先拼情节
-3. 再根据目标题材重组母结构
-4. 最后才写 `设定.md` 和 `小节大纲.md`
+- [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/craft/opening-and-hook-library.md](references/craft/opening-and-hook-library.md)
 
-融合写作的顺序固定是：
+### Phase 2：细纲
 
-- 原文细节库
-- 结构母题库
-- 情绪母线库
-- 对白口气模板库
-- 场面推进库
-- 再重组出新的融合大纲
-- 再写新正文
+先写 `小节大纲.md`，再碰正文。
 
-禁止直接用“拆文报告摘要”替代原文细节库，也禁止只按一个成品大纲继续往下写。
+细纲阶段必须完成：
 
-如果目录里已经有 `book.profile.json` / `project.profile.json`，这里还必须加一条：
+- 每场主任务
+- 主桥顺序
+- 承重物件
+- 情绪升级点
+- 钩子
+- 伏笔回查
 
-1. 先读 Markdown 拆书资产，确认故事为什么成立
-2. 再读 `profile`，确认哪些规则要被脚本化执行
-3. 两层都过，才允许进入 `设定.md`、`小节大纲.md`、`正文.md`
+如果是仿写 / 融合，先读基础资产，再写新纲。最低准入和读取顺序见：
 
-不能只读 `profile` 就写，也不能只读 Markdown 结论不读 `profile`。
+- [references/craft/direct-imitation-assets.md](references/craft/direct-imitation-assets.md)
 
-### 仿写前置硬约束
+大纲与结构物件的详细模板见：
 
-如果上游拆文是为了“仿写 / 融合 / 去原作化后再写”，写作前必须确认拆文结果已经拆到“可直接仿写层”。
+- [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/craft/writing-craft.md](references/craft/writing-craft.md)
 
-固定字段与最小列要求见 [references/direct-imitation-assets.md](references/direct-imitation-assets.md)。
+### Phase 3：正文
 
-最低验收标准不是“有拆文报告”，而是至少已经有下面这 10 张基础表，并补齐 3 份写作资产硬门槛：
+正文按场景写，不按说明文写。
 
-1. `导语拆解表`
-2. `顺序事件表`
-3. `物件表`
-4. `动作表`
-5. `对白功能表`
-6. `对话衔接表`
-7. `误判表`
-8. `钩子表`
-9. `微动作表`
-10. `安静压迫场表`
-11. `样本分级与可学层`
-12. `作者DNA指纹`
-13. `仿写约束_禁写清单`
-14. `同桥段过检规则`
+每场落笔前先回答：
 
-没有这 10 张基础表，或缺上面 4 份写作资产里的任意 1 份，都不要直接开写正文，不要只靠概括大纲硬写。
+1. 这一场主情绪是什么
+2. 这一场主任务是什么
+3. 谁在压谁
+4. 这一场结尾要留下什么后果或问号
 
-正确顺序是：
+正文硬口径：
 
-1. 先看 `样本分级与可学层`
-   - 确认这本参考稿到底是提 DNA、提骨架，还是只做反面规则
-   - 如果是 `B类骨架样本`，本轮就不要学它的现成句法壳
-   - 如果是 `C类负样本`，本轮就不要把它并入正向融合
-2. 再看 `作者DNA指纹`
-   - 确认这次要学的切句、口气毛边、情绪落点方式到底是什么
-3. 再看 `仿写约束_禁写清单`
-   - 先把最容易写假的总结句、解释句、过渡句压掉
-4. 再看 `同桥段过检规则`
-   - 确认相同桥段里原文为什么能过，哪些承重件不能丢
-5. 再看 `导语拆解表`
-   - 确认前 20 / 60 / 80 字到底怎么起、怎么加码
-6. 再看 `顺序事件表`
-   - 确认原文到底怎么一步步往前推
-7. 再看 `物件表`
-   - 确认哪些物件是真正承重，不是装饰
-8. 再看 `动作表`
-   - 确认人物不是只靠解释句推进
-9. 再看 `对白功能表`
-   - 确认每类角色说话到底负责什么
-10. 再看 `对话衔接表`
-   - 确认对白不是只有一问一答，还能怎么转、怎么压、怎么停顿
-11. 再看 `误判表`
-   - 确认这篇文真正值钱的翻刀点在哪
-11. 再看 `钩子表`
-   - 确认每一拍结尾留的不是总结，而是继续往下拖人的后果或问号
-12. 再看 `微动作表`
-   - 确认情绪具体落在哪些动作上，别回去写解释句
-13. 再看 `安静压迫场表`
-   - 确认公开场、冷场、沉默场怎么压住，不要只会写大吵
-   - 确认每一拍为什么能让人往下看
-14. 再看 `book.profile.json`
-   - 确认禁句、桥段承重件、开头投喂阈值和作者站位风险已经被结构化
-15. 如果是融合稿，再看 `project.profile.json`
-   - 确认这次组合写作真正采用的是哪几本书的共同承重规则
+- 先写动作、物件归属、秩序变化，再写判断
+- 对白必须带角色口气，不准所有人同脸
+- 情绪要落在身体反应、动作选择、说话方式上
+- 长短句交错，别整页等长短句密排
+- 允许人物失手、岔开、找补、说半句
+- 不要把“去味”写成“全改成概述和转述”
 
-然后才允许做下面这些动作：
+写作阶段详细口径见：
 
-- 换壳
-- 重组
-- 做融合大纲
-- 写细纲
-- 写正文
+- [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/craft/humanize-and-dialogue.md](references/craft/humanize-and-dialogue.md)
+- [references/craft/character-voice-library.md](references/craft/character-voice-library.md)
 
-硬规则：
+### Phase 4：审计与回炉
 
-- 不能只拿“故事核 / 题材 / 起承转合”就开始仿
-- 没有 `导语拆解表`，不要直接开头
-- 没有 `对话衔接表`，不要只靠 `对白功能表` 硬写对话
-- 没有 `微动作表`，不要只靠情绪词顶场
-- 没有 `安静压迫场表`，高潮和公开场大概率只剩吵
-- 没有 `book.profile.json`，不要假装已经把拆书资产转成可执行规则
-- 融合稿没有 `project.profile.json`，不要直接拼桥段开写
-- 不能只抄事件名词，不看事件功能
-- 不能只借桥段，不借物件、动作、口气、对话衔接、误判、钩子、微动作
-- 如果参考稿还是抽象总结层，默认先补拆文，不往正文阶段走
+先内部审计，再决定改什么。
 
-可以用下面这些方向帮用户收口：
+至少同时看：
 
-| 方向 | 适合什么 | 常见情绪走向 |
-|------|----------|--------------|
-| 追妻火葬场 | 婚恋、前任、白月光 | 委屈 -> 心寒 -> 决绝 -> 不回头 |
-| 家庭清算 | 偏心、吸血、返乡、饭桌局 | 压抑 -> 羞辱 -> 炸裂 -> 掌控感 |
-| 身份反杀 | 真假千金、职场、校园正名 | 错愕 -> 认知塌陷 -> 清醒 -> 反选 |
-| 悔恨流 | 死后回看、迟到真相 | 委屈 -> 心寒 -> 后知后觉惩罚 |
-| 成长反选 | 古言、大女主、换嫁、改命 | 不甘 -> 生长 -> 掌控 -> 封位 |
+- `light_audit`
+- `heavy_audit`
+- `bridge_audit`
+- `style_assets_audit`
+- `rulebook_audit`
+- `shape_audit`
+- `sample_grading_guard`
 
----
+高风险回修时，必须再过：
 
-### Phase 2：构思核心框架
+1. `受限重写防错协议`
+2. `失败即重写判定`
 
-这一步别急着堆设定。先把起盘卡填出来。
+审计和回炉细则见：
 
-固定顺序：
-
-1. 先定平台
-2. 再定母结构 / 故事怎么走
-3. 再定主冲突 / 最显眼的矛盾
-4. 再定副升级器 / 中段再加的那层事
-5. 再定关系场
-6. 再定开头钩子和钩子类型
-7. 再定异物和第二层冲突
-8. 再定高潮放在哪个场合，以及炸完后的公开后果
-9. 再定主要情绪走向、关系重组方式和角色口气模板
-10. 最后补题面、导语和付费期待
-
-这一步固定同时调用：
-
-- `references/writing-workflow.md` 里的起盘补强口径、融合写作调用顺序、融合写作落地卡
-- `references/material-packs-setting-plot.md` 里的故事走法、第二层冲突、关系重组、公开场、硬牌、后效应
-- `references/opening-and-hook-library.md` 里的题面、导语、开头三句、第一屏钩子
-- `references/emotion-and-outcome-library.md` 里的结果句、情绪母线、后效应、收束
-- `references/character-voice-library.md` 里的角色口气、关系反差、切割口气
-- `references/material-packs-character.md` 里的角色功能分工、接住者、托底位、新秩序位
-
-### 短篇起盘卡
-
-```text
-平台：
-母结构：
-故事走法：
-主冲突：
-最显眼的矛盾：
-副升级器：
-中段再加的事：
-关系场：
-开头钩子：
-开头钩子类型：
-异物：
-第二层冲突：
-高潮场合：
-公开场后果：
-关键证据：
-主要情绪走向：
-情绪为什么爽：
-爽点类型：
-关系重组方式：
-角色口气模板：
-新状态：
-虐点对照细节：
-结尾落点：
-题面：
-导语：
-付费期待：
-```
-
-### 常见故事走法
-
-用户没想清题材时，优先从这些常见走法里选：
-
-- `怎么都追不回来的走法`
-- `当众对账的走法`
-- `一开始认错人的走法`
-- `先让出去再反过来的走法`
-- `想救人却被伤到的走法`
-- `先忍着等对方把事闹大的走法`
-- `旧事很晚才翻出来的走法`
-- `从低处慢慢长出来的走法`
-- `人没了再回头看的走法`
-- `关系一开始就站错位的走法`
-
-### 这些走法怎么用
-
-别把这些当题材名背，关键是看这篇文到底怎么往前推。
-
-#### 怎么都追不回来的走法
-
-适合：
-
-- 追妻
-- 婚恋后悔
-- 迟到醒悟
-
-怎么用：
-
-- 前面先把她怎么被放弃写够
-- 中段写她怎么一点点从旧关系里撤出来
-- 后面重点不是他有多爱，而是他醒得太晚
-
-例子：
-
-- 他终于后悔时，她已经换了人生位置
-- 他终于想明白时，她已经有了新生活
-
-#### 当众对账的走法
-
-适合：
-
-- 家庭清算
-- 婚恋翻脸
-- 职场翻盘
-
-怎么用：
-
-- 前面先把委屈和不公平压够
-- 中段别急着摊牌，先把账、证据、人凑齐
-- 高潮放到饭桌、公司会、签约场、医院外这种人多的地方
-
-例子：
-
-- 家宴逼她让房，结果她当场摊流水和房本
-- 公司会准备让她背锅，结果她把底稿和记录一起甩出来
-
-#### 一开始认错人的走法
-
-适合：
-
-- 身份误判
-- 真假千金
-- 职场低看
-
-怎么用：
-
-- 前面先让所有人都看错主角
-- 中段让误判越滚越大
-- 后面不是简单亮身份，而是让误判反过来砸回去
-
-#### 先让出去再反过来的走法
-
-适合：
-
-- 古言换嫁
-- 大女主反选
-- 婚恋撤离
-
-怎么用：
-
-- 前面先让主角主动让位
-- 中段写别人以为她输定了
-- 后面写她在别处拿到更大的位置
-
-#### 想救人却被伤到的走法
-
-适合：
-
-- 悔恨流
-- 错伤关系
-- 现实虐文
-
-怎么用：
-
-- 前面先让主角提醒、求救、示警
-- 中段写身边人怎么把她当麻烦
-- 后面真出事后，悔意才成立
-
-#### 先忍着等对方把事闹大的走法
-
-适合：
-
-- 做局反杀
-- 婚恋清算
-- 多方互咬
-
-怎么用：
-
-- 前面主角别急着翻脸
-- 中段让对方越做越过分
-- 后面再把所有人、所有事一起掀开
-
-#### 旧事很晚才翻出来的走法
-
-适合：
-
-- 旧案迟到
-- 追妻里加旧伤
-- 家庭线里补旧账
-
-怎么用：
-
-- 前面先让现在这场冲突成立
-- 中段再翻旧伤、旧案、旧物
-- 让前面的意思整个变掉
-
-#### 从低处慢慢长出来的走法
-
-适合：
-
-- 大女主
-- 成长反选
-- 古言翻身
-
-怎么用：
-
-- 前面别急着大翻盘
-- 先写她怎么被低看、被安排
-- 中段写她一点点换位置
-- 结尾重点是“她长出来了”，不是“别人倒了”
-
-#### 人没了再回头看的走法
-
-适合：
-
-- 死后回看
-- 迟到悔恨
-- 旧物回钩
-
-怎么用：
-
-- 前面先让人知道“已经来不及了”
-- 中段用旧物、旧话、旧记录一点点把真相翻出来
-- 结尾不要写复合，要写来不及本身
-
-#### 关系一开始就站错位的走法
-
-适合：
-
-- 情感错位
-- 追妻
-- 重逢文
-
-怎么用：
-
-- 前面先让读者以为重点是 A 和 B
-- 中段慢慢发现真正困住主角的不是这层关系
-- 后面让感情重心、人生重心一起换位置
-
-### 起盘硬规则
-
-- 最显眼的矛盾负责把人拉进来，中段再加的那层事负责把人留下来
-- 这两层不能写成同一类东西
-- 关系场要一眼看懂谁压谁
-- 开头默认从“事情马上要爆”的地方切
-- 起盘时必须单独写一句 `付费期待`
-- 如果只定了题面，没定起因、关系、再加的那层事、高潮场合和关键证据，这还只是题，不是故事
-- 如果你选了一个走法，却说不清它在这篇里是怎么一步步推进的，说明还没定稳
-- 题面只是把人骗进来，真正留人的是后面那串越来越难受、越来越丢脸、越来越掉位的事
-- 开头第一屏最好就把“他到底能坏到什么地步”或“她到底能惨到什么地步”亮出来，别只写一个空处境
-- 主角不能只有标准反应。至少要有一步是读者会记住的反应，比如不哭、装没事、笑着翻账、当场离席、先认输再反掀桌
-
-付费期待不是空话，必须像这样：
-
-- 她怎么翻
-- 他怎么后悔
-- 她什么时候走
-- 旧关系什么时候彻底断
-- 她怎么从低位里长出来
-
-#### 题面和导语怎么起
-
-主文件只保留硬闸，不在这里展开大段例句和拦截细则。具体起法、前 20 / 60 / 80 字检查、题面与导语配合，统一看 [references/humanize-and-dialogue.md](references/humanize-and-dialogue.md)。
-
-这里先记 3 条：
-
-1. 题面优先写最扎人的那一下，不优先写背景
-2. 导语不要写成剧情摘要，要先给关系错位和后果预期
-3. 写开头前，必须过 `前20字起事 / 前60字起错位或事故 / 前80字二次推进` 这 3 道硬闸
-
-> 如果用户有参考小说，先用 `/story-short-analyze` 拆解。默认输出存入项目根目录 `拆文库/{书名}/`；如用户指定当前短篇引用目录，则可输出/同步到 `{短篇标题}/对标/{书名}/`。写作时会自动查找并读取这些拆文结果，不需要用户手动复制到 prompt。
-
-#### 对标上下文加载
-
-> **拆文库/对标关系**：`拆文库/` = analyze skill 的原始产出（source of truth），位于项目根目录。`对标/` = 当前短篇的引用视图，位于 `{短篇标题}/对标/`。短篇写作优先读取 `{短篇标题}/对标/{书名}/`，不存在则回退项目根 `拆文库/{书名}/`，再回退 `{短篇标题}/拆文库/{书名}/`（兼容旧结构）。
-
-推荐目录结构：
-
-```
-项目根/
-├── 拆文库/
-│   └── {书名}/
-│       ├── 拆文报告.md
-│       ├── 情节节点.md
-│       └── 写作手法.md
-└── {短篇标题}/
-    ├── 设定.md
-    ├── 小节大纲.md
-    ├── 正文.md
-    └── 对标/
-        └── {书名}/
-            ├── 拆文报告.md
-            ├── 情节节点.md
-            └── 写作手法.md
-```
-
-如果工作目录下存在 `对标/` 或项目根存在 `拆文库/`，或用户提到参考小说：
-
-1. 按上述顺序查找 `拆文报告.md`、`情节节点.md`、`写作手法.md`
-2. 读取核心发现：结构段落、情绪曲线、反转位置、铺垫方式、句式节奏、可借鉴技法
-3. **额外提取人物对白口气模板**：如果找到原文或拆文结果，必须为主要角色提炼 1 份“口气模板”，至少包含：常用称呼、句长习惯、软硬程度、常见找补词/压迫词/撒娇词、情绪上头时会说什么、不说什么。禁止只借情节，不借人物说话方式。
-4. 写入本篇 `设定.md` 的“对标摘要”区；如角色差异明显，再单列“对白口气模板”区，写作时每个场景至少召回 1 条结构技法 + 1 条人物口气模板
-5. 如只找到原文、未找到拆文报告，提示用户先运行 `/story-short-analyze`；如用户要求继续，也可只按原文做弱参考，但仍必须从原文提炼人物口气模板后再写
-
-#### 原文口气模板提炼硬要求
-
-参考拆文库原文时，不止提炼“人物会说什么”，还要提炼“人物怎么说”：
-
-1. **称呼模板**：对伴侣、长辈、同事、敌对者分别怎么叫
-2. **句法模板**：偏短句压人、偏长句绕刀、先讽后补、先硬后软，还是碎碎念式
-3. **找补词模板**：比如“不是吧”“行啊”“你试试”“我真是服了”“我没有那个意思”
-4. **失控模板**：情绪上头时，是更冷、更碎、更毒，还是会突然沉默
-5. **禁区模板**：这个角色通常不说什么，不会用什么书面词，不会把话解释到满
-
-写人物对白时，优先复用这些模板，而不是只复用情节点。**禁止出现所有角色都像同一个叙述者换名字说话。**
-
-#### 情绪别只写哭，要写到人身上
-
-原文里反复在教的一件事就是：情绪不是一个词，情绪是人当下的反应。
-
-写情绪时，优先往这四层落：
-
-1. `眼神和脸上`：先看她是盯住、避开、发直、笑僵了，还是嘴角绷住了
-2. `身体反应`：再看她手停没停、呼吸乱没乱、背有没有僵住、站位有没有退
-3. `说话方式`：她是更短、更硬、更碎，还是一句都接不上
-4. `动作选择`：她是把东西放下、把门关上、把人请出去、还是装没听见
-
-不要一写强情绪就只会这几种空话：
-
-- 我很难受
-- 我很委屈
-- 我彻底绝望了
-- 我心如死灰
-
-先把人写出来，再让读者自己知道她难受。
-
-#### 追妻男主感情线怎么铺
-
-追妻别只写“男主后来后悔了”，要把他从爱到恨、再从恨到悔的每一步都走出来。
-
-最稳的顺序通常是：
-
-1. 先有旧情基础，不然追不成立
-2. 再有一次把关系砸坏的误会或旧伤
-3. 然后让他带着误解一次次选错边、伤错人
-4. 中间穿插别人作妖、挑拨、拱火，让女主一次比一次更寒心
-5. 中段给他一两次“差点看明白”的机会，但他还是没接住
-6. 等女主真要走了，或者已经走了，再让他知道真相
-7. 真相后别急着洗白，先让他继续说错话、补错偿、认错重点
-8. 最后不是靠他多深情翻盘，而是让他发现她已经不在原地等了
-
-如果写到“男主知道真相以后，立刻就会说人话、立刻就全懂了”，通常还是太顺，后悔味不够。
-
-#### 子代理调用：story-architect
-
-构思阶段，如果项目已部署 `story-architect`（检查 `.codex/agents/story-architect.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
-- 目标：`story-architect`
-- 项目目录：`{dir}`
-- 任务类型：`短篇构思`
-- 查询参数：`{情绪目标+题材方向}`
-
-用于辅助框架设计。如子代理不可用，由主线程直接执行。
-
-帮用户确定短篇的核心框架：
-
-```
-## 短篇核心框架
-
-### 基本信息
-- 标题（暂定）：{}
-- 目标字数：{} 字（短篇通常 8000-20000 字）
-- 目标平台：{}
-- 情绪目标：{读者读完的感受}
-
-### 一句话梗概
-{主角 + 极端处境 + 关键反转/翻盘 + 情绪落点}
-
-### 核心反转
-- 反转类型：{身份反转/视角反转/动机反转/时间线反转}
-- 反转内容：{一句话描述}
-- 铺垫线索：{至少 3 个铺垫点}
-
-### 情绪设计
-- 开头情绪：{}（强度 {1-10}）
-- 中段情绪：{}（强度 {1-10}）
-- 反转情绪：{}（强度 {1-10}，峰值维持 ≥2 节）
-- 结尾情绪：{}（强度 {1-10}）
-- 反转高潮不要骤降：反转前 1 节开始升温，反转节达到峰值，反转后 1 节维持峰值不骤降
-
-### 付费期待
-- 读者接下来最想看什么：{}
-
-### 人设速写
-- 主角：{一句话人设}
-- 关键角色：{一句话人设}
-- 关系：{他们之间的关系}
-```
-
-框架定住了，再落文件，别边想边乱写。
-
-#### 设计任务（框架确定后执行）
-
-详细步骤和模板见 [references/writing-workflow.md](references/writing-workflow.md)。这一步别凭感觉飘，老老实实按顺序做：
-
-1. 设计结构物件（1-2 个）→ 加载 `writing-craft.md`
-2. 设计反派（如有）→ 加载 `villain-and-reveal.md`
-3. 确定揭露方式 → 同上
-4. 编写 `小节大纲.md`（格式见 `writing-workflow.md`；默认写成 Markdown 可读文档）
-5. 反转信息差验证（公式见 `writing-workflow.md`）
-6. 伏笔回查清单（标准见 `writing-workflow.md`）
-
-#### 子代理调用：character-designer
-
-设计任务完成后，如果项目已部署 `character-designer`（检查 `.codex/agents/character-designer.md` 是否存在），可 spawn 一个子代理，并按以下信息构造输入：
-- 目标：`character-designer`
-- 项目目录：`{dir}`
-- 任务类型：`角色设定`
-- 查询参数：`{人设速写+关系}`
-
-它主要帮你先把角色和说话口气立住。子代理不可用就主线程自己做。
-
----
-
-### Phase 3：逐场景写作
-
-**项目文件结构**：
-
-```
-{短篇标题}/
-├── 设定.md              ← Phase 2 产出（含对标摘要）
-├── 小节大纲.md          ← Phase 2 产出
-├── 正文.md              ← Phase 3 产出
-├── 自检_{标题}.md       ← Phase 4 产出
-└── 对标/                ← 当前短篇引用视图（可选）
-    └── {书名}/
-        ├── 拆文报告.md
-        ├── 情节节点.md
-        └── 写作手法.md
-```
-
-**拆文结果怎么用**：写正文前先按“对标上下文加载”顺序扫 `{短篇标题}/对标/{书名}/`、项目根 `拆文库/{书名}/`、`{短篇标题}/拆文库/{书名}/`。
-
-优先读取顺序固定是：
-
-1. `可直接仿写_导语拆解表.md`
-2. `可直接仿写_顺序事件表.md`
-3. `可直接仿写_物件表.md`
-4. `可直接仿写_动作表.md`
-5. `可直接仿写_对白功能表.md`
-6. `可直接仿写_对话衔接表.md`
-7. `可直接仿写_误判表.md`
-8. `可直接仿写_钩子表.md`
-9. `可直接仿写_微动作表.md`
-10. `可直接仿写_安静压迫场表.md`
-11. `拆文报告.md`
-12. `情节节点.md`
-13. `写作手法.md`
-14. 原文 / 人物拆解 / 口气模板补充材料
-
-读取口径：
-
-- 找到 10 张基础表和 3 份写作资产，先吃这些，再看总报告
-- 只有 `拆文报告.md` 没有基础表，或缺 `作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则`，默认还不够直接开仿写或融合
-- 找到原文或人物拆解，就把角色说话口气顺手提出来
-- 写对白时，优先保证“不看人名也大概能听出来是谁在说话”
-
-> 这里说的「段」，是开头段、铺垫段、升级段、反转段、结尾段这种结构段；「小节」是数字编号的 beat；「场景」就是你现在要写出来的那一幕。
-
-**准备层**（每个场景落笔前都先来这一遍）：
-- **步骤 1：先把这一场想明白**：① 这一场主情绪是什么？② 要借哪个技法？③ 这场里几个人各自怎么说话？④ 这些东西准备落在哪几段？答不出来就先别硬写，回去翻参考。
-- **步骤 2：先用一句话说清这场要干嘛**：比如“这场要把她的心彻底写冷，同时埋下后面翻过来的证据”，说得清再动笔。
-- **步骤 2.5：先过一遍人话**：本场景每个主角色先写 1-2 条“这人顺嘴会怎么说”的短句，再下正文。凡是临时冒出来一句“好像挺新鲜”的话，先问自己：这是这个人真会说的话，还是作者在拧句子？
-
-**对白与人话规则**：对白硬约束、人话硬约束、改句顺序、前置拦截项，不再堆在主文件里。写对白、修台词、排查 AI 腔时，统一调用 [references/humanize-and-dialogue.md](references/humanize-and-dialogue.md)。
-
-主文件这里只保留执行口径：
-
-- 对白必须参考“角色口气模板”和“对话衔接表”，不能只靠事件功能表硬写
-- 修句时先保句子功能，再修词，再修顺口
-- 写后优先回看 `非人话表达 / 人物反应代判 / 抽象词悬空 / 断段过散`
-
-**写作指令**：按三维度织入逐场景写，不是翻译大纲。每个场景都要让读者和主角一起经历。三个维度（发生、感知、反应）一起落进连续正文里，不按维度分段，也不用“先写发生再补感知”的办法糊。织入后仍必须按正常小说镜头断段：遇到新动作、新信息、新对话、新转折时自然断段；同一动作链、同一反应链、同一组连续叙述不要机械拆散。目标是“像正常正文”，不是“像碎句稿”，也不是一段到底。
-
-**断段收口规则**：
-- 正文分段优先服从阅读节奏，不服从审计切块。
-- 不要把“镜头断段”误执行成“所有短句都必须各占一行”。
-- 也不要反过来把多个动作、多个信息点、多个对话回合硬糊成一整块。
-- 以下情况应优先并回同一段，而不是机械拆散：
-  - 同一个动作链中的连续短叙述句
-  - 同一个视线/反应链中的连续短句
-  - 只是补同一拍节奏、没有新增动作或信息的极短句
-- 典型可并例子：
-  - `她一下僵住。嘴唇动了动，没接上话。`
-  - `四目一对，他整个人都定住了。`
-  - `周既白的脸一下白透了。他张了张嘴，像还想给自己找个台阶。`
-  - `哦，明白了。`
-  - `行，真行。`
-  - `喜欢谁不好，喜欢这么个东西。`
-- 仍应单独成段的，主要是：
-  - 对话
-  - 新动作
-  - 新物件
-  - 新信息
-  - 明显转折/顿点/刺点
-- 版面目标不是“越碎越有节奏”，也不是“越整块越像成稿”，而是“该顿时顿，该连时连”。
-- 如果连续 3 段以上都是 1 句极短叙述句，且它们属于同一动作链，默认判为 `断段过散`，写后必须并回一部分。
-- 如果一个大场里连续塞进多个动作、多个证据、多个对话轮次却始终不换段，默认判为 `断段过少`，写后也必须拆开。
-
-**反朱雀/反AI味硬约束**：
-- 不要把正文修得过于规整。真正容易被打高疑似的，往往不是“有错”，而是“太匀、太顺、太像统一模板”。
-- 禁止连续大量使用同一类镜头过渡句：如“我抬眼”“我没说话”“空气安静了一瞬”“呼吸一滞”“心口一紧”。同类句式短距离内重复，按 AI 痕迹处理。
-- 禁止连续多段都使用“动作一句 + 心理一句 + 台词一句”的标准节拍。
-- 允许保留少量“真人顺手话”：轻微吐槽、主观偏见、临场想歪、说到一半拐弯。前提是不破坏事实和节奏。
-- 场景内必须有**长短句交错**。连续 3 句以上短句后，优先补一条带主观判断或补充信息的偏长句；连续 2 句以上偏长句后，再用短句收口。
-- 人物对白区分不只靠内容，也靠句法。嘴硬的人，不要每句都讲全；强势的人，可以更短、更打断别人；爱找补的人，可以半句撤回半句补上。
-- 去AI味不是把字句抹平，而是恢复“作者偏手”和“角色偏手”。
-- 写后统一回看四类高危：`非人话表达 / 生造口气句`、`人物反应代判句`、`抽象词悬空 / 对象省略过度`、`断段过散`。细则统一见 [references/humanize-and-dialogue.md](references/humanize-and-dialogue.md)。
-
-#### 子代理调用：narrative-writer
-
-正文默认还是主会话自己分批写，按 2-3 节一批最稳。别一口气硬写 8000+ 字，那样后面最容易全飘。每批写完先记一份“已写小节摘要”（3-5 条就够：已经揭了什么、情绪在哪、还有什么伏笔没收、下一批从哪接）。只有用户明确要子代理、主会话上下文吃紧，或者你想单独隔离一段试写时，才去调 `.codex/agents/narrative-writer.md`。
-
-调子代理时，传这些：
-- 目标：`narrative-writer`
-- 项目目录：`{dir}`
-- 任务描述：`写正文`
-- 输出文件：`正文.md`
-- 情绪目标：`{从核心框架读取}`
-- 小节大纲：`小节大纲.md`
-- 涉及角色：`{从核心框架读取}`
-- 对标/拆文路径：`{本次查找到的 对标/{书名}/ 或 拆文库/{书名}/，没有则写 无}`
-- 拆文召回摘要：`{本场景最相关的结构/情绪/反转/写作手法模块，最多5条；没有则写 无}`
-- 角色口气模板摘要：`{本场景涉及角色的对白口气模板，每个角色 1-3 条：常用称呼/句式习惯/情绪词；没有则写 无}`
-- 格式硬约束：必须完全遵守 `story-short-write/references/format-and-structure.md`；写作阶段输出的是 `正文.md` 工作稿，全文小节标记统一，默认 `###1.`、`###2.`；正文必须正常自然分段，对话独立成行；禁止使用 `---` 分隔正文片段；禁止把自检、说明、审查报告写入 `正文.md`。如果用户明确要求导出知乎盐选投稿版，另出 `盐选投稿版.md`：去掉 `###` 小节标记，必要时改成单独一行数字节标记；对话默认改用 `「」`，如用户或平台后台要求 `【】` 则按要求覆盖
-- 写作硬约束：按三维度织入写场景，但仍必须按正常小说镜头断段；同一动作链不要机械碎切，多轮对话和新信息要及时换段。禁止把正文写成“一坨不分段长块”，也禁止写成“每句单独成段”的碎句施工稿。对白必须落实“角色口气模板摘要”，让读者不看人名也能大致听出是谁在说话；正文节拍必须长短交错，避免全篇等长短句密排
-
-无论谁写，最后落进 `正文.md` 前都要按同一套工作稿格式重排一次。要导出知乎盐选投稿版，就基于 `正文.md` 另出 `盐选投稿版.md`，别反过来把工作稿搞脏。
-
-⚠️ **硬约束：每节 ≥ 800 字 / 50-65 行**。
-题材例外：爽文、打脸、系统流等高信息密度题材可降至 ≥ 500 字/节（见 `genre-writing-formulas.md` 各题材速查表），但不得低于 500 字。
-写完每节后必须统计字数和行数。不足 800 字（高信息密度题材不足 500 字）的节不得跳过，必须补充更多子事件/对话来补足后再写下一节。整篇完成后总字数必须 ≥ 8000 字。
-**字数统计必须机器算，不要脑补。** 优先用 Python 字符统计：`python3 -c "from pathlib import Path; print(len(Path('文件路径').read_text(encoding='utf-8')))"`。Windows / DeepSeek / Codex 组合下不要让模型自己估字数；`wc -m` 只当 macOS/Linux 备选，别用 `wc -c` 去数字节。要是当前环境没法跑 Bash/Python，就在自检里老实标“没做机器字数验证”，临时按行数速算，别装作已经验过。
-**⚠️ 字数不足 = 章节未完成。禁止在字数未达标时结束章节。必须继续展开场景直到达标。**
-
-**节数守恒**：正文节数必须等于小节大纲规划节数。不得合并多节为一节。如果写作中发现某节不需要独立存在，应回到大纲阶段调整，而非在写作时偷减。
-
-**节长不够时，按这个顺序补：**
-1. **写作时**：按三维度织入写每个子事件——发生、感知、反应织入同一段连续正文，不按维度分段写
-2. **字数不足时**（逐节统计后）：用以下方法补足（优先级从高到低）：
-   - 补充更多子事件/情节点（回到小节大纲补充）
-   - 加一轮对话（参考 `writing-craft.md` 对话权力模式）
-   - 加回忆闪回（1-2 句关联记忆）
-   - 加环境物件（通过动作带出，不独立成句）
-   - **禁止凑字**：每个添加必须推动情绪/铺垫/代入感，不得灌水。禁止用"加感知层""加反应层"的方式在已有动作上叠加描写
-
-**节长验证（分批写作，每批写完后执行）**：
-分批写作时，每次输出 2-3 节最稳。写完这一批，再统一查本批每一节的字数。
-如果任何一节 < 800 字（高信息密度题材 < 500 字）→ 补充更多子事件/对话来补足后再写下一批。
-禁止跳过未达标的小节。
-
-> 一次写 2-3 节，是为了让叙事别断气；每节都写一半停一次，反而更容易散。
-
-> **节长速算**：平均每行 15 字 × 55 行 ≈ 825 字。写到第 30 行时如果还不到 500 字，说明子事件数量不够，需要补充更多子事件或对话。
-
-每个小节按「三维度织入」写作（详见 `writing-craft.md` 第 8 节）：每个子事件都把发生、感知、反应三个维度织入同一段连续正文，子事件合计 ≥150 字。维度织入不等于按维度分段，禁止“先写发生再补感知再补反应”的堆叠写法；也不等于一段到底。遇到新动作、新物件、新信息、新对话就自然断段；同一动作链与同一反应链保持正常小说排版，不要切成审计碎块。
-
-**写完后对照 小节大纲.md 检查**：每个子事件三个维度都织入了？本节情绪到位？伏笔/物件已植入？节长 <800 字 → 补充更多子事件/对话后再写下一节。
-
-下面这套结构是默认稳妥版，别写着写着又散回去：
-
-#### 第一段：开头（前 300-500 字）
-
-**目标**：3 句话内抓住读者。**必须包含一个开篇钩子**（从 `hooks-chapter.md` 选择类型）。
-
-**技法指令**：前 100 字事件密度 ≥ 3，不做背景铺垫，直接上事件链。
-
-**开头零环境规则**（默认适用；悬疑、惊悚、灾难、强氛围题材可例外）：
-- 前 3 句禁止出现无事件承载的环境描写（灯光、天气、气味、温度、装修）
-- 前 3 句必须是：事件 / 对话 / 动作 / 信息炸弹，四种之一
-- 环境细节只能织入角色的动作和感知中自然带出，不能独立成句；例外题材中，环境也必须携带威胁、异常或信息差
-- 检查方法：标出前 3 句的主语，如果主语是环境物件（灯光/走廊/房间/天气），重写
-
-开头技巧：
-
-| 技巧 | 说明 | 示例 |
-|------|------|------|
-| 冲突前置 | 第一句就是矛盾 | 「离婚协议放在桌上，他已经签了。」 |
-| 信息差钩 | 给读者一个角色不知道的信息 | 「她不知道，对面那个男人已经在计划第三次了。」 |
-| 反常行为 | 用一个不合常理的行为引起好奇 | 「她把订婚戒指冲进了马桶。」 |
-| 重生反常 | 重生后做前世绝不会做的事 | 「沈栀心念成灰，支着一口气找到了媒婆:郭家的那个天阉，我来嫁。」 |
-| 超自然身份 | 开篇揭示非人类身份 | 「我是世上仅存的红衣厉鬼。我不知自己是怎么死的。」 |
-| 灵魂旁观 | 以灵魂视角描述死亡现场 | 「我的尸体躺在透明棺材里，三个哥哥在外面笑着说：她演得真像。」 |
-| 悬念句 | 抛出一个需要解释的事实 | 「我死后的第三天，老公发了一条朋友圈。」 |
-| 替嫁被弃 | 被迫接受不公正的命运 | 「三个月后，我代替皇后的嫡亲公主坐上了去漠北和亲的轿撵。」 |
-| 代入式提问 | 直接让读者产生共鸣 | 「你有没有在深夜接到过一个不该接的电话？」 |
-
-#### 第二段：铺垫（占全文 30-40%）
-
-- 用物件/数字/习惯建立羁绊（详见 `emotional-methods.md`「羁绊铺设」）
-- 埋入至少 3 个反转线索，分散在不同小节
-- 每 2-3 个小节埋一个钩子（类型从 `hooks-paragraph.md` 选择）
-- 小节用数字分割，每小节推进一个情节点
-- 情绪强度逐节递增，不允许连续 2 节无情绪变化
-- **结构物件第 1 现必须在此段完成**
-- **反派作恶按阶梯递增**（小恶→中恶，见 `villain-and-reveal.md`）
-
-#### 第三段：升级（占全文 20-30%）
-
-- 冲突必须比上一段升级（强度/范围/代价至少一个维度上升）
-- 插入倒计时钩子或代价钩子制造紧迫感
-- 钩子密度提高到每 2 节一个（按题材分级见 `genre-writing-formulas.md`）
-- 埋入误导信息，让读者猜错反转方向
-- **数字/金额递增作为叙事工具**（具体数字替代模糊描述，见 `writing-craft.md`）
-- **一动一静交替**：每节有动有静，不连续暴力也不连续安静
-
-#### 第四段：反转（占全文 10-15%）
-
-- 反转在一节内完成揭示，不拖延
-- 揭示后确保前面铺垫的线索可被回溯（读者能找到「原来如此」的伏笔）
-- 反转节的情绪冲击强度必须 > 前面所有节的最高值
-- **用证物/证人/偷听/剥洋葱揭露真相**（4 种方式见 `villain-and-reveal.md`）
-- **结构物件第 2 现必须在此段完成**（意义被颠覆）
-
-#### 第五段：结尾（占全文 5-10%）
-
-- 章末必须有钩子（悬念或余韵）
-- 用安静细节收尾（一个物件、一个动作、一句短话），不写大段抒情
-- 结尾方式见下表，参考 `emotional-methods.md`「余韵钝痛」
-- **结构物件第 3 现（回扣暴击）**
-
-结尾类型：
-
-| 类型 | 效果 | 适合情绪 |
-|------|------|----------|
-| 余韵式 | 不说完，让读者自己想 | 意难平 |
-| 呼应式 | 首尾呼应，形成闭环 | 治愈、成长 |
-| 开放式 | 留下悬念 | 细思极恐 |
-| 反转再反转 | 结尾再来一个小反转 | 震惊 |
-| 金句式 | 一句话点题 | 共鸣 |
-
----
-
-### Phase 3 完成门槛（进入 Phase 4 前必须通过）
-
-- [ ] 总字数 ≥ 8000（优先用 Python 字符统计验证，兼容 Windows 和中文字符计数）
-- [ ] 每节 ≥ 800 字（爽文等高信息密度题材 ≥ 500 字，见 `genre-writing-formulas.md`）
-- [ ] 节数 = 小节大纲规划节数（不得合并/省略）
-- [ ] 身体部位同一词全文 ≤ 5 次
-- [ ] 「像」≤ 10 处
-
-**中文文本统计注意事项**：
-- `wc -c` 统计的是字节数，中文每字符 3 字节（UTF-8），不等于字数
-- 字数统计必须优先使用 Python 字符统计：`python3 -c "from pathlib import Path; print(len(Path('文件路径').read_text(encoding='utf-8')))"`
-- `wc -m` 仅作为 macOS/Linux 备选；Windows 环境或模型兼容性不确定时不要依赖 `wc`
-- 禁止用 `wc -c` 或模型估算字数
-- 行数统计使用 `wc -l` 是安全的
-
-**不通过 → 回退补足，不得进入精修。**
-
----
-
-### Phase 4：精修打磨
-
-按 `references/writing-workflow.md` 里的精修清单做检查。
-重点只盯这几件事：开头钩子、情绪曲线、反转铺垫、每句话值不值、格式规不规整、AI 腔有没有冒头。若目标平台是知乎盐选，精修完成后还要再补一轮投稿排版检查：确认投稿版已经改用 `「」` 对话、`1/2/3` 或无标记节位、不保留 `###1.` 这类 Markdown 施工标记。
-
-#### 子代理调用：narrative-writer（去AI味）+ consistency-checker
-
-精修阶段，如果项目已部署对应子代理，可 spawn：
-- 一个 `narrative-writer` 子代理，传入：项目目录 `"{dir}"`、任务描述 `去AI味+格式检查`、检查范围 `"{正文文件}"`；用于执行去AI味（6 Gate）和格式合规检查
-- 一个 `consistency-checker` 子代理，传入：项目目录 `"{dir}"`、检查范围 `"{正文文件}"`、检查类型 `事实冲突+伏笔断线+角色属性不一致`；用于执行一致性检查
-
-子代理不可用就主线程自己做。
-
-**自检记录隔离规则**：
-- 所有自检记录（字数统计、禁用词扫描结果、格式检查清单）必须写入独立文件 `自检_{标题}.md`（标题取自 Phase 2 核心框架）
-- **绝对不能**将自检记录附加到正文文件末尾
-- 自检文件与正文文件完全分离，便于后续清理和归档
-- 正文中不得出现任何 `<!-- 自检 -->` 或类似的检查标记注释
-
-不通过就回退补足。
+- [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [references/governance/no-external-block-audit-self-check.md](references/governance/no-external-block-audit-self-check.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
 ---
 
 ## 流程衔接
 
-**流水线：** 短篇
-**位置：** 写作（第 3/3 步）
-
 | 时机 | 跳转到 | 命令 |
 |---|---|---|
-| 有参考小说想对标 | story-short-analyze | `/story-short-analyze` → 输出存入 `拆文库/{书名}/` |
-| 写完，去 AI 味 | story-deslop | `/story-deslop` |
-| 想自检 | 本 skill 质量自检 | 按 Phase 4 自检流程 + `references/quality-checklist.md` 逐项核对 |
-| 需要市场方向 | story-short-scan | `/story-short-scan` |
-| 设定太大，适合长篇 | story-long-write | `/story-long-write` |
+| 有参考小说要拆 | `story-short-analyze` | `/story-short-analyze` |
+| 成稿去味 | `story-deslop` | `/story-deslop` |
+| 需要市场方向 | `story-short-scan` | `/story-short-scan` |
+| 设定明显更适合长篇 | `story-long-write` | `/story-long-write` |
 
 ---
 
 ## 参考资料
 
-按需加载下面这些文件。主流程默认先挂 `writing-workflow.md` + 3 份 `material-packs-*`，再按场景补别的参考；除了主流程默认包，其他参考同时加载不超过 3 个：
+主流程常用：
 
-| 文件 | 何时加载 |
-|------|----------|
-| [references/format-and-structure.md](references/format-and-structure.md) | 写作前必读 |
-| [references/writing-workflow.md](references/writing-workflow.md) | Phase 2 设计任务 + Phase 4 精修 |
-| [references/material-packs-setting-plot.md](references/material-packs-setting-plot.md) | 定起盘、做融合、补事件链、找第二层冲突、补公开场和后效应时 |
-| [references/material-packs-expression.md](references/material-packs-expression.md) | 兼容入口：需要一次性回看旧表达层总包时 |
-| [references/opening-and-hook-library.md](references/opening-and-hook-library.md) | 补题面、导语、开头三句、第一屏钩子时 |
-| [references/emotion-and-outcome-library.md](references/emotion-and-outcome-library.md) | 补情绪母线、后果、后效应、收束结果句时 |
-| [references/character-voice-library.md](references/character-voice-library.md) | 拆角色口气、关系反差、切割口气时 |
-| [references/material-packs-character.md](references/material-packs-character.md) | 定角色功能、关系错位、接住者、托底位、新秩序位时 |
-| [references/direct-imitation-assets.md](references/direct-imitation-assets.md) | 上游是拆文结果时：校准 10 张表、读取顺序、缺库降级与禁止开写条件 |
-| [references/project-asset-layout.md](references/project-asset-layout.md) | 需要把 `拆文库/`、`对标/`、跨书资料库整理成长期可维护目录时 |
-| [references/humanize-and-dialogue.md](references/humanize-and-dialogue.md) | 写导语、对白、修台词、拦 AI 句式时 |
-| [references/dialogue-blade-library.md](references/dialogue-blade-library.md) | 场景对白需要更有刀法、更会接话、更会压回时 |
-| [references/ai-sentence-anti-patterns.md](references/ai-sentence-anti-patterns.md) | 回炉时快速扫 AI 高频句式反例与改法 |
-| [references/short-story-material-bank.md](references/short-story-material-bank.md) | 起盘抽卡、补具体导火索/关系场/硬牌/公开场时 |
-| [references/writing-craft.md](references/writing-craft.md) | 写作全程参考 |
-| [references/anti-ai-writing.md](references/anti-ai-writing.md) | 去AI味时必读 |
-| [references/genre-writing-formulas.md](references/genre-writing-formulas.md) | 核心参考，按题材加载 |
-| [references/genre-writing-techniques.md](references/genre-writing-techniques.md) | 通用写作技法+情绪操控+感情线法则 |
-| [references/emotional-methods.md](references/emotional-methods.md) | 设计情感时 |
-| [references/hooks-chapter.md](references/hooks-chapter.md) | 章节钩子设计 |
-| [references/hooks-suspense.md](references/hooks-suspense.md) | 悬念设计 |
-| [references/hooks-paragraph.md](references/hooks-paragraph.md) | 段落钩子技巧 |
-| [references/villain-and-reveal.md](references/villain-and-reveal.md) | Phase 2 设计反派时 |
-| [references/reversal-toolkit.md](references/reversal-toolkit.md) | 设计反转时 |
-| [references/emotional-arc-design.md](references/emotional-arc-design.md) | 设计情绪曲线时 |
-| [references/quality-checklist.md](references/quality-checklist.md) | 精修检查时 |
-| [references/banned-words.md](references/banned-words.md) | 禁用词表 |
-| [references/female-audience-writing.md](references/female-audience-writing.md) | 女频写作时 |
-| [references/character-basics.md](references/character-basics.md) | 人物基础设定 |
-| [references/character-design-methods.md](references/character-design-methods.md) | 人设方法 |
-| [references/character-relations.md](references/character-relations.md) | 人物关系设计 |
-| [references/dialogue-mastery.md](references/dialogue-mastery.md) | 写对话时 |
-| [references/opening-design.md](references/opening-design.md) | 设计开头时 |
-| [references/genre-catalog.md](references/genre-catalog.md) | 题材框架 |
-| [references/genre-core-mechanics.md](references/genre-core-mechanics.md) | 核心梗设计 |
-| [references/genre-readers.md](references/genre-readers.md) | 读者心理 |
-| [references/state-tracking.md](references/state-tracking.md) | 状态追踪协议（Phase 3 准备层参考） |
+- [references/workflow/reference-index.md](references/workflow/reference-index.md)
+- [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/workflow/format-and-structure.md](references/workflow/format-and-structure.md)
+- [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/governance/skill-boundaries.md](references/governance/skill-boundaries.md)
+- [../story/references/reference-layer-map.md](../story/references/reference-layer-map.md)
+
+起盘与结构：
+
+- [references/craft/material-packs-setting-plot.md](references/craft/material-packs-setting-plot.md)
+- [references/craft/short-story-material-bank.md](references/craft/short-story-material-bank.md)
+- [references/craft/opening-and-hook-library.md](references/craft/opening-and-hook-library.md)
+- [references/craft/writing-craft.md](references/craft/writing-craft.md)
+- [references/craft/reversal-toolkit.md](references/craft/reversal-toolkit.md)
+
+情绪与人物：
+
+- [references/craft/emotion-and-outcome-library.md](references/craft/emotion-and-outcome-library.md)
+- [references/craft/character-voice-library.md](references/craft/character-voice-library.md)
+- [references/craft/material-packs-character.md](references/craft/material-packs-character.md)
+- [references/craft/humanize-and-dialogue.md](references/craft/humanize-and-dialogue.md)
+- [references/craft/dialogue-blade-library.md](references/craft/dialogue-blade-library.md)
+
+仿写与高敏回修：
+
+- [references/craft/direct-imitation-assets.md](references/craft/direct-imitation-assets.md)
+- [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [references/governance/no-external-block-audit-self-check.md](references/governance/no-external-block-audit-self-check.md)
+- [../story/references/high-risk-gates/reference-index.md](../story/references/high-risk-gates/reference-index.md)
+- [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
+
+脚本与规则：
+
+- [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
+- [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
+- [references/integration/story-profile-schema.md](references/integration/story-profile-schema.md)
+- [references/governance/audit-rulebook-coverage.md](references/governance/audit-rulebook-coverage.md)
 
 ---
 
 ## 语言
 
-- 跟随用户的语言回复，用户用什么语言就用什么语言回复
+- 跟随用户语言回复
 - 中文回复遵循《中文文案排版指北》

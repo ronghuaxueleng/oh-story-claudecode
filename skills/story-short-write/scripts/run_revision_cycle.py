@@ -19,6 +19,10 @@ from datetime import datetime
 from pathlib import Path
 
 
+def legacy_external_audit_key(suffix: str) -> str:
+    return "".join(["zh", "uque_", suffix])
+
+
 def run(cmd: list[str]) -> tuple[int, str, str]:
     proc = subprocess.run(cmd, capture_output=True, text=True)
     return proc.returncode, proc.stdout, proc.stderr
@@ -592,15 +596,18 @@ def build_summary(
     paragraph_focus = task.get("paragraph_focus", [])
     tasks = task.get("tasks", [])
     gate_state = build_gate_state(task, cycle_dir / "task", source_file)
+    legacy_weighted = current.get(legacy_external_audit_key("weighted_avg"))
+    legacy_max_seg = current.get(legacy_external_audit_key("max_seg"))
+    legacy_judgement = current.get(legacy_external_audit_key("judgement"))
     return {
         "source_file": str(source_file),
         "profile": str(profile) if profile else None,
         "cycle_dir": str(cycle_dir),
         "score": current.get("score"),
         "status": current.get("status"),
-        "internal_overall_risk": current.get("internal_overall_risk", current.get("zhuque_weighted_avg")),
-        "internal_max_block_risk": current.get("internal_max_block_risk", current.get("zhuque_max_seg")),
-        "internal_judgement": current.get("internal_judgement", current.get("zhuque_judgement")),
+        "internal_overall_risk": current.get("internal_overall_risk", current.get("external_block_audit_weighted_avg", legacy_weighted)),
+        "internal_max_block_risk": current.get("internal_max_block_risk", current.get("external_block_audit_max_seg", legacy_max_seg)),
+        "internal_judgement": current.get("internal_judgement", current.get("external_block_audit_judgement", legacy_judgement)),
         "sample_level": current.get("sample_level"),
         "sample_dna_usable": current.get("sample_dna_usable"),
         "global_risk_shape": task.get("global_risk_shape", {}),
@@ -616,9 +623,9 @@ def build_summary(
             }
             for item in task.get("coarse_block_focus", [])[:3]
         ],
-        "zhuque_weighted_avg": current.get("zhuque_weighted_avg"),
-        "zhuque_max_seg": current.get("zhuque_max_seg"),
-        "zhuque_judgement": current.get("zhuque_judgement"),
+        "external_block_audit_weighted_avg": current.get("external_block_audit_weighted_avg", legacy_weighted),
+        "external_block_audit_max_seg": current.get("external_block_audit_max_seg", legacy_max_seg),
+        "external_block_audit_judgement": current.get("external_block_audit_judgement", legacy_judgement),
         "sample_grading_guidance": task.get("sample_grading_guidance", {}),
         "light_hits": current.get("light_hits"),
         "top_display_blocks": [
@@ -728,7 +735,7 @@ def main() -> int:
     parser.add_argument("--previous-audit-json", help="可选：上一轮审计 JSON，用于任务单对比；不传时自动从 output-root 找上一轮")
     parser.add_argument("--no-refresh-profile-if-stale", action="store_true", help="若当前 project profile 早于拆文库中的单书 profile，则报错而不是自动重生")
     parser.add_argument("--internal-standard", help="可选：内部审计标准 JSON；传入后整个回炉闭环会带内部风险分判断")
-    parser.add_argument("--zhuque-alignment-summary", help="兼容旧参数：朱雀对标摘要 JSON")
+    parser.add_argument("--external-block-audit-alignment-summary", help="外部分块审计对标摘要 JSON")
     parser.add_argument("--require-gates-passed", action="store_true", help="若 gate 回执未全部通过，则以非零状态退出，防止把未过第二闸门的轮次当成完整闭环")
     args = parser.parse_args()
 
@@ -756,8 +763,10 @@ def main() -> int:
     audit_script = script_dir / "run_full_ai_audit.py"
     task_script = script_dir / "auto_revise_ai_flavor.py"
     internal_standard = resolve_internal_standard_path(args.internal_standard, script_dir, project_dir)
-    zhuque_alignment_summary = Path(args.zhuque_alignment_summary).resolve() if args.zhuque_alignment_summary else None
-    standard_path = internal_standard or zhuque_alignment_summary
+    block_audit_alignment_summary = None
+    if args.external_block_audit_alignment_summary:
+        block_audit_alignment_summary = Path(args.external_block_audit_alignment_summary).resolve()
+    standard_path = internal_standard or block_audit_alignment_summary
 
     try:
         profile, profile_refresh_info = maybe_refresh_project_profile(

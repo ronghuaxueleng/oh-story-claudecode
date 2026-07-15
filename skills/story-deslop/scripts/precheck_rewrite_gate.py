@@ -11,7 +11,7 @@ from pathlib import Path
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?])")
 DIALOGUE_RE = re.compile(r"[“\"]([^”\"\n]{1,120})[”\"]")
-DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "references" / "myconfig-import" / "precheck_rewrite_gate.config.json"
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "references" / "governance" / "precheck_rewrite_gate.config.json"
 
 
 @dataclass
@@ -157,7 +157,7 @@ def write_report(path: Path, findings: dict[str, list[Finding]]) -> tuple[Path, 
 def main() -> None:
     parser = argparse.ArgumentParser(description="重写前闸门预检脚本")
     parser.add_argument("path", help="待检查的 md/txt 文件")
-    parser.add_argument("--config", help="可选：预检配置 JSON；不传时默认读取 skill 内 references/myconfig-import/precheck_rewrite_gate.config.json")
+    parser.add_argument("--config", help="可选：预检配置 JSON；不传时默认读取 skill 内 references/governance/precheck_rewrite_gate.config.json")
     args = parser.parse_args()
 
     path = Path(args.path)
