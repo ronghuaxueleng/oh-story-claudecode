@@ -196,14 +196,14 @@ def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
         if not stripped.startswith("- "):
             continue
         body = stripped[2:].strip()
-        if body.startswith("桥段"):
-            current_parent = body
-            result[current_parent]
-            continue
         if raw.startswith("  - ") and current_parent:
             key, _, value = body.partition("：")
             if value:
                 result[f"{current_parent}::{key.strip()}"].append(value.strip())
+            continue
+        if re.match(r"^桥段[：:]", body):
+            current_parent = body
+            result[current_parent]
             continue
         key, _, value = body.partition("：")
         if value:
@@ -1076,8 +1076,27 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         "rotten_relationship": collect_profile_source_style_fragments(style_pairs.get("rotten_relationship", [])),
         "dialogue_bridges": collect_profile_source_style_fragments(style_pairs.get("dialogue_bridges", [])),
     }
-    result["style_assets"] = {
-        key: value for key, value in result["style_assets"].items() if value
+    migration_lines = sections.get("12. 迁移替换资产", [])
+    migration_pairs = collect_profile_source_pairs(migration_lines)
+    result["migration_assets"] = {
+        "object_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("object_substitutes", [])
+        ),
+        "scene_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("scene_substitutes", [])
+        ),
+        "action_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("action_substitutes", [])
+        ),
+        "dialogue_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("dialogue_substitutes", [])
+        ),
+        "role_bias_variants": collect_profile_source_style_fragments(
+            migration_pairs.get("role_bias_variants", [])
+        ),
+    }
+    result["migration_assets"] = {
+        key: value for key, value in result["migration_assets"].items() if value
     }
 
     story_guardrails = build_profile_story_guardrails(author_pairs, consequence_pairs)
@@ -1144,6 +1163,7 @@ def table_dict_rows(text: str) -> list[dict[str, str]]:
 
 
 STYLE_ASSET_STOPWORDS = {
+    "原文未发现", "已扫原文未发现",
     "位置", "钩子内容", "原文真正为什么有效", "读者下一步在等什么", "回收位置", "一写就假的方式",
     "动作本体", "对应情绪", "角色状态", "替代的解释句", "可迁移题材",
     "角色", "稳定偏手", "常见触发场", "当场效果", "后续写法提醒",
@@ -1156,6 +1176,19 @@ STYLE_ASSET_STOPWORDS = {
     "场面压力来源", "谁没说话", "未说破结果", "适用公开场",
     "上句功能", "下句接法", "动作垫句", "称呼变化",
 }
+
+STYLE_ASSET_KEYS = (
+    "opening_hooks",
+    "misdirection",
+    "object_pressure",
+    "action_axis",
+    "micro_actions",
+    "quiet_pressure",
+    "character_bias",
+    "meltdown_dialogue",
+    "rotten_relationship",
+    "dialogue_bridges",
+)
 
 
 def looks_like_style_header(text: str) -> bool:
@@ -2028,6 +2061,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                 if isinstance(items, list) and any(str(item).strip() for item in items):
                     local_explicit_style_assets.add(asset_name)
                 collected[f"profile_style_asset::{asset_name}"].extend(items)
+            for asset_name, items in parsed.get("migration_assets", {}).items():
+                collected[f"profile_migration_asset::{asset_name}"].extend(items)
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
             story_guardrails = parsed.get("story_guardrails", {})
@@ -2191,8 +2226,16 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             item for item in style_assets["opening_hooks"]
             if item not in opening_hook_blacklist and len(item.strip()) > 2
         ]
-        if not style_assets["opening_hooks"]:
-            style_assets.pop("opening_hooks", None)
+    style_assets = {
+        key: style_assets.get(key, [])
+        for key in STYLE_ASSET_KEYS
+    }
+
+    migration_assets = {
+        key.split("::", 1)[1]: clean_style_asset_terms(value)
+        for key, value in collected.items()
+        if key.startswith("profile_migration_asset::") and clean_style_asset_terms(value)
+    }
 
     bridge_rules = merge_bridge_rule_lists(bridge_rules)
 
@@ -2261,6 +2304,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "bridge_rules": bridge_rules,
         "scene_assets": scene_assets,
         "style_assets": style_assets,
+        "migration_assets": migration_assets,
     }
     if collected["profile_risk_layer_type"]:
         counts: dict[str, int] = defaultdict(int)
@@ -2340,6 +2384,7 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
     opening_signal_groups = merge_dict_of_lists(profiles, "opening_signal_groups")
     scene_assets = merge_dict_of_lists(profiles, "scene_assets")
     style_assets = merge_dict_of_lists(profiles, "style_assets")
+    migration_assets = merge_dict_of_lists(profiles, "migration_assets")
     source_entries = [
         build_sample_source_entry(profile, path)
         for profile, path in zip(profiles, profile_paths)
@@ -2383,6 +2428,7 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
         ),
         "scene_assets": scene_assets,
         "style_assets": style_assets,
+        "migration_assets": migration_assets,
     }
     risk_layer_type = merge_risk_layer_type(profiles)
     if risk_layer_type:

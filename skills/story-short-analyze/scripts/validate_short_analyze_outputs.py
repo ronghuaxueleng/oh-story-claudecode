@@ -66,9 +66,110 @@ WRITING_ASSET_FILES = [
     "作者DNA指纹.md",
     "仿写约束_禁写清单.md",
     "同桥段过检规则.md",
+    "原文资产候选池.md",
+    "本书动态信号字典.json",
     "profile_source.md",
     "桥段施工卡.md",
 ]
+
+ASSET_CANDIDATE_CATEGORY_TARGETS = {
+    "导语": "可直接仿写_导语拆解表.md",
+    "顺序事件": "可直接仿写_顺序事件表.md",
+    "物件": "可直接仿写_物件表.md",
+    "动作": "可直接仿写_动作表.md",
+    "对白功能": "可直接仿写_对白功能表.md",
+    "对话衔接": "可直接仿写_对话衔接表.md",
+    "误判": "可直接仿写_误判表.md",
+    "钩子": "可直接仿写_钩子表.md",
+    "微动作": "可直接仿写_微动作表.md",
+    "安静压迫场": "可直接仿写_安静压迫场表.md",
+    "人物偏手": "可直接仿写_人物偏手表.md",
+    "失控说话": "可直接仿写_失控说话表.md",
+    "烂关系漏出": "可直接仿写_烂关系漏出表.md",
+    "外部秩序": "可直接仿写_外部秩序表.md",
+    "公开炸场": "可直接仿写_公开炸场表.md",
+    "后果链": "可直接仿写_后果链表.md",
+}
+
+ASSET_CANDIDATE_PATTERN = re.compile(
+    r"^C(?P<id>\d+)\b.*?\bL(?P<start>\d+)(?:\s*-\s*L?(?P<end>\d+))?"
+    r".*?锚点[：:]\s*(?P<anchor>[^|\n]+)"
+    r"\|\s*类别[：:]\s*(?P<category>[^|\n]+)"
+    r"\|\s*资产名[：:]\s*(?P<asset>[^|\n]+)"
+    r"\|\s*去向[：:]\s*(?P<target>[^|\n]+)"
+    r"\|\s*状态[：:]\s*(?P<status>已收录|不收录)"
+    r"\s*\|\s*理由[：:]\s*(?P<reason>[^|\n]+)",
+    flags=re.M,
+)
+
+ASSET_SWEEP_LABELS = (
+    "物件替换对",
+    "微动作角色覆盖",
+    "对白侵占与假道歉",
+    "安静等待与未归",
+    "未来公开事件钩子",
+)
+
+DYNAMIC_SIGNAL_CATEGORIES = (
+    "人物别名",
+    "核心物件",
+    "动作与微动作",
+    "对白功能信号",
+    "安静场信号",
+    "证据载体",
+    "未来事件",
+    "关系与秩序变化",
+)
+
+DYNAMIC_SIGNAL_PHASES = (
+    "首次全文发现",
+    "表后回扫",
+)
+
+SOURCE_ASSET_CUE_RULES = (
+    (
+        "物件",
+        "可直接仿写_物件表.md",
+        (
+            "钻戒", "婚戒", "戒指", "离婚协议", "离婚证", "请帖", "存储卡",
+            "录像", "录音", "视频", "病历", "账目", "印章", "门禁", "密码",
+            "玉牌", "护身符", "遗书", "合同", "房卡", "工牌", "钥匙",
+        ),
+    ),
+    (
+        "微动作",
+        "可直接仿写_微动作表.md",
+        (
+            "咬住嘴唇", "咬紧嘴唇", "瞳孔颤", "手上用力", "攥紧拳头",
+            "低下头", "摸了摸胸口", "摸摸胸口", "嘴角动了动", "迟疑了",
+            "指尖发白", "手指停住", "呼吸一滞", "眼神躲闪",
+        ),
+    ),
+    (
+        "对白功能",
+        "可直接仿写_对白功能表.md",
+        (
+            "陪我一起睡", "把自己交给你", "主卧", "床上伺候", "替我照顾",
+            "谢谢你替我", "感谢你替我",
+        ),
+    ),
+    (
+        "安静压迫场",
+        "可直接仿写_安静压迫场表.md",
+        (
+            "没有回家", "整夜没回", "整夜未归", "联系不上", "等了一夜",
+            "手机震动", "提示音", "无人回应",
+        ),
+    ),
+    (
+        "钩子",
+        "可直接仿写_钩子表.md",
+        (
+            "全程直播", "秘密婚礼", "发布会", "颁奖礼", "签约仪式",
+            "开庭", "审判日", "继任仪式",
+        ),
+    ),
+)
 
 REPORT_HEADINGS = [
     "### 原文覆盖确认",
@@ -130,6 +231,7 @@ PROFILE_SOURCE_HEADINGS = [
     "## 9. 后果链",
     "## 10. 作者站位高危句",
     "## 11. style_assets 原始材料",
+    "## 12. 迁移替换资产",
 ]
 
 DIRECT_REQUIRED_SNIPPETS = [
@@ -144,6 +246,7 @@ BOOK_PROFILE_KEYS = [
     "bridge_rules",
     "scene_assets",
     "style_assets",
+    "migration_assets",
     "story_guardrails",
 ]
 
@@ -171,7 +274,7 @@ DETAIL_PLACEHOLDER_PATTERNS = [
     "这一类场面或关系后果",
     "可迁到",
     "同题材桥段",
-    "对应周逢雅、唐月轩、宋远三角关系",
+    "对应人物A、人物B、人物C三角关系",
 ]
 
 PROFILE_FRAGMENT_BLACKLIST = {
@@ -214,13 +317,83 @@ DIRECT_EVIDENCE_HEADERS = (
 )
 
 DIRECT_SEMANTIC_HEADER_GROUPS = {
+    "可直接仿写_导语拆解表.md": (
+        ("原文怎么写", "原文证据", "原文位置"),
+        ("钩子内容", "第一句功能", "原文功能"),
+    ),
+    "可直接仿写_顺序事件表.md": (
+        ("谁做了什么", "事件顺序", "资产"),
+        ("这一拍功能", "功能", "原文功能"),
+    ),
+    "可直接仿写_物件表.md": (
+        ("物件", "资产"),
+        ("伤害层", "原文功能", "承载含义"),
+    ),
+    "可直接仿写_动作表.md": (
+        ("动作", "动作本体"),
+        ("谁做", "角色", "原文位置"),
+    ),
+    "可直接仿写_对白功能表.md": (
+        ("角色", "人物"),
+        ("典型说法类型", "说法类型"),
+        ("这类话负责什么", "原文功能", "功能"),
+        ("口吻特征", "口气", "原文证据"),
+    ),
     "可直接仿写_人物偏手表.md": (("角色", "人物"), ("稳定偏手",)),
     "可直接仿写_误判表.md": (("先误判了什么", "容易误判点"), ("从哪开始翻", "翻点")),
-    "可直接仿写_微动作表.md": (("动作本体",),),
-    "可直接仿写_安静压迫场表.md": (("场面压力来源", "环境音"),),
+    "可直接仿写_钩子表.md": (
+        ("钩子内容", "原文证据"),
+        ("钩子类型", "原文功能"),
+        ("回收位置", "原文位置"),
+    ),
+    "可直接仿写_微动作表.md": (
+        ("动作本体",),
+        ("对应情绪", "原文功能"),
+        ("替代的解释句", "原文证据"),
+    ),
+    "可直接仿写_安静压迫场表.md": (
+        ("场面压力来源",),
+        ("谁没说话", "沉默者"),
+        ("环境音", "物件"),
+        ("未说破结果", "原文证据"),
+    ),
     "可直接仿写_烂关系漏出表.md": (("具体漏出件",),),
     "可直接仿写_对话衔接表.md": (("上句功能",), ("下句接法",)),
+    "可直接仿写_失控说话表.md": (
+        ("角色", "人物"),
+        ("失控类型", "原文证据"),
+        ("触发点", "原文位置"),
+        ("暴露", "原文功能"),
+    ),
+    "可直接仿写_外部秩序表.md": (
+        ("秩序来源", "外部秩序件", "资产"),
+        ("谁掌控秩序", "原文证据", "原文位置"),
+        ("后果", "原文功能"),
+    ),
+    "可直接仿写_公开炸场表.md": (
+        ("场面", "资产"),
+        ("关键硬牌", "原文证据"),
+        ("谁出的牌", "主体", "原文位置"),
+        ("后果", "原文功能"),
+    ),
+    "可直接仿写_后果链表.md": (
+        ("起点实锤", "后果链节点", "资产"),
+        ("最终新状态", "原文功能", "功能"),
+    ),
 }
+
+DIRECT_MIGRATION_HEADERS = (
+    "迁移提醒",
+    "可迁移写法",
+    "可替换功能件",
+    "后续写法提醒",
+    "可迁移桥段",
+    "可迁移题材",
+    "适用公开场",
+    "后续压法",
+    "换壳写法",
+    "迁移用法",
+)
 
 REQUIRED_STYLE_ASSET_KEYS = (
     "opening_hooks",
@@ -248,6 +421,14 @@ REQUIRED_CONSEQUENCE_GUARDRAIL_KEYS = (
     "tail_entry_exclusion_reason",
 )
 
+REQUIRED_MIGRATION_ASSET_KEYS = (
+    "object_substitutes",
+    "scene_substitutes",
+    "action_substitutes",
+    "dialogue_substitutes",
+    "role_bias_variants",
+)
+
 PLACEHOLDER_HEADING_PATTERN = re.compile(
     r"^#{1,6}[ \t]*(?:桥\d+|桥段卡\d+|卡\d+|待补|占位)[ \t]*$",
     flags=re.M,
@@ -256,23 +437,6 @@ PLACEHOLDER_HEADING_PATTERN = re.compile(
 EMPTY_LABELED_BULLET_PATTERN = re.compile(
     r"^\s*-\s+[^：:\n]{1,40}[：:]\s*$",
     flags=re.M,
-)
-
-CORE_BRIDGE_COVERAGE_RULES = (
-    {
-        "name": "办公室戒指见血桥",
-        "source_groups": (("公司", "办公室"), ("戒指",), ("血", "见血", "刮破")),
-        "output_terms": ("办公室", "戒指", "见血", "包砸", "病情暗示"),
-        "targets": (
-            "拆文报告.md",
-            "情节节点.md",
-            "可直接仿写_顺序事件表.md",
-            "写作资产/高敏桥段识别.md",
-            "写作资产/公开场_关键硬牌_后果.md",
-            "写作资产/profile_source.md",
-        ),
-        "min_term_hits": 2,
-    },
 )
 
 SOURCE_COVERAGE_LABELS = (
@@ -492,6 +656,33 @@ def count_markdown_table_rows(text: str) -> int:
     return max(0, rows - 1)
 
 
+def parse_first_markdown_table(text: str) -> tuple[list[str], list[list[str]]]:
+    table_lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|"):
+            table_lines.append(stripped)
+            continue
+        if table_lines:
+            break
+    if len(table_lines) < 2:
+        return [], []
+
+    def cells(line: str) -> list[str]:
+        return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+    headers = cells(table_lines[0])
+    rows: list[list[str]] = []
+    for line in table_lines[1:]:
+        row = cells(line)
+        if row and all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in row):
+            continue
+        if len(row) < len(headers):
+            row.extend([""] * (len(headers) - len(row)))
+        rows.append(row[:len(headers)])
+    return headers, rows
+
+
 def count_headings(text: str, prefix: str = "## ") -> int:
     return sum(1 for line in text.splitlines() if line.startswith(prefix))
 
@@ -561,14 +752,50 @@ def extract_detail_label_value(block: str, label: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def check_detail_library_quality(path: Path, errors: list[str]) -> None:
+def threshold_for_migration_assets(word_count: int) -> int:
+    if word_count >= 8000:
+        return 4
+    if word_count >= 5000:
+        return 3
+    return 2
+
+
+def asset_candidate_threshold(word_count: int) -> int:
+    if word_count >= 8000:
+        return 40
+    if word_count >= 5000:
+        return 28
+    return 16
+
+
+def split_labeled_assets(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"[；;、，,]|\s*/\s*", value)
+        if item.strip()
+    ]
+
+
+def collect_labeled_assets(text: str, label: str) -> list[str]:
+    values = re.findall(
+        rf"^\s*-\s*{re.escape(label)}[：:]\s*(.+)$",
+        text,
+        flags=re.M,
+    )
+    assets: list[str] = []
+    for value in values:
+        assets.extend(split_labeled_assets(value))
+    return list(dict.fromkeys(normalize_text(item) for item in assets if normalize_text(item)))
+
+
+def check_detail_library_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
     if count_occurrences(text, DETAIL_PLACEHOLDER_PATTERNS) >= 4:
         errors.append(f"{path} 疑似模板壳细节库：出现大量泛化占位句")
-    if count_headings(text, "## ") < 3:
-        errors.append(f"{path} 细节条目过少：至少应有 3 个细节小节")
+    if count_headings(text, "## ") == 0 and "原文未发现" not in text:
+        errors.append(f"{path} 没有有效细节小节，也没有声明“原文未发现”")
     sections = extract_detail_sections(text)
     repeated_by_label: dict[str, Counter[str]] = {label: Counter() for label in DETAIL_LABELS}
     for title, block in sections:
@@ -587,17 +814,36 @@ def check_detail_library_quality(path: Path, errors: list[str]) -> None:
                 errors.append(f"{path} “{label}”答案重复过多：同一句复用 {count} 次")
 
 
-def check_direct_imitation_quality(path: Path, errors: list[str]) -> None:
+def check_direct_imitation_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
-    if count_markdown_table_rows(text) < 4:
-        errors.append(f"{path} 表格行数过少：至少应有 4 行有效资产")
+    if count_markdown_table_rows(text) == 0 and "原文未发现" not in text:
+        errors.append(f"{path} 没有有效资产行，也没有声明“原文未发现”")
     if not any(header in text for header in DIRECT_EVIDENCE_HEADERS):
         errors.append(
             f"{path} 缺少原文证据列：表格至少应含 "
             "`原文现象/原文证据/原文位置/原文例子/原文功能/原文怎么写/动作本体` 之一"
         )
+    headers, rows = parse_first_markdown_table(text)
+    migration_indexes = [
+        index
+        for index, header in enumerate(headers)
+        if any(marker in header for marker in DIRECT_MIGRATION_HEADERS)
+    ]
+    if not migration_indexes:
+        errors.append(
+            f"{path} 缺少逐行迁移字段：表格必须含 "
+            "`迁移提醒/可迁移写法/可替换功能件/后续写法提醒` 等列"
+        )
+    else:
+        empty_rows = [
+            index
+            for index, row in enumerate(rows, start=1)
+            if not any(index_ < len(row) and row[index_].strip() for index_ in migration_indexes)
+        ]
+        if empty_rows:
+            errors.append(f"{path} 逐行迁移字段存在空值：第 {', '.join(map(str, empty_rows[:8]))} 行")
     semantic_groups = DIRECT_SEMANTIC_HEADER_GROUPS.get(path.name, ())
     for alternatives in semantic_groups:
         if not any(header in text for header in alternatives):
@@ -622,11 +868,471 @@ def check_direct_imitation_quality(path: Path, errors: list[str]) -> None:
                 errors.append(f"{path} “{heading}”没有引用足够的本表具体条目：至少应点名 2 个资产")
 
 
+def normalize_direct_instruction_scaffold(line: str) -> str:
+    normalized = re.sub(r"`[^`]+`", "`<ASSET>`", line.strip())
+    normalized = re.sub(r"[“「][^”」]+[”」]", "“<ASSET>”", normalized)
+    normalized = re.sub(r"\bL?\d+(?:-L?\d+)?\b", "<N>", normalized)
+    return normalize_text(normalized)
+
+
+def collect_direct_instruction_scaffolds(path: Path) -> list[str]:
+    if not path.exists() or not path.is_file():
+        return []
+    text = read_text(path)
+    scaffolds: list[str] = []
+    for heading in DIRECT_REQUIRED_SNIPPETS:
+        section = extract_section_text(text, heading)
+        for line in re.findall(r"^\s*-\s+.+", section, flags=re.M):
+            scaffold = normalize_direct_instruction_scaffold(line)
+            if scaffold:
+                scaffolds.append(scaffold)
+    return scaffolds
+
+
 def collect_direct_imitation_generic_hits(path: Path) -> list[str]:
     if not path.exists() or not path.is_file():
         return []
     text = read_text(path)
     return [pattern for pattern in GENERIC_DIRECT_HINT_PATTERNS if pattern in text]
+
+
+def check_opening_public_naming_coverage(
+    root: Path,
+    source_lines: list[str],
+    notes: list[str],
+) -> None:
+    opening = "\n".join(source_lines[:20])
+    actor_markers = ("网友", "全网", "所有人", "全世界", "大家", "旁人", "同学", "同事")
+    naming_markers = ("都说", "都知道", "认定", "叫作", "称为", "骂成", "传成")
+    if not any(marker in opening for marker in actor_markers):
+        return
+    if not any(marker in opening for marker in naming_markers):
+        return
+    table_path = root / "可直接仿写_导语拆解表.md"
+    if not table_path.exists():
+        return
+    table_text = read_text(table_path)
+    covered = (
+        any(marker in table_text for marker in actor_markers)
+        and any(marker in table_text for marker in naming_markers)
+    ) or any(
+        marker in table_text
+        for marker in ("公共命名", "外部命名", "群体命名", "舆论定性", "公共羞辱")
+    )
+    if not covered:
+        notes.append(
+            f"非阻断复核：{table_path} 可能漏掉首屏公共命名信号；"
+            "原文前 20 行存在群体定性，必须单独拆出其公共羞辱/外部命名功能"
+        )
+
+
+def check_terminal_evidence_object_coverage(
+    root: Path,
+    source_lines: list[str],
+    notes: list[str],
+) -> None:
+    if not source_lines:
+        return
+    tail_start = max(0, math.floor(len(source_lines) * 0.7))
+    tail = "\n".join(source_lines[tail_start:])
+    evidence_markers = ("录像", "视频", "录音", "监控", "病历", "账目", "协议", "存储卡")
+    public_markers = ("婚礼", "发布会", "颁奖", "直播", "仪式", "记者会", "签约")
+    present_evidence = [marker for marker in evidence_markers if marker in tail]
+    if not present_evidence or not any(marker in tail for marker in public_markers):
+        return
+    table_path = root / "可直接仿写_物件表.md"
+    if not table_path.exists():
+        return
+    table_text = read_text(table_path)
+    if not any(marker in table_text for marker in present_evidence):
+        notes.append(
+            f"非阻断复核：{table_path} 可能漏掉终局证据载体；"
+            f"原文后 30% 出现公开身份场与 `{present_evidence[0]}`，请结合上下文复核"
+        )
+
+
+def check_asset_candidate_ledger(
+    root: Path,
+    source_lines: list[str],
+    word_count: int,
+    errors: list[str],
+    notes: list[str],
+) -> None:
+    path = root / "写作资产" / "原文资产候选池.md"
+    ledger_errors: list[str] = []
+    if not path.exists() or not path.is_file():
+        errors.append(f"缺少原文资产候选池：{path}")
+        return
+
+    text = read_text(path)
+    matches = list(ASSET_CANDIDATE_PATTERN.finditer(text))
+    raw_lines = [line for line in text.splitlines() if re.match(r"^C\d+\b", line)]
+    if len(matches) != len(raw_lines):
+        ledger_errors.append(
+            f"{path} 候选格式不完整：{len(raw_lines)} 条 C 记录中仅 {len(matches)} 条可解析"
+        )
+
+    suggested_minimum = asset_candidate_threshold(word_count)
+    if len(matches) < suggested_minimum:
+        notes.append(
+            f"非阻断复核：{path} 当前 {len(matches)} 条候选，低于按篇幅估算的"
+            f"参考值 {suggested_minimum}；请确认这是原文资产密度所致，而非提前停止"
+        )
+
+    target_texts = {
+        filename: read_text(root / filename) if (root / filename).is_file() else ""
+        for filename in DIRECT_IMITATION_FILES
+    }
+    category_counts: Counter[str] = Counter()
+    candidate_ids: list[str] = []
+    candidate_ranges: list[tuple[int, int]] = []
+    total_lines = len(source_lines)
+
+    for match in matches:
+        candidate_id = match.group("id")
+        label = f"C{candidate_id}"
+        candidate_ids.append(candidate_id)
+        start = int(match.group("start"))
+        end = int(match.group("end") or match.group("start"))
+        anchor = clean_anchor(match.group("anchor"))
+        category = match.group("category").strip()
+        asset = clean_anchor(match.group("asset"))
+        target = match.group("target").strip().strip("`")
+        status = match.group("status").strip()
+        reason = match.group("reason").strip()
+
+        category_counts[category] += 1
+        if start < 1 or end < start or end > total_lines:
+            ledger_errors.append(f"{path} {label} 原文范围越界：L{start}-L{end}")
+        elif end - start + 1 > 80:
+            ledger_errors.append(f"{path} {label} 原文范围过宽：L{start}-L{end}")
+        else:
+            candidate_ranges.append((start, end))
+            source_block = "\n".join(source_lines[start - 1:end])
+            if len(anchor) < 4:
+                ledger_errors.append(f"{path} {label} 锚点过短：`{anchor}`")
+            elif anchor not in source_block:
+                ledger_errors.append(
+                    f"{path} {label} 锚点不在对应原文范围：L{start}-L{end} `{anchor}`"
+                )
+
+        expected_target = ASSET_CANDIDATE_CATEGORY_TARGETS.get(category)
+        if expected_target is None:
+            ledger_errors.append(f"{path} {label} 类别非法：`{category}`")
+        elif target != expected_target:
+            ledger_errors.append(
+                f"{path} {label} 去向错误：类别 `{category}` 应进入 `{expected_target}`，当前 `{target}`"
+            )
+
+        if status == "已收录":
+            target_text = target_texts.get(target, "")
+            normalized_target = normalize_text(target_text)
+            asset_hit = len(normalize_text(asset)) >= 2 and normalize_text(asset) in normalized_target
+            anchor_hit = len(normalize_text(anchor)) >= 4 and normalize_text(anchor) in normalized_target
+            if not asset_hit and not anchor_hit:
+                ledger_errors.append(
+                    f"{path} {label} 标记已收录，但资产名/锚点未出现在 `{target}`："
+                    f"`{asset}` / `{anchor}`"
+                )
+        else:
+            normalized_reason = normalize_text(reason)
+            if len(normalized_reason) < 8:
+                ledger_errors.append(f"{path} {label} 不收录理由过短：`{reason}`")
+            if (
+                any(marker in reason for marker in ("价值一般", "重复", "不重要", "没必要"))
+                and not re.search(r"C\d+|与.+(?:相同|重合|合并)|原文.+(?:不足|未形成)", reason)
+            ):
+                ledger_errors.append(f"{path} {label} 不收录理由过于空泛：`{reason}`")
+
+    duplicates = sorted(
+        candidate_id for candidate_id, count in Counter(candidate_ids).items() if count > 1
+    )
+    if duplicates:
+        ledger_errors.append(f"{path} 候选 ID 重复：{', '.join(f'C{item}' for item in duplicates)}")
+
+    for category in ASSET_CANDIDATE_CATEGORY_TARGETS:
+        if category_counts.get(category, 0):
+            continue
+        absence = re.search(
+            rf"^\s*-\s*(?:类别[：:]\s*)?{re.escape(category)}[：:]\s*"
+            r"已扫[，,；; ]*原文未发现\S*",
+            text,
+            flags=re.M,
+        )
+        if not absence:
+            ledger_errors.append(
+                f"{path} `{category}` 没有候选，也没有声明“已扫，原文未发现”"
+            )
+
+    manifest_errors: list[str] = []
+    manifest = load_source_manifest(root, manifest_errors)
+    ledger_errors.extend(manifest_errors)
+    chunks = manifest.get("chunks", []) if isinstance(manifest, dict) else []
+    if isinstance(chunks, list):
+        for chunk in chunks:
+            if not isinstance(chunk, dict):
+                continue
+            chunk_id = chunk.get("id")
+            start = chunk.get("start_line")
+            end = chunk.get("end_line")
+            if not all(isinstance(value, int) for value in (chunk_id, start, end)):
+                ledger_errors.append(f"{path} manifest Chunk 定义不完整：{chunk}")
+                continue
+            confirmation = re.search(
+                rf"^\s*-\s*Chunk\s+{chunk_id}[：:]\s*L{start}\s*-\s*L?{end}"
+                rf"\s*\|.*$",
+                text,
+                flags=re.M,
+            )
+            if not confirmation or not re.search(r"状态[：:]\s*已回扫", confirmation.group(0)):
+                ledger_errors.append(
+                    f"{path} 缺少 Chunk {chunk_id} 回扫确认：L{start}-L{end} | 状态：已回扫"
+                )
+                continue
+            has_candidate = any(
+                candidate_start <= end and candidate_end >= start
+                for candidate_start, candidate_end in candidate_ranges
+            )
+            if not has_candidate:
+                confirmation_text = confirmation.group(0)
+                if not re.search(r"新增候选[：:]\s*(?:无|0)", confirmation_text):
+                    ledger_errors.append(
+                        f"{path} Chunk {chunk_id} 无候选时必须写 `新增候选：无`"
+                    )
+                if not re.search(r"空缺复核[：:]\s*\S+", confirmation_text):
+                    ledger_errors.append(
+                        f"{path} Chunk {chunk_id} 无候选时必须写具体 `空缺复核`"
+                    )
+
+    for label in ASSET_SWEEP_LABELS:
+        match = re.search(
+            rf"^\s*-\s*{re.escape(label)}[：:]\s*(.+)$",
+            text,
+            flags=re.M,
+        )
+        if not match or len(normalize_text(match.group(1))) < 4:
+            ledger_errors.append(f"{path} 专项回扫未作答：{label}")
+
+    source_text = "\n".join(source_lines)
+    candidate_text = "\n".join(raw_lines)
+    for category, target, cues in SOURCE_ASSET_CUE_RULES:
+        target_text = target_texts.get(target, "")
+        for cue in cues:
+            if cue not in source_text:
+                continue
+            if cue not in candidate_text and cue not in target_text:
+                notes.append(
+                    f"非阻断复核：原文出现 `{cue}`，但候选池和 `{target}` 未命中；"
+                    f"请结合上下文判断是否属于 `{category}` 资产"
+                )
+
+    if not ledger_errors:
+        notes.append(
+            f"原文资产候选池闸门通过：{len(matches)} 条候选，"
+            f"{len(chunks) if isinstance(chunks, list) else 0} 个 Chunk 已核销。"
+        )
+    errors.extend(f"blocked-on-assets：{item}" for item in ledger_errors)
+
+
+def normalize_candidate_id(value: object) -> str:
+    match = re.fullmatch(r"C?(\d+)", str(value).strip(), flags=re.I)
+    return str(int(match.group(1))) if match else ""
+
+
+def check_dynamic_signal_dictionary(
+    root: Path,
+    source_lines: list[str],
+    errors: list[str],
+    notes: list[str],
+) -> None:
+    path = root / "写作资产" / "本书动态信号字典.json"
+    dictionary_errors: list[str] = []
+    if not path.exists() or not path.is_file():
+        errors.append(f"缺少本书动态信号字典：{path}")
+        return
+    try:
+        data = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        errors.append(f"blocked-on-assets：{path} 不是合法 JSON：{exc}")
+        return
+    if not isinstance(data, dict):
+        errors.append(f"blocked-on-assets：{path} 顶层不是对象")
+        return
+
+    categories = data.get("categories")
+    if not isinstance(categories, dict):
+        dictionary_errors.append(f"{path} categories 不是对象")
+        categories = {}
+
+    candidate_path = root / "写作资产" / "原文资产候选池.md"
+    candidate_text = read_text(candidate_path) if candidate_path.is_file() else ""
+    candidate_ids = {
+        normalize_candidate_id(match.group("id"))
+        for match in ASSET_CANDIDATE_PATTERN.finditer(candidate_text)
+    }
+    dictionary_terms: set[str] = set()
+    total_entries = 0
+    for category in DYNAMIC_SIGNAL_CATEGORIES:
+        entries = categories.get(category)
+        if not isinstance(entries, list):
+            dictionary_errors.append(f"{path} categories.{category} 缺失或不是数组")
+            continue
+        seen_terms: set[str] = set()
+        for index, entry in enumerate(entries, start=1):
+            label = f"categories.{category}[{index}]"
+            if not isinstance(entry, dict):
+                dictionary_errors.append(f"{path} {label} 不是对象")
+                continue
+            total_entries += 1
+            term = str(entry.get("term", "")).strip()
+            start = entry.get("line_start")
+            end = entry.get("line_end")
+            anchor = clean_anchor(str(entry.get("anchor", "")))
+            refs = entry.get("candidate_ids", [])
+            index_reason = str(entry.get("index_only_reason", "")).strip()
+
+            if len(term) < 2:
+                dictionary_errors.append(f"{path} {label}.term 过短或为空")
+            elif normalize_text(term) in seen_terms:
+                dictionary_errors.append(f"{path} {label}.term 重复：`{term}`")
+            else:
+                seen_terms.add(normalize_text(term))
+                dictionary_terms.add(normalize_text(term))
+
+            if not isinstance(start, int) or not isinstance(end, int):
+                dictionary_errors.append(f"{path} {label} 缺少整数 line_start/line_end")
+            elif start < 1 or end < start or end > len(source_lines):
+                dictionary_errors.append(f"{path} {label} 原文范围越界：L{start}-L{end}")
+            elif end - start + 1 > 80:
+                dictionary_errors.append(f"{path} {label} 原文范围过宽：L{start}-L{end}")
+            elif len(anchor) < 4:
+                dictionary_errors.append(f"{path} {label}.anchor 过短")
+            elif anchor not in "\n".join(source_lines[start - 1:end]):
+                dictionary_errors.append(
+                    f"{path} {label}.anchor 不在对应原文范围：`{anchor}`"
+                )
+
+            normalized_refs = (
+                [normalize_candidate_id(item) for item in refs]
+                if isinstance(refs, list)
+                else []
+            )
+            normalized_refs = [item for item in normalized_refs if item]
+            if not normalized_refs and len(normalize_text(index_reason)) < 8:
+                dictionary_errors.append(
+                    f"{path} {label} 未关联候选，也没有具体 index_only_reason"
+                )
+            for candidate_id in normalized_refs:
+                if candidate_id not in candidate_ids:
+                    dictionary_errors.append(
+                        f"{path} {label} 引用了不存在的候选 C{candidate_id}"
+                    )
+
+    manifest_errors: list[str] = []
+    manifest = load_source_manifest(root, manifest_errors)
+    dictionary_errors.extend(manifest_errors)
+    chunks = manifest.get("chunks", []) if isinstance(manifest, dict) else []
+    chunk_ids = {
+        chunk.get("id")
+        for chunk in chunks
+        if isinstance(chunk, dict) and isinstance(chunk.get("id"), int)
+    }
+
+    rounds = data.get("backfill_rounds")
+    if not isinstance(rounds, list):
+        dictionary_errors.append(f"{path} backfill_rounds 不是数组")
+        rounds = []
+    phases: set[str] = set()
+    for index, item in enumerate(rounds, start=1):
+        label = f"backfill_rounds[{index}]"
+        if not isinstance(item, dict):
+            dictionary_errors.append(f"{path} {label} 不是对象")
+            continue
+        phase = str(item.get("phase", "")).strip()
+        phases.add(phase)
+        rescanned = item.get("rescanned_chunks")
+        rescanned_ids = set(rescanned) if isinstance(rescanned, list) else set()
+        if rescanned_ids != chunk_ids:
+            dictionary_errors.append(
+                f"{path} {label}.rescanned_chunks 未覆盖全部 Chunk："
+                f"expected={sorted(chunk_ids)} actual={sorted(rescanned_ids)}"
+            )
+        added_terms = item.get("added_terms")
+        if not isinstance(added_terms, list):
+            dictionary_errors.append(f"{path} {label}.added_terms 不是数组")
+        else:
+            for value in added_terms:
+                term = str(value).split(":", 1)[-1].strip()
+                if normalize_text(term) not in dictionary_terms:
+                    dictionary_errors.append(
+                        f"{path} {label}.added_terms 引用了不存在的词：`{value}`"
+                    )
+        new_ids = item.get("new_candidate_ids")
+        if not isinstance(new_ids, list):
+            dictionary_errors.append(f"{path} {label}.new_candidate_ids 不是数组")
+        else:
+            for value in new_ids:
+                candidate_id = normalize_candidate_id(value)
+                if not candidate_id or candidate_id not in candidate_ids:
+                    dictionary_errors.append(
+                        f"{path} {label}.new_candidate_ids 引用了不存在的候选：`{value}`"
+                    )
+        if len(normalize_text(str(item.get("notes", "")))) < 4:
+            dictionary_errors.append(f"{path} {label}.notes 过短或为空")
+
+    for phase in DYNAMIC_SIGNAL_PHASES:
+        if phase not in phases:
+            dictionary_errors.append(f"{path} 缺少回补阶段：{phase}")
+    if data.get("stabilized") is not True:
+        dictionary_errors.append(f"{path} stabilized 必须为 true")
+
+    if total_entries == 0:
+        notes.append(f"非阻断复核：{path} 8 类均为空，请确认原文确实没有可登记信号")
+    if not dictionary_errors:
+        notes.append(
+            f"动态信号字典闸门通过：{total_entries} 条单书信号，"
+            f"{len(rounds)} 轮发现/回补记录。"
+        )
+    errors.extend(f"blocked-on-assets：{item}" for item in dictionary_errors)
+
+
+def extract_report_character_names(path: Path) -> set[str]:
+    if not path.exists() or not path.is_file():
+        return set()
+    text = read_text(path)
+    section = extract_any_section_text(text, ("### 人物分析", "## 人物分析"))
+    names = {
+        name.strip()
+        for name in re.findall(r"\*\*([^*：:\n]{2,12})\*\*", section)
+        if not any(token in name for token in ("分析", "角色", "人物"))
+    }
+    return names
+
+
+def check_character_bias_role_coverage(root: Path, word_count: int, errors: list[str]) -> None:
+    table_path = root / "可直接仿写_人物偏手表.md"
+    if not table_path.exists():
+        return
+    headers, rows = parse_first_markdown_table(read_text(table_path))
+    role_index = next(
+        (
+            index
+            for index, header in enumerate(headers)
+            if any(marker in header for marker in ("角色", "人物"))
+        ),
+        None,
+    )
+    if role_index is None:
+        return
+    table_roles = {
+        row[role_index].strip()
+        for row in rows
+        if role_index < len(row) and row[role_index].strip()
+    }
+    report_roles = extract_report_character_names(root / "拆文报告.md")
+    missing_report_roles = sorted(report_roles - table_roles)
+    if report_roles and len(missing_report_roles) == len(report_roles):
+        errors.append(f"{table_path} 角色列与人物分析完全未对齐：请使用具体角色名，不要只写功能角色")
 
 
 def threshold_for_node_rows(word_count: int) -> int:
@@ -707,12 +1413,6 @@ def check_plot_nodes_quality(path: Path, word_count: int, errors: list[str]) -> 
             f"{path} 节点施工字段不完整：{preview}"
             f"；每个节点必须含 `类型 / 情绪 / 涉及 / 状态变化 / 因果`"
         )
-    if not re.search(r"(中段承重桥|中段承压桥|中段关键过桥桥|私域重伤|公开掉位.*私域|病情.*玉牌|玉牌.*手术)", text):
-        errors.append(f"{path} 缺少中段承重桥显式拆解：不能只保留开头钩子和终局翻盘")
-    if word_count >= 8000 and not re.search(r"(终局前夜|终局预热|硬牌上桌前|请帖|婚礼前|前夜|预告|改成直播)", text):
-        errors.append(f"{path} 8000字以上文本缺少终局前夜/预热节点：不能从埋雷直接跳到总炸场")
-
-
 def load_source_manifest(root: Path, errors: list[str]) -> dict:
     path = root / "_source_manifest.json"
     if not path.exists():
@@ -1012,14 +1712,6 @@ def has_non_empty_list(data: dict, key: str) -> bool:
     return isinstance(value, list) and any(str(item).strip() for item in value)
 
 
-def has_non_empty_dict_list(data: dict, key: str) -> bool:
-    value = data.get(key)
-    return isinstance(value, dict) and any(
-        isinstance(items, list) and any(str(item).strip() for item in items)
-        for items in value.values()
-    )
-
-
 def style_asset_pollution_reason(value: object) -> str | None:
     text = str(value).strip()
     if not text:
@@ -1035,11 +1727,11 @@ def style_asset_pollution_reason(value: object) -> str | None:
     return None
 
 
-def check_book_profile_quality(path: Path, data: dict, errors: list[str]) -> None:
+def check_book_profile_quality(path: Path, data: dict, word_count: int, errors: list[str]) -> None:
     if not data:
         return
-    if not has_non_empty_dict_list(data, "scene_assets"):
-        errors.append(f"{path} scene_assets 为空或只有空桶")
+    if not isinstance(data.get("scene_assets"), dict):
+        errors.append(f"{path} scene_assets 不是对象")
     if not has_non_empty_list(data, "banned_phrases"):
         errors.append(f"{path} banned_phrases 为空：说明禁句资产没有成功结构化")
     if not has_non_empty_list(data, "author_stance_patterns"):
@@ -1049,8 +1741,8 @@ def check_book_profile_quality(path: Path, data: dict, errors: list[str]) -> Non
     if isinstance(style_assets, dict):
         for key in REQUIRED_STYLE_ASSET_KEYS:
             value = style_assets.get(key)
-            if not isinstance(value, list) or not any(str(item).strip() for item in value):
-                errors.append(f"{path} style_assets.{key} 为空：拆书表达资产不完整")
+            if not isinstance(value, list):
+                errors.append(f"{path} style_assets.{key} 缺失或不是数组")
                 continue
             polluted = [
                 f"{item}（{reason}）"
@@ -1073,6 +1765,32 @@ def check_book_profile_quality(path: Path, data: dict, errors: list[str]) -> Non
                 errors.append(f"{path} style_assets.opening_hooks 含过短碎片，疑似错误抽取")
     else:
         errors.append(f"{path} style_assets 不是对象")
+
+    migration_assets = data.get("migration_assets")
+    if isinstance(migration_assets, dict):
+        min_assets = threshold_for_migration_assets(word_count)
+        for key in REQUIRED_MIGRATION_ASSET_KEYS:
+            value = migration_assets.get(key)
+            items = value if isinstance(value, list) else []
+            unique_assets = {
+                normalize_text(str(item))
+                for item in items
+                if normalize_text(str(item))
+            }
+            if len(unique_assets) < min_assets:
+                errors.append(
+                    f"{path} migration_assets.{key} 资产过少："
+                    f"至少应有 {min_assets} 条迁移替换资产，当前 {len(unique_assets)} 条"
+                )
+    else:
+        errors.append(f"{path} migration_assets 不是对象")
+
+    scene_assets = data.get("scene_assets")
+    if isinstance(scene_assets, dict):
+        for key in ("public_explosion", "external_order", "consequence_chain"):
+            value = scene_assets.get(key)
+            if not isinstance(value, list):
+                errors.append(f"{path} scene_assets.{key} 缺失或不是数组")
 
     story_guardrails = data.get("story_guardrails")
     if isinstance(story_guardrails, dict):
@@ -1097,6 +1815,8 @@ def check_book_profile_quality(path: Path, data: dict, errors: list[str]) -> Non
 
     bridge_rules = data.get("bridge_rules")
     if isinstance(bridge_rules, list):
+        if not bridge_rules:
+            errors.append(f"{path} bridge_rules 为空：至少保留 1 条真实承重桥")
         for idx, item in enumerate(bridge_rules, start=1):
             if not isinstance(item, dict):
                 errors.append(f"{path} bridge_rules[{idx}] 不是对象")
@@ -1106,7 +1826,7 @@ def check_book_profile_quality(path: Path, data: dict, errors: list[str]) -> Non
                 errors.append(f"{path} bridge_rules[{idx}].must_keep 为空：桥段承重件未成功结构化")
 
 
-def check_profile_source_quality(path: Path, errors: list[str]) -> None:
+def check_profile_source_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
@@ -1114,15 +1834,26 @@ def check_profile_source_quality(path: Path, errors: list[str]) -> None:
         if heading not in text:
             errors.append(f"{path} 缺少必需章节：{heading}")
     bridge_count = len(re.findall(r"^- 桥段：", text, flags=re.M))
-    if bridge_count < 3:
-        errors.append(f"{path} 桥段承重件数量不足：至少应有 3 个桥段")
+    if bridge_count < 1:
+        errors.append(f"{path} 桥段承重件为空：至少应有 1 个真实桥段")
     if len(re.findall(r"^- 为什么假：", text, flags=re.M)) < 2:
         errors.append(f"{path} 禁句/禁写法解释不足：至少应有 2 条“为什么假”")
     if len(re.findall(r"^- 开头信号：", text, flags=re.M)) < 3:
         errors.append(f"{path} 开头高信息量信号不足：至少应有 3 条")
-    for label in ("- 公开场硬件：", "- 外部秩序件：", "- 后果链："):
+    for label in ("- scene_assets.public_explosion：", "- scene_assets.external_order：", "- scene_assets.consequence_chain："):
         if label not in text:
             errors.append(f"{path} `## 8. 场面资产` 缺少字段：{label}")
+    for key in REQUIRED_STYLE_ASSET_KEYS:
+        if not re.search(rf"^\s*-\s*{re.escape(key)}[：:]", text, flags=re.M):
+            errors.append(f"{path} style_assets 原始材料缺少字段：{key}")
+    min_migration_assets = threshold_for_migration_assets(word_count)
+    for key in REQUIRED_MIGRATION_ASSET_KEYS:
+        assets = collect_labeled_assets(text, key)
+        if len(assets) < min_migration_assets:
+            errors.append(
+                f"{path} 迁移替换资产 `{key}` 过少："
+                f"至少应显式提供 {min_migration_assets} 条唯一短语，当前 {len(assets)} 条"
+            )
     for label in ("- 感情伤抬升到现实伤的节点：", "- 秩序回正节点：", "- 长尾惩罚节点：", "- 离场 / 换图节点："):
         if label not in text:
             errors.append(f"{path} `## 9. 后果链` 缺少字段：{label}")
@@ -1132,7 +1863,7 @@ def check_profile_source_quality(path: Path, errors: list[str]) -> None:
     for bridge in re.finditer(r"^- 桥段：.*?(?=^- 桥段：|\Z)", text, flags=re.M | re.S):
         block = bridge.group(0)
         missing = []
-        for label in ("原文怎么起手", "不能丢的顺序", "为什么这个顺序不能乱", "最容易写假的点", "原文为什么能过"):
+        for label in ("桥段角色", "原文怎么起手", "不能丢的顺序", "为什么这个顺序不能乱", "最容易写假的点", "原文为什么能过"):
             if f"- {label}：" not in block and f"  - {label}：" not in block:
                 missing.append(label)
         if missing:
@@ -1140,17 +1871,21 @@ def check_profile_source_quality(path: Path, errors: list[str]) -> None:
             errors.append(f"{path} {first_line} 缺少桥段承重件子项：{', '.join(missing)}")
 
 
-def check_bridge_workcards_quality(path: Path, errors: list[str]) -> None:
+def check_bridge_workcards_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
-    cards = re.findall(r"^##\s+(.+?)\n([\s\S]*?)(?=^## |\Z)", text, flags=re.M)
-    if len(cards) < 3:
-        errors.append(f"{path} 桥段施工卡数量不足：至少应有 3 张桥段卡")
+    cards = [
+        (title, block)
+        for title, block in re.findall(r"^##\s+(.+?)\n([\s\S]*?)(?=^## |\Z)", text, flags=re.M)
+        if re.search(r"^\s*-\s*桥段名[：:]\s*\S+", block, flags=re.M)
+    ]
+    if not cards:
+        errors.append(f"{path} 没有有效桥段施工卡")
         return
-    saw_mid_bridge = False
     required_labels = (
         "桥段名",
+        "桥段角色",
         "原文位置",
         "原文现象证据",
         "原文为什么能过",
@@ -1165,33 +1900,48 @@ def check_bridge_workcards_quality(path: Path, errors: list[str]) -> None:
         missing = [label for label in required_labels if f"- {label}：" not in block]
         if len(missing) >= 2:
             errors.append(f"{path} {title} 缺少关键施工字段：{', '.join(missing)}")
-        if re.search(r"(中段|承重|承压|玉牌|病情|驱逐|办公室|见血)", title + "\n" + block):
-            saw_mid_bridge = True
-    if not saw_mid_bridge:
-        errors.append(f"{path} 缺少中段承重桥施工卡：不能只保留开头钩子和终局炸场")
 
 
-def check_high_risk_asset_quality(path: Path, errors: list[str]) -> None:
+def extract_high_risk_cards(text: str) -> list[tuple[str, str]]:
+    matches = list(re.finditer(r"^\s*-\s*桥段名[：:]\s*(.+)$", text, flags=re.M))
+    cards: list[tuple[str, str]] = []
+    for idx, match in enumerate(matches):
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        cards.append((match.group(1).strip(), text[match.start():end]))
+    return cards
+
+
+def block_has_any_label(block: str, labels: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"^\s*-\s*{re.escape(label)}[：:]\s*\S+", block, flags=re.M)
+        for label in labels
+    )
+
+
+def check_high_risk_asset_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
-    cards = re.findall(r"^##\s+(.+?)\n([\s\S]*?)(?=^## |\Z)", text, flags=re.M)
-    if len(cards) < 3:
-        errors.append(f"{path} 高敏桥段数量不足：至少应有 3 张有效识别卡")
+    cards = extract_high_risk_cards(text)
+    if not cards and "原文未发现" in text:
         return
-    saw_mid_bridge = False
+    if not cards:
+        errors.append(f"{path} 没有有效高敏桥段卡，也没有声明“原文未发现”")
+        return
     for title, block in cards:
+        required_groups = {
+            "桥段角色": ("桥段角色",),
+            "原文": ("原文", "原文证据", "证据1"),
+            "高敏点": ("高敏点", "高敏原因", "高敏原因1", "主要高敏层"),
+            "可学层": ("可学层", "可学层1"),
+            "禁学层": ("禁学层", "禁学层1"),
+        }
         missing = [
-            label
-            for label in ("原文", "高敏点", "可学层", "禁学层")
-            if not re.search(rf"^-\s*{re.escape(label)}[：:]\s*\S+", block, flags=re.M)
+            name for name, labels in required_groups.items()
+            if not block_has_any_label(block, labels)
         ]
         if missing:
             errors.append(f"{path} {title} 缺少有效字段：{', '.join(missing)}")
-        if re.search(r"(中段|承重|承压|办公室|见血|病情|驱逐|玉牌)", title + "\n" + block):
-            saw_mid_bridge = True
-    if not saw_mid_bridge:
-        errors.append(f"{path} 缺少中段关键过桥桥")
 
 
 def read_original_text(root: Path) -> str:
@@ -1200,27 +1950,6 @@ def read_original_text(root: Path) -> str:
         return ""
     files = sorted(path for path in original_dir.iterdir() if path.is_file())
     return "\n".join(read_text(path) for path in files)
-
-
-def source_matches_groups(text: str, groups: tuple[tuple[str, ...], ...]) -> bool:
-    return all(any(term in text for term in group) for group in groups)
-
-
-def check_core_bridge_coverage(root: Path, original_text: str, errors: list[str]) -> None:
-    for rule in CORE_BRIDGE_COVERAGE_RULES:
-        if not source_matches_groups(original_text, rule["source_groups"]):
-            continue
-        for rel in rule["targets"]:
-            path = root / rel
-            if not path.exists() or not path.is_file():
-                continue
-            text = read_text(path)
-            hits = sum(1 for term in rule["output_terms"] if term in text)
-            if hits < rule["min_term_hits"]:
-                errors.append(
-                    f"{path} 漏传核心桥 `{rule['name']}`："
-                    f"至少应显式保留 {rule['min_term_hits']} 个桥段证据词"
-                )
 
 
 def check_cross_asset_semantics(root: Path, original_text: str, word_count: int, errors: list[str]) -> None:
@@ -1273,12 +2002,17 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     notes: list[str] = []
     direct_generic_hits: list[str] = []
+    direct_instruction_scaffolds: list[str] = []
     original_text = read_original_text(root)
+    meta_preview = check_json_keys(root / "_meta.json", META_KEYS, errors)
+    word_count = meta_preview.get("word_count", 0) if isinstance(meta_preview.get("word_count"), int) else 0
 
     check_contract_coverage(errors)
     source_lines = check_source_coverage_gate(root, errors, notes)
     if source_lines:
         check_fact_integrity_gate(root, source_lines, errors, notes)
+        check_opening_public_naming_coverage(root, source_lines, notes)
+        check_terminal_evidence_object_coverage(root, source_lines, notes)
 
     original_dir = root / "原文"
     if not original_dir.exists() or not original_dir.is_dir():
@@ -1294,8 +2028,9 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         check_file_exists(path, errors)
         check_markdown_hygiene(path, errors)
         check_contains_all(path, DIRECT_REQUIRED_SNIPPETS, errors)
-        check_direct_imitation_quality(path, errors)
+        check_direct_imitation_quality(path, word_count, errors)
         direct_generic_hits.extend(collect_direct_imitation_generic_hits(path))
+        direct_instruction_scaffolds.extend(collect_direct_instruction_scaffolds(path))
 
     detail_dir = root / "原文细节库"
     if not detail_dir.exists() or not detail_dir.is_dir():
@@ -1306,7 +2041,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
             check_file_exists(path, errors)
             check_markdown_hygiene(path, errors)
             check_contains_all(path, ["具体发生了什么", "这个细节为什么有用", "后续能迁到什么新桥段"], errors)
-            check_detail_library_quality(path, errors)
+            check_detail_library_quality(path, word_count, errors)
 
     asset_dir = root / "写作资产"
     if not asset_dir.exists() or not asset_dir.is_dir():
@@ -1316,20 +2051,22 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
             path = asset_dir / rel
             check_file_exists(path, errors)
             check_markdown_hygiene(path, errors)
+    if source_lines and (asset_dir / "原文资产候选池.md").is_file():
+        check_asset_candidate_ledger(root, source_lines, word_count, errors, notes)
+    if source_lines and (asset_dir / "本书动态信号字典.json").is_file():
+        check_dynamic_signal_dictionary(root, source_lines, errors, notes)
 
     check_contains_all(root / "拆文报告.md", REPORT_HEADINGS, errors)
     check_contains_all(root / "写作手法.md", CRAFT_HEADINGS, errors)
     check_contains_all(asset_dir / "profile_source.md", PROFILE_SOURCE_HEADINGS, errors)
-    meta_preview = check_json_keys(root / "_meta.json", META_KEYS, errors)
-    word_count = meta_preview.get("word_count", 0) if isinstance(meta_preview.get("word_count"), int) else 0
     check_report_quality(root / "拆文报告.md", word_count, errors)
     check_plot_nodes_quality(root / "情节节点.md", word_count, errors)
     check_craft_quality(root / "写作手法.md", errors)
-    check_profile_source_quality(asset_dir / "profile_source.md", errors)
-    check_bridge_workcards_quality(asset_dir / "桥段施工卡.md", errors)
-    check_high_risk_asset_quality(asset_dir / "高敏桥段识别.md", errors)
-    check_core_bridge_coverage(root, original_text, errors)
+    check_profile_source_quality(asset_dir / "profile_source.md", word_count, errors)
+    check_bridge_workcards_quality(asset_dir / "桥段施工卡.md", word_count, errors)
+    check_high_risk_asset_quality(asset_dir / "高敏桥段识别.md", word_count, errors)
     check_cross_asset_semantics(root, original_text, word_count, errors)
+    check_character_bias_role_coverage(root, word_count, errors)
 
     check_contains_all(asset_dir / "样本分级与可学层.md", ["原文"], errors)
     for rel in ["高敏桥段识别.md", "作者DNA指纹.md", "仿写约束_禁写清单.md", "同桥段过检规则.md"]:
@@ -1348,14 +2085,24 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         errors.append(f"{root / 'book.profile.json'} bridge_rules 为空")
     if isinstance(book_profile.get("style_assets"), dict) and not book_profile["style_assets"]:
         errors.append(f"{root / 'book.profile.json'} style_assets 为空")
+    if isinstance(book_profile.get("migration_assets"), dict) and not book_profile["migration_assets"]:
+        errors.append(f"{root / 'book.profile.json'} migration_assets 为空")
     if isinstance(book_profile.get("story_guardrails"), dict) and not book_profile["story_guardrails"]:
         errors.append(f"{root / 'book.profile.json'} story_guardrails 为空")
-    check_book_profile_quality(root / "book.profile.json", book_profile, errors)
+    check_book_profile_quality(root / "book.profile.json", book_profile, word_count, errors)
 
     generic_hit_counter = Counter(direct_generic_hits)
     for snippet, count in generic_hit_counter.items():
         if count >= 4:
             errors.append(f"{root} 可直接仿写表跨文件重复模板句过多：同一句占位提示重复 {count} 次 -> {snippet}")
+
+    scaffold_counter = Counter(direct_instruction_scaffolds)
+    for scaffold, count in scaffold_counter.items():
+        if count >= 3:
+            errors.append(
+                f"{root} 可直接仿写表跨文件施工说明同构："
+                f"同一句式仅替换资产名后重复 {count} 次 -> {scaffold[:120]}"
+            )
 
     if not errors:
         notes.append("所有定义文件均已自动落盘，且核心骨架齐全。")

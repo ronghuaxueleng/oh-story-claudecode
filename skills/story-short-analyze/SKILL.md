@@ -65,6 +65,9 @@ description: |
 - `不伪精确` 高于 `把判断写满`
 - `最值钱的桥和人物层保住` 高于 `平均铺满所有文件`
 - `通过 validator` 是放行底线，不是最高目标；如果结果更像“过验收”而不像“给人直接拿去写”，默认仍算没拆透
+- 16 张表不仅要有原文资产，还要逐行给出迁移提醒、可替换件或换壳写法；把迁移层统一塞到表后模板段，不算完整
+- `人物偏手表` 必须同时保留事件级偏手和角色级稳定偏手，不能让单一核心人物占满多数行、把外部秩序角色漏掉
+- `book.profile.json` 必须把原文 style assets 与迁移替换资产分开保存，不能用房卡、工牌等换壳词污染原文资产桶
 - 如果表格或字段写法会把结果推向“机器友好但人难用”，允许优先写成更适合人的版本，再补抽取锚点；不允许反过来为了抽取稳定，把人类说明层压扁
 
 拿不到原文时，先索取：
@@ -200,6 +203,8 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
 - `写作资产/同桥段过检规则.md`
 - `写作资产/profile_source.md`
 - `写作资产/桥段施工卡.md`
+- `写作资产/原文资产候选池.md`
+- `写作资产/本书动态信号字典.json`
 - `book.profile.json`
 - `写作资产/母结构_故事走法.md`
 - `写作资产/主冲突_副升级器.md`
@@ -224,7 +229,10 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
 
 - 不允许再把“人读厚拆解释层”和“json 抽取层”全塞进 `profile_source.md` 一份文件里指望两边都做好
 - `profile_source.md` 可以结构化，但不能只剩抽象标签
-- `桥段施工卡.md` 必须比 `profile_source.md` 更厚，且至少覆盖 3 张完整桥段卡
+- `profile_source.md` 固定增加 `## 12. 迁移替换资产`，生成 `book.profile.json.migration_assets`
+- `桥段施工卡.md` 必须比 `profile_source.md` 更厚；桥段数按原文字数分档：8000 字以上至少 5 张、5000-7999 字至少 4 张、5000 字以下至少 3 张
+- `原文资产候选池.md` 必须在 16 张表前按全部 Chunk 建池，表完成后再回扫一次；数量只作复核提示，不得为了达到固定条数编造资产
+- `本书动态信号字典.json` 必须先于候选池完成首次全文发现，16 张表后再回补并复扫全部 Chunk；单书新词不得直接污染全局词表
 
 这些文件的最小字段、放行条件、落盘顺序，统一见：
 
@@ -272,15 +280,16 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
 - `情节节点.md` 不能只停在“梗概式大节点表”；最低节点数取分档阈值与 `ceil(原文字数 / 400)` 的较大值：8000 字以上基础阈值 20、5000-7999 字基础阈值 16、5000 字以下基础阈值 12；10840 字文本最低应为 28 个节点
 - `情节节点.md` 的数量达标不代表覆盖全文；每个节点必须带可校验行号与锚点，并同时写 `类型 / 情绪 / 涉及 / 状态变化 / 因果`，validator 会检查分块覆盖、章节覆盖、尾部覆盖和施工字段
 - `情节节点.md` 里必须显式保留至少 1 条中段承重桥节点，不允许只把开头钩子和终局翻盘写清、中段压桥一笔带过
-- `情节节点.md` 对 8000 字以上文本，除中段承重桥外，默认还要显式保留至少 1 条 `终局前夜 / 终局预热 / 硬牌上桌前` 的蓄压节点；不能从“埋雷”直接跳到“总炸场”
+- 原文如果确实存在已宣布但未发生的公开事件、证据上桌前等待或终局预热，`情节节点.md` 必须保留；原文没有时不得强造“终局前夜”
 - `写作手法.md` 每个核心节不能只写 1-2 句总括；至少要把“谁怎么说话 / 为什么这样成立 / 换成什么会发假”拆出来，尤其 `对话手法` 必须落到人物嘴型或口气差
 - 如果原文存在“办公室冲突 / 公开见血 / 病情暗示 / 搬出家门 / 物件争位 / 私域驱逐”这类中段承压桥，默认优先保留到 `拆文报告.md`、`情节节点.md`、`高敏桥段识别.md`；不能因为导语桥和终局桥更亮，就把中段承重桥压没
-- 如果原文同时出现 `公司/办公室 + 戒指 + 见血/受伤`，该桥固定视为核心中段桥，必须贯通 `拆文报告 / 情节节点 / 顺序事件表 / 高敏桥段识别 / 公开场_关键硬牌_后果 / profile_source`
+- 核心桥必须从本书候选池和事实台账动态识别；凡被判定为承重桥的原文事件，才要求贯通主报告、节点、目标表和 profile，不使用某本书的固定名词触发
 - `人物分析` 不能把主角默认拆成纯受害者脸；如果原文里主角同时存在 `借影 / 借势 / 利用关系 / 反向利用错位婚姻`，必须显式拆出来，不允许被“更可共情”写法抹平
 
 `Stage 6.5` 固定自动补完：
 
 - 16 张 `可直接仿写_*.md` 的固定施工段
+- 16 张表逐行迁移列与表型专属字段；候选池有该类资产时全部核销，原文确实没有时明确写“原文未发现”
 - `原文细节库/` 8 类细节库
 - `作者DNA指纹.md`
 - `仿写约束_禁写清单.md`
@@ -309,6 +318,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
 - `## 9. 后果链`
 - `## 10. 作者站位高危句`
 - `## 11. style_assets 原始材料`
+- `## 12. 迁移替换资产`
 
 这些章节不是附录，是 `generate_story_profile.py` 的直接上游。
 缺任意一节，常见后果是：
@@ -322,9 +332,10 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
 
 `桥段施工卡.md` 固定承担另一层工作：
 
-- 把最值钱的 3-5 个桥段写成“人类可直接调用”的施工卡
+- 把本书实际存在且最值钱的桥段写成“人类可直接调用”的施工卡；数量服从原文，不按字数强凑
 - 每张卡至少显式补：
   - `桥段名`
+  - `桥段角色`
   - `原文位置`
   - `原文现象证据`
   - `原文为什么能过`
@@ -334,7 +345,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/prepare_short_analyze_jo
   - `不能丢的顺序`
   - `为什么这个顺序不能乱`
   - `后续调用方式`
-- 至少 1 张卡必须是中段承重桥，不能只写开头钩子和终局炸场
+- `桥段角色` 使用本书自己的功能标签，例如“首次规则展示 / 认知翻转 / 证据兑现 / 关系决断”；不得强制所有题材都具备掉位、私域旧伤或公开炸场
 - 这份文件优先服务写作者，不是抽 json 的地方；允许解释更厚，但不允许空泛总结
 
 固定验收脚本：
@@ -370,12 +381,18 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - `主报告批` 是全流程第一优先级；宁可后面某些资产批暂未展开，也不允许先把 `拆文报告.md / 情节节点.md / 写作手法.md` 写成“合规但压缩”的薄版
 - 如果 token 或篇幅出现压力，优先保住 `拆文报告.md / 情节节点.md / 写作手法.md / profile_source.md` 的厚拆层，再去扩 16 张表和细节库；不允许因为想平均铺满所有文件，反过来把主报告写薄
 - 进入 `16张表批` 后，先判断每张表属于 `事件顺序类 / 物件动作类 / 对白口气类 / 关系秩序类` 哪一类，再按对应施工骨架写 3 段，不允许 16 张表共用一种说明腔
-- 16 张表不能只靠“至少 4 行”过关；语义列必须与表名匹配：人物偏手表写 `角色 + 稳定偏手`，误判表写 `先误判了什么 + 从哪开始翻`，安静压迫场表写 `场面压力来源 / 环境音`，烂关系漏出表写 `具体漏出件`
-- 16 张表每张默认至少 4 条有效资产，且表格必须显式包含 `原文现象 / 原文证据 / 原文位置 / 原文例子 / 原文功能 / 原文怎么写 / 动作本体` 中至少 1 类证据列；允许按表类型使用自然列名，不强迫统一表头
+- 进入 `16张表批` 前，必须先读 [references/pipeline/dynamic-signal-dictionary.md](references/pipeline/dynamic-signal-dictionary.md) 和 [references/pipeline/source-asset-coverage-ledger.md](references/pipeline/source-asset-coverage-ledger.md)，先落盘动态字典首轮，再建立候选池
+- 16 张表写完后必须先回补动态字典，再按 `_source_manifest.json.chunks` 重扫全文；新信号先写字典，再追加候选池和目标表，连续一轮无新增后才能标记稳定
+- 16 张表不能只靠行数过关；语义列必须与表名匹配：人物偏手表写 `角色 + 稳定偏手`，误判表写 `先误判了什么 + 从哪开始翻`，安静压迫场表写 `场面压力来源 / 谁没说话 / 环境音 / 未说破结果`，烂关系漏出表写 `具体漏出件`
+- 16 张表必须显式包含原文证据列与逐行迁移列；不允许机械统一成 `资产 / 原文位置 / 原文证据 / 原文功能`
+- 候选池里标记 `已收录` 的每一条都必须能在目标表找到；某类为零时必须在候选池和目标表明确写“已扫，原文未发现”
+- 每行迁移列必须非空，原文资产与换壳替代件必须分栏
 - 16 张表的 `可直接借的承重结构 / 迁移顺序提醒 / 为什么这个顺序不能乱` 每段至少写 2 条可施工说明；只有一段概括句视为压缩化
 - 16 张表的 3 段施工层，不仅要“像在点名”，而且要直接复用表格里写出的条目名；如果施工层只写概括、不写表内条目原名，默认高概率过不了验收
 - 如果某张表存在 `更适合写手直接调用的语义分组` 与 `更适合验收脚本匹配的机械分组` 冲突，优先保留语义分组，再补最少量字段映射；不允许为了过验收，把整张表改写成只有机器好读的壳
 - 进入 `原文细节库批` 后，先判断每个 `##` 小节的证据核心是 `场景 / 物件 / 动作 / 对白 / 关系掉位` 中哪一种，再落五条，不允许先写泛化总结再补标题
+- 8 类细节库的证据卡数量按原文字数分档：8000 字以上每类至少 5 张、5000-7999 字每类至少 4 张、5000 字以下每类至少 3 张；这是每一类的最低保全量，不允许用新卡替换掉已经识别出的独立旧卡
+- 收口前固定核对候选池五项专项回扫：`物件替换对 / 微动作角色覆盖 / 对白侵占与假道歉 / 安静等待与未归 / 未来公开事件钩子`
 - 进入 `profile批` 后，`profile_source.md` 不能只写流派和桥名；桥段卡必须显式补 `承重件`，否则 `book.profile.json` 的 `bridge_rules.must_keep` 会空
 - 进入 `profile批` 后，`profile_source.md` 优先保住抽取稳定性，不要为了“写得像报告”把字段冲散；更厚的人类说明层写进 `桥段施工卡.md`
 - `profile_source.md` 还必须显式补下列可抽取标签，否则 `story_guardrails` 无法成型：
@@ -386,17 +403,18 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
   - `后果回灌方式`
   - `尾声入口归属`
   - `不给另一条线的原因`
-- `profile_source.md` 的 `## 7-10` 还必须至少补出这些键，`## 11` 另按短语资产纯度规则填写，否则 `book.profile.json` 经常会空桶：
+- `profile_source.md` 的 `## 7-10` 还必须至少补出这些键，`## 11` 按原文短语资产纯度规则填写，`## 12` 单独存迁移替换件，否则 `book.profile.json` 经常会空桶或把原文件与换壳件混在一起：
   - `## 7. 禁句 / 禁写法`：至少 2 条 `- 为什么假：`
-  - `## 8. 场面资产`：至少 1 组 `公开场硬件 / 外部秩序件 / 后果链`
+  - `## 8. 场面资产`：显式使用 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain` 三个标签；8000 字以上分别至少 `4 / 4 / 6` 条，5000-7999 字至少 `3 / 3 / 4` 条，5000 字以下至少 `2 / 2 / 3` 条
   - `## 9. 后果链`：至少 1 组 `感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点`
   - `## 10. 作者站位高危句`：至少 1 组 `容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型`
-- `book.profile.json.style_assets` 固定检查非空：`opening_hooks / misdirection / object_pressure / action_axis / micro_actions / quiet_pressure / character_bias / meltdown_dialogue / rotten_relationship / dialogue_bridges`
+- `book.profile.json.style_assets` 固定检查 10 个键存在：`opening_hooks / misdirection / object_pressure / action_axis / micro_actions / quiet_pressure / character_bias / meltdown_dialogue / rotten_relationship / dialogue_bridges`；原文不存在的类别允许空数组，不得用换壳词凑数
 - `book.profile.json.style_assets` 还必须通过纯度检查：只保留短语型资产，不得混入 `如果 / 为什么 / 读者 / 迁移 / 顺序 / 不能 / 保证` 等施工说明，不得含 Markdown 标记
+- `scene_assets.public_explosion` 与 `scene_assets.external_order` 不能全是地点、道具、机构等硬件名；每类至少 2 条必须是“谁做了什么 / 谁因此掉位 / 秩序如何回正”的事件级短语
 - `book.profile.json.story_guardrails.character_face_split` 固定检查非空：`different_face_evidence / reaction_order_split / action_authority_split`
 - `book.profile.json.story_guardrails.consequence_structure` 固定检查非空：`pre_evidence_reality_consequences / consequence_rebound_modes / tail_entry_owner / tail_entry_exclusion_reason`
 - `高敏桥段识别.md`、`作者DNA指纹.md`、`同桥段过检规则.md` 不能只写抽象结论；至少要显式出现 `原文：` 证据行，否则默认未落到原文证据
-- `桥段施工卡.md` 至少要写 3 张卡，且每张卡都要明确：`原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式`
+- `profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 对同一座桥必须使用一致的功能标签；每张卡还要明确原文证据、承重件、顺序理由、假点和调用方式
 - 全量 Markdown 必须通过洁净检查：无重复标题、无空字段、无 `桥1 / 桥段卡1 / 待补 / 占位` 标题、无半成品模板壳
 - `可直接仿写_导语拆解表.md` 不允许默认写成纯 `前20字 / 前60字 / 前100字` 机械分档；如果原文更适合按 `错位关系 / 公共命名 / 生死反告白 / 真异点` 这类功能钩拆，优先按功能钩落盘，再补回字段映射
 
@@ -420,7 +438,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 没落 `profile_source.md`
 - 没落 `桥段施工卡.md`
 - 没生成 `book.profile.json`
-- `profile_source.md` 缺 `## 7-11` 任一节
+- `profile_source.md` 缺 `## 7-12` 任一节
 - `profile_source.md` 有桥段卡但没有 `为什么假 / 场面资产 / 后果链 / 作者站位高危句`
 - 没补 16 张 `可直接仿写_*.md`
 - 没补 `原文细节库/`
@@ -439,7 +457,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - `情节节点.md` 颗粒度不足，只剩梗概式大节点，没有拆出中段承重桥节点
 - `情节节点.md` 只有行号和摘要，没有 `类型 / 情绪 / 涉及 / 状态变化 / 因果`
 - `情节节点.md` 虽达到旧分档阈值，但低于 `ceil(原文字数 / 400)` 的动态节点下限
-- `情节节点.md` 后段直接从“埋雷”跳到“总炸场”，缺少终局前夜或硬牌上桌前的蓄压节点
+- 原文明明存在终局预热或硬牌上桌前等待，`情节节点.md` 却把它漏掉
 - `写作手法.md` 每节只有薄概括，没有角色嘴型差、成立原因和迁移风险
 - 验收脚本报错，仍试图标记完成
 
