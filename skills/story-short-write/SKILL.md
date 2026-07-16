@@ -82,6 +82,19 @@ description: |
 
 ## 执行规则
 
+总优先级：
+
+1. `成文像真人` 高于 `看起来稳妥`
+2. `关系 / 后果 / 桥段顺序成立` 高于 `句面变顺`
+3. `人物不同脸` 高于 `所有句子都像会过审的标准人话`
+4. `能直接给读者读` 高于 `像已经过完很多闸门的安全稿`
+
+硬口径：
+
+- 不允许把正文越修越像“过闸稿 / 安全施工稿 / 成熟模板块”
+- 如果一轮修改同时带来“命中下降”和“活人感下降”，视为失败，不算优化
+- “更像会过审”不等于“更像能发表”；正文首先要像人在现场里活着，不像规则先替人物说完了
+
 1. 先定平台，再定故事口气。
 2. 先判这题是 `讲法型 / 桥段链型 / 混合型`，再决定写法。
 3. 短篇默认从“事情马上要爆”的位置切入，不从长篇式铺垫开写。
@@ -102,6 +115,8 @@ description: |
 18. 新沉淀出的成功经验必须回写规则层，不能只停在聊天里。
 19. 自检必须逐条引用正文句子，不准空口保证“已经处理”。
 20. 高敏桥回修时，固定补看 `现实后果隔层 / 尾声入口 / 人物不同脸`，这三项没过，不算收口。
+21. 不允许把“说明更完整、判断更清楚、台词更会总结”误当成正文变好。
+22. 任何一轮回修，如果把人物写得更懂事、更会解释、更会给主题句，先怀疑是在变假。
 
 ---
 
@@ -376,6 +391,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - 长短句交错，别整页等长短句密排
 - 允许人物失手、岔开、找补、说半句
 - 不要把“去味”写成“全改成概述和转述”
+- 不要为了显得稳，把所有高风险位置都改成解释更全、逻辑更直、主题更明白的安全块
+- 不要把“句子更工整”误当成“场面更成立”；一场先看谁压谁、谁失手、谁掉位，再看句面
+- 如果一段改完更像“总结他为什么难过 / 她为什么后悔 / 他们关系到底是什么”，默认在变假
 
 写作阶段详细口径见：
 
@@ -408,6 +426,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
 - [references/governance/no-external-block-audit-self-check.md](references/governance/no-external-block-audit-self-check.md)
 - [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
+
+判失败时额外补看：
+
+- 这一版是不是更像“会过闸门的成熟块”，但不像“事情被逼到这一步”
+- 这一版是不是把人物写得更会解释、更会认错、更会总结
+- 这一版是不是把后果写成了说明，而不是继续留在动作、场面、身体感和秩序变化里
 
 ---
 
