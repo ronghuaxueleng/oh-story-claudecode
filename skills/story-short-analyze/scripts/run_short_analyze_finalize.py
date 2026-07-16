@@ -17,10 +17,18 @@ def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
+    validator_status = validator_payload.get("status")
+    if validator_status not in {
+        "ready-for-write",
+        "blocked-on-source-coverage",
+        "blocked-on-fact-integrity",
+        "blocked-on-assets",
+    }:
+        validator_status = "ready-for-write" if validator_payload.get("ok") else "blocked-on-assets"
     return {
         "root": str(root),
         "ok": bool(validator_payload.get("ok")),
-        "status": "ready-for-write" if validator_payload.get("ok") else "blocked-on-assets",
+        "status": validator_status,
         "profile_generated": profile_generated,
         "error_count": validator_payload.get("error_count", 0),
         "errors": validator_payload.get("errors", []),
@@ -38,6 +46,35 @@ def parse_validator_output(stdout: str) -> dict:
             "errors": [stdout.strip() or "验收脚本输出无法解析"],
             "notes": [],
         }
+
+
+def update_completion_state(root: Path) -> list[str]:
+    notes: list[str] = []
+    progress_path = root / "_progress.md"
+    if progress_path.exists():
+        progress = progress_path.read_text(encoding="utf-8", errors="ignore")
+        updated_progress = progress.replace("- [ ]", "- [x]")
+        if updated_progress != progress:
+            progress_path.write_text(updated_progress, encoding="utf-8")
+            notes.append("_progress.md 已同步为全量完成。")
+
+    meta_path = root / "_meta.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return notes
+        changed = False
+        if meta.get("last_stage_in_progress") is not None:
+            meta["last_stage_in_progress"] = None
+            changed = True
+        if changed:
+            meta_path.write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            notes.append("_meta.json 已清除进行中阶段。")
+    return notes
 
 
 def main() -> int:
@@ -142,6 +179,8 @@ def main() -> int:
         return 2
 
     validator_payload = parse_validator_output(result.stdout)
+    if validator_payload.get("ok"):
+        notes.extend(update_completion_state(root))
     payload = build_payload(root, profile_generated, validator_payload, notes)
 
     if args.json:

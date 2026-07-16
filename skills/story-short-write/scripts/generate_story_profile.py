@@ -1179,7 +1179,26 @@ def keep_style_asset(text: str) -> bool:
         return False
     if re.search(r"[，。？！；:=（）()]", stripped):
         return False
-    if any(marker in stripped for marker in ("为什么", "会不会", "怎么", "不是", "这篇", "原文", "后续", "读者", "流程")) and len(stripped) > 8:
+    if any(
+        marker in stripped
+        for marker in (
+            "为什么",
+            "会不会",
+            "怎么",
+            "不是",
+            "这篇",
+            "原文",
+            "后续",
+            "读者",
+            "流程",
+            "如果",
+            "迁移",
+            "顺序",
+            "不能",
+            "保证",
+            "适合",
+        )
+    ):
         return False
     if re.search(r"(先|再|然后|最后|至少|必须|不要|不能|容易|适合|说明|负责|形成|完成|体现)$", stripped):
         return False
@@ -1264,8 +1283,7 @@ def collect_style_asset_terms_by_kind(asset_name: str, text: str, rel: str) -> l
 
     items: list[str] = []
     if asset_name == "opening_hooks":
-        items.extend(extract_quoted_terms(text))
-        items.extend(collect_bullets(text))
+        return []
     elif asset_name in {"dialogue_bridges", "meltdown_dialogue"}:
         items.extend(extract_quoted_terms(text))
     return clean_style_asset_terms(items)
@@ -1868,6 +1886,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         local_profile_source_bridges: list[dict] = []
         local_bridge_rules: list[dict] = []
         local_story_guardrails: list[dict] = []
+        local_explicit_style_assets: set[str] = set()
         source_entry: dict[str, str] = {"name": root.name}
         sample_grading = existing_file(root, "写作资产/样本分级与可学层.md")
         if sample_grading:
@@ -2006,6 +2025,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             for asset_name, items in parsed.get("scene_assets", {}).items():
                 collected[f"profile_scene_asset::{asset_name}"].extend(items)
             for asset_name, items in parsed.get("style_assets", {}).items():
+                if isinstance(items, list) and any(str(item).strip() for item in items):
+                    local_explicit_style_assets.add(asset_name)
                 collected[f"profile_style_asset::{asset_name}"].extend(items)
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
@@ -2072,6 +2093,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                 collected["table_terms"].extend(clean_asset_terms(collect_table_cells(read_text(path))))
 
         for asset_name, rel_paths in style_asset_files.items():
+            if asset_name in local_explicit_style_assets:
+                continue
             for rel in rel_paths:
                 path = existing_file(root, rel)
                 if not path:

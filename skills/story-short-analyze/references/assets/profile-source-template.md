@@ -25,6 +25,11 @@
 - `禁句 / 禁写法` 里，验收脚本硬读的是独立多行的 `- 为什么假：`
 - 不要把 3 个开头信号并到 1 行，也不要把 2 条“为什么假”写成 `为什么假1 / 为什么假2`
 - 人类能看懂，不等于脚本能抽到；要喂脚本的字段优先按固定标签逐行写
+- 这份文件只是参考模板，不允许先复制空模板到正式产物再向后追加；正式 `profile_source.md` 不得保留任何空字段
+- 收口前确认 10 类 `style_assets` 都有来源：`opening_hooks / misdirection / object_pressure / action_axis / micro_actions / quiet_pressure / character_bias / meltdown_dialogue / rotten_relationship / dialogue_bridges`
+- 10 类 `style_assets` 只允许写短语型资产；禁止混入 `如果 / 为什么 / 读者 / 迁移 / 顺序 / 不能 / 保证` 等施工说明
+- `profile_source.md` 明确提供某类 style asset 后，生成器必须以显式资产为准，不再从仿写表说明段兜底追加
+- 收口前确认 `story_guardrails` 的人物三分法和后果四分法都有来源，尤其不能漏 `尾声入口归属 / 不给另一条线的原因`
 
 桥段字段映射口径：
 
@@ -36,8 +41,6 @@
 - `原文为什么能过` -> `why_original_passes`
 
 ---
-
-## 1. 题材流派
 
 ## 0. 样本分级与可学层
 
@@ -52,28 +55,40 @@
 - 判定证据：
 - 后续调用方式：
 
-- 主流派：
-- 副流派：
-- 是否高情绪：
-- 读者主爽点：
+## 1.1 高敏层级判断
+
+- 高敏层级判断：
+- 更接近哪一型：
+- 桥安全误判提醒：
+
+## 1. 题材流派
+
+- 表面题材：
+- 深层流派：
+- 主钩来源：
 
 ## 2. 主梗 / 副梗
 
 - 主梗：
 - 副梗1：
 - 副梗2：
-- 组合公式：
+- 副梗3：
 
 ## 3. 作者DNA
 
-- 句法切刀：
-- 情绪落点：
-- 动作替代解释句：
-- 关系掉位常用写法：
 - 人物不同脸证据：
 - 谁先解释谁先压场：
 - 不同角色的动作权限差：
-- 反面句型：
+- opening_hooks：
+- misdirection：
+- object_pressure：
+- action_axis：
+- micro_actions：
+- quiet_pressure：
+- character_bias：
+- meltdown_dialogue：
+- rotten_relationship：
+- dialogue_bridges：
 
 ## 4. 开头高信息量信号
 
@@ -81,33 +96,19 @@
 
 - 至少写 3 行独立的 `- 开头信号：`
 - 每行只放 1 个信号，不要 3 个信号塞在同一行
-- `opening_signal_groups.*` 是分桶字段，`开头信号` 是验收硬数，两者都要有
+- `开头信号` 是验收硬数，必须逐行写满
+- 本模板默认先服务 `generate_story_profile.py` 的硬抽取，不要求额外挂 `opening_signal_groups.*`
 
 - 开头信号：
 - 开头信号：
 - 开头信号：
-
-- 首屏高信息量件：
-- 最容易堆满的信号组：
-- 原文实际起手顺序：
-- 开头禁区：
-- opening_signal_groups.registry_or_commitment：
-- opening_signal_groups.pregnancy_or_child：
-- opening_signal_groups.medical_or_rescue：
-- opening_signal_groups.family_pressure：
-- opening_signal_groups.social_exposure：
-- opening_signal_groups.location_evidence：
-- opening_signal_groups.rival_or_third_party：
-- opening_signal_groups.contact_control：
-- opening_signal_groups.paperwork_or_object：
 
 ## 5. 标准翻刀链
 
-- 原文常见翻刀链：
-- 这条链为什么原文能过：
-- 仿写为什么容易假：
-- 必须拆开的环节：
-- opening_chain_patterns.profile_chain：
+- 重大证据前隔开的现实后果：
+- 后果回灌方式：
+- 尾声入口归属：
+- 不给另一条线的原因：
 
 ## 6. 桥段承重件
 
@@ -118,22 +119,23 @@
 - `不能丢的顺序` 尽量写成 `A -> B -> C`
 - `为什么这个顺序不能乱` 要明确写“如果先写 C，会丢掉 A/B 的什么作用”
 - `原文为什么能过` 不要写抽象褒奖，要写原文靠什么证据、顺序、阻力不像加工稿
+- `桥段：` 是验收和生成脚本都直接吃的标签，不要写成 `桥段1：`
 
-- 桥段1：
+- 桥段：
   - 原文怎么起手：
   - 承重件：
   - 不能丢的顺序：
   - 为什么这个顺序不能乱：
   - 最容易写假的点：
   - 原文为什么能过：
-- 桥段2：
+- 桥段：
   - 原文怎么起手：
   - 承重件：
   - 不能丢的顺序：
   - 为什么这个顺序不能乱：
   - 最容易写假的点：
   - 原文为什么能过：
-- 桥段3：
+- 桥段：
   - 原文怎么起手：
   - 承重件：
   - 不能丢的顺序：
@@ -149,11 +151,8 @@
 - `禁句型 / 禁写法` 负责列壳句，`为什么假` 负责解释这些壳句会把文写坏在哪
 - 不要写成 `为什么假1 / 为什么假2`
 
-- 禁句壳：
-- 禁解释句：
-- 禁成品宣言句：
-- 禁公开场假爽句：
-- 禁补字废话：
+- 禁句型：
+- 禁写法：
 - 为什么假：
 - 为什么假：
 
@@ -161,29 +160,25 @@
 
 写法硬要求：
 
-- `scene_assets.public_explosion / external_order / consequence_chain` 是脚本直接吃的字段
-- `公开场硬件 / 外部秩序件 / 后果链` 是给人看的总括，两者最好同时写
+- 这 1 节是 `book.profile.json.scene_assets` 的直接上游
+- 至少补齐 `公开场硬件 / 外部秩序件 / 后果链`
 - 如果只写抽象句，不写短语型资产，后续 `book.profile.json` 很容易抽空或抽碎
 
 - 公开场硬件：
 - 外部秩序件：
-- 官方回正件：
-- 迟到挽回场：
-- 关系翻牌场：
-- scene_assets.public_explosion：
-- scene_assets.external_order：
-- scene_assets.consequence_chain：
+- 后果链：
 
 ## 9. 后果链
 
+- 写法硬要求：
+
+- 至少补齐 4 行：`感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点`
+- 这一节和 `## 5. 标准翻刀链` 不冲突：`## 5` 更偏结构顺序，`## 9` 更偏后果扩散
+
 - 感情伤抬升到现实伤的节点：
-- 重大证据前隔开的现实后果：
-- 后果回灌方式：
 - 秩序回正节点：
 - 长尾惩罚节点：
 - 离场 / 换图节点：
-- 尾声入口归属：
-- 不给另一条线的原因：
 
 ## 10. 作者站位高危句
 
@@ -198,6 +193,12 @@
 
 ## 11. style_assets 原始材料
 
+写法硬要求：
+
+- 每行只写一个短语型资产
+- 不写解释句、不写迁移提醒、不写条件句
+- 生成器优先读取本节；本节已提供的类别不会再被仿写表说明段污染
+
 - opening_hooks：
 - misdirection：
 - object_pressure：
@@ -208,9 +209,3 @@
 - meltdown_dialogue：
 - rotten_relationship：
 - dialogue_bridges：
-
-## 12. 写作调用提醒
-
-- 写新稿时先读什么：
-- 这本最值得学的 3 个点：
-- 这本最该拦掉的 3 个假点：
