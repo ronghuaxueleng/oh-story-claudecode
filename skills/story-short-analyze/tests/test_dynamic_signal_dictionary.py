@@ -69,7 +69,7 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
                 "index_only_reason": "",
             }
         ]
-        return {
+        payload = {
             "version": "1.0",
             "categories": categories,
             "backfill_rounds": [
@@ -90,8 +90,21 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
                     "notes": "表后复扫无新增",
                 },
             ],
-            "stabilized": True,
         }
+        state_sha1 = VALIDATOR.dynamic_state_sha1({"阿宁"}, {"1"})
+        payload["stability_checks"] = [
+            {
+                "round": index,
+                "rescanned_chunks": [1],
+                "added_terms": [],
+                "new_candidate_ids": [],
+                "state_sha1": state_sha1,
+                "notes": f"独立漏项审计第{index}轮没有发现新增资产",
+            }
+            for index in (1, 2)
+        ]
+        payload["stabilized"] = True
+        return payload
 
     def _write_payload(self) -> None:
         (self.root / "写作资产" / "本书动态信号字典.json").write_text(
@@ -132,6 +145,18 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
         self._write_payload()
         errors, _ = self._check()
         self.assertTrue(any("缺少回补阶段：表后回扫" in error for error in errors))
+
+    def test_stability_fingerprint_must_match_current_state(self) -> None:
+        self.payload["stability_checks"][1]["state_sha1"] = "bad"
+        self._write_payload()
+        errors, _ = self._check()
+        self.assertTrue(any("state_sha1 与当前字典/候选池状态不一致" in error for error in errors))
+
+    def test_stability_check_must_have_no_new_assets(self) -> None:
+        self.payload["stability_checks"][0]["new_candidate_ids"] = ["C001"]
+        self._write_payload()
+        errors, _ = self._check()
+        self.assertTrue(any("仍有新增项，不能判定稳定" in error for error in errors))
 
 
 if __name__ == "__main__":

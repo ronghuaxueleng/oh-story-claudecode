@@ -190,10 +190,12 @@ def dump_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def write_meta(path: Path, word_count: int) -> None:
+def write_meta(path: Path, word_count: int, book_name: str, source_text: str) -> None:
     payload = {
         "version": "2.0",
         "word_count": word_count,
+        "source_label": book_name,
+        "title_status": "verified-in-source" if book_name and book_name in source_text else "unverified-filename",
         "genre_detected": "通用",
         "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "stages_completed": [],
@@ -299,10 +301,14 @@ def write_progress(path: Path, book_name: str, layout: ContractLayout) -> None:
         "- [x] 已复制原文到 `原文/`",
         "- [x] 已写入 `_meta.json`、`_required_outputs.json`、`_source_manifest.json`",
         "- [ ] 已按 `_source_reading_plan.md` 读完全部原文分块并核对 EOF",
+        "- [ ] 模型人工复核：事实台账已对照原文核清主体、双时间轴和证据来源",
         "- [ ] 已按 skill 完成主报告批",
+        "- [ ] 模型人工复核：主报告与节点已区分信息释放顺序和故事实际时间线",
         "- [ ] 已按 skill 完成 16 张可直接仿写表",
         "- [ ] 已按 skill 完成原文细节库 8 类",
         "- [ ] 已按 skill 完成写作资产全包",
+        "- [ ] 模型人工复核：profile生成后已检查整句资产、标题边界和特殊羞辱机制",
+        "- [ ] 模型人工复核：finalize前已读取脚本结果并完成最后语义纠偏",
         "- [ ] 已运行 `run_short_analyze_finalize.py` 并通过",
         "",
         "## 根目录必产文件",
@@ -345,11 +351,12 @@ def write_execution_prompt(
         f"# {book_name} 正式拆书执行提示",
         "",
         "你现在执行 `story-short-analyze` 正式拆书。",
-        "目标不是只写分析结论，而是一次性自动产出 skill 定义过的整套拆书资料包，并在结束前通过收口验收。",
+        "目标不是只写分析结论，而是按微批完整产出 skill 定义过的整套拆书资料包，并在结束前通过收口验收。",
+        "全量任务不等于一次生成：任何一次生成动作最多写 2 个正式文件，写完立即局部自检。",
         "默认按厚拆模式执行：不能满足于“文件齐了、脚本过了”，而要先把主报告、节点和手法拆到能直接指导仿写的厚度。",
         "",
         "## 本次固定上下文",
-        f"- 书名：`{book_name}`",
+        f"- 任务名：`{book_name}`（默认来自文件名，不等于已验证标题）",
         f"- 原文路径：`{source_copy}`",
         f"- 输出目录：`{out_dir}`",
         f"- 原文总行数：`{lines_total}`",
@@ -361,18 +368,26 @@ def write_execution_prompt(
         "1. 先读 `skills/story-short-analyze/SKILL.md`",
         "2. 再读 `skills/story-short-analyze/references/pipeline/short-analyze-execution-prompt.md`",
         "3. 按 `_source_reading_plan.md` 的全部分块读到 EOF，完成原文覆盖确认",
-        "4. 按 `主报告批 -> 动态信号字典首轮 -> 原文资产候选池批 -> 16张表批 -> 字典回补复扫 -> 原文细节库批 -> 写作资产批 -> profile批 -> 验收批` 完整落盘",
+        "4. 按 `事实台账 -> 拆文报告 -> 情节节点 -> 写作手法+meta -> 字典+候选池 -> 16张表双文件微批 -> 细节库双文件微批 -> 写作资产双文件微批 -> profile -> 验收` 完整落盘",
         "5. 最后运行：",
         f"   `python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json`",
         "",
         "## 强约束",
+        "- 读完原文后立即先写 `事实与推断台账.md`；禁止长时间规划整套文件后集中落盘",
+        "- 每个微批最多 2 个正式文件；第一个文件写完立即局部自检，再写第二个",
+        "- 主报告固定拆成 4 个微批：事实台账；拆文报告；情节节点；写作手法 + `_meta.json`",
+        "- 16 张表固定 8 个微批，每批 2 张；细节库固定 4 个微批，每批 2 份；写作资产每批最多 2 份",
+        "- 微批内只做局部自检，不提前运行全量 validator；所有文件齐备后只运行一次 finalize",
         "- 原文读取是独立硬闸门；未读完 `_source_reading_plan.md` 的全部分块，不得进入 Stage 2",
         "- 禁止把有行数上限的单次 `sed/head/open` 输出当成全文；必须继续读到 manifest 记录的最后一行",
         "- `拆文报告.md` 必须含 `### 原文覆盖确认`，写明总行数、已读取至、识别章节数、最后事件、尾部原文锚点",
         "- 进入 Stage 2 前先写 `事实与推断台账.md`；至少覆盖 `主体边界 / 时间边界 / 证据来源`",
-        "- 台账每条写成 `F序号 | L起-L止 | 锚点：... | 类别：... | 主体：... | 动作：... | 结果：... | 口径：... | 禁止越界：...`",
+        "- 台账每条必须区分 `叙述时点 / 故事时点 / 时间依据`；遇到回指词先定位所指事件，不得按正文行号直接顺排",
+        "- 台账每条写成 `F序号 | L起-L止 | 锚点：... | 类别：... | 主体：... | 动作：... | 结果：... | 叙述时点：... | 故事时点：... | 时间依据：... | 口径：... | 禁止越界：...`",
         "- 高主动性因果判断必须句末回指 `【原文明确 Fxx】` 或 `【人工推断 Fxx】`",
         "- `情节节点.md` 每个 N 节点必须含 `L起-L止`、`锚点：原文短语` 和 `类型 / 情绪 / 涉及 / 状态变化 / 因果`；锚点必须真实存在于对应行范围",
+        "- `情节节点.md` 每个节点还必须含 `故事时序`；节点按信息释放顺序排列时，也要标出事件真实发生位置",
+        "- 每个微批完成后由模型重读对应原文并人工纠偏；脚本只作机械检查，返回成功不能代替语义复核",
         "- 节点必须覆盖每个自动分块；有章节标记时还必须覆盖每个章节，且最后有效节点必须进入原文最后 10%",
         "- 不允许先把所有文件铺出来，回头再补厚；`主报告批` 必须先过厚拆闸门，后续批次才允许开始",
         "- 如果 token、篇幅或时间紧张，优先保住 `拆文报告.md / 情节节点.md / 写作手法.md / profile_source.md` 的厚拆层，不允许为了平均铺满文件把主报告写薄",
@@ -431,7 +446,7 @@ def prepare(args: argparse.Namespace) -> dict:
     text = read_text(source)
     word_count = count_source_units(text)
 
-    write_meta(out_dir / "_meta.json", word_count)
+    write_meta(out_dir / "_meta.json", word_count, book_name, text)
     write_required_manifest(out_dir / "_required_outputs.json", book_name, source, layout)
     write_source_manifest(out_dir / "_source_manifest.json", source, source_copy, text)
     write_source_reading_plan(out_dir / "_source_reading_plan.md", source_copy, text)

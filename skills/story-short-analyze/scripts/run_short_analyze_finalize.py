@@ -5,6 +5,7 @@ import argparse
 import json
 import subprocess
 import sys
+import re
 from pathlib import Path
 
 
@@ -53,7 +54,12 @@ def update_completion_state(root: Path) -> list[str]:
     progress_path = root / "_progress.md"
     if progress_path.exists():
         progress = progress_path.read_text(encoding="utf-8", errors="ignore")
-        updated_progress = progress.replace("- [ ]", "- [x]")
+        updated_lines = []
+        for line in progress.splitlines():
+            if line.startswith("- [ ]") and "模型人工复核" not in line:
+                line = line.replace("- [ ]", "- [x]", 1)
+            updated_lines.append(line)
+        updated_progress = "\n".join(updated_lines) + ("\n" if progress.endswith("\n") else "")
         if updated_progress != progress:
             progress_path.write_text(updated_progress, encoding="utf-8")
             notes.append("_progress.md 已同步为全量完成。")
@@ -65,6 +71,20 @@ def update_completion_state(root: Path) -> list[str]:
         except json.JSONDecodeError:
             return notes
         changed = False
+        profile_source = root / "写作资产" / "profile_source.md"
+        if profile_source.exists():
+            source_text = profile_source.read_text(encoding="utf-8", errors="ignore")
+            genre_match = re.search(r"^\s*-\s*深层流派[：:]\s*(.+)$", source_text, flags=re.M)
+            if not genre_match:
+                genre_match = re.search(r"^\s*-\s*表面题材[：:]\s*(.+)$", source_text, flags=re.M)
+            if genre_match:
+                genre = genre_match.group(1).strip()
+                if genre and meta.get("genre_detected") != genre:
+                    meta["genre_detected"] = genre
+                    changed = True
+        if meta.get("stages_completed") != [2, 3, 4, 5, 6]:
+            meta["stages_completed"] = [2, 3, 4, 5, 6]
+            changed = True
         if meta.get("last_stage_in_progress") is not None:
             meta["last_stage_in_progress"] = None
             changed = True
@@ -73,7 +93,7 @@ def update_completion_state(root: Path) -> list[str]:
                 json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            notes.append("_meta.json 已清除进行中阶段。")
+            notes.append("_meta.json 已回写题材、完成阶段并清除进行中状态。")
     return notes
 
 

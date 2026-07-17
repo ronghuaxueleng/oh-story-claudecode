@@ -108,6 +108,20 @@ def build_sample_grading_guidance(profile: dict) -> dict:
     if not isinstance(effective_level, str) or not effective_level.strip():
         effective_level = raw_level
     level = effective_level
+    structure_grade = str(grading.get("structure_grade", "")).upper()
+    performance_grade = str(grading.get("performance_grade", "")).upper()
+    sentence_grade = str(grading.get("sentence_grade", "")).upper()
+    terminal_grade = str(grading.get("terminal_consequence_grade", "")).upper()
+    positive_dna_layers = grading.get("positive_dna_layers", [])
+    skeleton_only_layers = grading.get("skeleton_only_layers", [])
+    negative_rule_layers = grading.get("negative_rule_layers", [])
+    present_layer_grades = [
+        grade for grade in (structure_grade, performance_grade, sentence_grade, terminal_grade)
+        if grade in {"A", "B", "C"}
+    ]
+    all_layers_negative = bool(present_layer_grades) and all(
+        grade == "C" for grade in present_layer_grades
+    )
     effective_dna_usable = source_buckets.get("effective_dna_usable")
     if not isinstance(effective_dna_usable, str) or not effective_dna_usable.strip():
         effective_dna_usable = raw_dna_usable
@@ -115,24 +129,40 @@ def build_sample_grading_guidance(profile: dict) -> dict:
     notes: list[str] = []
     if raw_level and raw_level != level:
         notes.append(f"融合包原始最严等级为 `{raw_level}`，但有效写作等级按来源分桶修正为 `{level}`。")
-    if level == "B类骨架样本":
+    if level == "B类骨架样本" and sentence_grade != "A":
         notes.append("当前 profile 标记为 `B类骨架样本`：只学骨架、承重件、后果链、场面秩序，不学现成句法壳。")
-    elif level == "C类负样本":
+    elif level == "C类负样本" and (not present_layer_grades or all_layers_negative):
         notes.append("当前 profile 标记为 `C类负样本`：只可用于反面规则和禁写提醒，不可并入正向融合。")
+    elif level == "C类负样本":
+        notes.append("整书摘要为 `C类负样本`，但存在非 C 分层；实际调用服从四层 grade，不做整书一刀切。")
     elif level == "A类正样本":
         notes.append("当前 profile 标记为 `A类正样本`：可提句法、口气、动作落点和桥段承重件。")
     if isinstance(raw_dna_usable, str) and raw_dna_usable and raw_dna_usable != dna_usable:
         notes.append(f"融合包原始 DNA 可用性为 `{raw_dna_usable}`，但实际写作按 `{dna_usable}` 处理。")
     if isinstance(dna_usable, str) and dna_usable:
         notes.append(f"DNA 提取可用性：`{dna_usable}`。")
+    if any((structure_grade, performance_grade, sentence_grade, terminal_grade)):
+        notes.append(
+            "分层样本等级："
+            f"结构={structure_grade or '未知'} / 表演={performance_grade or '未知'} / "
+            f"句法={sentence_grade or '未知'} / 终局后果={terminal_grade or '未知'}。"
+        )
+    if isinstance(positive_dna_layers, list) and positive_dna_layers:
+        notes.append(f"正向 DNA 层：`{' / '.join(positive_dna_layers[:6])}`。")
+    if isinstance(skeleton_only_layers, list) and skeleton_only_layers:
+        notes.append(f"仅骨架层：`{' / '.join(skeleton_only_layers[:6])}`。")
+    if isinstance(negative_rule_layers, list) and negative_rule_layers:
+        notes.append(f"反面规则层：`{' / '.join(negative_rule_layers[:6])}`。")
     effective_allow_dna = source_buckets.get("effective_allow_dna")
     if not isinstance(effective_allow_dna, str):
         effective_allow_dna = ""
     if isinstance(final_verdict, dict):
         allow_dna_value = effective_allow_dna or final_verdict.get("allow_dna")
-        if allow_dna_value in ("否", "不可"):
+        if allow_dna_value in ("否", "不可") and sentence_grade != "A":
             notes.append("这份样本不允许直接当句法 DNA 源使用。")
-        if final_verdict.get("negative_only") == "是":
+        if final_verdict.get("negative_only") == "是" and (
+            not present_layer_grades or all_layers_negative
+        ):
             notes.append("这份样本只可进入负面规则库。")
     positive_dna_sources = source_buckets.get("positive_dna_sources", [])
     skeleton_only_sources = source_buckets.get("skeleton_only_sources", [])
@@ -146,9 +176,9 @@ def build_sample_grading_guidance(profile: dict) -> dict:
     if isinstance(negative_only_sources, list) and negative_only_sources:
         notes.append(f"当前只可进反面规则的来源：`{' / '.join(negative_only_sources[:6])}`。")
     hard_stops: list[str] = []
-    if level == "B类骨架样本":
+    if level == "B类骨架样本" and sentence_grade != "A":
         hard_stops.append("不要把这份参考稿的现成句法壳、总结句和整齐翻刀链当成可继承 DNA。")
-    if level == "C类负样本":
+    if level == "C类负样本" and (not present_layer_grades or all_layers_negative):
         hard_stops.append("不要把这份参考稿并入正向融合 profile，也不要提取它的句法口气。")
     if isinstance(forbidden_layers, list):
         for item in forbidden_layers[:6]:
@@ -167,6 +197,13 @@ def build_sample_grading_guidance(profile: dict) -> dict:
         "raw_level": raw_level,
         "raw_dna_usable": raw_dna_usable,
         "dna_usable": dna_usable,
+        "structure_grade": structure_grade,
+        "performance_grade": performance_grade,
+        "sentence_grade": sentence_grade,
+        "terminal_consequence_grade": terminal_grade,
+        "positive_dna_layers": positive_dna_layers if isinstance(positive_dna_layers, list) else [],
+        "skeleton_only_layers": skeleton_only_layers if isinstance(skeleton_only_layers, list) else [],
+        "negative_rule_layers": negative_rule_layers if isinstance(negative_rule_layers, list) else [],
         "summary": summary,
         "learnable_layers": [item for item in learnable_layers if isinstance(item, str)][:8],
         "forbidden_layers": [item for item in forbidden_layers if isinstance(item, str)][:8],

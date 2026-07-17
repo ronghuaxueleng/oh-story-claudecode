@@ -142,6 +142,12 @@ class AssetCandidateLedgerTest(unittest.TestCase):
                 )
             else:
                 lines.append("- Chunk 2：L121-L240 | 状态：已回扫 | 新增候选：C019")
+        lines.extend(["", "## 反向漏项审计"])
+        for index in range(1, 6):
+            lines.append(
+                f"- A{index:03d} | L{index}-L{index} | 原文：{self.source_lines[index - 1]} | "
+                "判定：不收录 | 去向：无 | 理由：与现有候选属于同一事件的重复表述"
+            )
         (self.root / "写作资产" / "原文资产候选池.md").write_text(
             "\n".join(lines),
             encoding="utf-8",
@@ -166,15 +172,31 @@ class AssetCandidateLedgerTest(unittest.TestCase):
 
     def test_source_object_cue_must_be_covered(self) -> None:
         self.source_lines[99] = "拍卖会上出现一枚钻戒"
-        errors, notes = self._check()
-        self.assertEqual([], errors)
-        self.assertTrue(any("原文出现 `钻戒`" in note for note in notes))
+        errors, _ = self._check()
+        self.assertTrue(any("原文出现高价值信号 `钻戒`" in error for error in errors))
 
     def test_source_micro_action_cue_must_be_covered(self) -> None:
         self.source_lines[100] = "她死死咬住嘴唇，没有解释"
-        errors, notes = self._check()
-        self.assertEqual([], errors)
-        self.assertTrue(any("原文出现 `咬住嘴唇`" in note for note in notes))
+        errors, _ = self._check()
+        self.assertTrue(any("原文出现高价值信号 `咬住嘴唇`" in error for error in errors))
+
+    def test_generic_cue_can_be_excluded_by_substantive_audit(self) -> None:
+        self.source_lines[99] = "她低下头整理鞋带，动作不承担关系或情绪功能"
+        ledger_path = self.root / "写作资产" / "原文资产候选池.md"
+        text = ledger_path.read_text(encoding="utf-8")
+        ledger_path.write_text(
+            text
+            + "\n- A006 | L100-L100 | 原文：她低下头整理鞋带 | 判定：不收录 | 去向：无 | "
+            "理由：这里只是连续动作中的空间姿态，不改变人物关系、情绪或事件走向\n",
+            encoding="utf-8",
+        )
+        errors, _ = self._check()
+        self.assertFalse(any("原文出现高价值信号 `低下头`" in error for error in errors))
+
+    def test_generic_cue_without_matching_audit_still_blocks(self) -> None:
+        self.source_lines[99] = "她低下头整理鞋带"
+        errors, _ = self._check()
+        self.assertTrue(any("原文出现高价值信号 `低下头`" in error for error in errors))
 
     def test_other_source_cue_categories_must_be_covered(self) -> None:
         cases = (
@@ -185,10 +207,9 @@ class AssetCandidateLedgerTest(unittest.TestCase):
         for source_line, expected_cue in cases:
             with self.subTest(cue=expected_cue):
                 self.source_lines[101] = source_line
-                errors, notes = self._check()
-                self.assertEqual([], errors)
+                errors, _ = self._check()
                 self.assertTrue(
-                    any(f"原文出现 `{expected_cue}`" in note for note in notes)
+                    any(f"原文出现高价值信号 `{expected_cue}`" in error for error in errors)
                 )
                 self.source_lines[101] = "这是第102行的原文锚点"
 

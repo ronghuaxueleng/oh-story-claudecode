@@ -16,7 +16,8 @@ description: |
 3. 写 16 张表时发现新信号，立即回补字典。
 4. 表完成后，用更新后的字典重新扫描全部 Chunk。
 5. 新信号关联到候选池；不属于直接仿写资产的信号写明仅索引理由。
-6. 连续一轮没有新增信号和候选后，写 `stabilized: true`。
+6. 表后回扫结束后，再从“专门找漏项”的立场独立扫描两轮。
+7. 两轮都覆盖全部 Chunk、都没有新增信号或候选，并且状态指纹与当前字典和候选池一致时，由 validator 计算稳定状态。
 
 ## JSON 结构
 
@@ -51,6 +52,24 @@ description: |
       "notes": "表后复扫无新增"
     }
   ],
+  "stability_checks": [
+    {
+      "round": 1,
+      "rescanned_chunks": [1, 2],
+      "added_terms": [],
+      "new_candidate_ids": [],
+      "state_sha1": "由当前全部标准化 term 与候选 ID 计算",
+      "notes": "独立漏项审计一：从原文重新找未收录资产"
+    },
+    {
+      "round": 2,
+      "rescanned_chunks": [1, 2],
+      "added_terms": [],
+      "new_candidate_ids": [],
+      "state_sha1": "与上一轮及当前状态一致",
+      "notes": "独立漏项审计二：更换检查顺序再次复扫"
+    }
+  ],
   "stabilized": true
 }
 ```
@@ -76,4 +95,7 @@ description: |
 - `人物别名` 等只用于实体归一时，可以仅索引。
 - 两轮都必须覆盖 manifest 全部 Chunk。
 - `added_terms` 必须能在类别条目中找到，`new_candidate_ids` 必须能在候选池找到。
+- `stability_checks` 必须恰好保留最后两轮独立漏项审计；两轮的 `added_terms / new_candidate_ids` 必须为空。
+- `state_sha1` 由 validator 按“全部标准化动态词 + 全部候选 ID”计算；手填 `stabilized: true` 不能绕过指纹检查。
+- 任一稳定审计发现新增项时，先回补字典、候选池和目标产物，再重新执行两轮稳定审计。
 - 单书词不得自动写回全局静态词表；跨书晋升另行审查。

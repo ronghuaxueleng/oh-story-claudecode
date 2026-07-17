@@ -86,6 +86,13 @@
   "banned_regex": ["<来自拆书的禁句正则>"],
   "sample_grading": {
     "level": "<A类正样本 / B类骨架样本 / C类负样本>",
+    "structure_grade": "<A/B/C>",
+    "performance_grade": "<A/B/C>",
+    "sentence_grade": "<A/B/C>",
+    "terminal_consequence_grade": "<A/B/C>",
+    "positive_dna_layers": ["<可正向提取层>"],
+    "skeleton_only_layers": ["<只取骨架层>"],
+    "negative_rule_layers": ["<只进反面规则层>"],
     "dna_usable": "<可 / 部分可 / 不可>",
     "summary": "<一句话判断>",
     "source_score_judgement": "<原文检测结论>",
@@ -190,10 +197,9 @@
 - 默认来源：
   - `写作资产/样本分级与可学层.md`
   - `写作资产/profile_source.md` 里的 `0. 样本分级与可学层`
-- 写作侧使用口径：
-  - `A类正样本`：可学句法、口气、动作落点、桥段承重件
-  - `B类骨架样本`：只学骨架、承重件、后果链、场面秩序，不学现成句法壳
-  - `C类负样本`：只进禁写规则、反面桥提醒，不进正向融合
+- 写作侧优先按 `structure_grade / performance_grade / sentence_grade / terminal_consequence_grade` 分层消费。
+- 整书 `A/B/C` 只作摘要，不得把整书 B 一刀切成“句法一定不可学”。
+- `positive_dna_layers / skeleton_only_layers / negative_rule_layers` 是直接消费清单。
 - 如果 `source_score_judgement` 明确写了“原文开头桥段高分 / 原文整本高分 / 原文只局部可学”：
   - 必须优先服从这条分数口径
   - 不允许因为题材爽就把它回升成 `A类正样本`
