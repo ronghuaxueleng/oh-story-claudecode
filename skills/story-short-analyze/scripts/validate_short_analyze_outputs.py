@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 ROOT_REQUIRED_FILES = [
+    "_sample_comparison.md",
     "事实与推断台账.md",
     "拆文报告.md",
     "情节节点.md",
@@ -37,6 +38,25 @@ DIRECT_IMITATION_FILES = [
     "可直接仿写_公开炸场表.md",
     "可直接仿写_后果链表.md",
 ]
+
+DIRECT_TABLE_BASELINE_MIN_ROWS = {
+    "可直接仿写_导语拆解表.md": 3,
+    "可直接仿写_顺序事件表.md": 4,
+    "可直接仿写_物件表.md": 5,
+    "可直接仿写_动作表.md": 5,
+    "可直接仿写_对白功能表.md": 5,
+    "可直接仿写_对话衔接表.md": 4,
+    "可直接仿写_误判表.md": 4,
+    "可直接仿写_钩子表.md": 5,
+    "可直接仿写_微动作表.md": 5,
+    "可直接仿写_安静压迫场表.md": 4,
+    "可直接仿写_人物偏手表.md": 4,
+    "可直接仿写_失控说话表.md": 5,
+    "可直接仿写_烂关系漏出表.md": 4,
+    "可直接仿写_外部秩序表.md": 3,
+    "可直接仿写_公开炸场表.md": 4,
+    "可直接仿写_后果链表.md": 4,
+}
 
 DETAIL_LIBRARY_FILES = [
     "场景细节库.md",
@@ -143,6 +163,7 @@ SOURCE_ASSET_CUE_RULES = (
             "钻戒", "婚戒", "戒指", "离婚协议", "离婚证", "请帖", "存储卡",
             "录像", "录音", "视频", "病历", "账目", "印章", "门禁", "密码",
             "玉牌", "护身符", "遗书", "合同", "房卡", "工牌", "钥匙",
+            "花束", "黄玫瑰", "副驾驶", "家属", "礼物", "座位",
         ),
     ),
     (
@@ -271,6 +292,7 @@ BOOK_PROFILE_KEYS = [
 
 META_KEYS = [
     "version",
+    "skill_fingerprint",
     "word_count",
     "source_label",
     "title_status",
@@ -289,6 +311,18 @@ STRUCTURE_COUNT_KEYS = [
     "reusable_structures",
     "reversal_type",
 ]
+
+SKILL_FINGERPRINT_FILES = (
+    "skills/story-short-analyze/SKILL.md",
+    "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
+    "skills/story-short-analyze/references/pipeline/stage-01-main-report-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-02-ledger-and-tables-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-03-detail-assets-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-04-profile-and-finalize-batch.md",
+)
 
 DETAIL_PLACEHOLDER_PATTERNS = [
     "原文里出现了",
@@ -546,6 +580,15 @@ STYLE_ASSET_POLLUTION_MARKERS = (
     "说明",
     "负责",
 )
+OBJECT_PRESSURE_CUE_RE = re.compile(
+    r"视频|录音|录像|证据册|协议|离婚证|借条|钥匙|戒指|指环|声明书|铁盒|盒子|"
+    r"听诊器|医药箱|候诊(?:号|单)|红绳|保健册|回执|签收栏|"
+    r"[零一二三四五六七八九十百千万两\d]+封(?:信)?|"
+    r"花束|玫瑰|礼物|副驾驶|主位|座位|家属栏|门禁|工牌|账单|转账|截图|照片|信|卡|票|报告|档案|药"
+)
+OBJECT_PRESSURE_BAD_RE = re.compile(
+    r"(花粉过敏|协议离婚了|怎么都|每次都会|不是|已经|开始|结束|回家|彻夜未归|回收成|整理成了)"
+)
 
 CORE_WRITING_ASSET_FILES = (
     "母结构_故事走法.md",
@@ -577,6 +620,22 @@ def sha1_file(path: Path) -> str:
 
 def repo_root_from_script() -> Path:
     return Path(__file__).resolve().parents[3]
+
+
+def compute_skill_fingerprint() -> str:
+    repo_root = repo_root_from_script()
+    digest = hashlib.sha1()
+    for rel in SKILL_FINGERPRINT_FILES:
+        path = repo_root / rel
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        if not path.exists():
+            digest.update(b"MISSING")
+            digest.update(b"\0")
+            continue
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def parse_output_contract() -> dict[str, set[str]] | None:
@@ -716,6 +775,15 @@ def count_markdown_table_rows(text: str) -> int:
             continue
         rows += 1
     return max(0, rows - 1)
+
+
+def minimum_direct_table_rows(filename: str, word_count: int) -> int:
+    base = DIRECT_TABLE_BASELINE_MIN_ROWS.get(filename, 2)
+    if word_count < 5000:
+        return max(2, base - 1)
+    if word_count < 8000:
+        return max(2, base - 1)
+    return base
 
 
 def parse_first_markdown_table(text: str) -> tuple[list[str], list[list[str]]]:
@@ -903,6 +971,12 @@ def check_direct_imitation_quality(path: Path, word_count: int, errors: list[str
             "`原文现象/原文证据/原文位置/原文例子/原文功能/原文怎么写/动作本体` 之一"
         )
     headers, rows = parse_first_markdown_table(text)
+    min_rows = minimum_direct_table_rows(path.name, word_count)
+    if rows and "原文未发现" not in text and len(rows) < min_rows:
+        errors.append(
+            f"{path} 表格承重不足：当前仅 {len(rows)} 条资产行，"
+            f"低于该表最低要求 {min_rows}；不能用解释层代替穷举层"
+        )
     tier_indexes = [
         index for index, header in enumerate(headers)
         if any(marker in header for marker in DIRECT_TIER_HEADERS)
@@ -1086,6 +1160,9 @@ def check_asset_candidate_ledger(
         for filename in DIRECT_IMITATION_FILES
     }
     category_counts: Counter[str] = Counter()
+    collected_assets_by_target: dict[str, set[str]] = {
+        target: set() for target in DIRECT_IMITATION_FILES
+    }
     candidate_ids: list[str] = []
     candidate_ranges: list[tuple[int, int]] = []
     total_lines = len(source_lines)
@@ -1127,6 +1204,9 @@ def check_asset_candidate_ledger(
             )
 
         if status == "已收录":
+            normalized_asset = normalize_text(asset)
+            if normalized_asset:
+                collected_assets_by_target.setdefault(target, set()).add(normalized_asset)
             target_text = target_texts.get(target, "")
             normalized_target = normalize_text(target_text)
             asset_hit = len(normalize_text(asset)) >= 2 and normalize_text(asset) in normalized_target
@@ -1274,6 +1354,22 @@ def check_asset_candidate_ledger(
                     f"原文出现高价值信号 `{cue}`，但候选池和 `{target}` 未命中；"
                     f"必须登记为 `{category}` 候选，或在反向漏项审计中逐项说明不收录理由"
                 )
+
+    for target in DIRECT_IMITATION_FILES:
+        collected_assets = collected_assets_by_target.get(target, set())
+        if not collected_assets:
+            continue
+        table_text = target_texts.get(target, "")
+        if not table_text:
+            continue
+        table_rows = count_markdown_table_rows(table_text)
+        candidate_floor = min(len(collected_assets), 6)
+        if candidate_floor > table_rows:
+            ledger_errors.append(
+                f"{path} `{target}` 已收录候选 {len(collected_assets)} 条，"
+                f"但表格仅 {table_rows} 行；至少应保住 {candidate_floor} 条独立资产行，"
+                "不能把多条候选压成几行长解释"
+            )
 
     if not ledger_errors:
         notes.append(
@@ -2131,17 +2227,25 @@ def check_bridge_reconciliation(
     nodes_path = root / "情节节点.md"
     if not nodes_path.is_file():
         return
-    node_bridge_ids: set[str] = set()
-    for line in read_text(nodes_path).splitlines():
-        if "承重桥" in line:
-            node_bridge_ids.update(item.upper() for item in BRIDGE_ID_PATTERN.findall(line))
-    if not node_bridge_ids:
-        if notes is not None:
-            notes.append(
-                f"模型复核提示：{nodes_path} 未发现带 BID 的承重桥节点；"
-                "请人工判断原文确实无独立承重桥，还是漏标"
+    node_lines = [
+        line
+        for line in read_text(nodes_path).splitlines()
+        if re.match(r"^N\d+\b", line)
+    ]
+    node_bridge_ids = {
+        item.upper()
+        for line in node_lines
+        for item in BRIDGE_ID_PATTERN.findall(line)
+    }
+    for line in node_lines:
+        if "承重桥" in line and not BRIDGE_ID_PATTERN.search(line):
+            errors.append(f"{nodes_path} 承重桥节点缺少 BID：{line[:120]}")
+        line_ids = {item.upper() for item in BRIDGE_ID_PATTERN.findall(line)}
+        if len(line_ids) > 1:
+            errors.append(
+                f"{nodes_path} 单个节点不得挂多个 BID："
+                f"{', '.join(sorted(line_ids))} -> {line[:120]}"
             )
-        return
 
     targets = (
         root / "拆文报告.md",
@@ -2149,15 +2253,40 @@ def check_bridge_reconciliation(
         root / "写作资产" / "桥段施工卡.md",
         root / "写作资产" / "profile_source.md",
     )
+    target_ids: dict[Path, set[str]] = {}
     for path in targets:
         text = read_text(path) if path.is_file() else ""
-        present = {item.upper() for item in BRIDGE_ID_PATTERN.findall(text)}
+        target_ids[path] = {
+            item.upper()
+            for item in BRIDGE_ID_PATTERN.findall(text)
+        }
+
+    profile_text = json.dumps(profile, ensure_ascii=False)
+    profile_ids = {item.upper() for item in BRIDGE_ID_PATTERN.findall(profile_text)}
+    declared_ids = set(profile_ids)
+    for present in target_ids.values():
+        declared_ids.update(present)
+
+    missing_in_nodes = sorted(declared_ids - node_bridge_ids)
+    if missing_in_nodes:
+        errors.append(
+            f"{nodes_path} 未在具体 N 节点行显式标注承重桥 BID："
+            f"{', '.join(missing_in_nodes)}"
+        )
+
+    if not node_bridge_ids:
+        if not declared_ids and notes is not None:
+            notes.append(
+                f"模型复核提示：{nodes_path} 与下游资产均未发现 BID；"
+                "请人工判断原文确实无独立承重桥，还是整条链均漏标"
+            )
+        return
+
+    for path, present in target_ids.items():
         missing = sorted(node_bridge_ids - present)
         if missing:
             errors.append(f"{path} 未贯通承重桥 BID：{', '.join(missing)}")
 
-    profile_text = json.dumps(profile, ensure_ascii=False)
-    profile_ids = {item.upper() for item in BRIDGE_ID_PATTERN.findall(profile_text)}
     missing = sorted(node_bridge_ids - profile_ids)
     if missing:
         errors.append(f"{root / 'book.profile.json'} 未贯通承重桥 BID：{', '.join(missing)}")
@@ -2196,6 +2325,61 @@ def style_asset_pollution_reason(value: object) -> str | None:
     return None
 
 
+def matches_dynamic_object_term(text: str, dynamic_terms: set[str] | None) -> bool:
+    if not dynamic_terms:
+        return False
+    return text in dynamic_terms
+
+
+def object_pressure_pollution_reason(
+    value: object,
+    dynamic_terms: set[str] | None = None,
+) -> str | None:
+    text = str(value).strip()
+    if reason := style_asset_pollution_reason(text):
+        return reason
+    if not OBJECT_PRESSURE_CUE_RE.search(text) and not matches_dynamic_object_term(
+        text,
+        dynamic_terms,
+    ):
+        return "不像物件/证据/位置件短语"
+    if OBJECT_PRESSURE_BAD_RE.search(text):
+        return "更像事实句或解释句，不是物件短语"
+    if re.search(r"[我你他她它您咱][和们]?", text) and not text.endswith(
+        ("视频", "录音", "录像", "钥匙", "花束", "礼物", "截图", "照片", "协议", "证据册", "副驾驶", "座位", "家属栏", "离婚证")
+    ):
+        return "含人物陈述，像整句事实"
+    if len(text) > 18 and not text.endswith(("视频", "录音", "录像", "证据册")):
+        return "过长，像事件句不是物件短语"
+    return None
+
+
+def load_dynamic_object_terms(root: Path, source_text: str) -> set[str]:
+    path = root / "写作资产" / "本书动态信号字典.json"
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(read_text(path))
+    except (json.JSONDecodeError, OSError):
+        return set()
+    categories = data.get("categories")
+    if not isinstance(categories, dict):
+        return set()
+
+    terms: set[str] = set()
+    for category in ("核心物件", "证据载体"):
+        entries = categories.get(category, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            term = str(entry.get("term", "")).strip()
+            if 2 <= len(term) <= 32 and term in source_text:
+                terms.add(term)
+    return terms
+
+
 def scene_asset_thresholds(word_count: int) -> dict[str, int]:
     if word_count >= 8000:
         return {"public_explosion": 4, "external_order": 4, "consequence_chain": 6}
@@ -2211,6 +2395,7 @@ def check_book_profile_quality(
     source_text: str,
     errors: list[str],
     notes: list[str] | None = None,
+    dynamic_object_terms: set[str] | None = None,
 ) -> None:
     if not data:
         return
@@ -2231,7 +2416,13 @@ def check_book_profile_quality(
             polluted = [
                 f"{item}（{reason}）"
                 for item in value
-                if (reason := style_asset_pollution_reason(item))
+                if (
+                    reason := (
+                        object_pressure_pollution_reason(item, dynamic_object_terms)
+                        if key == "object_pressure"
+                        else style_asset_pollution_reason(item)
+                    )
+                )
             ]
             if polluted:
                 errors.append(
@@ -2308,7 +2499,13 @@ def check_book_profile_quality(
                 if normalize_text(str(item))
             }
             if len(unique_assets) < thresholds[key]:
-                if notes is not None:
+                if key in {"public_explosion", "external_order"}:
+                    errors.append(
+                        f"{path} scene_assets.{key} 当前 {len(unique_assets)} 条，"
+                        f"低于最低要求 {thresholds[key]}；"
+                        "不能把多个独立事件硬压成一条长串资产"
+                    )
+                elif notes is not None:
                     notes.append(
                         f"模型复核提示：{path} scene_assets.{key} 当前 "
                         f"{len(unique_assets)} 条，低于篇幅参考值 {thresholds[key]}；"
@@ -2369,10 +2566,10 @@ def check_profile_source_quality(
     if bridge_count < 1 and "原文未发现" not in text:
         errors.append(f"{path} 桥段承重件为空：至少应有 1 个真实桥段")
     fake_reason_count = len(re.findall(r"^- 为什么假：", text, flags=re.M))
-    if fake_reason_count < 2 and notes is not None:
-        notes.append(
-            f"模型复核提示：{path} 当前 {fake_reason_count} 条“为什么假”，"
-            "低于流程参考值 2 条；请人工判断是否漏拆"
+    if fake_reason_count < 2:
+        errors.append(
+            f"{path} 当前 {fake_reason_count} 条“为什么假”，"
+            "低于最低要求 2 条：禁止只给禁令、不解释为什么会写假"
         )
     opening_signal_count = len(re.findall(r"^- 开头信号：", text, flags=re.M))
     if opening_signal_count < 3 and notes is not None:
@@ -2546,7 +2743,12 @@ def check_cross_asset_semantics(
             continue
         text = read_text(path)
         if len(normalize_text(text)) < min_chars:
-            if notes is not None:
+            if rel == "情绪母线.md":
+                errors.append(
+                    f"{path} 有效字符少于最低要求 {min_chars}；"
+                    "情绪母线不能只剩标签清单，必须写出情绪推进与转折解释"
+                )
+            elif notes is not None:
                 notes.append(
                     f"模型复核提示：{path} 有效字符少于参考值 {min_chars}；"
                     "请人工判断是原文确实稀疏还是只保留了标签清单"
@@ -2561,6 +2763,25 @@ def check_cross_asset_semantics(
                 f"模型复核提示：{path} 未命中常用解释/迁移词，"
                 "请人工判断是否用其他表达写清了边界"
             )
+        if rel == "同桥段过检规则.md":
+            numbered_rules = len(re.findall(r"^\s*\d+\.\s+", text, flags=re.M))
+            if numbered_rules < 4:
+                errors.append(
+                    f"{path} 过检规则条目过少：当前 {numbered_rules} 条；"
+                    "至少要给出 4 条可执行过检规则"
+                )
+            if not any(marker in text for marker in ("原文为什么能过", "最容易写假的点", "承重顺序")):
+                errors.append(
+                    f"{path} 缺少“为什么能过 / 为什么会写假 / 顺序为何成立”层；"
+                    "不能只剩抽象禁令"
+                )
+        if rel == "仿写约束_禁写清单.md":
+            fake_reason_count = len(re.findall(r"^- 为什么假：", text, flags=re.M))
+            if fake_reason_count < 2:
+                errors.append(
+                    f"{path} 当前 {fake_reason_count} 条“为什么假”；"
+                    "仿写约束至少要解释 2 条禁写法为什么会写假"
+                )
 
 
 def check_json_keys(path: Path, required_keys: list[str], errors: list[str]) -> dict:
@@ -2578,6 +2799,91 @@ def check_json_keys(path: Path, required_keys: list[str], errors: list[str]) -> 
         if key not in data:
             errors.append(f"{path} 缺少 JSON 键：{key}")
     return data
+
+
+def check_skill_fingerprint(meta_path: Path, meta_data: dict, errors: list[str]) -> None:
+    expected = compute_skill_fingerprint()
+    actual = meta_data.get("skill_fingerprint")
+    if not isinstance(actual, str) or not actual.strip():
+        errors.append(f"{meta_path} 缺少有效 skill_fingerprint；请从零重新执行 prepare")
+        return
+    if actual != expected:
+        errors.append(
+            f"{meta_path} skill_fingerprint 与当前正式 skill 不一致；"
+            "说明该目录产物不是基于当前 skill 从零产出。请重新执行 "
+            "`prepare_short_analyze_job.py <source> --force` 后全流程重跑"
+        )
+
+
+SAMPLE_REFERENCE_FILES = {
+    "幼薇": (
+        "references/examples/yuwei/README.md",
+        "references/examples/yuwei/幼薇原文.txt",
+        "references/examples/yuwei/正反例对照.md",
+    ),
+    "扫黄扫到了我老公": (
+        "references/examples/saohuang/README.md",
+        "references/examples/saohuang/扫黄扫到了我老公原文.txt",
+        "references/examples/saohuang/正反例对照.md",
+    ),
+    "归月学生": (
+        "references/examples/guiyue/README.md",
+        "references/examples/guiyue/归月学生原文.txt",
+        "references/examples/guiyue/正反例对照.md",
+    ),
+}
+
+
+def check_sample_comparison(path: Path, errors: list[str]) -> None:
+    if not path.exists() or not path.is_file():
+        errors.append(f"缺少文件：{path}")
+        return
+    text = read_text(path)
+    required_markers = (
+        "选择原因",
+        "已读文件",
+        "正例锚点",
+        "反例锚点",
+        "本书对应风险",
+        "将影响的正式文件",
+        "## 主报告后复核",
+        "对照裁决",
+        "证据",
+        "实际回写文件",
+    )
+    for marker in required_markers:
+        if marker not in text:
+            errors.append(f"{path} 缺少 Few-Shot 对照字段：{marker}")
+
+    declared = re.findall(r"^##\s*样本《([^》]+)》\s*$", text, flags=re.M)
+    unknown = sorted(set(declared) - set(SAMPLE_REFERENCE_FILES))
+    if unknown:
+        errors.append(
+            f"{path} 声明了非内置样本：{', '.join(unknown)}；"
+            "只允许 references/examples/ 中定义的样本"
+        )
+    selected = [name for name in declared if name in SAMPLE_REFERENCE_FILES]
+    if not selected:
+        errors.append(f"{path} 未选择任何 skill 内置样本")
+        return
+    if len(selected) != len(set(selected)):
+        errors.append(f"{path} 重复声明同一本内置样本")
+    if len(selected) > 2:
+        errors.append(f"{path} 选择了 {len(selected)} 本样本，超过上限 2 本")
+
+    for name in selected:
+        for rel in SAMPLE_REFERENCE_FILES[name]:
+            if rel not in text:
+                errors.append(f"{path} 样本《{name}》缺少已读文件记录：{rel}")
+
+    if re.search(r"(?:拆文库_bak|拆文库[/\\]|上一本文档|旧\s*profile)", text, flags=re.I):
+        errors.append(f"{path} 使用了拆书目录、bak 或旧 profile；只能使用 references/examples/ 内置样本")
+
+    verdict_match = re.search(r"对照裁决[：:]\s*(未滑入反例|需要回炉)", text)
+    if not verdict_match:
+        errors.append(f"{path} 主报告后复核缺少合法对照裁决")
+    elif verdict_match.group(1) == "需要回炉":
+        errors.append(f"{path} 对照裁决仍为“需要回炉”，不得进入 finalize")
 
 
 def validate(root: Path) -> tuple[list[str], list[str]]:
@@ -2607,6 +2913,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         path = root / rel
         check_file_exists(path, errors)
         check_markdown_hygiene(path, errors)
+    check_sample_comparison(root / "_sample_comparison.md", errors)
 
     for rel in DIRECT_IMITATION_FILES:
         path = root / rel
@@ -2666,6 +2973,8 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         check_contains_all(asset_dir / rel, ["原文"], errors)
 
     meta_data = meta_preview if meta_preview else check_json_keys(root / "_meta.json", META_KEYS, errors)
+    if isinstance(meta_data, dict):
+        check_skill_fingerprint(root / "_meta.json", meta_data, errors)
     if isinstance(meta_data.get("structure_counts"), dict):
         for key in STRUCTURE_COUNT_KEYS:
             if key not in meta_data["structure_counts"]:
@@ -2692,6 +3001,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         original_text,
         errors,
         notes,
+        load_dynamic_object_terms(root, original_text),
     )
     check_bridge_reconciliation(root, book_profile, errors, notes)
 

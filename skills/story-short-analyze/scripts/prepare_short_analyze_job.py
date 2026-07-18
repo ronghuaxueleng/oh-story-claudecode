@@ -19,9 +19,11 @@ class ContractLayout:
     asset_files: list[str]
 
 
-DEFAULT_LAYOUT = ContractLayout(
+CONTRACT_LAYOUT_SCHEMA = ContractLayout(
     root_dirs=["原文", "原文细节库", "写作资产"],
     root_files=[
+        "_sample_comparison.md",
+        "事实与推断台账.md",
         "可直接仿写_导语拆解表.md",
         "可直接仿写_顺序事件表.md",
         "可直接仿写_物件表.md",
@@ -38,7 +40,6 @@ DEFAULT_LAYOUT = ContractLayout(
         "可直接仿写_外部秩序表.md",
         "可直接仿写_公开炸场表.md",
         "可直接仿写_后果链表.md",
-        "事实与推断台账.md",
         "book.profile.json",
         "拆文报告.md",
         "情节节点.md",
@@ -79,6 +80,18 @@ DEFAULT_LAYOUT = ContractLayout(
     ],
 )
 
+SKILL_FINGERPRINT_FILES = (
+    "skills/story-short-analyze/SKILL.md",
+    "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
+    "skills/story-short-analyze/references/pipeline/stage-01-main-report-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-02-ledger-and-tables-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-03-detail-assets-batch.md",
+    "skills/story-short-analyze/references/pipeline/stage-04-profile-and-finalize-batch.md",
+)
+
 
 def repo_root_from_script() -> Path:
     return Path(__file__).resolve().parents[3]
@@ -96,11 +109,11 @@ def read_text(path: Path) -> str:
 def parse_output_contract() -> ContractLayout:
     contract = repo_root_from_script() / "skills" / "story-short-analyze" / "references" / "pipeline" / "output-contract.md"
     if not contract.exists():
-        return DEFAULT_LAYOUT
+        raise FileNotFoundError(f"缺少输出合同，禁止使用默认清单兜底：{contract}")
     text = read_text(contract)
     match = re.search(r"```[\r\n]+拆文库/\{书名\}/\n([\s\S]*?)```", text)
     if not match:
-        return DEFAULT_LAYOUT
+        raise ValueError(f"无法解析输出合同文件树，禁止使用默认清单兜底：{contract}")
 
     root_dirs: list[str] = []
     root_files: list[str] = []
@@ -137,7 +150,14 @@ def parse_output_contract() -> ContractLayout:
         detail_files=detail_files,
         asset_files=asset_files,
     )
-    return parsed if parsed.root_dirs and parsed.root_files else DEFAULT_LAYOUT
+    if not parsed.root_dirs or not parsed.root_files:
+        raise ValueError(f"输出合同文件树为空或不完整，禁止继续初始化：{contract}")
+    if parsed != CONTRACT_LAYOUT_SCHEMA:
+        raise ValueError(
+            "输出合同与初始化脚本清单不一致，禁止使用任一侧兜底继续："
+            f"contract={parsed} schema={CONTRACT_LAYOUT_SCHEMA}"
+        )
+    return parsed
 
 
 def count_source_units(text: str) -> int:
@@ -186,6 +206,22 @@ def sha1_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def compute_skill_fingerprint() -> str:
+    repo_root = repo_root_from_script()
+    digest = hashlib.sha1()
+    for rel in SKILL_FINGERPRINT_FILES:
+        path = repo_root / rel
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        if not path.exists():
+            digest.update(b"MISSING")
+            digest.update(b"\0")
+            continue
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def dump_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -193,6 +229,7 @@ def dump_json(path: Path, payload: dict) -> None:
 def write_meta(path: Path, word_count: int, book_name: str, source_text: str) -> None:
     payload = {
         "version": "2.0",
+        "skill_fingerprint": compute_skill_fingerprint(),
         "word_count": word_count,
         "source_label": book_name,
         "title_status": "verified-in-source" if book_name and book_name in source_text else "unverified-filename",
@@ -301,6 +338,8 @@ def write_progress(path: Path, book_name: str, layout: ContractLayout) -> None:
         "- [x] 已复制原文到 `原文/`",
         "- [x] 已写入 `_meta.json`、`_required_outputs.json`、`_source_manifest.json`",
         "- [ ] 已按 `_source_reading_plan.md` 读完全部原文分块并核对 EOF",
+        "- [ ] 已完成 `_sample_comparison.md`，并实际读取所选样本的 README、原文和正反例对照",
+        "- [ ] 模型人工复核：主报告写完后已回看样本反例区并记录是否回炉",
         "- [ ] 模型人工复核：事实台账已对照原文核清主体、双时间轴和证据来源",
         "- [ ] 已按 skill 完成主报告批",
         "- [ ] 模型人工复核：主报告与节点已区分信息释放顺序和故事实际时间线",
@@ -366,55 +405,51 @@ def write_execution_prompt(
         "",
         "## 固定执行顺序",
         "1. 先读 `skills/story-short-analyze/SKILL.md`",
-        "2. 再读 `skills/story-short-analyze/references/pipeline/short-analyze-execution-prompt.md`",
-        "3. 按 `_source_reading_plan.md` 的全部分块读到 EOF，完成原文覆盖确认",
-        "4. 按 `事实台账 -> 拆文报告 -> 情节节点 -> 写作手法+meta -> 字典+候选池 -> 16张表双文件微批 -> 细节库双文件微批 -> 写作资产双文件微批 -> profile -> 验收` 完整落盘",
-        "5. 最后运行：",
+        "2. 再读 `skills/story-short-analyze/references/pipeline/staged-execution-index.md`",
+        "3. 先按 `stage-00-intake-and-sampling.md` 完成原文覆盖与 few-shot 减载选择",
+        "4. 按当前微批只加载对应阶段文档，不要一次吞完整套执行 prompt 和全部样例",
+        "5. 按 `_source_reading_plan.md` 的全部分块读到 EOF，完成原文覆盖确认",
+        "6. 读完原文后先落 `_sample_comparison.md`，记录所选样本文件、正反例锚点和将影响的正式文件",
+        "7. 按 `样本对照 -> 事实台账 -> 拆文报告 -> 样本反例复核 -> 情节节点 -> 写作手法+meta -> 字典+候选池 -> 16张表双文件微批 -> 细节库双文件微批 -> 写作资产双文件微批 -> profile -> 验收` 完整落盘",
+        "8. 最后运行：",
         f"   `python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json`",
         "",
-        "## 强约束",
-        "- 读完原文后立即先写 `事实与推断台账.md`；禁止长时间规划整套文件后集中落盘",
-        "- 每个微批最多 2 个正式文件；第一个文件写完立即局部自检，再写第二个",
-        "- 主报告固定拆成 4 个微批：事实台账；拆文报告；情节节点；写作手法 + `_meta.json`",
-        "- 16 张表固定 8 个微批，每批 2 张；细节库固定 4 个微批，每批 2 份；写作资产每批最多 2 份",
-        "- 微批内只做局部自检，不提前运行全量 validator；所有文件齐备后只运行一次 finalize",
-        "- 原文读取是独立硬闸门；未读完 `_source_reading_plan.md` 的全部分块，不得进入 Stage 2",
-        "- 禁止把有行数上限的单次 `sed/head/open` 输出当成全文；必须继续读到 manifest 记录的最后一行",
-        "- `拆文报告.md` 必须含 `### 原文覆盖确认`，写明总行数、已读取至、识别章节数、最后事件、尾部原文锚点",
-        "- 进入 Stage 2 前先写 `事实与推断台账.md`；至少覆盖 `主体边界 / 时间边界 / 证据来源`",
-        "- 台账每条必须区分 `叙述时点 / 故事时点 / 时间依据`；遇到回指词先定位所指事件，不得按正文行号直接顺排",
-        "- 台账每条写成 `F序号 | L起-L止 | 锚点：... | 类别：... | 主体：... | 动作：... | 结果：... | 叙述时点：... | 故事时点：... | 时间依据：... | 口径：... | 禁止越界：...`",
-        "- 高主动性因果判断必须句末回指 `【原文明确 Fxx】` 或 `【人工推断 Fxx】`",
-        "- `情节节点.md` 每个 N 节点必须含 `L起-L止`、`锚点：原文短语` 和 `类型 / 情绪 / 涉及 / 状态变化 / 因果`；锚点必须真实存在于对应行范围",
-        "- `情节节点.md` 每个节点还必须含 `故事时序`；节点按信息释放顺序排列时，也要标出事件真实发生位置",
-        "- 每个微批完成后由模型重读对应原文并人工纠偏；脚本只作机械检查，返回成功不能代替语义复核",
-        "- 节点必须覆盖每个自动分块；有章节标记时还必须覆盖每个章节，且最后有效节点必须进入原文最后 10%",
-        "- 不允许先把所有文件铺出来，回头再补厚；`主报告批` 必须先过厚拆闸门，后续批次才允许开始",
-        "- 如果 token、篇幅或时间紧张，优先保住 `拆文报告.md / 情节节点.md / 写作手法.md / profile_source.md` 的厚拆层，不允许为了平均铺满文件把主报告写薄",
-        "- 不能只产三件套后停下",
-        "- `拆文报告.md` 不能只保留合规骨架；固定还必须补齐：`#### 1. 脚本硬筛`、`#### 2. 规则拆层判断`、`#### 4. 可学层 / 禁学层`、`#### 5. 后续调用方式`、`### 叙事时间线`、`### 故事核`",
-        "- `拆文报告.md` 的 `结构划分` 不能只写概括条目；必须显式写出 `字数范围 / 占比 / 功能 / 对应节`",
-        "- `情节节点.md` 必须拆到可施工颗粒度：最低节点数取分档阈值与 `向上取整(原文字数/400)` 的较大值；8000字以上通常不得低于 28 节点",
-        "- `情节节点.md` 必须显式保留至少 1 条中段承重桥节点，不能只清开头钩子和终局翻盘",
-        "- `写作手法.md` 不允许每节只写 1-2 句总括；`对话手法` 必须显式拆到至少 3 类角色嘴型或口气差，并写清为什么这样成立、怎么迁移、哪里会发假",
-        "- 如果原文存在改变规则、关系、认知或现实后果的中段承压桥，必须按本书证据优先保留到主报告、节点和高敏桥里",
-        "- 不能把 16 张表写成同一种说明腔",
-        "- 16 张表前必须按全部 Chunk 第二遍读取原文，生成 `写作资产/原文资产候选池.md`；表后再回扫一次，不能达到最低行数就停止",
-        "- 候选池前必须生成 `写作资产/本书动态信号字典.json`；表后回补新词并重扫全部 Chunk，连续一轮无新增后才允许 `stabilized: true`",
-        "- 候选池每条必须写 `C编号 / L起-L止 / 锚点 / 类别 / 资产名 / 去向 / 状态 / 理由`，所有 `已收录` 项必须能在目标表找到",
-        "- 候选池必须完成 `物件替换对 / 微动作角色覆盖 / 对白侵占与假道歉 / 安静等待与未归 / 未来公开事件钩子` 五项专项回扫",
-        "- 16 张表必须保留表名对应的语义列；不能只写任意 4 行证据表",
-        "- 不能把原文细节库写成泛化模板壳句",
-        "- 原文细节库保全全部真实独立事件；原文没有的类别明确写“原文未发现”，不得按固定数量凑卡",
-        "- `profile_source.md` 必须满足 `- 开头信号：` 至少 3 条、`- 为什么假：` 至少 2 条",
-        "- `profile_source.md` 必须补齐 `## 7. 禁句 / 禁写法`、`## 8. 场面资产`、`## 9. 后果链`、`## 10. 作者站位高危句`",
-        "- `profile_source.md` 的场面资产必须使用 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain`，数量按字数档至少为 4/4/6、3/3/4 或 2/2/3",
-        "- 10 类 `style_assets` 固定键必须齐全；原文无对应资产时允许空数组，不得用迁移词凑数",
-        "- `profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 每张卡都写由本书动态归纳的 `桥段角色`，不预设掉位、私域旧伤或公开炸场",
-        "- `高敏桥段识别.md`、`作者DNA指纹.md`、`同桥段过检规则.md` 必须出现 `原文：` 证据行",
-        "- 初始化只建目录和任务元数据，不会预填正式产物；每个正式 Markdown 必须一次写成完整有效版本，禁止先造空壳再追加正式内容",
-        "- finalize 会拒绝重复标题、空字段、`桥1/桥段卡1` 占位标题和任何残留模板壳",
-        "- 收口脚本没通过，不算拆完",
+        "## 当前只记住这些硬约束",
+        "- 读完原文后先写过程审计文件 `_sample_comparison.md`；第一个内容产物仍必须是 `事实与推断台账.md`",
+        "- 禁止任何兜底生成、自动补写、自动扩写、通用模板代填或跨书内容借位；信息不足就停在当前阶段并报错",
+        "- 每个微批最多 2 个正式文件；不要一次铺满所有文件",
+        "- 主报告层（`事实台账 / 拆文报告 / 情节节点 / 写作手法 / profile_source`）优先级最高，不能压薄",
+        "- 如果某一批开始明显压缩化，优先冷启动该批并只重载对应 `stage-*.md`",
+        "- 冷启动只用于验证 skill 是否修好；冷启动目录、旧拆文目录、`bak` 目录都不能当正式产物来源",
+        "- 冷启动跑通后，要把修复落实到正式 skill，再让正式目录按同一流程重新产出；不能靠拷贝测试目录回灌正式结果",
+        "- few-shot 只选 1-2 本最相关样例，不能整套吞样例；每本必须实际读取 README、原文相关段和正反例对照，并在 `_sample_comparison.md` 留下证据",
+        "- 禁止把别本拆书目录、旧 profile、bak 产物当 few-shot；只允许使用 skill 内置 `references/examples/`",
+        "- 写完主报告后必须回看所选样本反例区，并把“未滑入反例 / 需要回炉”的裁决写回 `_sample_comparison.md`",
+        "- 最终必须跑 `run_short_analyze_finalize.py`；没通过不算完成",
+        "- `run_short_analyze_finalize.py` 只允许生成 `book.profile.json` 和执行校验，禁止修改任何 Markdown 正式产物",
+        "- `profile_source.md` 的 `## 7. 禁句 / 禁写法` 里，每条禁写法后必须补 `- 为什么假：...`；少于 2 条视为当前批未完成",
+        "- `scene_assets.public_explosion / scene_assets.external_order` 必须拆成多条独立事件，不要用分号把 4 个场面塞成 1 条",
+        "- `情节节点.md` 不能只保开头链和终局链；默认至少保 1 条中段承重链，单节点原文范围尽量控制在 80 行内，过宽就继续拆细",
+        "- `事实与推断台账.md` 里的单条事实不要吞大段剧情；遇到中段承重桥，宁可拆成 2-3 条 `Fxx`，也不要写成一个超宽范围",
+        "- 16 张表不能只靠表后总结过检；表格本身要带原文证据列或同语义列，并且每行都要有迁移字段",
+        "- 16 张表优先保表格承重：8000 字以上样本里，`物件/动作/对白功能/钩子/微动作/失控说话` 默认至少保 5 条独立资产行，`公开炸场` 默认至少保 4 条，`顺序事件/对话衔接/误判/安静压迫场/人物偏手/烂关系漏出/后果链` 默认至少保 4 条，`导语拆解/外部秩序` 默认至少保 3 条；解释层再厚也不能代替表格行",
+        "- 16 张表后面的 `可直接借的承重结构 / 迁移顺序提醒 / 为什么这个顺序不能乱` 都必须直接点名本表条目，不能只写抽象总结",
+        "- `原文资产候选池.md` 里凡是标记“已收录”的资产，目标文件里必须能搜到同名资产名或原文锚点；搜不到就算漏收",
+        "- `原文资产候选池.md` 某一表如果已收录了 4-6 条独立候选，目标表就应当至少有同量级行数；不要把 5 条候选压成 3 行‘更概括的总结’",
+        "- `原文资产候选池.md` 如果某类资产原文确实没有，必须显式写“已扫，原文未发现”，不能空着",
+        "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
+        "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
+        "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
+        "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",
+        "",
+        "## 详细规则去哪里看",
+        "- 入口与抽样：`stage-00-intake-and-sampling.md`",
+        "- 主报告微批：`stage-01-main-report-batch.md`",
+        "- 字典、候选池、16 张表：`stage-02-ledger-and-tables-batch.md`",
+        "- 细节库与写作资产：`stage-03-detail-assets-batch.md`",
+        "- profile 与收口：`stage-04-profile-and-finalize-batch.md`",
+        "- 具体字段模板：`output-templates.md`",
+        "- 收口契约与复核：`output-contract.md`、`quality-checklist.md`",
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
@@ -473,7 +508,15 @@ def prepare(args: argparse.Namespace) -> dict:
             "_execution_prompt.md",
         ],
         "created_dirs": layout.root_dirs,
-        "next_step": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
+        "next_step": {
+            "read_order": [
+                "skills/story-short-analyze/SKILL.md",
+                "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
+                "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
+            ],
+            "then": "按 _source_reading_plan.md 读完整本原文，再进入事实台账微批",
+            "finalize_after_all_files": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
+        },
     }
     return created
 
@@ -514,7 +557,15 @@ def main() -> int:
         print("created_dirs:")
         for item in payload["created_dirs"]:
             print(f"- {item}")
-        print(f"next_step: {payload['next_step']}")
+        print("next_step:")
+        if isinstance(payload["next_step"], dict):
+            print("  read_order:")
+            for item in payload["next_step"].get("read_order", []):
+                print(f"  - {item}")
+            print(f"  then: {payload['next_step'].get('then', '')}")
+            print(f"  finalize_after_all_files: {payload['next_step'].get('finalize_after_all_files', '')}")
+        else:
+            print(f"  {payload['next_step']}")
     return 0
 
 

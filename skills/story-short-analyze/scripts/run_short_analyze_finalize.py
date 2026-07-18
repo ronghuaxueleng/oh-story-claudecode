@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
@@ -15,6 +16,14 @@ def repo_root_from_script() -> Path:
 
 def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+
+
+def markdown_sha1s(root: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for path in sorted(root.rglob("*.md")):
+        if path.is_file():
+            hashes[str(path.relative_to(root))] = hashlib.sha1(path.read_bytes()).hexdigest()
+    return hashes
 
 
 def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
@@ -51,19 +60,6 @@ def parse_validator_output(stdout: str) -> dict:
 
 def update_completion_state(root: Path) -> list[str]:
     notes: list[str] = []
-    progress_path = root / "_progress.md"
-    if progress_path.exists():
-        progress = progress_path.read_text(encoding="utf-8", errors="ignore")
-        updated_lines = []
-        for line in progress.splitlines():
-            if line.startswith("- [ ]") and "模型人工复核" not in line:
-                line = line.replace("- [ ]", "- [x]", 1)
-            updated_lines.append(line)
-        updated_progress = "\n".join(updated_lines) + ("\n" if progress.endswith("\n") else "")
-        if updated_progress != progress:
-            progress_path.write_text(updated_progress, encoding="utf-8")
-            notes.append("_progress.md 已同步为全量完成。")
-
     meta_path = root / "_meta.json"
     if meta_path.exists():
         try:
@@ -135,6 +131,8 @@ def main() -> int:
     generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
     validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
 
+    markdown_before = markdown_sha1s(root)
+
     if not args.skip_profile:
         if not profile_source.exists():
             errors.append(f"缺少文件：{profile_source}")
@@ -199,6 +197,20 @@ def main() -> int:
         return 2
 
     validator_payload = parse_validator_output(result.stdout)
+    markdown_after = markdown_sha1s(root)
+    if markdown_after != markdown_before:
+        changed = sorted(
+            path
+            for path in set(markdown_before) | set(markdown_after)
+            if markdown_before.get(path) != markdown_after.get(path)
+        )
+        validator_payload.setdefault("errors", []).append(
+            "finalize 运行期间 Markdown 发生变化，禁止收口脚本补写或改写正式产物："
+            + ", ".join(changed)
+        )
+        validator_payload["ok"] = False
+        validator_payload["status"] = "blocked-on-assets"
+        validator_payload["error_count"] = len(validator_payload["errors"])
     if validator_payload.get("ok"):
         notes.extend(update_completion_state(root))
     payload = build_payload(root, profile_generated, validator_payload, notes)

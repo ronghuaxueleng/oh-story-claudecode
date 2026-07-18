@@ -100,7 +100,16 @@ class AssetCandidateLedgerTest(unittest.TestCase):
         for entry in self.entries:
             assets_by_target[str(entry["target"])].append(str(entry["asset"]))
         for target, assets in assets_by_target.items():
-            (self.root / target).write_text("\n".join(assets), encoding="utf-8")
+            rows = "\n".join(
+                f"| {asset} | 对应原文证据 | 保留独立功能 |"
+                for asset in assets
+            )
+            text = (
+                "| 资产 | 原文证据 | 迁移提醒 |\n"
+                "|---|---|---|\n"
+                f"{rows}\n"
+            )
+            (self.root / target).write_text(text, encoding="utf-8")
 
     def _write_ledger(
         self,

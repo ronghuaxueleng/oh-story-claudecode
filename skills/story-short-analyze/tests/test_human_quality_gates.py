@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 VALIDATOR_PATH = (
@@ -25,6 +27,17 @@ FINALIZER_SPEC = importlib.util.spec_from_file_location("short_analyze_finalizer
 assert FINALIZER_SPEC and FINALIZER_SPEC.loader
 FINALIZER = importlib.util.module_from_spec(FINALIZER_SPEC)
 FINALIZER_SPEC.loader.exec_module(FINALIZER)
+
+PREPARER_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "prepare_short_analyze_job.py"
+)
+PREPARER_SPEC = importlib.util.spec_from_file_location("short_analyze_preparer", PREPARER_PATH)
+assert PREPARER_SPEC and PREPARER_SPEC.loader
+PREPARER = importlib.util.module_from_spec(PREPARER_SPEC)
+sys.modules[PREPARER_SPEC.name] = PREPARER
+PREPARER_SPEC.loader.exec_module(PREPARER)
 
 
 class HumanQualityGateTest(unittest.TestCase):
@@ -56,6 +69,26 @@ class HumanQualityGateTest(unittest.TestCase):
         VALIDATOR.check_direct_imitation_quality(path, 8000, errors)
         self.assertTrue(any("必须增加 `层级/资产等级`" in error for error in errors))
 
+    def test_direct_table_requires_minimum_rows_for_long_samples(self) -> None:
+        path = self._write(
+            "可直接仿写_钩子表.md",
+            "| 位置 | 钩子内容 | 钩子类型 | 回收位置 | 原文证据 | 迁移提醒 |\n"
+            "|---|---|---|---|---|---|\n"
+            "| 场末 | 电话被第三人接起 | 信息差 | 医院桥 | 老师他太累睡着了 | 先埋代接再回收 |\n"
+            "| 章尾 | 法庭见 | 程序闸门 | 离婚桥 | 我们法庭见吧 | 情绪尾部挂程序 |\n"
+            "| 尾声 | 从此是路人 | 收口钩子 | 全文结束 | 从此是路人 | 结尾承担切断 |\n"
+            "| 场末 | 门锁失效 | 私域悬念 | 旧宅桥 | 钥匙怎么都塞不进去 | 先卡门再开门 |\n"
+            "## 可直接借的承重结构\n- `电话被第三人接起` 先挂住信息差，`法庭见` 再把争执送进秩序。\n"
+            "- `从此是路人` 负责收口，不和前两条争抢中段位置。\n"
+            "## 迁移顺序提醒\n- 先 `电话被第三人接起`，再 `法庭见`，最后 `从此是路人`。\n"
+            "- 如果中段还有公开桥，应该补在前两条之间，不要直接跳收口。\n"
+            "## 为什么这个顺序不能乱\n- 如果把 `法庭见` 抢到 `电话被第三人接起` 前面，信息差就还没长出来。\n"
+            "- 如果把 `从此是路人` 提前，尾声切断会变成空喊口号。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_direct_imitation_quality(path, 8000, errors)
+        self.assertTrue(any("表格承重不足" in error for error in errors))
+
     def test_direct_table_rejects_too_many_core_assets(self) -> None:
         rows = "\n".join(
             f"| 资产{i} | 原文证据{i} | 迁移{i} | 核心 |" for i in range(1, 7)
@@ -71,6 +104,36 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         VALIDATOR.check_direct_imitation_quality(path, 8000, errors)
         self.assertTrue(any("核心资产过多" in error for error in errors))
+
+    def test_skill_fingerprint_rejects_stale_formal_outputs(self) -> None:
+        meta_path = self._write(
+            "_meta.json",
+            '{"skill_fingerprint": "stale-skill-version"}\n',
+        )
+        errors: list[str] = []
+        VALIDATOR.check_skill_fingerprint(
+            meta_path,
+            {"skill_fingerprint": "stale-skill-version"},
+            errors,
+        )
+        self.assertTrue(
+            any("与当前正式 skill 不一致" in error for error in errors),
+            errors,
+        )
+
+    def test_skill_fingerprint_accepts_current_skill(self) -> None:
+        fingerprint = VALIDATOR.compute_skill_fingerprint()
+        meta_path = self._write(
+            "_meta.json",
+            f'{{"skill_fingerprint": "{fingerprint}"}}\n',
+        )
+        errors: list[str] = []
+        VALIDATOR.check_skill_fingerprint(
+            meta_path,
+            {"skill_fingerprint": fingerprint},
+            errors,
+        )
+        self.assertEqual([], errors)
 
     def test_bridge_card_requires_non_abstract_human_hook(self) -> None:
         path = self._write(
@@ -95,6 +158,117 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertFalse(any("只有抽象术语" in error for error in errors))
         self.assertTrue(any("只有抽象术语" in note for note in notes))
 
+    def test_candidate_ledger_rejects_overcompressed_table_rows(self) -> None:
+        (self.root / "写作资产").mkdir(parents=True, exist_ok=True)
+        (self.root / "原文").mkdir(parents=True, exist_ok=True)
+        source_lines = [f"第{i}行：资产{i}锚点" for i in range(1, 41)]
+        self._write("原文/样本.txt", "\n".join(source_lines))
+        self._write(
+            "_source_manifest.json",
+            '{\n  "chunks": [\n    {"id": 1, "start_line": 1, "end_line": 40}\n  ]\n}\n',
+        )
+        self._write(
+            "写作资产/原文资产候选池.md",
+            "\n".join(
+                [
+                    "C001 | L1-L2 | 锚点：资产1锚点 | 类别：钩子 | 资产名：电话代接 | 去向：可直接仿写_钩子表.md | 状态：已收录 | 理由：有信息差",
+                    "C002 | L3-L4 | 锚点：资产2锚点 | 类别：钩子 | 资产名：法庭闸门 | 去向：可直接仿写_钩子表.md | 状态：已收录 | 理由：程序切换",
+                    "C003 | L5-L6 | 锚点：资产3锚点 | 类别：钩子 | 资产名：旧宅开门 | 去向：可直接仿写_钩子表.md | 状态：已收录 | 理由：私域悬念",
+                    "C004 | L7-L8 | 锚点：资产4锚点 | 类别：钩子 | 资产名：证据双投 | 去向：可直接仿写_钩子表.md | 状态：已收录 | 理由：终局等待",
+                    "- 类别：导语：已扫，原文未发现",
+                    "- 类别：顺序事件：已扫，原文未发现",
+                    "- 类别：物件：已扫，原文未发现",
+                    "- 类别：动作：已扫，原文未发现",
+                    "- 类别：对白功能：已扫，原文未发现",
+                    "- 类别：对话衔接：已扫，原文未发现",
+                    "- 类别：误判：已扫，原文未发现",
+                    "- 类别：微动作：已扫，原文未发现",
+                    "- 类别：安静压迫场：已扫，原文未发现",
+                    "- 类别：人物偏手：已扫，原文未发现",
+                    "- 类别：失控说话：已扫，原文未发现",
+                    "- 类别：烂关系漏出：已扫，原文未发现",
+                    "- 类别：外部秩序：已扫，原文未发现",
+                    "- 类别：公开炸场：已扫，原文未发现",
+                    "- 类别：后果链：已扫，原文未发现",
+                    "- Chunk 1：L1-L40 | 状态：已回扫 | 新增候选：无 | 空缺复核：其余类别原文未形成独立资产",
+                    "- 物件替换对：已扫，原文未发现独立替换对",
+                    "- 微动作角色覆盖：已扫，原文未发现独立微动作组",
+                    "- 对白侵占与假道歉：已扫，原文未发现可独立入表句型",
+                    "- 安静等待与未归：已扫，原文未发现独立静压桥",
+                    "- 未来公开事件钩子：已扫，已由 C004 覆盖",
+                    "## 反向漏项审计",
+                    "- A001 | L9-L10 | 原文：资产9锚点 | 判定：不收录 | 去向：无 | 理由：只是重复提示，不形成新钩子",
+                    "- A002 | L11-L12 | 原文：资产11锚点 | 判定：不收录 | 去向：无 | 理由：功能重复，已被前文覆盖",
+                    "- A003 | L13-L14 | 原文：资产13锚点 | 判定：不收录 | 去向：无 | 理由：不是钩子而是说明句",
+                    "- A004 | L15-L16 | 原文：资产15锚点 | 判定：不收录 | 去向：无 | 理由：没有独立等待线",
+                    "- A005 | L17-L18 | 原文：资产17锚点 | 判定：不收录 | 去向：无 | 理由：只承担气氛，不承担事件悬念",
+                ]
+            ),
+        )
+        self._write(
+            "可直接仿写_钩子表.md",
+            "| 位置 | 钩子内容 | 钩子类型 | 回收位置 | 原文证据 | 迁移提醒 |\n"
+            "|---|---|---|---|---|---|\n"
+            "| 场末 | 电话代接 | 信息差 | 医院桥 | 资产1锚点 | 先埋代接 |\n"
+            "| 章尾 | 法庭闸门 | 程序钩子 | 终局桥 | 资产2锚点 | 再挂程序 |\n"
+            "| 尾声 | 证据双投 | 公开钩子 | 社会反噬 | 资产4锚点 | 最后再炸场 |\n",
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_asset_candidate_ledger(self.root, source_lines, 8000, errors, notes)
+        self.assertTrue(any("不能把多条候选压成几行长解释" in error for error in errors))
+
+    def test_asset_candidate_ledger_requires_object_seat_cue(self) -> None:
+        (self.root / "写作资产").mkdir(parents=True, exist_ok=True)
+        self._write(
+            "_source_manifest.json",
+            '{\n  "chunks": [\n    {"id": 1, "start_line": 1, "end_line": 2}\n  ]\n}\n',
+        )
+        source_lines = [
+            "她坐在他的副驾驶上，像是已经替掉了原来的位置。",
+            "其余内容。",
+        ]
+        self._write(
+            "写作资产/原文资产候选池.md",
+            "\n".join(
+                [
+                    "- 类别：导语：已扫，原文未发现",
+                    "- 类别：顺序事件：已扫，原文未发现",
+                    "- 类别：物件：已扫，原文未发现",
+                    "- 类别：动作：已扫，原文未发现",
+                    "- 类别：对白功能：已扫，原文未发现",
+                    "- 类别：对话衔接：已扫，原文未发现",
+                    "- 类别：误判：已扫，原文未发现",
+                    "- 类别：钩子：已扫，原文未发现",
+                    "- 类别：微动作：已扫，原文未发现",
+                    "- 类别：安静压迫场：已扫，原文未发现",
+                    "- 类别：人物偏手：已扫，原文未发现",
+                    "- 类别：失控说话：已扫，原文未发现",
+                    "- 类别：烂关系漏出：已扫，原文未发现",
+                    "- 类别：外部秩序：已扫，原文未发现",
+                    "- 类别：公开炸场：已扫，原文未发现",
+                    "- 类别：后果链：已扫，原文未发现",
+                    "- Chunk 1：L1-L2 | 状态：已回扫 | 新增候选：无 | 空缺复核：暂未发现独立候选",
+                    "- 物件替换对：已扫，原文未发现独立替换对",
+                    "- 微动作角色覆盖：已扫，原文未发现独立微动作组",
+                    "- 对白侵占与假道歉：已扫，原文未发现可独立入表句型",
+                    "- 安静等待与未归：已扫，原文未发现独立静压桥",
+                    "- 未来公开事件钩子：已扫，原文未发现独立未来事件",
+                    "## 反向漏项审计",
+                    "- A001 | L1-L1 | 原文：她坐在他的副驾驶上 | 判定：不收录 | 去向：无 | 理由：暂未处理",
+                    "- A002 | L1-L1 | 原文：替掉了原来的位置 | 判定：不收录 | 去向：无 | 理由：暂未处理",
+                    "- A003 | L2-L2 | 原文：其余内容 | 判定：不收录 | 去向：无 | 理由：无独立价值",
+                    "- A004 | L2-L2 | 原文：其余内容 | 判定：不收录 | 去向：无 | 理由：无独立价值",
+                    "- A005 | L2-L2 | 原文：其余内容 | 判定：不收录 | 去向：无 | 理由：无独立价值",
+                ]
+            ),
+        )
+        self._write("可直接仿写_物件表.md", "# 资产表\n\n原文未发现\n")
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_asset_candidate_ledger(self.root, source_lines, 8000, errors, notes)
+        self.assertTrue(any("原文出现高价值信号 `副驾驶`" in error for error in errors))
+
     def test_bridge_card_allows_explicit_source_absence(self) -> None:
         path = self._write(
             "桥段施工卡.md",
@@ -104,6 +278,86 @@ class HumanQualityGateTest(unittest.TestCase):
         notes: list[str] = []
         VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, notes)
         self.assertEqual([], errors)
+
+    def test_bridge_reconciliation_accepts_bid_on_node_line(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write(
+            "情节节点.md",
+            "N01 | L1-L2 | 锚点：一号候诊单 | 类型：BID-01 中段承重桥 | "
+            "情绪：坠落-8 | 涉及：甲 | 状态变化：获得到失去 | "
+            "因果：给号 -> 撤号 -> 白跑 | 故事时序：第二天\n",
+        )
+        self._write("拆文报告.md", "- 桥段名：[BID-01] 一号候诊单被撤回\n")
+        for name in ("高敏桥段识别.md", "桥段施工卡.md", "profile_source.md"):
+            (asset_dir / name).write_text(
+                "- 桥段名：[BID-01] 一号候诊单被撤回\n",
+                encoding="utf-8",
+            )
+        errors: list[str] = []
+        notes: list[str] = []
+
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": "BID-01", "must_keep": ["一号候诊单"]}]},
+            errors,
+            notes,
+        )
+
+        self.assertEqual([], errors)
+        self.assertFalse(any("未发现 BID" in note for note in notes))
+
+    def test_bridge_reconciliation_rejects_bid_only_in_explanation(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write(
+            "情节节点.md",
+            "> 本书承重桥：BID-01\n\n"
+            "N01 | L1-L2 | 锚点：一号候诊单 | 类型：中段承重桥 | "
+            "情绪：坠落-8 | 涉及：甲 | 状态变化：获得到失去 | "
+            "因果：给号 -> 撤号 -> 白跑 | 故事时序：第二天\n",
+        )
+        self._write("拆文报告.md", "- 桥段名：[BID-01] 一号候诊单被撤回\n")
+        for name in ("高敏桥段识别.md", "桥段施工卡.md", "profile_source.md"):
+            (asset_dir / name).write_text(
+                "- 桥段名：[BID-01] 一号候诊单被撤回\n",
+                encoding="utf-8",
+            )
+        errors: list[str] = []
+
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": "BID-01", "must_keep": ["一号候诊单"]}]},
+            errors,
+        )
+
+        self.assertTrue(any("承重桥节点缺少 BID" in error for error in errors), errors)
+        self.assertTrue(
+            any("未在具体 N 节点行显式标注承重桥 BID：BID-01" in error for error in errors),
+            errors,
+        )
+
+    def test_bridge_reconciliation_rejects_multiple_bids_on_one_node(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write(
+            "情节节点.md",
+            "N01 | L1-L2 | 锚点：一号候诊单 | 类型：BID-01 BID-02 承重桥 | "
+            "情绪：坠落-8 | 涉及：甲 | 状态变化：获得到失去 | "
+            "因果：给号 -> 撤号 -> 白跑 | 故事时序：第二天\n",
+        )
+        self._write("拆文报告.md", "BID-01 BID-02\n")
+        for name in ("高敏桥段识别.md", "桥段施工卡.md", "profile_source.md"):
+            (asset_dir / name).write_text("BID-01 BID-02\n", encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": "BID-01"}, {"id": "BID-02"}]},
+            errors,
+        )
+
+        self.assertTrue(any("单个节点不得挂多个 BID" in error for error in errors), errors)
 
     def test_craft_requires_sentence_level_assets(self) -> None:
         path = self._write(
@@ -331,11 +585,130 @@ class HumanQualityGateTest(unittest.TestCase):
         FINALIZER.update_completion_state(self.root)
         progress = (self.root / "_progress.md").read_text(encoding="utf-8")
         meta = __import__("json").loads((self.root / "_meta.json").read_text(encoding="utf-8"))
-        self.assertIn("- [x] 普通文件任务", progress)
+        self.assertIn("- [ ] 普通文件任务", progress)
         self.assertIn("- [ ] 模型人工复核：主报告", progress)
         self.assertEqual("替身婚姻清算", meta["genre_detected"])
         self.assertEqual([2, 3, 4, 5, 6], meta["stages_completed"])
         self.assertIsNone(meta["last_stage_in_progress"])
+
+    def test_sample_comparison_rejects_claim_without_read_files(self) -> None:
+        path = self._write(
+            "_sample_comparison.md",
+            "## 样本《幼薇》\n"
+            "- 选择原因：防止中段桥被压薄\n"
+            "- 正例锚点：保留生活动作链\n"
+            "- 反例锚点：只剩结构标签\n"
+            "- 本书对应风险：中段压缩\n"
+            "- 将影响的正式文件：拆文报告.md\n"
+            "## 主报告后复核\n"
+            "- 对照裁决：未滑入反例\n"
+            "- 证据：主报告保留三段承重桥\n"
+            "- 实际回写文件：拆文报告.md\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_sample_comparison(path, errors)
+        self.assertTrue(any("缺少已读文件记录" in error for error in errors), errors)
+
+    def test_sample_comparison_accepts_complete_builtin_sample_audit(self) -> None:
+        path = self._write(
+            "_sample_comparison.md",
+            "## 样本《幼薇》\n"
+            "- 选择原因：防止中段桥被压薄\n"
+            "- 已读文件：references/examples/yuwei/README.md\n"
+            "- 已读文件：references/examples/yuwei/幼薇原文.txt\n"
+            "- 已读文件：references/examples/yuwei/正反例对照.md\n"
+            "- 正例锚点：保留生活动作链\n"
+            "- 反例锚点：只剩结构标签\n"
+            "- 本书对应风险：中段压缩\n"
+            "- 将影响的正式文件：拆文报告.md\n"
+            "## 主报告后复核\n"
+            "- 对照裁决：未滑入反例\n"
+            "- 证据：主报告保留三段承重桥\n"
+            "- 实际回写文件：拆文报告.md\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_sample_comparison(path, errors)
+        self.assertEqual([], errors)
+
+    def test_sample_comparison_blocks_unfinished_rework(self) -> None:
+        path = self._write(
+            "_sample_comparison.md",
+            "## 样本《幼薇》\n"
+            "- 选择原因：防止中段桥被压薄\n"
+            "- 已读文件：references/examples/yuwei/README.md\n"
+            "- 已读文件：references/examples/yuwei/幼薇原文.txt\n"
+            "- 已读文件：references/examples/yuwei/正反例对照.md\n"
+            "- 正例锚点：保留生活动作链\n"
+            "- 反例锚点：只剩结构标签\n"
+            "- 本书对应风险：中段压缩\n"
+            "- 将影响的正式文件：拆文报告.md\n"
+            "## 主报告后复核\n"
+            "- 对照裁决：需要回炉\n"
+            "- 证据：主报告仍压缩中段\n"
+            "- 实际回写文件：无\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_sample_comparison(path, errors)
+        self.assertTrue(any("不得进入 finalize" in error for error in errors), errors)
+
+    def test_sample_comparison_rejects_backup_or_old_profile(self) -> None:
+        path = self._write(
+            "_sample_comparison.md",
+            "## 样本《幼薇》\n"
+            "- 选择原因：防止中段桥被压薄\n"
+            "- 已读文件：references/examples/yuwei/README.md\n"
+            "- 已读文件：references/examples/yuwei/幼薇原文.txt\n"
+            "- 已读文件：references/examples/yuwei/正反例对照.md\n"
+            "- 正例锚点：保留生活动作链\n"
+            "- 反例锚点：只剩结构标签\n"
+            "- 本书对应风险：中段压缩\n"
+            "- 将影响的正式文件：拆文报告.md\n"
+            "- 额外参考：拆文库_bak/旧书/book.profile.json\n"
+            "## 主报告后复核\n"
+            "- 对照裁决：未滑入反例\n"
+            "- 证据：主报告保留三段承重桥\n"
+            "- 实际回写文件：拆文报告.md\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_sample_comparison(path, errors)
+        self.assertTrue(any("只能使用 references/examples/" in error for error in errors), errors)
+
+    def test_markdown_hashes_detect_formal_output_changes(self) -> None:
+        path = self._write("拆文报告.md", "第一版\n")
+        before = FINALIZER.markdown_sha1s(self.root)
+        path.write_text("第二版\n", encoding="utf-8")
+        after = FINALIZER.markdown_sha1s(self.root)
+        self.assertNotEqual(before, after)
+
+    def test_finalizer_has_no_markdown_repair_helpers(self) -> None:
+        self.assertFalse(hasattr(FINALIZER, "repair_assets"))
+        self.assertFalse(hasattr(FINALIZER, "repair_emotion_outline"))
+        self.assertFalse(hasattr(FINALIZER, "repair_fake_reasons"))
+
+    def test_prepare_rejects_missing_contract_without_default_layout(self) -> None:
+        fake_repo = self.root / "missing-repo"
+        with mock.patch.object(PREPARER, "repo_root_from_script", return_value=fake_repo):
+            with self.assertRaisesRegex(FileNotFoundError, "禁止使用默认清单兜底"):
+                PREPARER.parse_output_contract()
+
+    def test_prepare_rejects_unparseable_contract_without_default_layout(self) -> None:
+        fake_repo = self.root / "bad-repo"
+        contract = (
+            fake_repo
+            / "skills"
+            / "story-short-analyze"
+            / "references"
+            / "pipeline"
+            / "output-contract.md"
+        )
+        contract.parent.mkdir(parents=True)
+        contract.write_text("没有文件树\n", encoding="utf-8")
+        with mock.patch.object(PREPARER, "repo_root_from_script", return_value=fake_repo):
+            with self.assertRaisesRegex(ValueError, "禁止使用默认清单兜底"):
+                PREPARER.parse_output_contract()
+
+    def test_prepare_current_contract_matches_explicit_schema(self) -> None:
+        self.assertEqual(PREPARER.CONTRACT_LAYOUT_SCHEMA, PREPARER.parse_output_contract())
 
 
 if __name__ == "__main__":
