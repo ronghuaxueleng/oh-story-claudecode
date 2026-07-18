@@ -83,14 +83,312 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
+    "skills/story-short-analyze/references/pipeline/auto-full-output-task.md",
+    "skills/story-short-analyze/references/pipeline/session-manual-execution-protocol.md",
+    "skills/story-short-analyze/references/pipeline/short-analyze-execution-prompt.md",
+    "skills/story-short-analyze/references/pipeline/source-asset-coverage-ledger.md",
     "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
     "skills/story-short-analyze/references/pipeline/stage-01-main-report-batch.md",
     "skills/story-short-analyze/references/pipeline/stage-02-ledger-and-tables-batch.md",
     "skills/story-short-analyze/references/pipeline/stage-03-detail-assets-batch.md",
     "skills/story-short-analyze/references/pipeline/stage-04-profile-and-finalize-batch.md",
 )
+
+FOUNDATION_LANES = {
+    "main_report": [
+        "拆文报告.md",
+    ],
+    "chronology_craft": [
+        "情节节点.md",
+        "写作手法.md",
+    ],
+    "discovery_index": [
+        "写作资产/本书动态信号字典.json",
+        "写作资产/原文资产候选池.md",
+    ],
+}
+
+ASSET_LANES = {
+    "tables_structure_action": [
+        "可直接仿写_导语拆解表.md",
+        "可直接仿写_顺序事件表.md",
+        "可直接仿写_物件表.md",
+        "可直接仿写_动作表.md",
+        "可直接仿写_误判表.md",
+        "可直接仿写_钩子表.md",
+        "可直接仿写_微动作表.md",
+        "可直接仿写_安静压迫场表.md",
+    ],
+    "tables_dialogue_relation": [
+        "可直接仿写_对白功能表.md",
+        "可直接仿写_对话衔接表.md",
+        "可直接仿写_人物偏手表.md",
+        "可直接仿写_失控说话表.md",
+        "可直接仿写_烂关系漏出表.md",
+        "可直接仿写_外部秩序表.md",
+        "可直接仿写_公开炸场表.md",
+        "可直接仿写_后果链表.md",
+    ],
+    "source_details": [
+        "原文细节库/场景细节库.md",
+        "原文细节库/关系细节库.md",
+        "原文细节库/情绪细节库.md",
+        "原文细节库/对白细节库.md",
+        "原文细节库/翻车细节库.md",
+        "原文细节库/旧伤细节库.md",
+        "原文细节库/动作细节库.md",
+        "原文细节库/场面细节库.md",
+    ],
+    "regular_assets": [
+        "写作资产/母结构_故事走法.md",
+        "写作资产/主冲突_副升级器.md",
+        "写作资产/异物清单.md",
+        "写作资产/第二层冲突清单.md",
+        "写作资产/角色口气模板.md",
+        "写作资产/关系重组方式.md",
+        "写作资产/公开场_关键硬牌_后果.md",
+        "写作资产/平台适配提醒.md",
+        "写作资产/情绪母线.md",
+        "写作资产/新状态清单.md",
+        "写作资产/虐点对照细节.md",
+    ],
+    "sensitive_assets": [
+        "写作资产/样本分级与可学层.md",
+        "写作资产/高敏桥段识别.md",
+        "写作资产/作者DNA指纹.md",
+        "写作资产/仿写约束_禁写清单.md",
+        "写作资产/同桥段过检规则.md",
+        "写作资产/桥段施工卡.md",
+    ],
+}
+
+DIRECT_TABLE_FIRST_WRITE_CONTRACT = {
+    "可直接仿写_导语拆解表.md": {
+        "columns": ["层级", "钩子内容", "第一句功能", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 3,
+    },
+    "可直接仿写_顺序事件表.md": {
+        "columns": ["层级", "事件顺序", "谁做了什么", "这一拍功能", "原文位置", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_物件表.md": {
+        "columns": ["层级", "物件", "伤害层", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_动作表.md": {
+        "columns": ["层级", "动作本体", "谁做", "原文位置", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_误判表.md": {
+        "columns": ["层级", "先误判了什么", "从哪开始翻", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_钩子表.md": {
+        "columns": ["层级", "钩子内容", "钩子类型", "回收位置", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_微动作表.md": {
+        "columns": ["层级", "动作本体", "对应情绪", "替代的解释句", "原文位置", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_安静压迫场表.md": {
+        "columns": ["层级", "场面压力来源", "谁没说话", "环境音", "未说破结果", "原文位置", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_对白功能表.md": {
+        "columns": ["层级", "角色", "典型说法类型", "这类话负责什么", "口吻特征", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_对话衔接表.md": {
+        "columns": ["层级", "上句功能", "下句接法", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_人物偏手表.md": {
+        "columns": ["层级", "角色", "稳定偏手", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_失控说话表.md": {
+        "columns": ["层级", "角色", "失控类型", "触发点", "暴露", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 5,
+    },
+    "可直接仿写_烂关系漏出表.md": {
+        "columns": ["层级", "具体漏出件", "关系伤害", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_外部秩序表.md": {
+        "columns": ["层级", "秩序来源", "谁掌控秩序", "后果", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 3,
+    },
+    "可直接仿写_公开炸场表.md": {
+        "columns": ["层级", "场面", "关键硬牌", "谁出的牌", "后果", "原文位置", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+    "可直接仿写_后果链表.md": {
+        "columns": ["层级", "起点实锤", "后果链节点", "最终新状态", "原文证据", "迁移提醒"],
+        "baseline_min_rows": 4,
+    },
+}
+
+DIRECT_TABLE_TRAILING_SECTIONS = [
+    "## 可直接借的承重结构",
+    "## 迁移顺序提醒",
+    "## 为什么这个顺序不能乱",
+]
+
+DETAIL_CARD_FIRST_WRITE_FIELDS = [
+    "具体发生了什么",
+    "这个细节为什么有用",
+    "它压的是谁、压在哪",
+    "后续能迁到什么新桥段",
+    "它对应的角色 / 情绪 / 反转是什么",
+]
+
+REGULAR_ASSET_EVIDENCE_FILES = [
+    "写作资产/母结构_故事走法.md",
+    "写作资产/主冲突_副升级器.md",
+    "写作资产/角色口气模板.md",
+    "写作资产/关系重组方式.md",
+    "写作资产/平台适配提醒.md",
+    "写作资产/情绪母线.md",
+    "写作资产/第二层冲突清单.md",
+]
+
+SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
+    "写作资产/样本分级与可学层.md": {
+        "required_labels": [
+            "structure_grade: A/B/C",
+            "performance_grade: A/B/C",
+            "sentence_grade: A/B/C",
+            "terminal_consequence_grade: A/B/C",
+            "正向DNA层",
+            "仅骨架层",
+            "反面规则层",
+        ],
+        "rules": ["四层等级不一致时必须显式写明 `分层样本`"],
+    },
+    "写作资产/高敏桥段识别.md": {
+        "card_start": "- 桥段名：",
+        "required_card_labels": ["桥段角色", "原文证据", "高敏点", "可学层", "禁学层"],
+    },
+    "写作资产/桥段施工卡.md": {
+        "card_heading": "## BID-xx 独一桥段名",
+        "required_card_labels": [
+            "桥段名",
+            "一句人话抓手",
+            "桥段角色",
+            "原文位置",
+            "原文现象证据",
+            "原文为什么能过",
+            "为什么不像加工稿",
+            "新稿最容易写假的点",
+            "必须保留的承重件",
+            "不能丢的顺序",
+            "为什么这个顺序不能乱",
+            "后续调用方式",
+        ],
+    },
+}
+
+ASSET_LANE_PREFERRED_READS = {
+    "tables_structure_action": [
+        "拆文报告.md",
+        "情节节点.md",
+        "写作资产/本书动态信号字典.json",
+        "写作资产/原文资产候选池.md",
+    ],
+    "tables_dialogue_relation": [
+        "拆文报告.md",
+        "情节节点.md",
+        "写作手法.md",
+        "写作资产/本书动态信号字典.json",
+        "写作资产/原文资产候选池.md",
+    ],
+    "source_details": [
+        "拆文报告.md",
+        "情节节点.md",
+        "写作资产/原文资产候选池.md",
+    ],
+    "regular_assets": [
+        "拆文报告.md",
+        "情节节点.md",
+        "写作手法.md",
+        "写作资产/本书动态信号字典.json",
+        "写作资产/原文资产候选池.md",
+    ],
+    "sensitive_assets": [
+        "拆文报告.md",
+        "情节节点.md",
+        "写作手法.md",
+        "写作资产/本书动态信号字典.json",
+        "写作资产/原文资产候选池.md",
+    ],
+}
+
+
+def direct_table_min_rows(filename: str, word_count: int) -> int:
+    baseline = DIRECT_TABLE_FIRST_WRITE_CONTRACT[filename]["baseline_min_rows"]
+    return baseline if word_count >= 8000 else max(2, baseline - 1)
+
+
+def asset_lane_first_write_contract(lane_id: str, word_count: int) -> dict:
+    if lane_id.startswith("tables_"):
+        tables = {}
+        for filename in ASSET_LANES[lane_id]:
+            spec = DIRECT_TABLE_FIRST_WRITE_CONTRACT[filename]
+            tables[filename] = {
+                "columns": spec["columns"],
+                "min_rows": direct_table_min_rows(filename, word_count),
+            }
+        return {
+            "contract_type": "direct_tables",
+            "tables": tables,
+            "trailing_sections": DIRECT_TABLE_TRAILING_SECTIONS,
+            "trailing_section_rules": [
+                "三个二级标题在每个文件中各出现且只出现一次",
+                "每段至少 2 条，并直接点名本表至少 2 个具体资产",
+                "所有表从首写起保留 `层级` 列；核心资产写 `核心`，其余写 `次级索引`",
+                "候选池已收录数高于最低行数时，以候选池已收录数为实际行数下限",
+            ],
+        }
+    if lane_id == "source_details":
+        min_cards = 5 if word_count >= 8000 else 4 if word_count >= 5000 else 3
+        return {
+            "contract_type": "detail_cards",
+            "min_cards_per_file": min_cards,
+            "card_fields": DETAIL_CARD_FIRST_WRITE_FIELDS,
+            "rules": [
+                "五个字段必须逐卡显式填写，不能只在文件开头声明一次",
+                "每张卡使用独一二级或三级标题，禁止重复标题",
+            ],
+        }
+    if lane_id == "regular_assets":
+        return {
+            "contract_type": "regular_assets",
+            "required_sections": {
+                filename: ["## 原文证据层"]
+                for filename in REGULAR_ASSET_EVIDENCE_FILES
+            },
+            "rules": [
+                "同一文件内所有 Markdown 标题必须唯一",
+                "原文证据层必须给出可定位的原文现象或短锚点，不能只写抽象总结",
+            ],
+        }
+    if lane_id == "sensitive_assets":
+        return {
+            "contract_type": "sensitive_assets",
+            "files": SENSITIVE_ASSET_FIRST_WRITE_CONTRACT,
+            "rules": [
+                "同一文件内所有 Markdown 标题必须唯一；卡片字段写成项目符号，不得反复用同名标题",
+                "高敏桥段卡和施工卡按桥逐卡填写，禁止在文件开头集中声明字段",
+                "施工卡 BID 必须来自 `_analysis_brief.md` 的唯一 BID 注册表",
+            ],
+        }
+    raise ValueError(f"未知 asset lane：{lane_id}")
 
 
 def repo_root_from_script() -> Path:
@@ -285,6 +583,287 @@ def write_source_manifest(path: Path, source_path: Path, copied_path: Path, text
     dump_json(path, payload)
 
 
+def build_executor_profile(word_count: int) -> dict:
+    if word_count <= 12000:
+        return {
+            "name": "short-reuse-3-agents",
+            "agent_session_limit": 3,
+            "foundation_executors": {
+                "main_report": "agent-core",
+                "chronology_craft": "agent-craft",
+                "discovery_index": "agent-discovery",
+            },
+            "asset_executors": {
+                "tables_structure_action": "agent-core",
+                "tables_dialogue_relation": "agent-craft",
+                "source_details": "agent-discovery",
+                "regular_assets": "agent-craft",
+                "sensitive_assets": "agent-core",
+            },
+            "worker_sequences": {
+                "agent-core": [
+                    "main_report",
+                    "tables_structure_action",
+                    "sensitive_assets",
+                ],
+                "agent-craft": [
+                    "chronology_craft",
+                    "tables_dialogue_relation",
+                    "regular_assets",
+                ],
+                "agent-discovery": [
+                    "discovery_index",
+                    "source_details",
+                ],
+                "coordinator": [
+                    "profile_and_finalize",
+                ],
+            },
+            "asset_dispatch_groups": {
+                "agent-core": [
+                    "tables_structure_action",
+                    "sensitive_assets",
+                ],
+                "agent-craft": [
+                    "tables_dialogue_relation",
+                    "regular_assets",
+                ],
+                "agent-discovery": [
+                    "source_details",
+                ],
+            },
+        }
+    return {
+        "name": "long-reuse-3-agents",
+        "agent_session_limit": 3,
+        "foundation_executors": {
+            "main_report": "agent-core",
+            "chronology_craft": "agent-craft",
+            "discovery_index": "agent-discovery",
+        },
+        "asset_executors": {
+            "tables_structure_action": "agent-core",
+            "tables_dialogue_relation": "agent-craft",
+            "source_details": "agent-discovery",
+            "regular_assets": "agent-craft",
+            "sensitive_assets": "agent-core",
+        },
+        "worker_sequences": {
+            "agent-core": [
+                "main_report",
+                "tables_structure_action",
+                "sensitive_assets",
+            ],
+            "agent-craft": [
+                "chronology_craft",
+                "tables_dialogue_relation",
+                "regular_assets",
+            ],
+            "agent-discovery": [
+                "discovery_index",
+                "source_details",
+            ],
+            "coordinator": [
+                "profile_and_finalize",
+            ],
+        },
+        "asset_dispatch_groups": {
+            "agent-core": [
+                "tables_structure_action",
+                "sensitive_assets",
+            ],
+            "agent-craft": [
+                "tables_dialogue_relation",
+                "regular_assets",
+            ],
+            "agent-discovery": [
+                "source_details",
+            ],
+        },
+    }
+
+
+def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
+    foundation_shared_reads = [
+        str(source_copy),
+        "_sample_comparison.md",
+        "事实与推断台账.md",
+        "_analysis_brief.md",
+    ]
+    asset_shared_reads: list[str] = []
+    asset_delta_reads = {
+        "tables_structure_action": [
+            "写作资产/本书动态信号字典.json",
+            "写作资产/原文资产候选池.md",
+        ],
+        "tables_dialogue_relation": [
+            "写作资产/本书动态信号字典.json",
+            "写作资产/原文资产候选池.md",
+        ],
+        "source_details": [],
+        "regular_assets": [],
+        "sensitive_assets": [],
+    }
+    executor_profile = build_executor_profile(word_count)
+    agent_session_limit = executor_profile["agent_session_limit"]
+    payload = {
+        "version": 6,
+        "mode": "two-wave-session-carry",
+        "word_count": word_count,
+        "max_concurrent_lanes": 3,
+        "executor_profile": executor_profile["name"],
+        "worker_sequences": executor_profile["worker_sequences"],
+        "asset_dispatch_groups": executor_profile["asset_dispatch_groups"],
+        "agent_strategy": {
+            "default_mode": "coordinator-plus-reused-agents",
+            "agent_session_limit": agent_session_limit,
+            "foundation_agent_limit": agent_session_limit,
+            "asset_agent_limit": agent_session_limit,
+            "reuse_agent_sessions_across_waves": True,
+            "spawn_each_lane_separately": False,
+            "prefer_coarse_lanes_over_many_small_agents": True,
+            "disable_agents_for_checks": [
+                "文件读取",
+                "rg/grep 检索",
+                "文件齐全检查",
+                "厚度统计",
+                "BID 贯通检查",
+                "foundation validator",
+                "finalize validator",
+                "_meta.json 回写核对",
+            ],
+            "degrade_when": [
+                "宿主并发不稳定",
+                "出现 429 / rate limit / queueing",
+                "子 agent 冷启动明显高于正文生成耗时",
+            ],
+            "hard_rules": [
+                "同一 executor 的后续 lane 必须继续使用原会话，不得重新 spawn",
+                "短篇 profile 下 agent-discovery 从 discovery_index 连续执行到 source_details",
+                "第二波不得重读 foundation_shared_reads；只允许读取 lane.delta_reads",
+                "同一 executor 的第二波 lane 合并为一次派发，批内连续落盘",
+                "任何时刻子 agent 活跃会话不得超过 agent_session_limit",
+            ],
+        },
+        "foundation_start_gate": [
+            "_sample_comparison.md",
+            "事实与推断台账.md",
+            "_analysis_brief.md",
+        ],
+        "foundation_shared_reads": foundation_shared_reads,
+        "foundation_lanes": [
+            {
+                "id": lane_id,
+                "executor": executor_profile["foundation_executors"][lane_id],
+                "write_files": files,
+                "rules": [
+                    "只写本 lane 的 write_files",
+                    "共享证据文件只读",
+                    "严格使用 _analysis_brief.md 中冻结的角色称谓、时间边界和 BID",
+                    "需要补证据时只读取原文精确行段，不重吞全文",
+                    "不得降低主报告、节点、手法、候选池或动态字典的现有厚度门槛",
+                ],
+            }
+            for lane_id, files in FOUNDATION_LANES.items()
+        ],
+        "foundation_join_gate": [
+            "主线程回看样本反例区并更新 _sample_comparison.md",
+            "主线程补 _meta.json.structure_counts",
+            "运行 foundation_preflight，必须返回 ready-for-asset-lanes",
+        ],
+        "foundation_preflight": (
+            "python3 skills/story-short-analyze/scripts/"
+            f"validate_short_analyze_foundation.py \"{path.parent}\" --json"
+        ),
+        "asset_start_gate": [
+            "_analysis_brief.md",
+            "_sample_comparison.md",
+            "事实与推断台账.md",
+            "拆文报告.md",
+            "情节节点.md",
+            "写作手法.md",
+            "写作资产/本书动态信号字典.json",
+            "写作资产/原文资产候选池.md",
+        ],
+        "asset_shared_reads": asset_shared_reads,
+        "source_on_demand": str(source_copy),
+        "coordinator_only_writes": [
+            "_sample_comparison.md",
+            "事实与推断台账.md",
+            "_analysis_brief.md",
+            "_meta.json",
+            "_progress.md",
+            "写作资产/profile_source.md",
+            "book.profile.json",
+        ],
+        "asset_lanes": [
+            {
+                "id": lane_id,
+                "executor": executor_profile["asset_executors"][lane_id],
+                "write_files": files,
+                "preferred_reads": ASSET_LANE_PREFERRED_READS[lane_id],
+                "delta_reads": asset_delta_reads[lane_id],
+                "first_write_contract": asset_lane_first_write_contract(lane_id, word_count),
+                "reuse_context_from": executor_profile["worker_sequences"][
+                    executor_profile["asset_executors"][lane_id]
+                ][
+                    : executor_profile["worker_sequences"][
+                        executor_profile["asset_executors"][lane_id]
+                    ].index(lane_id)
+                ],
+                "rules": [
+                    "只写本 lane 的 write_files",
+                    "继续使用同一 executor 已加载的原文与 foundation 上下文",
+                    "asset_shared_reads 为空；只读取本 lane 的 delta_reads，不按 preferred_reads 重读文件",
+                    "需要补证据时只读取原文精确行段，不重吞全文",
+                    "不读取无关 lane 的正式产物，不把第二波全部共享文件重新吞一遍",
+                    "首写前先读取并逐项执行本 lane.first_write_contract；派发 prompt 必须完整携带该对象",
+                    "禁止先按旧模板写完再依赖 validator 返修格式",
+                    "不得降低现有行数、细节卡、有效字符或专项解释门槛",
+                ],
+            }
+            for lane_id, files in ASSET_LANES.items()
+        ],
+        "asset_join_gate": [
+            "全部 lane 文件齐全且无截断",
+            "主线程统一核销候选池",
+            "主线程统一回扫动态字典",
+            "主线程用工具流统一检查 BID 跨文件贯通",
+            "主线程生成 profile_source.md 和 book.profile.json",
+            "主线程运行 finalize",
+        ],
+        "cache_policy": [
+            "第一波 lane 的共享上下文按 foundation_shared_reads 固定顺序加载；第二波直接继承同一会话上下文",
+            "asset_shared_reads 固定为空；第二波只允许追加各 lane.delta_reads",
+            "agent-core 与 agent-craft 各自把表格 lane 和后续资产 lane 合并成一次派发",
+            "agent-discovery 从候选发现直接续写原文细节库，不重新读取节点、主报告或候选池",
+            "稳定的 skill 规则和最小公共证据放在 prompt 前部，lane 专属证据与任务放在末尾",
+            "同一波 lane 不改写共享前缀，避免破坏宿主 prompt cache",
+            "preferred_reads 只保留为证据依赖说明，不是第二波实际读取指令",
+            "第二波不把原文全文放进共享前缀，只按 source_on_demand 读取责任资产所需的精确行段",
+            "同一 executor 跨波复用已加载的原文、样本锚点和分析契约，不重新冷启动",
+        ],
+        "fallback": (
+            "宿主无原生并发能力、子 agent 限流或并发收益不明显时，仍保持 executor 会话复用，"
+            "按 worker_sequences 顺序推进；禁止回退成每条 lane 新起一个 agent。"
+        ),
+    }
+    dump_json(path, payload)
+
+
+def write_timing_state(path: Path) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    dump_json(
+        path,
+        {
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+            "stages": {},
+        },
+    )
+
+
 def write_source_reading_plan(path: Path, source_copy: Path, text: str) -> None:
     lines = text.splitlines()
     chunks = build_source_chunks(lines)
@@ -410,15 +989,33 @@ def write_execution_prompt(
         "4. 按当前阶段只加载对应阶段文档，不要一次吞完整套执行 prompt 和全部样例",
         "5. 按 `_source_reading_plan.md` 的全部分块读到 EOF，完成原文覆盖确认",
         "6. 读完原文后先落 `_sample_comparison.md`，记录所选样本文件、正反例锚点和将影响的正式文件",
-        "7. 按 `样本对照 -> 事实台账 -> 拆文报告 -> 样本反例复核 -> 情节节点 -> 写作手法+meta -> 字典+候选池 -> 16张表8+8 -> 细节库整批 -> 常规资产批 -> 高敏资产批 -> profile -> 验收` 完整落盘",
-        "8. 最后运行：",
+        "7. 事实台账完成后写 `_analysis_brief.md`，冻结角色称谓、时间边界和 BID 注册表",
+        "8. 读取 `_parallel_plan.json`；12000 字以内启动 3 个可跨波复用的子 agent，主线程只承担 coordinator lane",
+        "9. 第二波派发 prompt 必须逐字携带对应 `asset_lanes[].first_write_contract`，worker 先按契约确定表头、卡片字段和唯一标题再首写落盘",
+        "10. 按 `样本对照 -> 事实台账 -> 分析契约 -> foundation并发 -> foundation预检 -> asset并发 -> 统一核销 -> profile -> 验收` 完整落盘",
+        "11. 最后运行：",
         f"   `python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json`",
         "",
         "## 当前只记住这些硬约束",
         "- 读完原文后先写过程审计文件 `_sample_comparison.md`；第一个内容产物仍必须是 `事实与推断台账.md`",
         "- 禁止任何兜底生成、自动补写、自动扩写、通用模板代填或跨书内容借位；信息不足就停在当前阶段并报错",
         "- 原文与样本只完整读取一次；后续使用 `_sample_comparison.md`、事实台账、节点、候选池和精确原文切片",
-        "- 16 张表默认按 8+8 两批，细节库默认整批，写作资产按常规+高敏两批；失败批次先二分，仍失败才降级为双文件",
+        "- 第一波仍有 3 条内容 lane、第二波仍有 5 条内容 lane，但 lane 不是 agent：严格按 executor 复用同一会话，禁止每条 lane 单独 spawn",
+        "- 12000 字以内固定为主线程 + 3 个复用子 agent；agent-discovery 从动态字典+候选池连续执行到原文细节库",
+        "- 第二波不重读共享基础文件；直接继承第一波会话，只按 asset_lanes[].delta_reads 追加尚未见过的证据",
+        "- agent-core 与 agent-craft 的第二波任务分别合并成一次派发，避免表格结束后再次等待与装载上下文",
+        "- `_analysis_brief.md` 必须先冻结故事核、主角、核心关系、时间边界、固定称谓和 BID 注册表；并发 worker 不得各自改名或重编号",
+        "- 第一波汇合后必须运行 `_parallel_plan.json.foundation_preflight`；没到 `ready-for-asset-lanes` 不得启动第二波",
+        "- 每条 lane 只写自己的文件，禁止争写共享台账；主线程必须等待第二波全部完成，再统一核销、回扫、用工具流检查 BID 并生成 profile",
+        "- 第二波每条 lane 首写前必须逐项执行自己的 `first_write_contract`；禁止先写旧模板再靠 validator 返修",
+        "- 表头、最低行数、表后三段、细节卡五字段、高敏资产字段和标题唯一性都属于首写合同，不得留到批末补格式",
+        "- 同一波 lane 的共享上下文按计划中的固定顺序加载，稳定规则放前、lane 专属指令放末尾，不在各 lane 改写共享前缀",
+        "- 任一 lane 失败只二分责任批次重跑；二分仍失败才降级为双文件模式，不回退整波",
+        "- 文件读取、grep、厚度统计、BID 贯通、foundation/finalize validator 一律优先走主线程工具流，不交给子 agent 重复执行",
+        "- 子 agent 只用于正式内容产出；同一 executor 的后续 lane 必须继续使用原会话，任何时候不得超过 `_parallel_plan.json.agent_strategy.agent_session_limit`",
+        "- 候选池达到篇幅最低值且反向漏项审计不少于 5 项后，foundation 才能放行；profile 迁移资产低于篇幅最低值也必须回补",
+        f"- 每阶段用 `python3 skills/story-short-analyze/scripts/record_short_analyze_timing.py \"{out_dir}\" start|finish 阶段名` 写入 `_timing.json`",
+        "- 不要整份加载 `output-templates.md`；先用标题检索定位当前文件模板，只读取命中标题到下一同级标题之间的区段",
         "- 批量模式不得压缩表格行数、细节卡数量、有效字符或高敏桥解释层",
         "- 主报告层（`事实台账 / 拆文报告 / 情节节点 / 写作手法 / profile_source`）优先级最高，不能压薄",
         "- 如果某一批开始明显压缩化，优先冷启动该批并只重载对应 `stage-*.md`",
@@ -486,6 +1083,8 @@ def prepare(args: argparse.Namespace) -> dict:
     write_meta(out_dir / "_meta.json", word_count, book_name, text)
     write_required_manifest(out_dir / "_required_outputs.json", book_name, source, layout)
     write_source_manifest(out_dir / "_source_manifest.json", source, source_copy, text)
+    write_parallel_plan(out_dir / "_parallel_plan.json", source_copy, word_count)
+    write_timing_state(out_dir / "_timing.json")
     write_source_reading_plan(out_dir / "_source_reading_plan.md", source_copy, text)
     write_progress(out_dir / "_progress.md", book_name, layout)
     write_execution_prompt(out_dir / "_execution_prompt.md", book_name, source_copy, out_dir, text)
@@ -505,6 +1104,8 @@ def prepare(args: argparse.Namespace) -> dict:
             "_meta.json",
             "_required_outputs.json",
             "_source_manifest.json",
+            "_parallel_plan.json",
+            "_timing.json",
             "_source_reading_plan.md",
             "_progress.md",
             "_execution_prompt.md",
@@ -516,7 +1117,7 @@ def prepare(args: argparse.Namespace) -> dict:
                 "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
                 "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
             ],
-            "then": "按 _source_reading_plan.md 读完整本原文，再进入事实台账串行批",
+            "then": "按 _source_reading_plan.md 读完整本原文，再进入事实台账与两波并发流程",
             "finalize_after_all_files": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
         },
     }

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import importlib.util
 from pathlib import Path
 import sys
@@ -38,6 +40,32 @@ assert PREPARER_SPEC and PREPARER_SPEC.loader
 PREPARER = importlib.util.module_from_spec(PREPARER_SPEC)
 sys.modules[PREPARER_SPEC.name] = PREPARER
 PREPARER_SPEC.loader.exec_module(PREPARER)
+
+FOUNDATION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "validate_short_analyze_foundation.py"
+)
+FOUNDATION_SPEC = importlib.util.spec_from_file_location(
+    "short_analyze_foundation_validator",
+    FOUNDATION_PATH,
+)
+assert FOUNDATION_SPEC and FOUNDATION_SPEC.loader
+FOUNDATION = importlib.util.module_from_spec(FOUNDATION_SPEC)
+FOUNDATION_SPEC.loader.exec_module(FOUNDATION)
+
+TIMING_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "record_short_analyze_timing.py"
+)
+TIMING_SPEC = importlib.util.spec_from_file_location(
+    "short_analyze_timing",
+    TIMING_PATH,
+)
+assert TIMING_SPEC and TIMING_SPEC.loader
+TIMING = importlib.util.module_from_spec(TIMING_SPEC)
+TIMING_SPEC.loader.exec_module(TIMING)
 
 
 class HumanQualityGateTest(unittest.TestCase):
@@ -134,6 +162,16 @@ class HumanQualityGateTest(unittest.TestCase):
             errors,
         )
         self.assertEqual([], errors)
+
+    def test_preparer_and_validator_use_same_fingerprint_files(self) -> None:
+        self.assertEqual(
+            PREPARER.SKILL_FINGERPRINT_FILES,
+            VALIDATOR.SKILL_FINGERPRINT_FILES,
+        )
+        self.assertEqual(
+            PREPARER.compute_skill_fingerprint(),
+            VALIDATOR.compute_skill_fingerprint(),
+        )
 
     def test_bridge_card_requires_non_abstract_human_hook(self) -> None:
         path = self._write(
@@ -720,11 +758,188 @@ class HumanQualityGateTest(unittest.TestCase):
             "第一行\n第二行\n第三行\n",
         )
         prompt = path.read_text(encoding="utf-8")
-        self.assertIn("16张表8+8", prompt)
-        self.assertIn("细节库整批", prompt)
-        self.assertIn("失败批次先二分", prompt)
+        self.assertIn("第二波仍有 5 条内容 lane，但 lane 不是 agent", prompt)
+        self.assertIn("细节库", prompt)
+        self.assertIn("失败只二分责任批次", prompt)
         self.assertIn("仍失败才降级为双文件", prompt)
+        self.assertIn("_parallel_plan.json", prompt)
+        self.assertIn("_analysis_brief.md", prompt)
+        self.assertIn("foundation_preflight", prompt)
+        self.assertIn("每条 lane 只写自己的文件", prompt)
+        self.assertIn("不要整份加载 `output-templates.md`", prompt)
+        self.assertIn("主线程 + 3 个复用子 agent", prompt)
+        self.assertIn("record_short_analyze_timing.py", prompt)
+        self.assertIn("first_write_contract", prompt)
+        self.assertIn("禁止先写旧模板再靠 validator 返修", prompt)
+        self.assertIn("表头、最低行数、表后三段、细节卡五字段", prompt)
         self.assertNotIn("每个微批最多 2 个正式文件", prompt)
+
+    def test_parallel_plan_has_disjoint_lane_ownership(self) -> None:
+        path = self.root / "_parallel_plan.json"
+        PREPARER.write_parallel_plan(path, self.root / "原文" / "测试书.txt", 10000)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        owned: list[str] = []
+        for lane in payload["foundation_lanes"] + payload["asset_lanes"]:
+            owned.extend(lane["write_files"])
+        self.assertEqual(len(owned), len(set(owned)))
+        self.assertEqual(len(payload["foundation_lanes"]), 3)
+        self.assertEqual(len(payload["asset_lanes"]), 5)
+        self.assertEqual(payload["max_concurrent_lanes"], 3)
+        self.assertEqual(payload["agent_strategy"]["asset_agent_limit"], 3)
+        self.assertEqual(payload["agent_strategy"]["agent_session_limit"], 3)
+        self.assertTrue(payload["agent_strategy"]["reuse_agent_sessions_across_waves"])
+        self.assertFalse(payload["agent_strategy"]["spawn_each_lane_separately"])
+        self.assertIn("foundation validator", payload["agent_strategy"]["disable_agents_for_checks"])
+        self.assertIn("出现 429 / rate limit / queueing", payload["agent_strategy"]["degrade_when"])
+        self.assertEqual(payload["version"], 6)
+        self.assertEqual(payload["executor_profile"], "short-reuse-3-agents")
+        self.assertIn("_analysis_brief.md", payload["foundation_start_gate"])
+        self.assertIn("validate_short_analyze_foundation.py", payload["foundation_preflight"])
+        self.assertIn("拆文报告.md", owned)
+        self.assertIn("写作资产/本书动态信号字典.json", owned)
+        self.assertIn("写作资产/profile_source.md", payload["coordinator_only_writes"])
+        self.assertNotIn("写作资产/profile_source.md", owned)
+        self.assertIn("主线程用工具流统一检查 BID 跨文件贯通", payload["asset_join_gate"])
+        self.assertTrue(any("prompt cache" in rule for rule in payload["cache_policy"]))
+        self.assertNotIn(str(self.root / "原文" / "测试书.txt"), payload["asset_shared_reads"])
+        self.assertEqual(payload["asset_shared_reads"], [])
+        lane_reads = {lane["id"]: lane["preferred_reads"] for lane in payload["asset_lanes"]}
+        delta_reads = {lane["id"]: lane["delta_reads"] for lane in payload["asset_lanes"]}
+        self.assertIn("写作手法.md", lane_reads["tables_dialogue_relation"])
+        self.assertNotIn("写作手法.md", lane_reads["source_details"])
+        self.assertIn("写作资产/原文资产候选池.md", lane_reads["regular_assets"])
+        self.assertEqual(delta_reads["source_details"], [])
+        self.assertEqual(delta_reads["regular_assets"], [])
+        self.assertEqual(delta_reads["sensitive_assets"], [])
+        self.assertEqual(
+            delta_reads["tables_structure_action"],
+            ["写作资产/本书动态信号字典.json", "写作资产/原文资产候选池.md"],
+        )
+        self.assertEqual(payload["source_on_demand"], str(self.root / "原文" / "测试书.txt"))
+        foundation_executors = {
+            lane["id"]: lane["executor"] for lane in payload["foundation_lanes"]
+        }
+        asset_executors = {
+            lane["id"]: lane["executor"] for lane in payload["asset_lanes"]
+        }
+        self.assertEqual(foundation_executors["discovery_index"], "agent-discovery")
+        self.assertEqual(asset_executors["source_details"], "agent-discovery")
+        self.assertEqual(foundation_executors["main_report"], "agent-core")
+        self.assertEqual(asset_executors["tables_structure_action"], "agent-core")
+        self.assertEqual(
+            payload["worker_sequences"]["agent-core"],
+            ["main_report", "tables_structure_action", "sensitive_assets"],
+        )
+        self.assertEqual(
+            payload["asset_dispatch_groups"]["agent-core"],
+            ["tables_structure_action", "sensitive_assets"],
+        )
+        contracts = {
+            lane["id"]: lane["first_write_contract"]
+            for lane in payload["asset_lanes"]
+        }
+        structure_tables = contracts["tables_structure_action"]["tables"]
+        dialogue_tables = contracts["tables_dialogue_relation"]["tables"]
+        self.assertEqual(
+            structure_tables["可直接仿写_导语拆解表.md"]["columns"],
+            ["层级", "钩子内容", "第一句功能", "原文证据", "迁移提醒"],
+        )
+        self.assertEqual(structure_tables["可直接仿写_动作表.md"]["min_rows"], 5)
+        self.assertEqual(dialogue_tables["可直接仿写_公开炸场表.md"]["min_rows"], 4)
+        self.assertEqual(
+            contracts["tables_structure_action"]["trailing_sections"],
+            [
+                "## 可直接借的承重结构",
+                "## 迁移顺序提醒",
+                "## 为什么这个顺序不能乱",
+            ],
+        )
+        self.assertIn(
+            "具体发生了什么",
+            contracts["source_details"]["card_fields"],
+        )
+        self.assertEqual(contracts["source_details"]["min_cards_per_file"], 5)
+        self.assertEqual(
+            contracts["regular_assets"]["required_sections"][
+                "写作资产/情绪母线.md"
+            ],
+            ["## 原文证据层"],
+        )
+        sample_labels = contracts["sensitive_assets"]["files"][
+            "写作资产/样本分级与可学层.md"
+        ]["required_labels"]
+        self.assertIn("structure_grade: A/B/C", sample_labels)
+        bridge_contract = contracts["sensitive_assets"]["files"][
+            "写作资产/桥段施工卡.md"
+        ]
+        self.assertEqual(bridge_contract["card_heading"], "## BID-xx 独一桥段名")
+        self.assertIn("原文为什么能过", bridge_contract["required_card_labels"])
+        for lane in payload["asset_lanes"]:
+            self.assertTrue(
+                any("first_write_contract" in rule for rule in lane["rules"])
+            )
+
+    def test_parallel_plan_scales_first_write_floors_for_short_source(self) -> None:
+        path = self.root / "_parallel_plan.json"
+        PREPARER.write_parallel_plan(path, self.root / "原文" / "测试书.txt", 4000)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        contracts = {
+            lane["id"]: lane["first_write_contract"]
+            for lane in payload["asset_lanes"]
+        }
+        tables = contracts["tables_structure_action"]["tables"]
+        self.assertEqual(tables["可直接仿写_动作表.md"]["min_rows"], 4)
+        self.assertEqual(tables["可直接仿写_导语拆解表.md"]["min_rows"], 2)
+        self.assertEqual(contracts["source_details"]["min_cards_per_file"], 3)
+
+    def test_long_parallel_plan_reuses_three_agent_sessions(self) -> None:
+        path = self.root / "_parallel_plan.json"
+        PREPARER.write_parallel_plan(path, self.root / "原文" / "测试书.txt", 18000)
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["executor_profile"], "long-reuse-3-agents")
+        self.assertEqual(payload["agent_strategy"]["agent_session_limit"], 3)
+        self.assertEqual(
+            next(
+                lane["executor"]
+                for lane in payload["foundation_lanes"]
+                if lane["id"] == "discovery_index"
+            ),
+            "agent-discovery",
+        )
+
+    def test_timing_state_records_elapsed_stage(self) -> None:
+        PREPARER.write_timing_state(self.root / "_timing.json")
+        started = TIMING.update_stage(self.root, "start", "foundation", "测试")
+        self.assertEqual(started["status"], "running")
+        finished = TIMING.update_stage(self.root, "finish", "foundation", "")
+        self.assertEqual(finished["status"], "completed")
+        self.assertGreaterEqual(finished["elapsed_seconds"], 0)
+
+    def test_foundation_brief_freezes_valid_bid_registry(self) -> None:
+        self._write(
+            "_analysis_brief.md",
+            "\n".join(
+                [
+                    "# 分析契约",
+                    "- 故事核：规则场掉位后进入现实清算",
+                    "- 主角：许初",
+                    "- 核心关系：许初 / 蒋湛 / 夏禾",
+                    "- 时间边界：扫黄当晚到离婚后三个月",
+                    "- 固定称谓：许初、蒋湛、夏禾",
+                    "- BID 注册表：以下记录为全书唯一编号",
+                    "BID-01 | L2-L4 | 锚点：原文连续锚点 | 桥段角色：现实伤承重",
+                ]
+            )
+            + "\n",
+        )
+        errors: list[str] = []
+        bids = FOUNDATION.check_analysis_brief(
+            self.root,
+            ["第一行", "原文连续锚点", "第三行", "第四行"],
+            errors,
+        )
+        self.assertEqual(bids, ["BID-01"])
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

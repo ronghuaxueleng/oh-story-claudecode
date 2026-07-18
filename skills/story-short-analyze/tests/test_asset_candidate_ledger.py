@@ -239,7 +239,33 @@ class AssetCandidateLedgerTest(unittest.TestCase):
         self._write_ledger(chunk_2_empty=True)
         errors, notes = self._check()
         self.assertEqual([], errors)
-        self.assertTrue(any("低于按篇幅估算的参考值" in note for note in notes))
+        self.assertTrue(any("低于按篇幅要求的最低值" in note for note in notes))
+
+    def test_long_sample_candidate_floor_is_blocking(self) -> None:
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_asset_candidate_ledger(
+            self.root,
+            self.source_lines,
+            8000,
+            errors,
+            notes,
+        )
+        self.assertTrue(any("低于按篇幅要求的最低值 40" in error for error in errors))
+
+    def test_reverse_audit_floor_is_blocking(self) -> None:
+        ledger_path = self.root / "写作资产" / "原文资产候选池.md"
+        text = ledger_path.read_text(encoding="utf-8")
+        audit_start = text.index("## 反向漏项审计")
+        ledger_path.write_text(
+            text[:audit_start]
+            + "## 反向漏项审计\n"
+            + "- A001 | L1-L1 | 原文：这是第1行的原文锚点 | 判定：不收录 | "
+            + "去向：无 | 理由：与现有候选属于同一事件的重复表述\n",
+            encoding="utf-8",
+        )
+        errors, _ = self._check()
+        self.assertTrue(any("低于最低要求 5 项" in error for error in errors))
 
     def test_missing_category_requires_explicit_absence_declaration(self) -> None:
         ledger_path = self.root / "写作资产" / "原文资产候选池.md"

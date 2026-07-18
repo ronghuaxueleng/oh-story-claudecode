@@ -78,23 +78,38 @@ description: |
 2. 读完原文全部 Chunk，过原文覆盖闸门
 3. 读取 1-2 本内置样本并落 `_sample_comparison.md`
 4. `事实与推断台账.md`
-5. `拆文报告.md`
-6. 回看样本反例区并更新 `_sample_comparison.md`
-7. `情节节点.md`
-8. `写作手法.md + _meta.json`
-9. `本书动态信号字典.json + 原文资产候选池.md`
-10. 16 张表，默认按结构/动作 8 表与对白/关系 8 表两大批连续落盘
-11. 原文细节库，默认 8 份整批连续落盘
-12. 写作资产，默认按常规资产与高敏资产两大批连续落盘
-13. `profile_source.md`
-14. 生成 `book.profile.json`
-15. `run_short_analyze_finalize.py`
+5. 写 `_analysis_brief.md`，冻结角色称谓、双时间轴边界和 BID 注册表
+6. 第一波并发：`拆文报告.md` / `情节节点.md + 写作手法.md` / `本书动态信号字典.json + 原文资产候选池.md`
+7. 回看样本反例区并更新 `_sample_comparison.md`
+8. 运行 `validate_short_analyze_foundation.py`
+9. 第二波并发：16 张表两条 lane / 原文细节库 / 常规资产 / 高敏资产
+10. 主线程统一核销候选池、回扫动态字典并检查 BID 贯通
+11. `profile_source.md`
+12. 生成 `book.profile.json`
+13. `run_short_analyze_finalize.py`
 
 硬规则：
 
 - 默认使用 `快速厚拆模式`：原文与样本只完整读取一次，后续依赖 `_sample_comparison.md`、事实台账、节点、候选池和精确原文切片，不重复吞全文
 - 大批量落盘后立即做文件齐全、输出截断和现有厚度门槛快检；只对失败批次二分重跑，二分仍失败才降级为双文件模式
 - 快速厚拆只减少模型往返和重复回读，不降低 57 文件合同、表格行数、细节卡数、高敏资产厚度或 validator 门槛
+- 第二波每条 lane 第一次写文件前必须逐项执行 `_parallel_plan.json.asset_lanes[].first_write_contract`；表头、最低行数、表后三段、细节卡五字段、高敏字段和唯一标题必须首写正确，禁止先按旧模板落盘再靠 validator 返修
+- `prepare` 会生成 `_parallel_plan.json`；宿主支持原生并发时使用两波并发，不再把主报告、节点、手法、字典和候选池全部塞在并发前的串行临界路径
+- 第一波开始前由主线程写 `_analysis_brief.md`；并发 worker 必须使用其中冻结的称谓、时间边界和 BID，不得各自重新解释或编号
+- 第一波汇合后必须运行 `validate_short_analyze_foundation.py`；锚点、台账口径、BID、候选池或动态字典不过线时，只返修责任 lane
+- 第二波 worker 只写自己的文件；事实台账、分析契约、profile 和 finalize 始终由主线程统一维护
+- 同一波 worker 使用固定顺序的共享上下文前缀，稳定规则在前、lane 专属指令在后；不要为每条 lane 重排或改写共享前缀
+- 第二波直接继承同一 executor 的第一波会话；`asset_shared_reads` 固定为空，只按各 lane 的 `delta_reads` 补尚未见过的字典或候选池；`preferred_reads` 只作为依赖说明，不执行重读
+- 第二波共享前缀不再包含原文全文；worker 只在缓存证据不足时按 `_parallel_plan.json.source_on_demand` 读取责任文件需要的精确行段
+- 宿主支持本地工具并发时，优先并发执行文件读取、grep、validator 这类确定性步骤；能用工具完成的检查不要再起子代理重复跑一遍
+- 子 agent 默认只承担“正式内容产出”的独立 lane；文件读取、文件齐全检查、厚度统计、BID 贯通、validator、_meta 核对一律走主线程工具流
+- 12000 字以内默认启动 3 个子 agent，会话跨两波复用：`agent-core / agent-craft / agent-discovery` 分别持有自己的原文与证据上下文；主线程只负责共享台账、验收与 profile
+- 第二波不再统一重读 `_sample_comparison / 事实台账 / _analysis_brief / 主报告 / 节点 / 手法`；同一会话直接继承第一波上下文，只允许按 `_parallel_plan.json.asset_lanes[].delta_reads` 追加本会话尚未见过的字典或候选池
+- `agent-core` 的表格与高敏资产、`agent-craft` 的表格与常规资产必须各合并为一次派发；`agent-discovery` 从候选发现直接续到 8 类细节库，减少等待和重复读盘
+- 12000 字以上默认最多启动 3 个子 agent，同一 executor 的后续 lane 必须继续使用原会话；第二波 5 条 lane 不等于 5 次 spawn
+- 候选池篇幅最低值、5 项反向漏项审计和 profile 迁移资产最低值都是硬闸；不足时回扫责任阶段，不得以“原文密度低”直接放行
+- 每次正式执行都用 `record_short_analyze_timing.py` 记录 `intake / foundation / assets / finalize`，没有真实耗时记录不得声称提速成功
+- 禁止整份读取 `output-templates.md`；按当前目标文件的标题检索并只读取对应模板区段
 - 读完原文后先落过程审计 `_sample_comparison.md`；第一个内容产物必须是 `事实与推断台账.md`
 - 禁止先铺一圈空壳，再回头补正文
 - 禁止“核心三件套先写完，其余后补”

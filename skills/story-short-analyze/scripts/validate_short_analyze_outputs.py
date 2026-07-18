@@ -315,8 +315,15 @@ STRUCTURE_COUNT_KEYS = [
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
+    "skills/story-short-analyze/references/pipeline/auto-full-output-task.md",
+    "skills/story-short-analyze/references/pipeline/session-manual-execution-protocol.md",
+    "skills/story-short-analyze/references/pipeline/short-analyze-execution-prompt.md",
+    "skills/story-short-analyze/references/pipeline/source-asset-coverage-ledger.md",
     "skills/story-short-analyze/references/pipeline/stage-00-intake-and-sampling.md",
     "skills/story-short-analyze/references/pipeline/stage-01-main-report-batch.md",
     "skills/story-short-analyze/references/pipeline/stage-02-ledger-and-tables-batch.md",
@@ -1150,10 +1157,15 @@ def check_asset_candidate_ledger(
 
     suggested_minimum = asset_candidate_threshold(word_count)
     if len(matches) < suggested_minimum:
-        notes.append(
-            f"非阻断复核：{path} 当前 {len(matches)} 条候选，低于按篇幅估算的"
-            f"参考值 {suggested_minimum}；请确认这是原文资产密度所致，而非提前停止"
+        message = (
+            f"{path} 当前 {len(matches)} 条候选，低于按篇幅要求的"
+            f"最低值 {suggested_minimum}；必须继续按 Chunk 和 16 类回扫，"
+            "不能以“原文密度低”直接放行"
         )
+        if word_count >= 5000:
+            ledger_errors.append(message)
+        else:
+            notes.append(f"非阻断复核：{message}")
 
     target_texts = {
         filename: read_text(root / filename) if (root / filename).is_file() else ""
@@ -1305,9 +1317,9 @@ def check_asset_candidate_ledger(
     audits = list(ADVERSARIAL_AUDIT_PATTERN.finditer(text))
     excluded_audits: list[tuple[int, int, str, str]] = []
     if len(audits) < 5:
-        notes.append(
-            f"非阻断复核：{path} 反向漏项审计当前 {len(audits)} 项，"
-            "低于流程参考值 5 项；请确认不是提前停止"
+        ledger_errors.append(
+            f"{path} 反向漏项审计当前 {len(audits)} 项，低于最低要求 5 项；"
+            "必须脱离现有分类重新找漏项并逐项裁决"
         )
     for match in audits:
         start = int(match.group("start"))
@@ -2476,12 +2488,10 @@ def check_book_profile_quality(
                 if normalize_text(str(item))
             }
             if len(unique_assets) < min_assets:
-                if notes is not None:
-                    notes.append(
-                        f"模型复核提示：{path} migration_assets.{key} 当前 "
-                        f"{len(unique_assets)} 条，低于篇幅参考值 {min_assets}；"
-                        "请人工判断是否漏提，禁止凑数"
-                    )
+                errors.append(
+                    f"{path} migration_assets.{key} 当前 {len(unique_assets)} 条，"
+                    f"低于篇幅最低要求 {min_assets}；必须回到原文补提真实替换资产，禁止凑数"
+                )
     else:
         errors.append(f"{path} migration_assets 不是对象")
 
@@ -2586,10 +2596,10 @@ def check_profile_source_quality(
     min_migration_assets = threshold_for_migration_assets(word_count)
     for key in REQUIRED_MIGRATION_ASSET_KEYS:
         assets = collect_labeled_assets(text, key)
-        if len(assets) < min_migration_assets and notes is not None:
-            notes.append(
-                f"模型复核提示：{path} 迁移替换资产 `{key}` 当前 {len(assets)} 条，"
-                f"低于篇幅参考值 {min_migration_assets}；请人工判断是否漏提"
+        if len(assets) < min_migration_assets:
+            errors.append(
+                f"{path} 迁移替换资产 `{key}` 当前 {len(assets)} 条，"
+                f"低于篇幅最低要求 {min_migration_assets}；必须补提真实迁移资产，禁止凑数"
             )
     for label in ("- 感情伤抬升到现实伤的节点：", "- 秩序回正节点：", "- 长尾惩罚节点：", "- 离场 / 换图节点："):
         if label not in text:
