@@ -770,6 +770,8 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertIn("主线程 + 3 个复用子 agent", prompt)
         self.assertIn("record_short_analyze_timing.py", prompt)
         self.assertIn("first_write_contract", prompt)
+        self.assertIn("foundation_lanes[].first_write_contract", prompt)
+        self.assertIn("第一波落盘前检查固定标题逐字命中且各一次", prompt)
         self.assertIn("禁止先写旧模板再靠 validator 返修", prompt)
         self.assertIn("表头、最低行数、表后三段、细节卡五字段", prompt)
         self.assertNotIn("每个微批最多 2 个正式文件", prompt)
@@ -791,7 +793,7 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertFalse(payload["agent_strategy"]["spawn_each_lane_separately"])
         self.assertIn("foundation validator", payload["agent_strategy"]["disable_agents_for_checks"])
         self.assertIn("出现 429 / rate limit / queueing", payload["agent_strategy"]["degrade_when"])
-        self.assertEqual(payload["version"], 6)
+        self.assertEqual(payload["version"], 7)
         self.assertEqual(payload["executor_profile"], "short-reuse-3-agents")
         self.assertIn("_analysis_brief.md", payload["foundation_start_gate"])
         self.assertIn("validate_short_analyze_foundation.py", payload["foundation_preflight"])
@@ -834,6 +836,42 @@ class HumanQualityGateTest(unittest.TestCase):
             payload["asset_dispatch_groups"]["agent-core"],
             ["tables_structure_action", "sensitive_assets"],
         )
+        foundation_contracts = {
+            lane["id"]: lane["first_write_contract"]
+            for lane in payload["foundation_lanes"]
+        }
+        report_contract = foundation_contracts["main_report"]["files"]["拆文报告.md"]
+        self.assertIn("### 原文覆盖确认", report_contract["required_headings"])
+        self.assertIn("### 主角能动性三层判断", report_contract["required_headings"])
+        self.assertEqual(
+            report_contract["structure_table_columns"],
+            ["字数范围", "占比", "功能", "对应节"],
+        )
+        chronology_contract = foundation_contracts["chronology_craft"]
+        node_contract = chronology_contract["files"]["情节节点.md"]
+        self.assertIn("BID-01 中段承重桥", node_contract["bid_rules"][1])
+        self.assertIn("故事时序", node_contract["required_entry_fields"])
+        craft_contract = chronology_contract["files"]["写作手法.md"]
+        self.assertEqual(len(craft_contract["required_headings"]), 9)
+        self.assertIn("反面仿写句", craft_contract["required_sentence_assets"])
+        discovery_contract = foundation_contracts["discovery_index"]["files"]
+        self.assertEqual(
+            discovery_contract["写作资产/本书动态信号字典.json"]["format"],
+            "合法 JSON；禁止 Markdown 代码围栏",
+        )
+        self.assertEqual(
+            discovery_contract["写作资产/原文资产候选池.md"][
+                "min_reverse_audit_items"
+            ],
+            5,
+        )
+        for lane in payload["foundation_lanes"]:
+            self.assertTrue(
+                any("first_write_contract" in rule for rule in lane["rules"])
+            )
+            self.assertTrue(
+                any("固定标题逐字命中且各一次" in rule for rule in lane["rules"])
+            )
         contracts = {
             lane["id"]: lane["first_write_contract"]
             for lane in payload["asset_lanes"]

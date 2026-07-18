@@ -113,6 +113,132 @@ FOUNDATION_LANES = {
     ],
 }
 
+FOUNDATION_LANE_FIRST_WRITE_CONTRACT = {
+    "main_report": {
+        "contract_type": "main_report",
+        "files": {
+            "拆文报告.md": {
+                "required_headings": [
+                    "### 原文覆盖确认",
+                    "### 样本分级与可学层判断",
+                    "#### 1. 脚本硬筛",
+                    "#### 2. 规则拆层判断",
+                    "#### 4. 可学层 / 禁学层",
+                    "#### 5. 后续调用方式",
+                    "### 高敏桥段识别",
+                    "### 题面拆解",
+                    "### 故事梗概",
+                    "### 结构划分",
+                    "### 叙事时间线",
+                    "#### 信息释放顺序",
+                    "#### 故事实际时间线",
+                    "#### 回叙 / 插叙对照",
+                    "### 故事核",
+                    "### 主角能动性三层判断",
+                    "### 情感曲线",
+                    "### 爆点分析",
+                    "### 反转分析",
+                    "### 人物分析",
+                    "### 开头分析",
+                    "### 结尾分析",
+                    "### 五维评分",
+                ],
+                "structure_table_columns": ["字数范围", "占比", "功能", "对应节"],
+                "expectation_flip_labels": [
+                    "读者最先以为",
+                    "后面哪一步改写了这个预期",
+                ],
+                "agency_labels": ["原文明确动作", "叙事意图判断", "未知边界"],
+            },
+        },
+        "rules": [
+            "required_headings 首写时逐字使用且各出现一次；不得另写同义标题替代固定标题",
+            "同一文件所有 Markdown 标题必须唯一，禁止批末追加第二个同名章节",
+            "不得残留 `{占位符}`、`待补` 标题或空标签项目",
+            "高敏桥段与 BID 必须来自 `_analysis_brief.md`，不得自行增删编号",
+        ],
+    },
+    "chronology_craft": {
+        "contract_type": "chronology_and_craft",
+        "files": {
+            "情节节点.md": {
+                "entry_format": (
+                    "Nxx | L起-L止 | 锚点：原文短语 | 类型：... | 情绪：... | "
+                    "涉及：... | 状态变化：... | 因果：... | 故事时序：..."
+                ),
+                "required_entry_fields": [
+                    "L起-L止",
+                    "锚点",
+                    "类型",
+                    "情绪",
+                    "涉及",
+                    "状态变化",
+                    "因果",
+                    "故事时序",
+                ],
+                "bid_rules": [
+                    "每个 `_analysis_brief.md` BID 必须直接写在一条对应 Nxx 节点行",
+                    "推荐写法为 `类型：BID-01 中段承重桥`",
+                    "单个节点最多挂 1 个 BID；说明区出现 BID 不算节点标注",
+                ],
+            },
+            "写作手法.md": {
+                "required_headings": [
+                    "## 1. POV策略",
+                    "## 2. 对话手法",
+                    "## 3. 时间操控",
+                    "## 4. 章法硬拆",
+                    "## 5. 章法失效测试",
+                    "## 6. 信息控制",
+                    "## 7. 其他手法",
+                    "## 8. 意象物件追踪",
+                    "## 9. 手法总评与迁移提醒",
+                ],
+                "required_sentence_assets": [
+                    "活词",
+                    "句法模板",
+                    "段落节拍",
+                    "反面仿写句",
+                ],
+            },
+        },
+        "rules": [
+            "节点必须从首写起逐条使用 entry_format，不得先写散点列表再批量改格式",
+            "required_headings 首写时逐字使用且各出现一次",
+            "同一文件所有 Markdown 标题必须唯一，不得残留占位标题或空字段",
+        ],
+    },
+    "discovery_index": {
+        "contract_type": "discovery_index",
+        "files": {
+            "写作资产/本书动态信号字典.json": {
+                "required_phases": ["首次全文发现", "表后回扫"],
+                "required_state_fields": ["stabilized", "state_sha1"],
+                "format": "合法 JSON；禁止 Markdown 代码围栏",
+            },
+            "写作资产/原文资产候选池.md": {
+                "candidate_fields": [
+                    "C编号",
+                    "L起-L止",
+                    "锚点",
+                    "类别",
+                    "资产名",
+                    "去向",
+                    "状态",
+                    "理由",
+                ],
+                "required_section": "## 反向漏项审计",
+                "min_reverse_audit_items": 5,
+            },
+        },
+        "rules": [
+            "候选条目从首写起保持固定字段顺序，禁止用自由段落代替可核销记录",
+            "动态字典首写必须是可解析 JSON，不得先写伪 JSON 再等待 validator 修复",
+            "同一 Markdown 文件标题必须唯一，不得残留占位标题或空字段",
+        ],
+    },
+}
+
 ASSET_LANES = {
     "tables_structure_action": [
         "可直接仿写_导语拆解表.md",
@@ -389,6 +515,13 @@ def asset_lane_first_write_contract(lane_id: str, word_count: int) -> dict:
             ],
         }
     raise ValueError(f"未知 asset lane：{lane_id}")
+
+
+def foundation_lane_first_write_contract(lane_id: str) -> dict:
+    try:
+        return FOUNDATION_LANE_FIRST_WRITE_CONTRACT[lane_id]
+    except KeyError as exc:
+        raise ValueError(f"未知 foundation lane：{lane_id}") from exc
 
 
 def repo_root_from_script() -> Path:
@@ -707,7 +840,7 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
     executor_profile = build_executor_profile(word_count)
     agent_session_limit = executor_profile["agent_session_limit"]
     payload = {
-        "version": 6,
+        "version": 7,
         "mode": "two-wave-session-carry",
         "word_count": word_count,
         "max_concurrent_lanes": 3,
@@ -756,11 +889,15 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
                 "id": lane_id,
                 "executor": executor_profile["foundation_executors"][lane_id],
                 "write_files": files,
+                "first_write_contract": foundation_lane_first_write_contract(lane_id),
                 "rules": [
                     "只写本 lane 的 write_files",
                     "共享证据文件只读",
                     "严格使用 _analysis_brief.md 中冻结的角色称谓、时间边界和 BID",
                     "需要补证据时只读取原文精确行段，不重吞全文",
+                    "首写前先读取并逐项执行本 lane.first_write_contract；派发 prompt 必须完整携带该对象",
+                    "落盘前按契约检查固定标题逐字命中且各一次、Markdown 标题唯一、无占位标题和空字段",
+                    "禁止先按旧模板写完再依赖 foundation validator 返修格式",
                     "不得降低主报告、节点、手法、候选池或动态字典的现有厚度门槛",
                 ],
             }
@@ -991,9 +1128,10 @@ def write_execution_prompt(
         "6. 读完原文后先落 `_sample_comparison.md`，记录所选样本文件、正反例锚点和将影响的正式文件",
         "7. 事实台账完成后写 `_analysis_brief.md`，冻结角色称谓、时间边界和 BID 注册表",
         "8. 读取 `_parallel_plan.json`；12000 字以内启动 3 个可跨波复用的子 agent，主线程只承担 coordinator lane",
-        "9. 第二波派发 prompt 必须逐字携带对应 `asset_lanes[].first_write_contract`，worker 先按契约确定表头、卡片字段和唯一标题再首写落盘",
-        "10. 按 `样本对照 -> 事实台账 -> 分析契约 -> foundation并发 -> foundation预检 -> asset并发 -> 统一核销 -> profile -> 验收` 完整落盘",
-        "11. 最后运行：",
+        "9. 第一波派发 prompt 必须逐字携带对应 `foundation_lanes[].first_write_contract`，worker 先按契约固定标题、节点字段、BID 和 JSON/候选池格式再首写落盘",
+        "10. 第二波派发 prompt 必须逐字携带对应 `asset_lanes[].first_write_contract`，worker 先按契约确定表头、卡片字段和唯一标题再首写落盘",
+        "11. 按 `样本对照 -> 事实台账 -> 分析契约 -> foundation并发 -> foundation预检 -> asset并发 -> 统一核销 -> profile -> 验收` 完整落盘",
+        "12. 最后运行：",
         f"   `python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json`",
         "",
         "## 当前只记住这些硬约束",
@@ -1005,6 +1143,8 @@ def write_execution_prompt(
         "- 第二波不重读共享基础文件；直接继承第一波会话，只按 asset_lanes[].delta_reads 追加尚未见过的证据",
         "- agent-core 与 agent-craft 的第二波任务分别合并成一次派发，避免表格结束后再次等待与装载上下文",
         "- `_analysis_brief.md` 必须先冻结故事核、主角、核心关系、时间边界、固定称谓和 BID 注册表；并发 worker 不得各自改名或重编号",
+        "- 第一波每条 lane 首写前必须逐项执行自己的 `first_write_contract`；主报告固定标题、节点字段与 BID、写作手法章节、字典 JSON 和候选池字段不得留到预检返修",
+        "- 第一波落盘前检查固定标题逐字命中且各一次、Markdown 标题唯一、无占位标题和空字段；禁止先写旧模板再靠 foundation validator 纠正",
         "- 第一波汇合后必须运行 `_parallel_plan.json.foundation_preflight`；没到 `ready-for-asset-lanes` 不得启动第二波",
         "- 每条 lane 只写自己的文件，禁止争写共享台账；主线程必须等待第二波全部完成，再统一核销、回扫、用工具流检查 BID 并生成 profile",
         "- 第二波每条 lane 首写前必须逐项执行自己的 `first_write_contract`；禁止先写旧模板再靠 validator 返修",

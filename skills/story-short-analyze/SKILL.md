@@ -93,6 +93,7 @@ description: |
 - 默认使用 `快速厚拆模式`：原文与样本只完整读取一次，后续依赖 `_sample_comparison.md`、事实台账、节点、候选池和精确原文切片，不重复吞全文
 - 大批量落盘后立即做文件齐全、输出截断和现有厚度门槛快检；只对失败批次二分重跑，二分仍失败才降级为双文件模式
 - 快速厚拆只减少模型往返和重复回读，不降低 57 文件合同、表格行数、细节卡数、高敏资产厚度或 validator 门槛
+- 第一波每条 lane 第一次写文件前必须逐项执行 `_parallel_plan.json.foundation_lanes[].first_write_contract`；主报告固定标题、节点单行字段、BID、写作手法固定章节、字典 JSON 和候选池字段必须首写正确
 - 第二波每条 lane 第一次写文件前必须逐项执行 `_parallel_plan.json.asset_lanes[].first_write_contract`；表头、最低行数、表后三段、细节卡五字段、高敏字段和唯一标题必须首写正确，禁止先按旧模板落盘再靠 validator 返修
 - `prepare` 会生成 `_parallel_plan.json`；宿主支持原生并发时使用两波并发，不再把主报告、节点、手法、字典和候选池全部塞在并发前的串行临界路径
 - 第一波开始前由主线程写 `_analysis_brief.md`；并发 worker 必须使用其中冻结的称谓、时间边界和 BID，不得各自重新解释或编号

@@ -224,7 +224,14 @@
 - 完成 `物件替换对 / 微动作角色覆盖 / 对白侵占与假道歉 / 安静等待与未归 / 未来公开事件钩子` 五项专项回扫
 - 不允许达到每表最低行数后停止
 
-### 首写格式硬闸
+### 第一波首写格式硬闸
+
+- 派发第一波 lane 时，必须把对应 `_parallel_plan.json.foundation_lanes[].first_write_contract` 完整放入 worker prompt
+- 主报告固定标题、节点单行字段与 BID、写作手法固定章节、动态字典 JSON、候选池字段必须在第一次落盘时正确
+- worker 落盘前先检查固定标题逐字命中且各一次、Markdown 标题唯一、无占位标题、无空标签字段
+- 契约与个人惯用模板冲突时，以 `first_write_contract` 为准；禁止依赖 foundation validator 做常规格式返修
+
+### 第二波首写格式硬闸
 
 - 派发第二波 lane 时，必须把对应 `_parallel_plan.json.asset_lanes[].first_write_contract` 完整放入 worker prompt
 - worker 在第一次写文件前，先按契约固定表头、最低行数、卡片字段和唯一标题；禁止先写旧模板再靠 validator 返修
