@@ -710,6 +710,22 @@ class HumanQualityGateTest(unittest.TestCase):
     def test_prepare_current_contract_matches_explicit_schema(self) -> None:
         self.assertEqual(PREPARER.CONTRACT_LAYOUT_SCHEMA, PREPARER.parse_output_contract())
 
+    def test_execution_prompt_defaults_to_fast_thick_batches(self) -> None:
+        path = self.root / "_execution_prompt.md"
+        PREPARER.write_execution_prompt(
+            path,
+            "测试书",
+            self.root / "原文" / "测试书.txt",
+            self.root,
+            "第一行\n第二行\n第三行\n",
+        )
+        prompt = path.read_text(encoding="utf-8")
+        self.assertIn("16张表8+8", prompt)
+        self.assertIn("细节库整批", prompt)
+        self.assertIn("失败批次先二分", prompt)
+        self.assertIn("仍失败才降级为双文件", prompt)
+        self.assertNotIn("每个微批最多 2 个正式文件", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

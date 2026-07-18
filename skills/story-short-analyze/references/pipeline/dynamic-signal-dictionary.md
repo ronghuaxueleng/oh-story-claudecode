@@ -16,7 +16,7 @@ description: |
 3. 写 16 张表时发现新信号，立即回补字典。
 4. 表完成后，用更新后的字典重新扫描全部 Chunk。
 5. 新信号关联到候选池；不属于直接仿写资产的信号写明仅索引理由。
-6. 表后回扫结束后，再从“专门找漏项”的立场独立扫描两轮。
+6. 表后回扫结束后，在同一模型回合内从“专门找漏项”的立场独立扫描两轮：第一轮按 Chunk 正序，第二轮按资产类别反序。
 7. 两轮都覆盖全部 Chunk、都没有新增信号或候选，并且状态指纹与当前字典和候选池一致时，由 validator 计算稳定状态。
 8. 生成 `book.profile.json` 时，`核心物件 / 证据载体` 中真实存在于原文的词条，自动作为本书 `object_pressure` 补充白名单；validator 使用同一口径验收。
 
@@ -95,6 +95,7 @@ description: |
 - 每条信号必须关联至少一个候选 ID，或填写具体 `index_only_reason`。
 - `人物别名` 等只用于实体归一时，可以仅索引。
 - 两轮都必须覆盖 manifest 全部 Chunk。
+- 两轮允许在同一模型回合内完成，但扫描顺序和 `notes` 必须不同，不得复制同一轮结果充数。
 - `added_terms` 必须能在类别条目中找到，`new_candidate_ids` 必须能在候选池找到。
 - `stability_checks` 必须恰好保留最后两轮独立漏项审计；两轮的 `added_terms / new_candidate_ids` 必须为空。
 - `state_sha1` 由 validator 按“全部标准化动态词 + 全部候选 ID”计算；手填 `stabilized: true` 不能绕过指纹检查。
