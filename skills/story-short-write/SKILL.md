@@ -1,9 +1,10 @@
 ---
 name: story-short-write
-version: 1.3.0
 description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
+metadata:
+  version: 1.6.0
 ---
 
 # story-short-write：短篇网文写作
@@ -55,6 +56,10 @@ description: |
 
 内置脚本位于 `story-short-write/scripts/`：
 
+- `validate_writing_rule_gate.py`
+- `validate_source_read_gate.py`
+- `validate_rule_execution_ledger.py`
+- `validate_post_write_human_review_gate.py`
 - `generate_story_profile.py`
 - `run_full_ai_audit.py`
 - `audit_novel_ai_flavor.py`
@@ -103,20 +108,30 @@ description: |
 6. 开头三句定起事，高潮定值钱，结尾定余味。
 7. 写前必须有规则包：单书读 `book.profile.json`，融合稿读 `project.profile.json`。
 8. 规则包来自拆书产物，不来自 skill 内硬编码题材默认值。
-9. 桥段链高敏时，先回细纲换链，不许直接磨句子。
-10. 写前写后都要审计，不能只看送检结果倒推补丁。
-11. 审计分段只服务定位风险，不反向指导正文排版。
-12. 一场只做一件大事，一段只保留一个主任务。
-13. 插叙只补一个原因，不补整份说明书。
-14. 对话优先写试探、回避、失手，不优先写结论。
-15. 每三场里至少一场不直接推进主冲突，要给生活层缓冲。
-16. 外部分块高分时，优先判“块级完整推进风险”，不先判词句漂不漂亮。
-17. “显性命中清零”不等于安全，只要整块仍然太整齐、太明白、太像成品，就继续回块级问题。
-18. 新沉淀出的成功经验必须回写规则层，不能只停在聊天里。
-19. 自检必须逐条引用正文句子，不准空口保证“已经处理”。
-20. 高敏桥回修时，固定补看 `现实后果隔层 / 尾声入口 / 人物不同脸`，这三项没过，不算收口。
-21. 不允许把“说明更完整、判断更清楚、台词更会总结”误当成正文变好。
-22. 任何一轮回修，如果把人物写得更懂事、更会解释、更会给主题句，先怀疑是在变假。
+9. 写设定、大纲或正文前必须通过 `validate_writing_rule_gate.py`；`format-and-structure.md`、当前版 `anti-ai-writing.md`、`craft/narrator-voice.md` 任一未读都阻断。
+10. 写大纲和正文前必须通过 `validate_source_read_gate.py`；只读设定、大纲、`profile_source.md` 或 profile 都不算读过拆文资料。
+11. 桥段链高敏时，先回细纲换链，不许直接磨句子。
+12. 写前写后都要审计，不能只看送检结果倒推补丁。
+13. 审计分段只服务定位风险，不反向指导正文排版。
+14. 一场只做一件大事，一段只保留一个主任务。
+15. 插叙只补一个原因，不补整份说明书。
+16. 对话优先写试探、回避、失手，不优先写结论。
+17. 每三场里至少一场不直接推进主冲突，要给生活层缓冲。
+18. 外部分块高分时，优先判“块级完整推进风险”，不先判词句漂不漂亮。
+19. “显性命中清零”不等于安全，只要整块仍然太整齐、太明白、太像成品，就继续回块级问题。
+20. 新沉淀出的成功经验必须回写规则层，不能只停在聊天里。
+21. 自检必须逐条引用正文句子，不准空口保证“已经处理”。
+22. 高敏桥回修时，固定补看 `现实后果隔层 / 尾声入口 / 人物不同脸`，这三项没过，不算收口。
+23. 不允许把“说明更完整、判断更清楚、台词更会总结”误当成正文变好。
+24. 任何一轮回修，如果把人物写得更懂事、更会解释、更会给主题句，先怀疑是在变假。
+25. 自动审计只能叫“脚本预扫”；作者代判、叙述者/作者边界、多余解释、现场依据和对白过度高效必须人工逐句判断。
+26. 正文写完或回炉后必须通过 `validate_post_write_human_review_gate.py`；局部或专项回炉必须绑定母稿并逐条复核全部新增/改写句。
+27. 写后必须查看 `rhythm_distribution_audit`；叙述者气口分布、跨长窗节奏落差和长窗对白效率任一未人工复核，不得放行。
+28. 通过两份读取门禁后，必须在写设定、大纲或正文前初始化 `规则执行台账.json`；缺台账直接阻断，不做兼容回退。
+29. skill 核心规则和拆书资产先由脚本按小节/资产文件压成规则卡；当前写作模型必须阅读全部 `cases`，归纳一条 `canonical_rule_text`，再区分 `workflow / format / setting / outline / draft / audit / source candidate / source prohibition`；关键词建议不能直接确认分类。
+30. 所有拆书文件必须逐文件判断，16 表及承重资产按同类型规则族执行；拆书候选未选中应标 `not_applicable`，禁用规则未命中用全文复核证明，不能把表格每行都膨胀成强制正文规则。
+31. 写作过程中执行一项标记一项；最终正文绑定后必须通过 `validate_rule_execution_ledger.py`，不得写完后批量伪造“已使用”记录。
+32. 完全重复规则初始化时自动合并，语义近似规则人工归入 canonical；只有失败的适用 `draft_constraint` 可以设置 `requires_text_change: true` 并进入正文修改单。
 
 ---
 
@@ -149,6 +164,72 @@ description: |
 
 ## profile 闭环
 
+### 写作规则读取硬闸
+
+写 `设定.md`、`小节大纲.md` 或 `正文.md` 前，必须先：
+
+1. 运行 `validate_writing_rule_gate.py init`
+2. 实际读取当前工作区的 `format-and-structure.md`、`anti-ai-writing.md`、`craft/narrator-voice.md`
+3. 逐文件回填真实证据词、读取结论和写作用途
+4. 运行 `validate_writing_rule_gate.py validate`，显式传入设定、大纲和正文路径
+
+只有输出 `writing_rule_gate: passed` 才能继续。规则文件内容或 SHA 变化后，旧回执立即失效；不得用历史上下文、旧摘要或旧审计结果代替当前文件。
+
+完整命令和回执字段见：
+
+- [references/governance/writing-rule-reading-gate.md](references/governance/writing-rule-reading-gate.md)
+
+### 拆文读取硬闸
+
+写 `设定.md`、`小节大纲.md` 或 `正文.md` 前，必须先：
+
+1. 对每本选中的主体 / 辅助拆文运行 `validate_source_read_gate.py init`
+2. 实际逐文件读取回执列出的全部拆文资产
+3. 回填证据词、读取结论和写作用途
+4. 运行 `validate_source_read_gate.py validate`，显式传入设定、大纲和正文路径做时序检查
+
+只有输出 `source_read_gate: passed` 才能继续。以下情况一律阻断：
+
+- 只读项目内二手摘要、设定或大纲
+- 只读 `profile_source.md`
+- 只读 `book.profile.json / project.profile.json`
+- 拆文目录缺主报告、16 表、8 库、写作资产或动态字典
+- 正文写完后再补读取回执
+
+缺资产必须重新执行 `story-short-analyze` 全量拆书，不做兼容回退。完整命令和回执字段见：
+
+- [references/governance/source-reading-gate.md](references/governance/source-reading-gate.md)
+
+### 规则执行硬闸
+
+`writing_rule_gate` 和 `source_read_gate` 通过后、写设定或大纲前，必须：
+
+1. 运行 `validate_rule_execution_ledger.py init`
+2. 运行 `export-model-review`，由当前写作模型逐族阅读全部 `cases`，写出统一 `canonical_rule_text`
+3. 模型用 `apply-model-groups` 把执行动作相同的条目压成“一条规则 + 多案例”，并确认规则角色、修复目标和适用性
+4. 确认由 `script / human / hybrid` 哪一类执行，并填写目标阶段和目标场景
+5. 写作过程中执行一项标记一项，并持续补脚本产物或人工原句证据
+6. 最终绑定设定、大纲、正文 SHA，再运行 `validate_rule_execution_ledger.py validate`
+
+固定分工：
+
+- 脚本：SHA、格式、字数、频率、禁词、固定模式、字段与文件完整性
+- 人工：人物偏手、失控说话、注意力漂移、认知局限、作者代判、对白生活性
+- 混合：长窗节奏、对白效率、桥段相似度、profile 覆盖
+
+固定修复边界：
+
+- 流程门禁失败只修读取、回执、顺序或执行记录
+- 设定约束失败修 `设定.md`
+- 大纲约束失败修 `小节大纲.md`
+- 审计规则只负责定位和裁决
+- 拆书候选按需选用，禁用规则只查污染
+- 只有失败的适用正文约束进入正文修改单
+
+额外挂载的题材规则或专项规则必须通过 `--skill-rule-file` 加进同一台账。完整字段和命令见：
+
+- [references/governance/rule-execution-ledger.md](references/governance/rule-execution-ledger.md)
+
 ### 必备输入
 
 默认至少需要：
@@ -179,17 +260,24 @@ description: |
 
 默认顺序固定是：
 
-1. 读取拆书资产
-2. 读取 `profile_source.md`
-3. 读取 `book.profile.json / project.profile.json`
-4. 判断 `讲法型 / 桥段链型 / 混合型`
-5. 起盘与细纲
-6. 正文
-7. 内部审计
-8. 生成回修任务单
-9. 定点回炉
-10. 重新审计
-11. 高风险任务再过第二闸门
+1. 生成写作规则读取回执
+2. 读取当前版三份必读规则并通过 `writing_rule_gate`
+3. 生成拆文逐文件读取清单
+4. 逐文件读取全部拆文资产并回填回执
+5. 通过 `source_read_gate`
+6. 初始化规则执行台账，逐项确认脚本 / 人工 / 混合分工和适用性
+7. 读取 `profile_source.md`
+8. 读取 `book.profile.json / project.profile.json`
+9. 判断 `讲法型 / 桥段链型 / 混合型`
+10. 起盘与细纲，同时逐项更新台账
+11. 正文，同时逐项更新台账
+12. 内部审计并回填脚本执行产物
+13. 生成回修任务单
+14. 定点回炉
+15. 重新审计
+16. 绑定最终写作产物并通过 `rule_execution_gate`
+17. 全文人工语义复扫并通过 `post_write_human_review_gate`
+18. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -216,9 +304,12 @@ description: |
 
 ### 脚本入口
 
-常用入口只保留下面 4 个：
+常用入口只保留下面 7 个：
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
@@ -307,6 +398,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 起盘和正文默认先挂：
 
 - [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
+- [references/workflow/format-and-structure.md](references/workflow/format-and-structure.md)
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
+- [references/craft/narrator-voice.md](references/craft/narrator-voice.md)
 - [references/craft/material-packs-setting-plot.md](references/craft/material-packs-setting-plot.md)
 - [references/craft/opening-and-hook-library.md](references/craft/opening-and-hook-library.md)
 - [references/craft/emotion-and-outcome-library.md](references/craft/emotion-and-outcome-library.md)
@@ -405,6 +499,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 先内部审计，再决定改什么。
 
+内部审计只负责脚本预扫和风险定位，不得凭“零命中”直接宣布作者站位、人物动机或叙述者声音已经通过。
+
 至少同时看：
 
 - `light_audit`
@@ -419,6 +515,26 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 1. `受限重写防错协议`
 2. `失败即重写判定`
+
+正文最终修改完成后，先绑定最终产物并通过规则执行硬闸：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+```
+
+再过人工语义硬闸：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" validate \
+  --receipt "{项目目录}/写作资产/写后人工语义复核回执.json" \
+  --text "{项目目录}/正文.md"
+```
+
+局部或专项回炉初始化回执时必须传 `--base-text`。完整字段和自动/人工分工见：
+
+- [references/governance/rule-execution-ledger.md](references/governance/rule-execution-ledger.md)
+- [references/governance/post-write-human-review-gate.md](references/governance/post-write-human-review-gate.md)
 
 审计和回炉细则见：
 
@@ -454,6 +570,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - [references/workflow/writing-workflow.md](references/workflow/writing-workflow.md)
 - [references/workflow/format-and-structure.md](references/workflow/format-and-structure.md)
 - [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/governance/rule-execution-ledger.md](references/governance/rule-execution-ledger.md)
 - [references/governance/skill-boundaries.md](references/governance/skill-boundaries.md)
 - [../story/references/reference-layer-map.md](../story/references/reference-layer-map.md)
 

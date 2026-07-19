@@ -7,6 +7,10 @@
 ## 1. 主入口
 
 - [../governance/short-write-execution-core.md](../governance/short-write-execution-core.md)
+- [../governance/writing-rule-reading-gate.md](../governance/writing-rule-reading-gate.md)
+- [../governance/source-reading-gate.md](../governance/source-reading-gate.md)
+- [../governance/rule-execution-ledger.md](../governance/rule-execution-ledger.md)
+- [../governance/post-write-human-review-gate.md](../governance/post-write-human-review-gate.md)
 - [../governance/skill-boundaries.md](../governance/skill-boundaries.md)
 - [../../../story/references/high-risk-rewrite-governance.md](../../../story/references/high-risk-rewrite-governance.md)
 
@@ -38,6 +42,8 @@
 - [../craft/emotion-and-outcome-library.md](../craft/emotion-and-outcome-library.md)
 - [../craft/humanize-and-dialogue.md](../craft/humanize-and-dialogue.md)
 - [../craft/dialogue-blade-library.md](../craft/dialogue-blade-library.md)
+- [../craft/narrator-voice.md](../craft/narrator-voice.md)
+  — 第一人称叙述者的"嘴"：实时评价短句、骤断短句、幽默与自嘲、自问自答。去AI味核心，与 `作者站位过高` 方向相反，专建叙述者在场的正确方式。
 
 ---
 

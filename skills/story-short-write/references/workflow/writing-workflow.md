@@ -14,6 +14,8 @@
 - 反转信息差验证 → 需加载 `reversal-toolkit.md` 或 `writing-craft.md` ✅/❌
 - 伏笔回查 → 需加载 `writing-craft.md` ✅/❌
 - 某项如果确实不适用，比如这篇根本没有反派，标注原因后可以跳过，不要硬凑
+- 两份读取门禁通过后 → 已初始化 `规则执行台账.json`，已导出并由当前写作模型逐族阅读 `cases`、归纳 `canonical_rule_text`，确认角色、修复目标、执行方式和适用性，可合并项已归一 ✅/❌
+- 本阶段每执行完一条规则就立即标记并补证据，不允许阶段结束后批量补“已使用” ✅/❌
 
 ### 设计步骤
 
@@ -1045,6 +1047,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 正文写完后，不要第一时间埋头修句子。
 
+先区分两层：
+
+- **脚本预扫**：格式、段长、重复频率、固定词句、显式模式和风险块。
+- **人工语义复核**：作者代判、叙述者/作者边界、多余解释、现场依据、对白是否过度高效。
+
+脚本报“零命中”不能替代人工语义复核。尤其是“他以为”“像终于找到一种解释”“显然”“其实”等句子，必须结合上下文判断，不能只靠关键词定罪或放行。
+
 固定先按这个顺序查：
 
 1. 开头是不是抓人
@@ -1064,6 +1073,10 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 4. 炸完以后，有没有让前文一起更值钱
 
 如果这 4 条里有 2 条答不上来，不要先修句子，先回大纲。
+
+正文最终修改后，按 [../governance/post-write-human-review-gate.md](../governance/post-write-human-review-gate.md) 生成人工回执。局部或专项回炉必须传母稿，逐条检查所有新增/改写句，并复扫全文旧句。
+
+进入人工回执前，先按 [../governance/rule-execution-ledger.md](../governance/rule-execution-ledger.md) 绑定最终设定、大纲、正文，逐项复核 skill 规则和拆书规则的执行证据，并通过 `rule_execution_gate`。
 
 ### 回炉顺序
 
@@ -1237,6 +1250,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - 如果删掉设定壳子，核心结构还成不成立
 - 如果编辑说“套路化”，最可能卡在哪一段
 - 如果编辑说“张力不足”，最可能是哪个升级器没补上
+- 自动脚本抓到了什么；哪些结论脚本根本无权判断
+- 每个新增评价句有没有现场可观察依据
+- 每个新增评价句是在插嘴，还是在替人物或读者总结
+- 动作和对话已经说明后，是否又补了一句解释
+- 是否只审了本轮新增句，漏掉母稿旧代判句
 
 ### 写后高风险信号
 
@@ -1382,7 +1400,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 ### 正式写前，再把必要参考补一遍（同时别超过 3 个）
 
 - 必读：`format-and-structure.md`
-- 必读：`anti-ai-writing.md`（写作时自检 AI 腔）
+- 必读：`anti-ai-writing.md`（写作时自检 AI 腔，**先查篇章级骨架味**）
+- 必读：`craft/narrator-voice.md`（第一人称叙述者有没有"嘴"——实时评价、骤断短句、幽默/自嘲；去AI味核心，回炉时必查）
+- 硬闸：三份必读文件必须逐项回填 `写作规则读取回执.json` 并通过 `validate_writing_rule_gate.py`；任一文件变化后必须重新读取，不能沿用旧回执。
+- 硬闸：读取通过后必须初始化 `规则执行台账.json`。所有拆书文件逐文件判断，16 表和承重资产逐规则展开；额外挂载的参考规则用 `--skill-rule-file` 加入台账。
+- 分类硬闸：脚本先按小节和资产文件形成规则族；当前写作模型再逐族分流流程、格式、设定、大纲、正文、审计、拆书候选和禁用规则。完全重复族自动合并，近义族由模型归入 canonical。台账全量执行不等于全量修改正文。
+- 脚本项只做 SHA、格式、频率、禁词、固定模式和完整性；人物偏手、失控说话、注意力漂移、认知局限、作者代判和对白生活性必须人工执行；长窗节奏、对白效率、桥段相似度和 profile 覆盖必须混合执行。
 - 按题材加载 1 个：`genre-writing-formulas.md` 中对应题材速查表
 - 按需加载：`writing-craft.md` / `villain-and-reveal.md` / `emotional-methods.md`
 
@@ -1466,6 +1489,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - [ ] 「像」使用频率：全文不超 10 处（含「像是」「不像」）
 - [ ] 没有连续多段都写成「动作一句 + 心理一句 + 台词一句」的模板节拍
 - [ ] 没有“作者替人物说透了”的代判句
+- [ ] “作者站位过高 0”是否仅被当成脚本结果，而不是人工通过结论？
+- [ ] 是否已逐句引用正文完成人工语义复核？
+- [ ] `规则执行台账.json` 中每条适用规则是否已完成，脚本/人工/混合证据是否齐全？
+- [ ] 是否已确认每条规则的角色和修复目标，并确保只有失败的适用正文约束进入正文修改单？
+- [ ] 重复规则是否已合并到有效 canonical，拆书候选未采用和禁用规则未命中是否分别留有理由/范围复核？
+- [ ] 每个拆书文件是否已逐项判断，跳过项是否写了具体理由？
+- [ ] 最终设定、大纲、正文 SHA 是否已绑定，正文修改后是否重新核验证据？
 - [ ] 没有“词很新鲜但不像人会说”的生造口气句
 - [ ] 完整 AI 腔黑名单见 `anti-ai-writing.md`
 

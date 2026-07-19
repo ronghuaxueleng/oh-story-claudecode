@@ -29,6 +29,10 @@
 
 当前文件：
 
+- `validate_writing_rule_gate.py`
+- `validate_source_read_gate.py`
+- `validate_rule_execution_ledger.py`
+- `validate_post_write_human_review_gate.py`
 - `generate_story_profile.py`
 - `audit_novel_ai_flavor.py`
 - `run_full_ai_audit.py`
@@ -43,6 +47,25 @@
 
 职责分层：
 
+- `validate_writing_rule_gate.py`
+  - 固定清点格式、去 AI 味和叙述者声音三份写前必读规则
+  - 校验证据词、读取结论、写作用途、当前文件哈希和回执时序
+  - 规则文件变化或 `narrator-voice.md` 漏读时阻断设定、细纲和正文
+- `validate_source_read_gate.py`
+  - 从每本主体 / 辅助拆文目录生成完整逐文件读取清单
+  - 校验主报告、16 表、8 库、写作资产和动态字典是否齐全
+  - 校验证据词、读取结论、写作用途、文件哈希和回执时序
+  - 未通过时阻断细纲和正文，不允许只读摘要或 profile 开稿
+- `validate_rule_execution_ledger.py`
+  - 从写作规则回执和拆文读取回执生成统一逐项执行列表
+  - 每个拆书文件都做适用性判断，16 表和承重资产逐规则展开
+  - 强制区分 `script / human / hybrid`，校验脚本产物、人工判断和写作产物原句证据
+  - 规则源、拆书源或最终正文 SHA 变化后阻断，不接受“已使用”式空口回执
+- `validate_post_write_human_review_gate.py`
+  - 自动生成全文或母稿 diff 的人工语义复核清单
+  - 校验最终正文 SHA、自动预扫产物、九项人工检查和逐条改写句判断
+  - 只校验回执完整性与证据真实性，不替人工判断作者代判、叙述站位或多余解释
+  - 局部/专项回炉未绑定母稿、正文修改后沿用旧回执时阻断放行
 - `generate_story_profile.py`
   - 从拆书资产生成单书 `book.profile.json`
   - 或合成融合 `project.profile.json`
@@ -199,14 +222,20 @@
 
 默认优先级如下：
 
-1. 先读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
-2. 再读 `references/governance/audit-rulebook.json`
-3. 再读 `references/governance/precheck_rewrite_gate.config.json`
-4. 再读 `references/governance/通用高风险词类词典.json`
-5. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`
-6. 最后才允许人工参考层文档参与判断
-7. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
-8. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
+1. 先用 `validate_writing_rule_gate.py` 证明当前版三份写作规则已逐文件读取
+2. 再用 `validate_source_read_gate.py` 证明主体 / 辅助拆文资产已逐文件读取
+3. 立即初始化 `规则执行台账.json`，逐项确认脚本 / 人工 / 混合分工和适用性
+4. 再读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
+5. 再读 `references/governance/audit-rulebook.json`
+6. 再读 `references/governance/precheck_rewrite_gate.config.json`
+7. 再读 `references/governance/通用高风险词类词典.json`
+8. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`，并把专项规则文件加入执行台账
+9. 写作过程中执行一项标记一项
+10. 跑自动审计，只把结果当脚本预扫并回填脚本产物
+11. 最终正文完成后，先通过 `validate_rule_execution_ledger.py`
+12. 再通过 `validate_post_write_human_review_gate.py`
+13. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
+14. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
 
 也就是说：
 
@@ -216,6 +245,7 @@
 - `通用高风险词类词典.json` 负责轻审计支撑
 - `story/references/short-high-risk/reference-index.md` 负责短篇高敏专项共享资产分发
 - `虚词模板词典.json` 和 `apply_humanizer.py` 只负责人工参考层
+- `validate_post_write_human_review_gate.py` 只负责约束人工复核过程，不生成语义结论
 
 第二闸门判定口径补充：
 

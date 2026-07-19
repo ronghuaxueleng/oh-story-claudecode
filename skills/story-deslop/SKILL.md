@@ -1,6 +1,6 @@
 ---
 name: story-deslop
-version: 1.1.0
+version: 1.1.1
 description: |
   网文去AI味。检测并清除文本中的AI写作痕迹，让文字回归自然、有人味。
   触发方式：提到 `story-deslop`、`去AI味`，或直接说「去AI味」「去味」「这篇太AI了」
@@ -80,6 +80,36 @@ description: |
 2. `Phase 2`：诊断与分级
 3. `Phase 3`：逐项清除
 4. `Phase 4`：输出润色结果
+
+### 强制规则加载
+
+用户要求“使用当前 skill 检查 AI 味”时，开始检测前必须实际读取当前工作区中的：
+
+- [references/pipeline/deslop-execution-core.md](references/pipeline/deslop-execution-core.md)
+- [references/anti-ai-writing.md](references/anti-ai-writing.md)
+- [references/banned-words.md](references/banned-words.md)
+
+不得仅凭历史上下文、旧版规则摘要或脚本输出代替当前文件。`anti-ai-writing.md` 在当前工作区有未提交修改时，也必须以工作区内容为准。
+
+`audit_ai_flavor.py`、`run_full_ai_audit.py` 等自动脚本只完成句词级和可量化扫描，不能单独代表完整 skill 检测。只运行脚本时，必须明确标为“脚本预扫”，不得输出完整 AI 味等级或宣称检测完成。
+
+完整检测报告必须分别给出：
+
+1. 脚本层命中与误报复核
+2. `anti-ai-writing.md` 当前定义的篇章级 AI 指纹逐项判定
+3. 句词级风险、篇章级风险和综合等级
+4. 支撑判定的正文位置或原句
+
+如果当前 `anti-ai-writing.md` 定义了篇章级六项检查，报告必须显式覆盖：
+
+- 主题过度解释
+- 冷硬点题短句成串
+- 篇章结构对称
+- 情绪零度过稳
+- 配角功能化 / 对话过度高效
+- 跨段匀速
+
+缺少任一强制参考文件读取或任一篇章项判定，当前轮状态只能是“未完成”，不得放行。
 
 AI 味分级只允许：
 

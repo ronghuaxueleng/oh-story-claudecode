@@ -30,6 +30,24 @@ MICRO_SEGMENT_MAX_CHARS = 340
 COARSE_SEGMENT_TARGET_CHARS = 2600
 COARSE_SEGMENT_MIN_CHARS = 1800
 COARSE_SEGMENT_MAX_CHARS = 3600
+RHYTHM_WINDOW_TARGET_CHARS = 1600
+RHYTHM_WINDOW_MIN_CHARS = 900
+
+MARKDOWN_HEADING_RE = re.compile(r"^\s*#{1,6}\s+")
+NARRATOR_PULSE_RE = re.compile(
+    r"(难为|原来(?!的)|果然|当然|算了|罢了|白想|没出息|丢人|有病|荒唐|可笑|"
+    r"真(?:行|好|巧|细心|认真|恶心|够)|挺(?:好|行|认真|可笑)|"
+    # 叙述者声明不知道 / 认知局限——对朱雀困惑度贡献最强
+    r"我不知道|说不清|想不明白|至今(?:也|没)|说不准|弄不明白|"
+    r"不知道为什么|莫名(?:其妙)?|说不上来|说不出原因|"
+    # 通用自问结构（不绑定具体故事措辞）
+    r"我(?:图什么|还能怎么办|怎么会|凭什么|算什么|能怎样)|"
+    # 补充评价词
+    r"没意思|有意思(?!的)|好笑|可惜了|倒也|说来|其实吧|说真的)"
+)
+DIALOGUE_SPAN_RE = re.compile(
+    r'("[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』)'
+)
 
 
 def run_command(cmd: list[str]) -> tuple[int, str, str]:
@@ -853,7 +871,13 @@ def sequence_audit(text: str, terms: list[str]) -> dict:
 
 
 def split_paragraphs(text: str) -> list[str]:
-    return [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
+    # story-short-write 的紧密排版禁止段间空行，因此正文中的每个非空行
+    # 才是实际段落。按空白行切分会把整篇误判成一个超长段。
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not MARKDOWN_HEADING_RE.match(line)
+    ]
 
 
 def split_dialogue_segments(text: str) -> list[str]:
@@ -978,6 +1002,528 @@ def build_paragraph_entries(text: str) -> list[dict]:
             }
         )
     return entries
+
+
+def _mark_section_boundaries(text: str, paragraphs: list[dict]) -> list[dict]:
+    """给每个段落条目加上 is_section_start 标记——紧跟 markdown 标题之后的段落为 True。"""
+    if not paragraphs:
+        return paragraphs
+    # 扫描原文，记录每个标题行结束后的字符偏移
+    heading_end_offsets: list[int] = []
+    cursor = 0
+    for line in text.splitlines():
+        line_end = cursor + len(line) + 1  # +1 for newline
+        if MARKDOWN_HEADING_RE.match(line):
+            heading_end_offsets.append(line_end)
+        cursor = line_end
+
+    result = []
+    for para in paragraphs:
+        is_start = any(
+            0 <= para["start_char"] - h_end <= 40  # 允许40字的空白行容差
+            for h_end in heading_end_offsets
+        )
+        result.append({**para, "is_section_start": is_start})
+    return result
+
+
+def build_rhythm_window_entries(
+    text: str,
+    paragraphs: list[dict] | None = None,
+    target_chars: int = RHYTHM_WINDOW_TARGET_CHARS,
+    min_chars: int = RHYTHM_WINDOW_MIN_CHARS,
+) -> list[dict]:
+    paragraphs = paragraphs or build_paragraph_entries(text)
+    if not paragraphs:
+        return []
+
+    # ── 自适应 target：根据全文总长自动缩放，不再固定 1600 ──────────────────
+    total_chars = sum(p["char_count"] for p in paragraphs)
+    if total_chars > 0:
+        # desired_n 在 [3, 8] 之间，约每 1500 字一个窗口
+        desired_n = max(3, min(8, total_chars // 1500))
+        auto_target = max(min_chars, total_chars // desired_n)
+        target_chars = min(auto_target, COARSE_SEGMENT_MAX_CHARS)
+        min_chars = max(min_chars, target_chars // 2)
+
+    # ── 章节边界感知：标注紧跟标题之后的段落 ───────────────────────────────
+    paragraphs = _mark_section_boundaries(text, paragraphs)
+
+    windows: list[dict] = []
+    bucket: list[dict] = []
+    bucket_chars = 0
+
+    def flush_bucket() -> None:
+        nonlocal bucket, bucket_chars
+        if not bucket:
+            return
+        start = bucket[0]["start_char"]
+        end = bucket[-1]["end_char"]
+        windows.append(
+            {
+                "window_index": len(windows) + 1,
+                "paragraph_start": bucket[0]["paragraph_index"],
+                "paragraph_end": bucket[-1]["paragraph_index"],
+                "start_char": start,
+                "end_char": end,
+                "char_count": sum(item["char_count"] for item in bucket),
+                "text": text[start:end],
+            }
+        )
+        bucket = []
+        bucket_chars = 0
+
+    for para in paragraphs:
+        # 优先在章节边界处切割（已积累 >= min_chars 才切，避免产生过小窗口）
+        if bucket and para.get("is_section_start") and bucket_chars >= min_chars:
+            flush_bucket()
+        # 超过 target 也切
+        if bucket and bucket_chars >= target_chars:
+            flush_bucket()
+        bucket.append(para)
+        bucket_chars += para["char_count"]
+    flush_bucket()
+
+    # 尾窗口过小则合并进前一个
+    if len(windows) >= 2 and windows[-1]["char_count"] < min_chars:
+        tail = windows.pop()
+        previous = windows[-1]
+        previous["paragraph_end"] = tail["paragraph_end"]
+        previous["end_char"] = tail["end_char"]
+        previous["char_count"] += tail["char_count"]
+        previous["text"] = text[previous["start_char"] : previous["end_char"]]
+
+    for index, item in enumerate(windows, start=1):
+        item["window_index"] = index
+    return windows
+
+
+def _para_has_pulse(para: dict) -> bool:
+    """判断一个段落是否含叙述者气口信号。"""
+    t = para["text"]
+    if NARRATOR_PULSE_RE.search(t):
+        return True
+    # 短反问句（1-15汉字，以？结尾）
+    if (1 <= count_chinese_chars(t) <= 15
+            and t.rstrip('""\'「」 ').endswith(("？", "?"))):
+        return True
+    return False
+
+
+def build_pulse_aware_windows(
+    text: str,
+    paragraphs: list[dict] | None = None,
+    min_segment_chars: int = 250,
+    max_segment_chars: int = 6000,
+) -> list[dict]:
+    """
+    气口感知分段：气口密集区产生小窗口，稀疏叙述区保持大窗口。
+    模拟朱雀的内容感知分段行为——high-pulse 区域单独切出，
+    low-pulse 区域合并为较大段落。
+
+    参数
+    ----
+    min_segment_chars : 段落合并阈值，低于此值的段会被吸收进相邻段。
+    max_segment_chars : 超过此值的大段会按章节边界或自适应目标再切。
+    """
+    paragraphs = paragraphs or build_paragraph_entries(text)
+    paragraphs = _mark_section_boundaries(text, paragraphs)
+    if not paragraphs:
+        return []
+
+    # ── Step 1：标注每段的气口状态 ────────────────────────────────────────
+    tagged: list[tuple[dict, bool]] = [
+        (p, _para_has_pulse(p)) for p in paragraphs
+    ]
+
+    # ── Step 2：合并连续同类段 → 初始"段落组" ─────────────────────────────
+    groups: list[list[dict]] = []
+    group_pulse: list[bool] = []
+    for para, has_pulse in tagged:
+        if groups and group_pulse[-1] == has_pulse:
+            groups[-1].append(para)
+        else:
+            groups.append([para])
+            group_pulse.append(has_pulse)
+
+    # ── Step 3：多轮合并过小的组 ──────────────────────────────────────────
+    for _ in range(4):
+        changed = False
+        new_groups: list[list[dict]] = []
+        new_pulse: list[bool] = []
+        for paras, has_pulse in zip(groups, group_pulse):
+            total = sum(p["char_count"] for p in paras)
+            if total < min_segment_chars and new_groups:
+                new_groups[-1].extend(paras)
+                changed = True
+            else:
+                new_groups.append(paras)
+                new_pulse.append(has_pulse)
+        groups, group_pulse = new_groups, new_pulse
+        if not changed:
+            break
+
+    # ── Step 4：拆分超大组 ────────────────────────────────────────────────
+    final_groups: list[list[dict]] = []
+    for paras in groups:
+        total = sum(p["char_count"] for p in paras)
+        if total <= max_segment_chars:
+            final_groups.append(paras)
+            continue
+        # 按章节边界 + 自适应 target 切
+        n_splits = max(2, (total + max_segment_chars - 1) // max_segment_chars)
+        split_target = max(min_segment_chars, total // n_splits)
+        bucket: list[dict] = []
+        bucket_chars = 0
+        for para in paras:
+            if bucket and (
+                bucket_chars >= split_target
+                or (para.get("is_section_start") and bucket_chars >= min_segment_chars)
+            ):
+                final_groups.append(bucket)
+                bucket = []
+                bucket_chars = 0
+            bucket.append(para)
+            bucket_chars += para["char_count"]
+        if bucket:
+            final_groups.append(bucket)
+
+    # ── Step 5：组装窗口条目 ──────────────────────────────────────────────
+    windows: list[dict] = []
+    for i, paras in enumerate(final_groups, start=1):
+        start = paras[0]["start_char"]
+        end = paras[-1]["end_char"]
+        windows.append(
+            {
+                "window_index": i,
+                "paragraph_start": paras[0]["paragraph_index"],
+                "paragraph_end": paras[-1]["paragraph_index"],
+                "start_char": start,
+                "end_char": end,
+                "char_count": sum(p["char_count"] for p in paras),
+                "text": text[start:end],
+            }
+        )
+    return windows
+
+
+def is_dialogue_sentence(sentence: str) -> bool:
+    return sentence.lstrip().startswith(('"', "“", "「", "『"))
+
+
+def count_chinese_chars(text: str) -> int:
+    return len(re.findall(r"[一-鿿]", text))
+
+
+def build_model_segmented_windows(
+    text: str,
+    boundaries: list[int],
+    paragraphs: list[dict] | None = None,
+) -> list[dict]:
+    """
+    用模型返回的边界位置（字符偏移）构建窗口，模拟朱雀的内容感知分段。
+
+    参数
+    ----
+    boundaries : 边界字符偏移列表（升序）。每个值是一个分段的起始位置。
+                 不需要包含 0 和 len(text)，函数会自动补全。
+    paragraphs : 可选的段落条目列表；若不提供则自动从 text 构建。
+
+    调用示例
+    ---------
+    # 朱雀实测边界 / 模型返回边界
+    boundaries = [4782, 5056, 8035, 8562]
+    windows = build_model_segmented_windows(text, boundaries)
+    """
+    paragraphs = paragraphs or build_paragraph_entries(text)
+    if not paragraphs or not boundaries:
+        return build_rhythm_window_entries(text, paragraphs)
+
+    # 标准化：排序、去重，确保在 [0, len(text)] 范围内
+    cuts: list[int] = sorted({0, *[max(0, min(b, len(text))) for b in boundaries], len(text)})
+
+    windows: list[dict] = []
+    for seg_idx, (seg_start, seg_end) in enumerate(zip(cuts[:-1], cuts[1:]), start=1):
+        if seg_start >= seg_end:
+            continue
+        # 找落在这个范围内的段落（用于 paragraph_start/end 元信息）
+        seg_paras = [
+            p for p in paragraphs
+            if p["start_char"] >= seg_start and p["end_char"] <= seg_end
+        ]
+        # 直接用请求的字符边界切文本，不再对齐到段落边界，以最大限度贴近朱雀分段位置
+        windows.append(
+            {
+                "window_index": seg_idx,
+                "paragraph_start": seg_paras[0]["paragraph_index"] if seg_paras else -1,
+                "paragraph_end": seg_paras[-1]["paragraph_index"] if seg_paras else -1,
+                "start_char": seg_start,
+                "end_char": seg_end,
+                "char_count": seg_end - seg_start,
+                "text": text[seg_start:seg_end],
+                "model_boundary": True,
+            }
+        )
+    return windows
+
+_SEGMENT_PROMPT_TMPL = """\
+你是一个文本分段分析器。读入下方中文小说文本，找出叙事统计指纹（困惑度/突发性）发生显著变化的位置，返回4-8个分段边界（字符偏移量）。
+
+规则：
+- 统计特征均匀的大块叙述 → 归为一段（uncertain区）
+- 叙述者评价密集、句式剧烈交替、自问自答集中的短区域 → 独立切出（human区）
+- 目标分段数：4-7段，边界尽量精确到段落边界
+- 只输出 JSON，格式：{"boundaries": [整数, ...]}，不要任何解释
+
+---
+文本（总字数 {total_chars}，章节分布：{chapter_map}）：
+
+{text_sample}
+---
+"""
+
+
+def segment_text_with_model(
+    text: str,
+    *,
+    timeout: float = 40.0,
+    api_key: str = "",
+) -> list[int]:
+    """
+    调用模型获取文本分段边界，模拟朱雀的内容感知分段。
+    成功时返回边界偏移量列表；失败时返回空列表（调用方应 fallback 到算法分段）。
+    """
+    # 构建章节分布摘要
+    chapter_map = ", ".join(
+        f"第{m.group(1)}章[{m.start()}]"
+        for m in re.finditer(r"^##\s*(\d+)", text, re.MULTILINE)
+    )
+    # 取前 4000 字 + 章节标记作为上下文（避免 prompt 过长）
+    text_sample = text[:4000] + ("\n[...后续文本省略...]" if len(text) > 4000 else "")
+    prompt = _SEGMENT_PROMPT_TMPL.format(
+        total_chars=len(text),
+        chapter_map=chapter_map or "无章节标记",
+        text_sample=text_sample,
+    )
+
+    # ── 尝试1：anthropic Python 库 ────────────────────────────────────────
+    try:
+        import anthropic  # type: ignore
+        key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
+        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=256,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = msg.content[0].text.strip()
+        data = json.loads(re.search(r"\{.*\}", raw, re.DOTALL).group())
+        boundaries = [int(b) for b in data.get("boundaries", []) if isinstance(b, (int, float))]
+        if len(boundaries) >= 2:
+            return sorted(set(boundaries))
+    except Exception:
+        pass
+
+    # ── 尝试2：subprocess 调用 claude CLI ────────────────────────────────
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text"],
+            capture_output=True, text=True, timeout=timeout,
+        )
+        if proc.returncode == 0:
+            raw = proc.stdout.strip()
+            data = json.loads(re.search(r"\{.*\}", raw, re.DOTALL).group())
+            boundaries = [int(b) for b in data.get("boundaries", []) if isinstance(b, (int, float))]
+            if len(boundaries) >= 2:
+                return sorted(set(boundaries))
+    except Exception:
+        pass
+
+    return []
+
+
+def audit_rhythm_distribution(
+    text: str,
+    paragraphs: list[dict] | None = None,
+    *,
+    model_boundaries: list[int] | None = None,
+    use_model_segmentation: bool = True,
+) -> dict:
+    # ── 窗口来源决策 ────────────────────────────────────────────────────
+    # 优先级：1. 外部传入边界  2. 模型自动获取  3. 算法自适应（fallback）
+    boundaries: list[int] = []
+    boundary_source = "algorithmic"
+
+    if model_boundaries is not None:
+        # 外部显式传入（例如朱雀 API 分段结果）
+        boundaries = [b for b in model_boundaries if isinstance(b, int)]
+        boundary_source = "external"
+    elif use_model_segmentation:
+        # 默认：调用模型获取边界
+        boundaries = segment_text_with_model(text)
+        boundary_source = "model" if boundaries else "algorithmic"
+
+    if boundaries:
+        windows = build_model_segmented_windows(text, boundaries, paragraphs)
+    else:
+        windows = build_rhythm_window_entries(text, paragraphs)
+
+    results: list[dict] = []
+    for window in windows:
+        narrative_only = DIALOGUE_SPAN_RE.sub("。", window["text"]).replace("\n", "。")
+        sentences = split_sentences_with_spans(narrative_only)
+        sentence_texts = [item["text"].strip() for item in sentences if item["text"].strip()]
+        lengths = [count_chinese_chars(item) for item in sentence_texts if count_chinese_chars(item)]
+
+        short_reactions = [
+            item
+            for item in sentence_texts
+            if 1 <= count_chinese_chars(item) <= 6
+            and (
+                NARRATOR_PULSE_RE.search(item)
+                or item.rstrip('"”’』」 ').endswith(("？", "?"))
+            )
+        ]
+        narrator_questions = [
+            item
+            for item in sentence_texts
+            if item.rstrip('"”’』」 ').endswith(("？", "?"))
+        ]
+        explicit_asides = [
+            item
+            for item in sentence_texts
+            if NARRATOR_PULSE_RE.search(item)
+        ]
+        self_qa_pairs = 0
+        for index, sentence in enumerate(sentence_texts[:-1]):
+            if not sentence.rstrip('"”’』」 ').endswith(("？", "?")):
+                continue
+            answer_len = count_chinese_chars(sentence_texts[index + 1])
+            if 1 <= answer_len <= 15:
+                self_qa_pairs += 1
+
+        dialogue_lines = [
+            item
+            for item in window["text"].splitlines()
+            if is_dialogue_sentence(item.strip())
+        ]
+        line_count = len([item for item in window["text"].splitlines() if item.strip()])
+        # 去重后合并计数，避免短反应句与显式评价句双重计数
+        all_pulse_sentences: set[str] = set(short_reactions) | set(explicit_asides)
+        # 突发性奖励：高句长方差 = 短句/长句激烈交替，类似朱雀检测的 burstiness 人味信号
+        # 对话/动作密集段（如搬陶轮、创可贴场景）即使叙述者评价句少，也应有人味信号
+        burstiness_bonus = 2 if len(lengths) >= 5 and coeff_var(lengths) > 0.75 else 0
+        pulse_count = len(all_pulse_sentences) + self_qa_pairs * 2 + burstiness_bonus
+        pulse_density = round(pulse_count * 1000 / max(window["char_count"], 1), 3)
+        results.append(
+            {
+                **{k: window[k] for k in (
+                    "window_index",
+                    "paragraph_start",
+                    "paragraph_end",
+                    "start_char",
+                    "end_char",
+                    "char_count",
+                )},
+                "sentence_count": len(sentence_texts),
+                "sentence_length_cv": round(coeff_var(lengths), 3),
+                "dialogue_line_ratio": round(len(dialogue_lines) / max(line_count, 1), 3),
+                "narrator_question_count": len(narrator_questions),
+                "self_qa_pair_count": self_qa_pairs,
+                "explicit_aside_count": len(explicit_asides),
+                "abrupt_reaction_count": len(short_reactions),
+                "narrator_pulse_count": pulse_count,
+                "narrator_pulse_density": pulse_density,
+                "pulse_examples": dedupe_keep_order(
+                    short_reactions + narrator_questions + explicit_asides
+                )[:6],
+                "excerpt": window["text"][:160].replace("\n", " "),
+            }
+        )
+
+    densities = [item["narrator_pulse_density"] for item in results]
+    positive = [value for value in densities if value > 0]
+    reference_density = statistics.median(positive) if positive else 0.0
+    low_threshold = max(0.5, reference_density * 0.55) if results else 0.0
+    for item in results:
+        item["status"] = (
+            "low-pulse"
+            if item["char_count"] >= RHYTHM_WINDOW_MIN_CHARS
+            and item["narrator_pulse_density"] < low_threshold
+            else "covered"
+        )
+
+    low_windows = [item for item in results if item["status"] == "low-pulse"]
+    density_cv = round(coeff_var(densities), 3)
+    return {
+        "window_target_chars": RHYTHM_WINDOW_TARGET_CHARS,
+        "window_count": len(results),
+        "reference_pulse_density": round(reference_density, 3),
+        "low_pulse_threshold": round(low_threshold, 3),
+        "pulse_density_cv": density_cv,
+        "boundary_source": boundary_source,
+        "model_boundaries": boundaries if boundaries else [],
+        "cross_window_contrast": (
+            "insufficient-data"
+            if len(results) < 2
+            else "too-flat"
+            if density_cv < 0.18
+            else "varied"
+        ),
+        "low_pulse_window_count": len(low_windows),
+        "low_pulse_windows": low_windows,
+        "windows": results,
+    }
+
+
+def build_rhythm_impact_items(rhythm_audit: dict) -> list[dict]:
+    low_windows = rhythm_audit.get("low_pulse_windows", [])
+    items: list[dict] = []
+    if low_windows:
+        evidence = [
+            (
+                f"长窗{item['window_index']} 字符 {item['start_char']}-{item['end_char']} "
+                f"字数 {item['char_count']} 气口密度 {item['narrator_pulse_density']}"
+            )
+            for item in low_windows[:4]
+        ]
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "长窗叙述者气口覆盖不足",
+                    "priority": "P1",
+                    "why_it_hits_audit": "局部好句集中在少数短窗时，其他长区间仍会显得匀速、可预测，整篇人味会被稀释。",
+                    "evidence": evidence,
+                    "fix_methods": [
+                        "先人工核对该窗是否真的缺现场反应，不按指标机械加句。",
+                        "优先补失控动作、答非所问、生活打断或叙述者即时反应。",
+                        "同一位置只补一种气口，避免自问、自嘲和金句连续堆叠。",
+                    ],
+                },
+                source_family="style",
+                focus_layer="sentence_shell",
+            )
+        )
+    if rhythm_audit.get("cross_window_contrast") == "too-flat":
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "跨长窗节奏落差不足",
+                    "priority": "P1",
+                    "why_it_hits_audit": "每个长窗的叙述者气口密度过于接近，会形成统一后处理过的匀速感。",
+                    "evidence": [
+                        f"气口密度离散度: {rhythm_audit.get('pulse_density_cv')}",
+                    ],
+                    "fix_methods": [
+                        "保留安静窗和爆发窗的真实差异，不追求每窗平均配置。",
+                        "检查长短句、生活闲枝和对白错位是否集中在同一处。",
+                    ],
+                },
+                source_family="style",
+                focus_layer="sentence_shell",
+            )
+        )
+    return items
 
 
 def build_display_blocks(paragraphs: list[dict], target_blocks: int = 7) -> list[dict]:
@@ -3050,6 +3596,25 @@ def markdown_report(file_path: Path, light: dict, heavy: dict, recommendations: 
     display_block_scores = combined.get("display_block_scores", [])
     coarse_segment_scores = combined.get("coarse_segment_scores", [])
     global_risk_shape = combined.get("global_risk_shape", {})
+    rhythm_audit = combined.get("rhythm_distribution_audit", {})
+    if rhythm_audit:
+        lines.append("## 长窗节奏覆盖")
+        lines.append("")
+        lines.append(f"- 长窗数: `{rhythm_audit.get('window_count', 0)}`")
+        lines.append(f"- 低气口长窗数: `{rhythm_audit.get('low_pulse_window_count', 0)}`")
+        lines.append(f"- 跨窗落差: `{rhythm_audit.get('cross_window_contrast')}`")
+        lines.append(f"- 气口密度离散度: `{rhythm_audit.get('pulse_density_cv')}`")
+        lines.append("- 说明: 这里只做内部定位，不等同于外部检测器的 human/uncertain 分类。")
+        for item in rhythm_audit.get("windows", []):
+            examples = " / ".join(item.get("pulse_examples", [])[:3]) or "无显式气口"
+            lines.append(
+                f"- 长窗{item.get('window_index')}: 字符 `{item.get('start_char')}-{item.get('end_char')}` "
+                f"字数 `{item.get('char_count')}` 状态 `{item.get('status')}` "
+                f"气口 `{item.get('narrator_pulse_count')}` 密度 `{item.get('narrator_pulse_density')}` "
+                f"自问自答 `{item.get('self_qa_pair_count')}` 对白占比 `{item.get('dialogue_line_ratio')}` "
+                f"例句 `{examples}`"
+            )
+        lines.append("")
     if segment_scores:
         block_segments, scatter_segments, point_paragraphs = build_segment_views(segment_scores, paragraph_scores)
         lines.append("## 动态分段总览")
@@ -3216,6 +3781,7 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
         + combined.get("style_impact_items", [])
         + combined.get("consequence_impact_items", [])
         + combined.get("asset_coverage_impact_items", [])
+        + combined.get("rhythm_impact_items", [])
     )
     items = sorted(items, key=impact_item_priority_tuple, reverse=True)
 
@@ -3494,6 +4060,15 @@ def main() -> int:
         full_light_report=light_report,
         full_style_audits=style_audits,
     )
+    rhythm_distribution_audit = audit_rhythm_distribution(source_text, paragraphs)
+    rhythm_impact_items = [
+        apply_sample_grading_item_bias(item, sample_grading_guidance)
+        for item in build_rhythm_impact_items(rhythm_distribution_audit)
+    ]
+    if rhythm_distribution_audit.get("low_pulse_window_count"):
+        recommendations.append(
+            "按长窗复核叙述者气口分布；只在确有匀速问题的位置补现场反应、错位或打断，不按数量机械加短句。"
+        )
     display_block_scores = build_display_block_scores(display_blocks, raw_segment_scores, paragraph_scores)
     global_risk_shape = build_global_risk_shape(
         source_text,
@@ -3537,6 +4112,8 @@ def main() -> int:
         "high_risk_segments": high_risk_segments,
         "coarse_segment_scores": coarse_segment_scores,
         "global_risk_shape": global_risk_shape,
+        "rhythm_distribution_audit": rhythm_distribution_audit,
+        "rhythm_impact_items": rhythm_impact_items,
     }
     if internal_standard:
         combined["internal_proxy_summary"] = build_internal_proxy_summary(

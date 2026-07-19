@@ -1,16 +1,45 @@
 # 短篇写作执行骨架
 
-这份文件只回答 5 件事：
+这份文件只回答 9 件事：
 
-1. 写前最少要准备什么
-2. `profile` 闭环怎么跑
-3. 审计和回修按什么优先级走
-4. 高风险任务为什么要额外挂第二闸门
-5. 常用脚本入口和产物怎么看
+1. 写作规则怎么证明读的是当前版本
+2. 拆文资料怎么证明实际读过
+3. 写前最少要准备什么
+4. `profile` 闭环怎么跑
+5. 审计和回修按什么优先级走
+6. 高风险任务为什么要额外挂第二闸门
+7. 常用脚本入口和产物怎么看
+8. 自动预扫和人工语义复核怎么分工
+9. skill 规则和拆书规则怎么逐项执行并留证
 
 ---
 
 ## 一、最低输入
+
+进入最低输入判断前，必须先通过：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
+  --receipt "项目目录/写作资产/写作规则读取回执.json" \
+  --output "项目目录/设定.md" \
+  --output "项目目录/小节大纲.md" \
+  --output "项目目录/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
+  --receipt "项目目录/写作资产/拆文读取回执.json" \
+  --output "项目目录/设定.md" \
+  --output "项目目录/小节大纲.md" \
+  --output "项目目录/正文.md"
+```
+
+`writing_rule_gate` 必须覆盖当前工作区的格式规则、`anti-ai-writing.md` 和 `narrator-voice.md`。任一规则文件变化后旧回执失效，禁止用旧对话上下文或旧摘要代替。
+
+回执必须覆盖每本选中的主体 / 辅助拆文的完整资产。只读 `profile_source.md`、profile、设定或大纲不算通过。缺资产直接回 `story-short-analyze` 全量重拆，不做兼容回退。
+
+详细口径见：
+
+- [writing-rule-reading-gate.md](writing-rule-reading-gate.md)
+- [source-reading-gate.md](source-reading-gate.md)
 
 普通短篇最低需要：
 
@@ -43,25 +72,41 @@
 
 固定顺序：
 
-1. 读取拆书资产
-2. 读取 `profile_source.md`
-3. 读取 `book.profile.json / project.profile.json`
-4. 判断 `讲法型 / 桥段链型 / 混合型`
-5. 起盘
-6. 细纲
-7. 正文
-8. 跑内部审计
-9. 生成回修任务单
-10. 回修
-11. 重审
-12. 高风险任务再过第二闸门
+1. 生成规则读取清单并逐文件回填
+2. 通过 `writing_rule_gate`
+3. 生成拆文逐文件读取清单
+4. 逐文件读取并回填读取回执
+5. 通过 `source_read_gate`
+6. 初始化 `规则执行台账.json`
+7. 导出模型复核批次，由当前写作模型逐族阅读 `cases` 并归纳 `canonical_rule_text`
+8. 模型确认规则角色、修复目标、`script / human / hybrid`、适用性、目标阶段和目标场景，并先合并近义规则
+9. 读取 `profile_source.md`
+10. 读取 `book.profile.json / project.profile.json`
+11. 判断 `讲法型 / 桥段链型 / 混合型`
+12. 起盘和细纲，同时逐项标记规则
+13. 正文，同时逐项标记规则
+14. 跑内部审计并回填脚本产物
+15. 生成回修任务单
+16. 回修
+17. 重审
+18. 绑定最终写作产物并通过 `rule_execution_gate`
+19. 生成人工语义复核回执并人工复扫全文
+20. 通过 `post_write_human_review_gate`
+21. 高风险任务再过第二闸门
 
 关键原则：
 
 - 规则只用于约束，不替代正文生成
+- 读取回执不能代替执行台账；执行一项标记一项，不能最后统一补“已使用”
+- 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
+- 完全重复规则族自动合并，近义规则族由模型归一；canonical 执行一次并保留全部来源和族内变体
+- 脚本只执行可计算规则，人物、叙述、认知和生活性规则必须人工逐项裁决
+- 只有失败的适用正文约束才能进入正文修改单，拆书候选未采用不算漏用
 - 桥段链问题先回细纲，不先磨字句
 - 审计层切块只决定先修哪块，不决定正文怎么排版
 - 自检必须逐条引用正文句子，不准只写“已处理”“已优化”
+- 自动审计只负责显式模式和量化风险，不能替代作者代判、叙述站位、多余解释和人物动机的人工判断
+- 局部或专项回炉必须绑定母稿，逐条复核所有新增/改写句，同时复扫母稿旧句
 - 高敏桥改写前先确认 3 件事：重大证据前隔着什么现实后果、尾声入口给谁、几位核心人物是不是不同脸
 - 一轮回修如果把正文修得更像“安全成熟块 / 会过闸稿”，即使命中下降，也不算通过
 - 正文变好不是“解释更全、主题更明、人物更会说人话”，而是现场更成立、后果更落地、人物更分脸
@@ -146,12 +191,102 @@
 - `sample_grading_guard` 决定这轮能不能学句法、只能学骨架，还是只能看反面规则
 - `rulebook_audit` 里如果命中 `现实后果隔层 / 尾声入口 / 人物同脸`，优先级高于句面润色
 - `model_rewrite_task.md` 和自检记录都必须引用正文原句作证，不接受空口保证
+- 自动结果中的“作者站位过高 0”只代表脚本没有命中显式模式，不代表人工语义复核通过
+
+人工语义层固定再查：
+
+1. 作者是否替人物归纳动机、认知或胜负
+2. 第一人称评价是现场态度还是借人物点题
+3. 动作已经表达后是否又补解释
+4. 判断是否有当前场景可观察依据
+5. 对白是否句句正答、过度高效
+6. 是否只审本轮 diff，漏掉母稿旧问题
 
 ---
 
 ## 六、常用脚本入口
 
-### 1. 生成单书 profile
+### 1. 生成并校验写作规则读取回执
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" init \
+  --project "{项目名}" \
+  --receipt "{项目目录}/写作资产/写作规则读取回执.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
+  --receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+### 2. 生成并校验拆文读取回执
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" init \
+  --project "{项目名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --receipt "{项目目录}/写作资产/拆文读取回执.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
+  --receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+### 3. 初始化、绑定并校验规则执行台账
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" init \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" bind-artifacts \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact "设定={项目目录}/设定.md" \
+  --artifact "大纲={项目目录}/小节大纲.md" \
+  --artifact "正文={项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+```
+
+逐项字段、规则展开范围和脚本/人工分工见 [rule-execution-ledger.md](rule-execution-ledger.md)。
+
+### 4. 生成并校验写后人工语义复核回执
+
+全新正文：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" init \
+  --project "{项目名}" \
+  --text "{项目目录}/正文.md" \
+  --receipt "{项目目录}/写作资产/写后人工语义复核回执.json"
+```
+
+局部或专项回炉：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" init \
+  --project "{项目名}" \
+  --text "{项目目录}/正文.md" \
+  --base-text "{母稿目录}/正文.md" \
+  --receipt "{项目目录}/写作资产/写后人工语义复核回执.json"
+```
+
+人工回填后：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" validate \
+  --receipt "{项目目录}/写作资产/写后人工语义复核回执.json" \
+  --text "{项目目录}/正文.md"
+```
+
+### 5. 生成单书 profile
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -160,7 +295,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
   --output "拆文库/{书名}/book.profile.json"
 ```
 
-### 2. 生成融合 profile
+### 6. 生成融合 profile
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -172,7 +307,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 硬闸：任一单书 profile 缺少 `precheck_overrides` 时停止融合，重新全量拆书后再生成单书和融合 profile。
 
-### 3. 跑全量审计
+### 7. 跑全量审计
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
@@ -181,7 +316,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/governance/audit-rulebook.json"
 ```
 
-### 4. 生成回修任务单
+### 8. 生成回修任务单
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" \
@@ -190,13 +325,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" 
   --output-dir auto_revise_runs
 ```
 
-### 5. 跑单轮闭环
+### 9. 跑单轮闭环
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" 当前短篇目录
 ```
 
-### 6. 做题材首次校准
+### 10. 做题材首次校准
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" ...
@@ -222,6 +357,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - `task_validation.bridge_alignment_ok = true`
 - `task_validation.short_paragraph_priority_ok = true`
 - 自检记录已经逐条引用正文句子
+- `规则执行台账.json` 已逐项完成并绑定最终设定、大纲、正文 SHA
+- `写后人工语义复核回执.json` 已绑定最终正文 SHA 并通过校验
+- 局部或专项回炉已逐条复核全部新增/改写句，且完成全文旧问题复扫
 - 当前轮如果改的是高敏桥，已额外核对 `现实后果隔层 / 尾声入口 / 人物不同脸`
 
 如果当前轮挂了第二闸门，还要确认：
@@ -246,3 +384,24 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - 前排高风险块已下降
 - 高敏桥没有回弹成标准承载方式
 - 自检记录不是空口保证，而是逐条拿正文举证
+- 规则执行台账已通过，最终正文修改没有让规则证据或 SHA 过期
+- 人工语义复核回执已经通过，正文最后一次修改没有让回执过期
+
+---
+
+## 九、自动与人工的边界
+
+自动脚本负责：
+
+- 格式、段长、频率、固定词句、显式模式、SHA 和回执完整性
+- 生成风险块、热点、任务单和改写行清单
+
+人工负责：
+
+- 作者是否替人物想明白
+- 叙述者是否在现场插嘴，还是作者借人物总结
+- 是否解释了读者已经看懂的内容
+- 评价是否有当前场景依据
+- 对白和配角是否只服务主线
+
+详细字段和失败条件见 [post-write-human-review-gate.md](post-write-human-review-gate.md)。
