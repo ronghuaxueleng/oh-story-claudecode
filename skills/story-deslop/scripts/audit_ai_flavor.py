@@ -17,6 +17,9 @@ DEFAULT_SUFFIX = "-审计报告"
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?])")
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+DIALOGUE_LINE_RE = re.compile(
+    r'(?:“[^”\n]{1,200}”|"[^"\n]{1,200}"|「[^」\n]{1,200}」|『[^』\n]{1,200}』)'
+)
 
 CONNECTOR_TERMS = [
     "首先", "其次", "再次", "最后", "此外", "与此同时", "另一方面",
@@ -73,13 +76,32 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def resolve_support_file(filename: str) -> Path:
+    script_dir = Path(__file__).resolve().parent
+    candidates = [
+        script_dir / filename,
+        script_dir.parent / "references" / "governance" / filename,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[0].resolve()
+
+
 def load_lexicon(path: Path | None = None) -> dict:
-    lexicon_path = path or Path(__file__).with_name(DEFAULT_LEXICON)
+    lexicon_path = path or resolve_support_file(DEFAULT_LEXICON)
     return json.loads(read_text(lexicon_path))
 
 
 def split_paragraphs(text: str) -> list[str]:
-    return [part.strip() for part in text.split("\n\n") if part.strip()]
+    blocks = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if len(blocks) > 1:
+        return blocks
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and CHINESE_RE.search(line) and not line.lstrip().startswith("#")
+    ]
 
 
 def split_sentences(text: str) -> list[str]:
@@ -281,7 +303,7 @@ def build_metrics(text: str) -> list[Metric]:
     sentence_lengths = [count_chinese(sentence) for sentence in sentences if count_chinese(sentence) > 0]
     paragraph_lengths = [count_chinese(paragraph) for paragraph in paragraphs if count_chinese(paragraph) > 0]
     connector_hits = sum(text.count(token) for token in CONNECTOR_TERMS)
-    dialogue_lines = sum(1 for line in text.splitlines() if "“" in line or "”" in line)
+    dialogue_lines = sum(1 for line in text.splitlines() if DIALOGUE_LINE_RE.search(line))
 
     metrics: list[Metric] = []
 

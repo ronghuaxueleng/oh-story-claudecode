@@ -79,6 +79,18 @@ def write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8", newline="\n")
 
 
+def resolve_support_file(filename: str) -> Path:
+    script_dir = Path(__file__).resolve().parent
+    candidates = [
+        script_dir / filename,
+        script_dir.parent / "references" / "governance" / filename,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    return candidates[0].resolve()
+
+
 def split_paragraphs(text: str) -> list[str]:
     return [p for p in text.split("\n\n") if p.strip()]
 
@@ -272,7 +284,7 @@ def load_profile(path: Path | None) -> CorpusProfile | None:
 
 
 def load_lexicon(path: Path | None = None) -> dict:
-    lexicon_path = path or Path(__file__).with_name(DEFAULT_LEXICON)
+    lexicon_path = path or resolve_support_file(DEFAULT_LEXICON)
     return json.loads(read_text(lexicon_path))
 
 

@@ -18,6 +18,65 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def collect_original_source_text(root: Path) -> str:
+    source_dir = root / "原文"
+    if not source_dir.is_dir():
+        return ""
+    chunks = [
+        read_text(path)
+        for path in sorted(source_dir.rglob("*"))
+        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
+    ]
+    return "\n".join(chunks)
+
+
+def collect_dynamic_precheck_overrides(root: Path) -> dict[str, list[str]]:
+    path = root / "写作资产" / "本书动态信号字典.json"
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(read_text(path))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    categories = data.get("categories")
+    if not isinstance(categories, dict):
+        return {}
+
+    source_text = collect_original_source_text(root)
+
+    def collect_patterns(category_names: tuple[str, ...]) -> list[str]:
+        terms: list[str] = []
+        for category in category_names:
+            entries = categories.get(category, [])
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                term = str(entry.get("term", "")).strip()
+                if 2 <= len(term) <= 32 and term in source_text:
+                    terms.append(re.escape(term))
+        return normalize_items(terms)
+
+    fact_patterns = collect_patterns(("核心物件", "证据载体"))
+    action_patterns = collect_patterns(("动作与微动作",))
+    overrides: dict[str, list[str]] = {}
+    if fact_patterns:
+        overrides["fact_anchor_patterns"] = fact_patterns
+    if action_patterns:
+        overrides["action_anchor_patterns"] = action_patterns
+    return overrides
+
+
+def has_valid_precheck_overrides(profile: dict) -> bool:
+    overrides = profile.get("precheck_overrides")
+    pretty_detail = overrides.get("pretty_detail") if isinstance(overrides, dict) else None
+    return isinstance(pretty_detail, dict) and any(
+        isinstance(pretty_detail.get(key), list) and pretty_detail[key]
+        for key in ("fact_anchor_patterns", "action_anchor_patterns")
+    )
+
+
 def collect_bullets(text: str) -> list[str]:
     items: list[str] = []
     for line in text.splitlines():
@@ -1480,6 +1539,14 @@ def derive_source_label(profile: dict, profile_path: Path | None = None) -> str:
     return "未命名来源"
 
 
+SAMPLE_LAYER_GRADE_KEYS = (
+    "structure_grade",
+    "performance_grade",
+    "sentence_grade",
+    "terminal_consequence_grade",
+)
+
+
 def build_sample_source_entry(profile: dict, profile_path: Path | None = None) -> dict[str, str]:
     grading = profile.get("sample_grading", {})
     if not isinstance(grading, dict) or not grading:
@@ -1503,7 +1570,46 @@ def build_sample_source_entry(profile: dict, profile_path: Path | None = None) -
         "use_for_merge": str(usage_guidance.get("融合写作时怎么用这本", "")).strip(),
         "noninherit": str(usage_guidance.get("哪些内容只可参考、不可继承", "")).strip(),
     }
+    for key in SAMPLE_LAYER_GRADE_KEYS:
+        entry[key] = str(grading.get(key, "")).strip()
     return {key: value for key, value in entry.items() if value}
+
+
+def normalize_sample_source_level(entry: dict[str, str]) -> str:
+    level = re.sub(r"\s+", "", entry.get("level", ""))
+    if "C类负样本" in level:
+        return "C类负样本"
+    if "B类骨架样本" in level:
+        return "B类骨架样本"
+    if "A类正样本" in level:
+        return "A类正样本"
+
+    dna_usable = entry.get("dna_usable", "")
+    allow_dna = entry.get("allow_dna", "")
+    negative_only = entry.get("negative_only", "")
+    if negative_only == "是" or "不可" in dna_usable or allow_dna in {"否", "不可"}:
+        return "C类负样本"
+
+    layer_grades = {
+        key: entry.get(key, "").upper()
+        for key in SAMPLE_LAYER_GRADE_KEYS
+    }
+    has_a_grade_sample_label = bool(re.search(r"A级[^，,；;]*样本", level))
+    has_usable_sentence_layer = layer_grades.get("sentence_grade") in {"A", "B"}
+    has_usable_performance_layer = layer_grades.get("performance_grade") in {"A", "B"}
+    explicitly_usable = "可" in dna_usable and "部分" not in dna_usable
+    if (
+        has_a_grade_sample_label
+        and has_usable_sentence_layer
+        and has_usable_performance_layer
+        and explicitly_usable
+    ):
+        return "A类正样本"
+    if "部分" in dna_usable or any(
+        grade in {"A", "B"} for grade in layer_grades.values()
+    ):
+        return "B类骨架样本"
+    return ""
 
 
 def build_sample_source_buckets(source_entries: list[dict[str, str]]) -> dict[str, object]:
@@ -1518,14 +1624,20 @@ def build_sample_source_buckets(source_entries: list[dict[str, str]]) -> dict[st
         name = entry.get("name")
         if not name:
             continue
-        level = entry.get("level")
+        level = normalize_sample_source_level(entry)
         if level in levels:
             levels[level].append(name)
         allow_dna = entry.get("allow_dna")
         negative_only = entry.get("negative_only")
         policy = entry.get("source_score_policy", "")
         dna_usable = entry.get("dna_usable", "")
-        if level == "A类正样本" and allow_dna not in {"否", "不可"} and negative_only != "是":
+        if (
+            level == "A类正样本"
+            and allow_dna not in {"否", "不可"}
+            and "不可" not in dna_usable
+            and "部分" not in dna_usable
+            and negative_only != "是"
+        ):
             positive_dna_sources.append(name)
         if level == "B类骨架样本" or "部分" in dna_usable:
             skeleton_only_sources.append(name)
@@ -1759,6 +1871,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     collected: dict[str, list[str]] = defaultdict(list)
     bridge_rules: list[dict] = []
     sample_source_entries: list[dict[str, str]] = []
+    precheck_fact_patterns: list[str] = []
+    precheck_action_patterns: list[str] = []
     style_asset_files = {
         "opening_hooks": [
             "可直接仿写_导语拆解表.md",
@@ -1795,6 +1909,9 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     }
 
     for root in sources:
+        precheck_overrides = collect_dynamic_precheck_overrides(root)
+        precheck_fact_patterns.extend(precheck_overrides.get("fact_anchor_patterns", []))
+        precheck_action_patterns.extend(precheck_overrides.get("action_anchor_patterns", []))
         local_profile_source_bridges: list[dict] = []
         local_bridge_rules: list[dict] = []
         local_story_guardrails: list[dict] = []
@@ -2162,6 +2279,14 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "scene_assets": scene_assets,
         "style_assets": style_assets,
     }
+    fact_patterns = normalize_items(precheck_fact_patterns)
+    action_patterns = normalize_items(precheck_action_patterns)
+    if fact_patterns or action_patterns:
+        profile["precheck_overrides"] = {"pretty_detail": {}}
+        if fact_patterns:
+            profile["precheck_overrides"]["pretty_detail"]["fact_anchor_patterns"] = fact_patterns
+        if action_patterns:
+            profile["precheck_overrides"]["pretty_detail"]["action_anchor_patterns"] = action_patterns
     if collected["profile_risk_layer_type"]:
         counts: dict[str, int] = defaultdict(int)
         for item in collected["profile_risk_layer_type"]:
@@ -2237,9 +2362,31 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
 
 def merge_profiles(profile_paths: list[Path], name: str) -> dict:
     profiles = [json.loads(read_text(path)) for path in profile_paths]
+    missing = [
+        str(path)
+        for profile, path in zip(profiles, profile_paths)
+        if not has_valid_precheck_overrides(profile)
+    ]
+    if missing:
+        raise SystemExit(
+            "以下单书 profile 缺少 precheck_overrides，请重新全量拆书后再融合:\n"
+            + "\n".join(missing)
+        )
     opening_signal_groups = merge_dict_of_lists(profiles, "opening_signal_groups")
     scene_assets = merge_dict_of_lists(profiles, "scene_assets")
     style_assets = merge_dict_of_lists(profiles, "style_assets")
+    precheck_fact_patterns: list[str] = []
+    precheck_action_patterns: list[str] = []
+    for profile in profiles:
+        pretty_detail = profile.get("precheck_overrides", {}).get("pretty_detail", {})
+        if not isinstance(pretty_detail, dict):
+            continue
+        precheck_fact_patterns.extend(
+            item for item in pretty_detail.get("fact_anchor_patterns", []) if isinstance(item, str)
+        )
+        precheck_action_patterns.extend(
+            item for item in pretty_detail.get("action_anchor_patterns", []) if isinstance(item, str)
+        )
     source_entries = [
         build_sample_source_entry(profile, path)
         for profile, path in zip(profiles, profile_paths)
@@ -2284,6 +2431,14 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
         "scene_assets": scene_assets,
         "style_assets": style_assets,
     }
+    fact_patterns = normalize_items(precheck_fact_patterns)
+    action_patterns = normalize_items(precheck_action_patterns)
+    if fact_patterns or action_patterns:
+        merged["precheck_overrides"] = {"pretty_detail": {}}
+        if fact_patterns:
+            merged["precheck_overrides"]["pretty_detail"]["fact_anchor_patterns"] = fact_patterns
+        if action_patterns:
+            merged["precheck_overrides"]["pretty_detail"]["action_anchor_patterns"] = action_patterns
     risk_layer_type = merge_risk_layer_type(profiles)
     if risk_layer_type:
         merged["risk_layer_type"] = risk_layer_type
@@ -2378,6 +2533,10 @@ def main() -> int:
         for path in sources:
             if not path.exists():
                 raise SystemExit(f"源目录不存在: {path}")
+            if not collect_dynamic_precheck_overrides(path):
+                raise SystemExit(
+                    f"拆书结果缺少有效动态预检字典，请重新全量拆书: {path}"
+                )
         profile = generate_profile_from_sources(sources, args.name)
     else:
         profile_paths: list[Path] = []

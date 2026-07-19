@@ -170,6 +170,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
   --output "profiles/{项目名}.project.profile.json"
 ```
 
+硬闸：任一单书 profile 缺少 `precheck_overrides` 时停止融合，重新全量拆书后再生成单书和融合 profile。
+
 ### 3. 跑全量审计
 
 ```bash

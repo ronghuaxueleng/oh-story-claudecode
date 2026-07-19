@@ -286,6 +286,13 @@
   也就是说，分段分数不是孤立数字，后面要能顺着 `bridge_rules / scene_assets / style_assets`
   解释“这一片段为什么高、该先补什么、该先删什么”。
 
+### `precheck_overrides`
+
+- 从 `写作资产/本书动态信号字典.json` 的“核心物件、证据载体、动作与微动作”生成。
+- `fact_anchor_patterns` 和 `action_anchor_patterns` 只补充书级事实、动作语境，不覆盖通用风险规则。
+- 融合 profile 对各单书字段去重合并。
+- 缺少该字段视为拆书资产不完整；禁止从旧 `style_assets` 猜测兼容，必须重新全量拆书。
+
 ## 生成原则
 
 1. 不猜。

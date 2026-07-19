@@ -17,6 +17,9 @@ DEFAULT_SUFFIX = "-审计报告"
 
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?])")
 CHINESE_RE = re.compile(r"[\u4e00-\u9fff]")
+DIALOGUE_LINE_RE = re.compile(
+    r'(?:“[^”\n]{1,200}”|"[^"\n]{1,200}"|「[^」\n]{1,200}」|『[^』\n]{1,200}』)'
+)
 
 CONNECTOR_TERMS = [
     "首先", "其次", "再次", "最后", "此外", "与此同时", "另一方面",
@@ -77,6 +80,7 @@ def resolve_support_file(filename: str) -> Path:
     script_dir = Path(__file__).resolve().parent
     candidates = [
         script_dir / filename,
+        script_dir.parents[1] / "agent-references" / filename,
         script_dir.parent / "references" / "agent-references" / filename,
         script_dir.parent / "references" / "governance" / filename,
         script_dir.parent / ".codex" / "skills" / "story-setup" / "references" / "agent-references" / filename,
@@ -94,7 +98,14 @@ def load_lexicon(path: Path | None = None) -> dict:
 
 
 def split_paragraphs(text: str) -> list[str]:
-    return [part.strip() for part in text.split("\n\n") if part.strip()]
+    blocks = [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+    if len(blocks) > 1:
+        return blocks
+    return [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and CHINESE_RE.search(line) and not line.lstrip().startswith("#")
+    ]
 
 
 def split_sentences(text: str) -> list[str]:
@@ -296,7 +307,7 @@ def build_metrics(text: str) -> list[Metric]:
     sentence_lengths = [count_chinese(sentence) for sentence in sentences if count_chinese(sentence) > 0]
     paragraph_lengths = [count_chinese(paragraph) for paragraph in paragraphs if count_chinese(paragraph) > 0]
     connector_hits = sum(text.count(token) for token in CONNECTOR_TERMS)
-    dialogue_lines = sum(1 for line in text.splitlines() if "“" in line or "”" in line)
+    dialogue_lines = sum(1 for line in text.splitlines() if DIALOGUE_LINE_RE.search(line))
 
     metrics: list[Metric] = []
 

@@ -41,6 +41,31 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 class StoryProfileSceneAssetsTest(unittest.TestCase):
+    def test_dynamic_signal_dictionary_generates_precheck_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "原文").mkdir()
+            (root / "写作资产").mkdir()
+            (root / "原文" / "正文.txt").write_text(
+                "她把风险复核表压在桌上，又降下车窗。",
+                encoding="utf-8",
+            )
+            (root / "写作资产" / "本书动态信号字典.json").write_text(
+                json.dumps(
+                    {
+                        "categories": {
+                            "证据载体": [{"term": "风险复核表"}],
+                            "动作与微动作": [{"term": "降下车窗"}],
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            overrides = GENERATOR.collect_dynamic_precheck_overrides(root)
+            self.assertEqual(["风险复核表"], overrides["fact_anchor_patterns"])
+            self.assertEqual(["降下车窗"], overrides["action_anchor_patterns"])
+
     def test_event_assets_keep_verbs_and_long_phrases(self) -> None:
         assets = GENERATOR.clean_scene_asset_terms(
             [
@@ -149,6 +174,51 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
                 preserve_commas=True,
             ),
         )
+
+    def test_merge_buckets_accept_layered_a_grade_sample_label(self) -> None:
+        buckets = GENERATOR.build_sample_source_buckets(
+            [
+                {
+                    "name": "幼薇",
+                    "level": "A 级结构样本，B 级句面样本",
+                    "dna_usable": "可，但仅提结构、动作权限与场面后果",
+                    "structure_grade": "A",
+                    "performance_grade": "A",
+                    "sentence_grade": "B",
+                    "terminal_consequence_grade": "A",
+                },
+                {
+                    "name": "主体骨架",
+                    "level": "B类骨架样本",
+                    "dna_usable": "部分可",
+                    "structure_grade": "A",
+                    "performance_grade": "B",
+                    "sentence_grade": "C",
+                    "terminal_consequence_grade": "B",
+                },
+            ]
+        )
+        self.assertEqual(["幼薇"], buckets["positive_dna_sources"])
+        self.assertEqual(["主体骨架"], buckets["skeleton_only_sources"])
+        self.assertEqual("B类骨架样本", buckets["effective_write_level"])
+
+    def test_merge_buckets_do_not_upgrade_explicit_negative_sample(self) -> None:
+        buckets = GENERATOR.build_sample_source_buckets(
+            [
+                {
+                    "name": "反面样本",
+                    "level": "C类负样本",
+                    "dna_usable": "不可",
+                    "structure_grade": "A",
+                    "performance_grade": "A",
+                    "sentence_grade": "A",
+                    "terminal_consequence_grade": "A",
+                }
+            ]
+        )
+        self.assertEqual([], buckets["positive_dna_sources"])
+        self.assertEqual(["反面样本"], buckets["negative_only_sources"])
+        self.assertEqual("C类负样本", buckets["effective_write_level"])
 
     def test_explicit_story_guardrails_keep_consequence_structure(self) -> None:
         parsed = GENERATOR.parse_profile_source(
@@ -519,6 +589,78 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
                 {"裂纹陶哨"},
             )
         )
+
+    def test_bridge_audit_ignores_single_generic_sequence_hit(self) -> None:
+        profile = {
+            "bridge_rules": [
+                {
+                    "bridge": "BID-04 垃圾站补救失效与独自手术",
+                    "opening_pattern": ["洁癖者陪人翻垃圾", "从天黑找到天亮"],
+                    "must_keep": ["脏场劳动", "找到碎玉", "手术短信"],
+                    "recommended_sequence": ["高成本补救", "电话响", "再次离场"],
+                    "why_original_passes": ["补救真实付出代价，但即时选择仍失败"],
+                }
+            ]
+        }
+
+        result = AUDIT.bridge_rule_audit("他口袋里的电话响了。", profile)
+
+        self.assertEqual([], result)
+        self.assertEqual([], AUDIT.build_bridge_recommendations(result))
+
+    def test_bridge_audit_ignores_single_generic_core_hit(self) -> None:
+        profile = {
+            "bridge_rules": [
+                {
+                    "bridge": "BID-04 垃圾站补救失效与独自手术",
+                    "opening_pattern": ["洁癖者陪人翻垃圾"],
+                    "must_keep": ["求救电话", "找到碎玉", "手术短信"],
+                    "recommended_sequence": ["电话响", "再次离场"],
+                }
+            ]
+        }
+
+        result = AUDIT.bridge_rule_audit("值班室接到一通求救电话。", profile)
+
+        self.assertEqual([], result)
+
+    def test_bridge_audit_accepts_cross_group_identity_evidence(self) -> None:
+        profile = {
+            "bridge_rules": [
+                {
+                    "bridge": "BID-301 共同账户被挪去买车",
+                    "opening_pattern": ["先让车写她名"],
+                    "must_keep": ["共同账户", "结婚基金归零"],
+                    "recommended_sequence": ["看到落名", "追问钱", "查余额"],
+                }
+            ]
+        }
+
+        result = AUDIT.bridge_rule_audit(
+            "合同先让车写她名。我追问钱从哪里来，才发现共同账户已经空了。",
+            profile,
+        )
+
+        self.assertEqual(1, len(result))
+        self.assertTrue(result[0]["bridge_identity_confirmed"])
+        self.assertGreaterEqual(result[0]["bridge_identity_evidence_groups"], 2)
+
+    def test_merged_profile_does_not_turn_unmatched_bridge_into_rewrite_task(self) -> None:
+        profile = {
+            "meta": {"mode": "merged_profiles", "source_count": 3},
+            "bridge_rules": [{"bridge": "BID-04 辅助书原桥", "must_keep": ["碎玉"]}],
+            "sample_source_buckets": {"entries": [{}, {}, {}]},
+        }
+
+        coverage = AUDIT.audit_profile_asset_coverage(profile, [], {}, {})
+        impacts = AUDIT.build_asset_coverage_impact_items(
+            coverage,
+            {"level": "B类骨架样本"},
+        )
+
+        self.assertTrue(coverage["is_merged_profile"])
+        self.assertTrue(any("禁止依据单个通用词回灌" in item for item in coverage["warnings"]))
+        self.assertFalse(any(item.get("asset_kind") == "bridge_rules" for item in impacts))
 
     def test_profile_source_bridge_rules_keep_bid_and_full_fields(self) -> None:
         rules = GENERATOR.build_profile_source_bridge_rules(

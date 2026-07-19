@@ -78,6 +78,7 @@ def resolve_support_file(filename: str) -> Path:
     script_dir = Path(__file__).resolve().parent
     candidates = [
         script_dir / filename,
+        script_dir.parents[1] / "agent-references" / filename,
         script_dir.parent / "references" / "agent-references" / filename,
         script_dir.parent / "references" / "governance" / filename,
         script_dir.parent / ".codex" / "skills" / "story-setup" / "references" / "agent-references" / filename,

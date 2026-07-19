@@ -780,6 +780,43 @@ def local_bridge_window(text: str, positions: list[int], radius: int = 900) -> s
     return text[start:end]
 
 
+def bridge_identity_evidence(
+    opening_hits: list[str],
+    keep_hits: list[str],
+    sequence_hits: list[str],
+) -> dict:
+    core_hits = normalize_terms(opening_hits + keep_hits)
+    all_hits = normalize_terms(core_hits + sequence_hits)
+    core_weight = round(sum(term_weight(term) for term in core_hits), 4)
+    total_weight = round(sum(term_weight(term) for term in all_hits), 4)
+    evidence_groups = sum(bool(items) for items in (opening_hits, keep_hits, sequence_hits))
+
+    confirmed = bool(
+        (opening_hits and keep_hits)
+        or (len(core_hits) >= 2 and core_weight >= 3.0)
+        or (core_hits and len(all_hits) >= 3 and total_weight >= 4.0)
+    )
+    if confirmed:
+        reason = "已由多个桥段承重证据共同确认"
+    elif not core_hits and sequence_hits:
+        reason = "仅命中通用顺序词，不能确认整桥"
+    elif len(all_hits) == 1:
+        reason = "仅命中单个桥段词，不能确认整桥"
+    elif evidence_groups < 2:
+        reason = "命中证据只来自一个字段，不能确认整桥"
+    else:
+        reason = "命中证据的数量或区分度不足，不能确认整桥"
+    return {
+        "confirmed": confirmed,
+        "reason": reason,
+        "core_hits": core_hits,
+        "all_hits": all_hits,
+        "core_weight": core_weight,
+        "total_weight": total_weight,
+        "evidence_groups": evidence_groups,
+    }
+
+
 def opening_window_text(text: str) -> str:
     if not text:
         return ""
@@ -1500,6 +1537,13 @@ def bridge_rule_audit(text: str, profile: dict, top_n: int = 5) -> list[dict]:
         sequence_info = sequence_audit(bridge_window, recommended_sequence)
         if not keep_hits and not avoid_hits and not fake_hits and not opening_hits and not sequence_info["hit_terms"]:
             continue
+        identity = bridge_identity_evidence(
+            opening_hits,
+            keep_hits,
+            sequence_info["hit_terms"],
+        )
+        if not identity["confirmed"]:
+            continue
 
         keep_ratio = round(len(keep_hits) / max(len(must_keep), 1), 4)
         opening_ratio = round(len(opening_hits) / max(len(opening_pattern), 1), 4) if opening_pattern else 0.0
@@ -1546,6 +1590,11 @@ def bridge_rule_audit(text: str, profile: dict, top_n: int = 5) -> list[dict]:
                 "weighted_keep": weighted_keep,
                 "weighted_avoid": weighted_avoid,
                 "weighted_fake": weighted_fake,
+                "bridge_identity_confirmed": True,
+                "bridge_identity_reason": identity["reason"],
+                "bridge_identity_hits": identity["all_hits"][:10],
+                "bridge_identity_weight": identity["total_weight"],
+                "bridge_identity_evidence_groups": identity["evidence_groups"],
                 "_score": score,
             }
         )
@@ -1634,6 +1683,14 @@ def build_bridge_recommendations(bridge_audit: list[dict]) -> list[str]:
 
 def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], consequence_audit: dict, style_audits: dict) -> dict:
     bridge_rules = profile.get("bridge_rules", []) if isinstance(profile, dict) else []
+    profile_meta = profile.get("meta", {}) if isinstance(profile.get("meta"), dict) else {}
+    sample_buckets = profile.get("sample_source_buckets", {}) if isinstance(profile.get("sample_source_buckets"), dict) else {}
+    sample_entries = sample_buckets.get("entries", []) if isinstance(sample_buckets.get("entries"), list) else []
+    is_merged_profile = bool(
+        profile_meta.get("mode") == "merged_profiles"
+        or int(profile_meta.get("source_count") or 0) > 1
+        or len(sample_entries) > 1
+    )
     scene_assets = profile.get("scene_assets", {}) if isinstance(profile.get("scene_assets"), dict) else {}
     style_assets = get_style_assets(profile)
     story_guardrails = profile.get("story_guardrails", {}) if isinstance(profile.get("story_guardrails"), dict) else {}
@@ -1662,7 +1719,13 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
     if not bridge_rules:
         warnings.append("profile 缺少 bridge_rules，当前无法判断同桥承重件是否命中。")
     elif not bridge_audit:
-        warnings.append("profile 有 bridge_rules，但正文没有命中任何同桥规则；这次前排只能先暴露句法/场面层问题。")
+        if is_merged_profile:
+            warnings.append(
+                "融合 profile 的桥段身份未通过多证据确认；禁止依据单个通用词回灌任一来源桥壳。"
+                "先按项目细纲确认目标桥，未确认时只审计当前正文。"
+            )
+        else:
+            warnings.append("profile 有 bridge_rules，但正文没有命中任何同桥规则；这次前排只能先暴露句法/场面层问题。")
     if missing_scene_keys:
         warnings.append("scene_assets 覆盖不完整：" + " / ".join(missing_scene_keys))
     if missing_style_keys:
@@ -1674,6 +1737,7 @@ def audit_profile_asset_coverage(profile: dict, bridge_audit: list[dict], conseq
         "bridge_rule_count": len(bridge_rules) if isinstance(bridge_rules, list) else 0,
         "bridge_matched_count": len(bridge_audit or []),
         "has_bridge_rules": bool(bridge_rules),
+        "is_merged_profile": is_merged_profile,
         "scene_asset_counts": {key: len(value) for key, value in scene_nonempty.items()},
         "style_asset_counts": {key: len(value) for key, value in style_nonempty.items()},
         "missing_scene_asset_keys": missing_scene_keys,
@@ -1691,7 +1755,12 @@ def build_asset_coverage_impact_items(asset_coverage: dict, guidance: dict) -> l
     if not asset_coverage:
         return items
     level = str((guidance or {}).get("level", ""))
-    if level in {"B类骨架样本", "C类负样本"} and asset_coverage.get("has_bridge_rules") and not asset_coverage.get("bridge_matched_count"):
+    if (
+        level in {"B类骨架样本", "C类负样本"}
+        and asset_coverage.get("has_bridge_rules")
+        and not asset_coverage.get("bridge_matched_count")
+        and not asset_coverage.get("is_merged_profile")
+    ):
         items.append(
             annotate_impact_item(
                 {

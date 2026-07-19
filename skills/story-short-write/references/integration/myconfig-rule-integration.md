@@ -215,5 +215,7 @@ skill 内默认副本：
 
 - `precheck_rewrite_gate.py` 已并入 skill，当前定位是正式链路里的通用预检层
 - 正式链路里的预检 / 自检脚本必须保持通用版：题材无关、桥段无关、角色名无关
-- 如果某条规则只能靠写死词表成立，默认先降级为人工参考或书级 override，不直接并进通用自动审计
-- `references/governance/precheck_rewrite_gate.config.json` 现在只允许承载跨题材底座规则；书级专项补充应单独增设 override 配置，不污染底座
+- 如果某条规则只能靠写死词表成立，默认进入拆书动态信号字典或项目级 override，不直接并进通用自动审计
+- `references/governance/precheck_rewrite_gate.config.json` 只允许承载跨题材底座规则
+- 单书 profile 必须从 `写作资产/本书动态信号字典.json` 生成 `precheck_overrides`
+- 旧 profile 缺 `precheck_overrides` 时禁止兼容降级，必须重新全量拆书并重建融合 profile
