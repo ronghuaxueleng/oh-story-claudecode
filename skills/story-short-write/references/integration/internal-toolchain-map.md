@@ -61,6 +61,14 @@
   - 每个拆书文件都做适用性判断，16 表和承重资产逐规则展开
   - 强制区分 `script / human / hybrid`，校验脚本产物、人工判断和写作产物原句证据
   - 规则源、拆书源或最终正文 SHA 变化后阻断，不接受“已使用”式空口回执
+  - 关键来源契约合并后仍逐来源校验 `applied / not_selected / prohibition_checked`、原句证据和目标落点
+  - 主体治理资产被标成未选用、文件级关键契约漏审、规则级父节点与子规则不一致或只用一条公共证据覆盖多来源时阻断
+  - 设定/大纲规则按 `target_scene` 逐项目校验 `structural_claim_reviews`，防止用后果证据冒充开头或反转证据
+- `validate_opening_contract.py`
+  - 绑定主体 `可直接仿写_导语拆解表.md` 与大纲/正文 SHA
+  - 固定导出前 `20 / 60 / 80 / 120` 字窗口，由当前模型人工提取主体三拍顺序并逐项裁决
+  - 任务说明抢跑、关系锚迟到、题面未兑现或功能顺序被打乱时直接阻断
+  - 不调用外部 API 或 CLI，不把主体人物、职业和动作硬编码进通用规则
 - `validate_post_write_human_review_gate.py`
   - 自动生成全文或母稿 diff 的人工语义复核清单
   - 校验最终正文 SHA、自动预扫产物、九项人工检查和逐条改写句判断
@@ -83,6 +91,8 @@
 - `auto_revise_ai_flavor.py`
   - 根据审计结果生成回修任务单
   - 不直接改正文
+  - 已识别的高风险桥段未进入前排桥段任务时阻断生成；短段和统计波动只保留为诊断提示
+  - 已绑定 profile 时，关键 bridge / scene / style / guardrail 资产缺失也阻断生成，要求先重建拆书和 profile
 - `run_revision_cycle.py`
   - 串起“审计 -> 任务单 -> 回修 -> 再审计”的循环流程
 - `validate_gate_receipts.py`
@@ -229,16 +239,19 @@
 2. 再用 `validate_source_read_gate.py` 证明主体 / 辅助拆文资产已逐文件读取
 3. 立即初始化 `规则执行台账.json`，逐项确认脚本 / 人工 / 混合分工和适用性
 4. 再读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
-5. 再读 `references/governance/audit-rulebook.json`
-6. 再读 `references/governance/precheck_rewrite_gate.config.json`
-7. 再读 `references/governance/通用高风险词类词典.json`
-8. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`，并把专项规则文件加入执行台账
-9. 写作过程中执行一项标记一项
-10. 跑自动审计，只把结果当脚本预扫并回填脚本产物
-11. 最终正文完成后，先通过 `validate_rule_execution_ledger.py`
-12. 再通过 `validate_post_write_human_review_gate.py`
-13. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
-14. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
+5. 大纲完成后先通过 `validate_opening_contract.py`
+6. 正文首写后再次通过 `validate_opening_contract.py`
+7. 再读 `references/governance/audit-rulebook.json`
+8. 再读 `references/governance/precheck_rewrite_gate.config.json`
+9. 再读 `references/governance/通用高风险词类词典.json`
+10. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`，并把专项规则文件加入执行台账
+11. 写作过程中执行一项标记一项
+12. 跑自动审计，只把结果当脚本预扫并回填脚本产物
+13. 最终正文完成后，先通过 `validate_rule_execution_ledger.py`
+14. 重新校验正文 `opening_contract_gate`
+15. 再通过 `validate_post_write_human_review_gate.py`
+16. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
+17. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
 
 也就是说：
 

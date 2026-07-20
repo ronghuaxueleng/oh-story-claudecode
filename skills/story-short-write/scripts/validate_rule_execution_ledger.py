@@ -35,6 +35,44 @@ RULE_BEARING_ASSET_NAMES = {
     "project.profile.json",
 }
 
+SOURCE_CONTRACT_ASSET_NAMES = {
+    "book.profile.json",
+    "事实与推断台账.md",
+    "可直接仿写_顺序事件表.md",
+    "可直接仿写_后果链表.md",
+    "可直接仿写_外部秩序表.md",
+    "写作资产/作者DNA指纹.md",
+    "写作资产/桥段施工卡.md",
+    "写作资产/高敏桥段识别.md",
+    "写作资产/同桥段过检规则.md",
+    "写作资产/仿写约束_禁写清单.md",
+    "写作资产/公开场_关键硬牌_后果.md",
+    "写作资产/平台适配提醒.md",
+    "写作资产/样本分级与可学层.md",
+}
+
+MANDATORY_MAIN_SOURCE_CONTRACT_NAMES = {
+    "book.profile.json",
+    "事实与推断台账.md",
+    "可直接仿写_顺序事件表.md",
+    "可直接仿写_后果链表.md",
+    "可直接仿写_外部秩序表.md",
+    "写作资产/作者DNA指纹.md",
+    "写作资产/桥段施工卡.md",
+    "写作资产/高敏桥段识别.md",
+    "写作资产/同桥段过检规则.md",
+    "写作资产/仿写约束_禁写清单.md",
+    "写作资产/公开场_关键硬牌_后果.md",
+    "写作资产/平台适配提醒.md",
+    "写作资产/样本分级与可学层.md",
+}
+
+VALID_SOURCE_CONTRACT_DISPOSITIONS = {
+    "applied",
+    "not_selected",
+    "prohibition_checked",
+}
+
 VALID_EXECUTION_MODES = {"script", "human", "hybrid"}
 VALID_APPLICABILITY = {"applicable", "rejected", "not_applicable", "merged"}
 VALID_STATUSES = {"pending", "completed"}
@@ -548,6 +586,8 @@ def blank_execution_fields(
         "human_judgment": "",
         "text_evidence": [],
         "human_scope_reviews": [],
+        "source_contract_reviews": [],
+        "structural_claim_reviews": [],
         "decision_reason": "",
         "outcome": "pending",
         "result": "",
@@ -921,8 +961,71 @@ def calculate_execution_summary(data: dict[str, Any]) -> dict[str, int]:
     return summary
 
 
+def derive_rule_level_parent_status(asset: dict[str, Any]) -> dict[str, str]:
+    rules = [item for item in asset.get("rules", []) if isinstance(item, dict)]
+    if not rules:
+        return {}
+
+    total = len(rules)
+    completed = sum(item.get("status") == "completed" for item in rules)
+    applicable = [
+        item for item in rules
+        if item.get("applicability") == "applicable"
+    ]
+    failed = [item for item in applicable if item.get("outcome") == "failed"]
+    unresolved = [
+        item for item in rules
+        if item.get("status") != "completed"
+        or item.get("applicability") not in VALID_APPLICABILITY
+        or (
+            item.get("applicability") == "applicable"
+            and item.get("outcome") not in {"passed", "failed"}
+        )
+    ]
+
+    if unresolved:
+        return {
+            "applicability": "pending",
+            "status": "pending",
+            "decision_reason": f"由子规则自动汇总；尚有 {len(unresolved)}/{total} 条未完成裁决。",
+            "outcome": "pending",
+            "result": f"子规则完成 {completed}/{total}；父节点等待自动收口。",
+        }
+    if failed:
+        return {
+            "applicability": "applicable",
+            "status": "completed",
+            "decision_reason": "由子规则自动汇总；至少一条适用规则执行失败。",
+            "outcome": "failed",
+            "result": f"子规则已完成 {total}/{total}；失败 {len(failed)} 条，必须修复后重审。",
+        }
+    if applicable:
+        return {
+            "applicability": "applicable",
+            "status": "completed",
+            "decision_reason": "由子规则自动汇总；文件内存在已执行的适用规则。",
+            "outcome": "passed",
+            "result": f"子规则已完成 {total}/{total}；适用并通过 {len(applicable)} 条。",
+        }
+    return {
+        "applicability": "not_applicable",
+        "status": "completed",
+        "decision_reason": "由子规则自动汇总；文件内规则均已合并或判定不适用。",
+        "outcome": "not_applicable",
+        "result": f"子规则已完成 {total}/{total}；本文件无独立适用规则。",
+    }
+
+
+def sync_rule_level_parent_statuses(data: dict[str, Any]) -> None:
+    for asset in data.get("source_assets", []):
+        if not isinstance(asset, dict) or not asset.get("rules"):
+            continue
+        asset.update(derive_rule_level_parent_status(asset))
+
+
 def refresh_summary(ledger_path: Path) -> None:
     data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    sync_rule_level_parent_statuses(data)
     data["execution_summary"] = calculate_execution_summary(data)
     data["gate_status"] = "pending"
     ledger_path.write_text(
@@ -1017,6 +1120,8 @@ ALLOWED_PLAN_FIELDS = {
     "human_judgment",
     "text_evidence",
     "human_scope_reviews",
+    "source_contract_reviews",
+    "structural_claim_reviews",
     "decision_reason",
     "outcome",
     "result",
@@ -1158,6 +1263,7 @@ def apply_decision_plan(ledger_path: Path, plan_path: Path) -> tuple[list[str], 
                     existing.append(item)
                     seen.add(key)
 
+    sync_rule_level_parent_statuses(data)
     data["execution_summary"] = calculate_execution_summary(data)
     data["gate_status"] = "pending"
     ledger_path.write_text(
@@ -1303,6 +1409,7 @@ def apply_model_group_plan(
 
     if errors:
         return errors, results
+    sync_rule_level_parent_statuses(data)
     data["execution_summary"] = calculate_execution_summary(data)
     data["gate_status"] = "pending"
     ledger_path.write_text(
@@ -1416,6 +1523,153 @@ def validate_scope_reviews(
             errors.append(f"{label}范围复核缺少人工结论[{index}]")
             valid = False
     return valid
+
+
+def normalized_contract_name(path: Path) -> str:
+    parts = path.as_posix().split("/")
+    if len(parts) >= 2 and parts[-2] == "写作资产":
+        return f"写作资产/{parts[-1]}"
+    return parts[-1]
+
+
+def validate_source_contract_reviews(
+    entry: dict[str, Any],
+    source_roles: dict[str, str],
+    artifact_texts: dict[str, str],
+    label: str,
+    errors: list[str],
+) -> None:
+    if entry.get("applicability") == "merged":
+        return
+
+    required_refs: dict[str, dict[str, Any]] = {}
+    for ref in entry.get("source_refs", []):
+        if not isinstance(ref, dict):
+            continue
+        source_path = Path(str(ref.get("source_path") or "")).resolve()
+        contract_name = normalized_contract_name(source_path)
+        if contract_name not in SOURCE_CONTRACT_ASSET_NAMES:
+            continue
+        required_refs[str(source_path)] = {
+            "path": source_path,
+            "contract_name": contract_name,
+            "source_role": source_roles.get(str(source_path), ""),
+        }
+    if not required_refs:
+        return
+
+    reviews = entry.get("source_contract_reviews")
+    if not isinstance(reviews, list):
+        errors.append(f"{label} source_contract_reviews 必须是列表")
+        reviews = []
+    actual = {
+        str(Path(str(item.get("source_path") or "")).resolve()): item
+        for item in reviews
+        if isinstance(item, dict) and item.get("source_path")
+    }
+    for source_path in sorted(set(required_refs) - set(actual)):
+        errors.append(f"{label}缺少关键来源契约复核: {source_path}")
+    for source_path in sorted(set(actual) - set(required_refs)):
+        errors.append(f"{label}包含无关来源契约复核: {source_path}")
+
+    for source_path, ref in required_refs.items():
+        review = actual.get(source_path)
+        if not review:
+            continue
+        path = ref["path"]
+        if not path.is_file():
+            errors.append(f"{label}关键来源契约文件不存在: {path}")
+            continue
+        if review.get("source_sha256") != sha256(path):
+            errors.append(f"{label}关键来源契约 SHA 已变化: {path}")
+        disposition = review.get("disposition")
+        if disposition not in VALID_SOURCE_CONTRACT_DISPOSITIONS:
+            errors.append(f"{label}关键来源契约未完成处置: {path}")
+            continue
+        quote = str(review.get("source_quote") or "").strip()
+        judgment = str(review.get("judgment") or "").strip()
+        if not quote or quote not in read_text(path):
+            errors.append(f"{label}关键来源契约证据不在源文件中: {path}")
+        if not judgment:
+            errors.append(f"{label}关键来源契约缺少人工判断: {path}")
+
+        if (
+            ref["source_role"] == "main"
+            and ref["contract_name"] in MANDATORY_MAIN_SOURCE_CONTRACT_NAMES
+            and disposition == "not_selected"
+        ):
+            errors.append(f"{label}主体关键承重契约不得标记未选用: {path}")
+
+        if disposition == "applied":
+            validate_text_evidence(
+                review.get("target_evidence"),
+                artifact_texts,
+                f"{label}关键来源契约 {path.name}",
+                errors,
+            )
+        elif disposition == "prohibition_checked":
+            if not validate_scope_reviews(
+                review.get("scope_reviews"),
+                artifact_texts,
+                f"{label}关键来源禁止项 {path.name}",
+                errors,
+            ):
+                errors.append(f"{label}关键来源禁止项缺少全文范围复核: {path}")
+        else:
+            reason = str(review.get("non_dependency_reason") or "").strip()
+            if not reason:
+                errors.append(f"{label}未选关键来源契约缺少无依赖理由: {path}")
+            elif any(
+                phrase in reason
+                for phrase in ("本轮不需要", "未调用", "保留原", "暂不使用")
+            ):
+                errors.append(f"{label}未选关键来源契约理由过于宽泛: {path}")
+
+
+def structural_targets(target_scene: str) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"[、，,；;]|(?:以及)|(?:及)|(?:和)", target_scene)
+        if item.strip()
+    ]
+
+
+def validate_structural_claim_reviews(
+    entry: dict[str, Any],
+    artifact_texts: dict[str, str],
+    label: str,
+    errors: list[str],
+) -> None:
+    if entry.get("rule_role") not in {"setting_constraint", "outline_constraint"}:
+        return
+    if entry.get("applicability") != "applicable":
+        return
+    targets = structural_targets(str(entry.get("target_scene") or ""))
+    if not targets:
+        return
+    reviews = entry.get("structural_claim_reviews")
+    if not isinstance(reviews, list):
+        errors.append(f"{label} structural_claim_reviews 必须是列表")
+        reviews = []
+    actual = {
+        str(item.get("target") or "").strip(): item
+        for item in reviews
+        if isinstance(item, dict) and str(item.get("target") or "").strip()
+    }
+    for target in sorted(set(targets) - set(actual)):
+        errors.append(f"{label}结构结论缺少目标场景证据: {target}")
+    for target in sorted(set(actual) - set(targets)):
+        errors.append(f"{label}结构结论包含未声明目标: {target}")
+    for target in targets:
+        review = actual.get(target)
+        if not review:
+            continue
+        validate_text_evidence(
+            [review],
+            artifact_texts,
+            f"{label}结构目标 {target}",
+            errors,
+        )
 
 
 def validate_merge_graph(
@@ -1576,6 +1830,7 @@ def validate_execution_entry(
                 label,
                 errors,
             )
+    validate_structural_claim_reviews(entry, artifact_texts, label, errors)
 
 
 def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
@@ -1697,6 +1952,10 @@ def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
         for item in source_assets
         if isinstance(item, dict) and item.get("asset_path")
     }
+    source_roles = {
+        str(Path(path).resolve()): str(item.get("source_role") or "")
+        for path, item in actual_assets.items()
+    }
     for path in sorted(set(expected_assets) - set(actual_assets)):
         errors.append(f"规则执行台账缺少拆书文件: {path}")
     for path in sorted(set(actual_assets) - set(expected_assets)):
@@ -1737,12 +1996,22 @@ def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
             errors.append(f"拆书资产含过期展开规则: {path} -> {rule_id}")
 
         if expected_rule_ids:
-            if entry.get("applicability") not in VALID_APPLICABILITY:
-                errors.append(f"拆书文件未完成适用性判断: {path}")
-            if not str(entry.get("decision_reason") or "").strip():
-                errors.append(f"拆书文件缺少适用性理由: {path}")
-            if entry.get("status") != "completed":
-                errors.append(f"拆书文件尚未标记完成: {path}")
+            expected_parent = derive_rule_level_parent_status(entry)
+            for field in (
+                "applicability",
+                "status",
+                "decision_reason",
+                "outcome",
+                "result",
+            ):
+                if entry.get(field) != expected_parent.get(field):
+                    errors.append(
+                        f"拆书规则级文件父节点未按子规则自动汇总: {path} -> {field}"
+                    )
+            if expected_parent.get("outcome") == "pending":
+                errors.append(f"拆书规则级文件父节点尚未完成裁决: {path}")
+            elif expected_parent.get("outcome") == "failed":
+                errors.append(f"拆书规则级文件父节点包含失败子规则: {path}")
             for rule_id in expected_rule_ids:
                 rule_entry = actual_rules.get(rule_id)
                 if not rule_entry:
@@ -1754,6 +2023,13 @@ def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
                     artifact_texts,
                     errors,
                 )
+                validate_source_contract_reviews(
+                    rule_entry,
+                    source_roles,
+                    artifact_texts,
+                    f"拆书规则 {path.name}/{rule_id}",
+                    errors,
+                )
                 mode = rule_entry.get("execution_mode")
                 if mode in VALID_EXECUTION_MODES:
                     counters[mode] += 1
@@ -1761,6 +2037,13 @@ def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
                     counters["completed"] += 1
         else:
             validate_execution_entry(entry, f"拆书文件 {path}", artifact_texts, errors)
+            validate_source_contract_reviews(
+                entry,
+                source_roles,
+                artifact_texts,
+                f"拆书文件 {path.name}",
+                errors,
+            )
             mode = entry.get("execution_mode")
             if mode in VALID_EXECUTION_MODES:
                 counters[mode] += 1

@@ -121,11 +121,89 @@ class FullAiAuditRhythmTest(unittest.TestCase):
         self.assertGreaterEqual(audit["short_window_review_count"], 1)
         self.assertIn(middle, audit["short_window_review_windows"])
 
+    def test_lived_scene_without_explicit_aside_is_covered(self) -> None:
+        scene = "\n".join(
+            [
+                "店员少装了一杯豆浆。",
+                "我走到车站才发现，又折回去。",
+                "「我明明看见你装了。」",
+                "「姐，我再给你拿一杯。」",
+                "后面排队的人都看过来。",
+                "漏了。",
+                "我接过杯子，杯盖没扣牢，热豆浆顺着指缝流进袖口，纸巾抽出来时还粘成了一团。",
+                "旁边的大爷低头看了半天，才发现鞋底踩着我掉在地上的口红。",
+                "「你的？」",
+                "「我的。」",
+                "公交车走了。",
+            ]
+            * 12
+        )
+        text = scene + "\n" + ("后段继续核对记录。\n" * 80)
+        boundary = len(scene) + 1
+
+        audit = AUDIT.audit_rhythm_distribution(
+            text,
+            model_boundaries=[boundary],
+        )
+
+        first = audit["windows"][0]
+        self.assertEqual(0, first["explicit_aside_count"])
+        self.assertTrue(first["scene_variance_coverage"])
+        self.assertIn(first["status"], {"covered", "high-pulse"})
+
+    def test_repetitive_dialogue_is_classified_as_symmetric_dialogue(self) -> None:
+        flat_dialogue = "\n".join(
+            ["「请报地址。」", "「幸福家园。」", "「几栋？」", "「二栋。」"] * 30
+        )
+        text = flat_dialogue + "\n" + ("后段继续核对记录。\n" * 80)
+        boundary = len(flat_dialogue) + 1
+
+        audit = AUDIT.audit_rhythm_distribution(
+            text,
+            model_boundaries=[boundary],
+        )
+
+        first = audit["windows"][0]
+        self.assertFalse(first["scene_variance_coverage"])
+        self.assertTrue(first["symmetric_dialogue"])
+        self.assertEqual("symmetric-dialogue", first["status"])
+        self.assertGreaterEqual(audit["symmetric_dialogue_window_count"], 1)
+
+    def test_lived_dialogue_with_frequent_interruptions_is_not_symmetric(self) -> None:
+        lived_dialogue = "\n".join(
+            [
+                "保温杯滚到桌边。",
+                "「地址？」",
+                "「幸福家园。」",
+                "后排有人说根本没有二栋。",
+                "「几栋？」",
+                "「我真不知道。」",
+                "孩子在后面喊十一栋。",
+            ]
+            * 30
+        )
+        text = lived_dialogue + "\n" + ("后段继续核对记录。\n" * 80)
+        boundary = len(lived_dialogue) + 1
+
+        audit = AUDIT.audit_rhythm_distribution(
+            text,
+            model_boundaries=[boundary],
+        )
+
+        first = audit["windows"][0]
+        self.assertLess(first["max_dialogue_run"], 4)
+        self.assertFalse(first["symmetric_dialogue"])
+        self.assertNotEqual("symmetric-dialogue", first["status"])
+
     def test_manual_model_segmentation_receipt_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "正文.md"
+            paragraphs_text = [
+                f"第{i}段。" + ("这里是用于分段校验的正文内容。" * 80)
+                for i in range(1, 6)
+            ]
             source.write_text(
-                "# 测试\n## 1\n第一段。\n第二段。\n第三段。\n第四段。\n第五段。\n",
+                "# 测试\n## 1\n" + "\n".join(paragraphs_text) + "\n",
                 encoding="utf-8",
             )
             text = source.read_text(encoding="utf-8")
@@ -153,6 +231,47 @@ class FullAiAuditRhythmTest(unittest.TestCase):
 
             self.assertEqual(receipt["boundaries"], boundaries)
             self.assertIn("不调用外部 API", receipt["prompt"])
+
+    def test_manual_model_segmentation_receipt_rejects_short_segment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            paragraphs_text = [
+                f"第{i}段。"
+                + (
+                    "这里是用于分段校验的正文内容。"
+                    * (4 if i == 1 else 80)
+                )
+                for i in range(1, 5)
+            ]
+            source.write_text(
+                "# 测试\n## 1\n" + "\n".join(paragraphs_text) + "\n",
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            anchors = receipt["paragraph_anchors"]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [
+                anchors[0]["start_char"],
+                anchors[1]["start_char"],
+                anchors[2]["start_char"],
+            ]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": item["start_char"],
+                    "quote": item["text"],
+                    "reason": "叙事统计特征在此发生变化。",
+                }
+                for item in [anchors[0], anchors[1], anchors[2]]
+            ]
+            receipt["manual_judgment"] = "已人工完成。"
+
+            with self.assertRaisesRegex(RuntimeError, "每段不得少于500字"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                )
 
     def test_manual_model_segmentation_receipt_rejects_stale_text(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

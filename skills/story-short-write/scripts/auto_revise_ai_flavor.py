@@ -722,21 +722,50 @@ def build_task_validation(
         if flags and set(flags) <= {"短段对白密"}:
             top_paragraph_short_only.append(item.get("paragraph_index"))
 
+    hard_errors: list[str] = []
     warnings: list[str] = []
-    if focused_segment_bridges and bridge_task_names:
+    if focused_segment_bridges:
         missing = [name for name in focused_segment_bridges[:3] if name not in bridge_task_names[:3]]
         if missing:
-            warnings.append("前排桥段任务没有覆盖高风险片段里的关键桥段: " + " / ".join(missing))
+            hard_errors.append(
+                "前排桥段任务没有覆盖高风险片段里的关键桥段: "
+                + " / ".join(missing)
+            )
     if top_paragraph_short_only:
         warnings.append("前排段落里出现了纯短段问题，说明排序可能回弹: " + " / ".join(map(str, top_paragraph_short_only)))
 
     return {
         "focused_segment_bridges": focused_segment_bridges,
         "bridge_task_names": bridge_task_names,
-        "bridge_alignment_ok": not any("前排桥段任务没有覆盖" in item for item in warnings),
+        "bridge_alignment_ok": not hard_errors,
         "short_paragraph_priority_ok": not top_paragraph_short_only,
+        "hard_errors": hard_errors,
         "warnings": warnings,
     }
+
+
+def profile_contract_errors(audit: dict) -> list[str]:
+    if not audit.get("profile"):
+        return []
+    coverage = audit.get("asset_coverage", {})
+    if not isinstance(coverage, dict):
+        return ["已绑定 profile，但审计结果缺少 asset_coverage。"]
+
+    errors: list[str] = []
+    if not coverage.get("has_bridge_rules"):
+        errors.append("已绑定 profile，但缺少 bridge_rules；必须重建拆书资产和 profile。")
+    for field, label in (
+        ("missing_scene_asset_keys", "scene_assets"),
+        ("missing_style_asset_keys", "style_assets"),
+        ("missing_story_guardrail_keys", "story_guardrails"),
+    ):
+        missing = coverage.get(field, [])
+        if isinstance(missing, list) and missing:
+            errors.append(
+                f"已绑定 profile，但 {label} 缺失："
+                + " / ".join(str(item) for item in missing)
+            )
+    return errors
 
 
 def build_model_tasks(curr: dict, prev: dict | None) -> dict:
@@ -945,6 +974,7 @@ def build_model_tasks(curr: dict, prev: dict | None) -> dict:
         )
 
     task_validation = build_task_validation(tasks, segment_focus, paragraph_focus)
+    task_validation["hard_errors"].extend(profile_contract_errors(curr))
     gate = rewrite_gate_bundle(Path(__file__).resolve().parent)
 
     return {
@@ -1364,6 +1394,12 @@ def main() -> int:
     )
     prev = load_json(Path(args.previous_audit_json).resolve()) if args.previous_audit_json else None
     payload = build_model_tasks(curr, prev)
+    hard_errors = payload.get("task_validation", {}).get("hard_errors", [])
+    if hard_errors:
+        print("rewrite_task_gate: blocked", file=sys.stderr)
+        for error in hard_errors:
+            print(f"- {error}", file=sys.stderr)
+        return 2
 
     stem = source_file.stem
     task_json = output_dir / f"{stem}.model_rewrite_task.json"

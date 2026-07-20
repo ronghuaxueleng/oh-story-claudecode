@@ -11,6 +11,7 @@
 7. 常用脚本入口和产物怎么看
 8. 自动预扫和人工语义复核怎么分工
 9. skill 规则和拆书规则怎么逐项执行并留证
+10. 主体拆书的开头功能顺序怎么做成阻断式契约
 
 ---
 
@@ -84,19 +85,27 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 10. 读取 `book.profile.json / project.profile.json`
 11. 判断 `讲法型 / 桥段链型 / 混合型`
 12. 起盘和细纲，同时逐项标记规则
-13. 正文，同时逐项标记规则
-14. 跑内部审计并回填脚本产物
-15. 生成回修任务单
-16. 回修
-17. 重审
-18. 绑定最终写作产物并通过 `rule_execution_gate`
-19. 生成人工语义复核回执并人工复扫全文
-20. 通过 `post_write_human_review_gate`
-21. 高风险任务再过第二闸门
+13. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
+14. 正文，同时逐项标记规则
+15. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
+16. 跑内部审计并回填脚本产物
+17. 生成回修任务单
+18. 回修；正文 SHA 变化后重建开头回执
+19. 重审
+20. 绑定最终写作产物并通过 `rule_execution_gate`
+21. 重新校验正文 `opening_contract_gate`
+22. 生成人工语义复核回执并人工复扫全文
+23. 通过 `post_write_human_review_gate`
+24. 高风险任务再过第二闸门
 
 关键原则：
 
 - 规则只用于约束，不替代正文生成
+- 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
+- profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`
+- 普通素材候选可以不选；主体治理资产及顺序、后果、外部秩序、公开场后果不能用“未调用、保留原稿”跳过
+- 文件级关键契约也必须逐来源复核；规则级文件父节点由子规则自动派生，不能手填假完成
+- 设定/大纲 canonical 同时覆盖多个目标时，每个目标都要有 `structural_claim_reviews` 原句证据，不能跨范围代证
 - 读取回执不能代替执行台账；执行一项标记一项，不能最后统一补“已使用”
 - 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
 - 完全重复规则族自动合并，近义规则族由模型归一；canonical 执行一次并保留全部来源和族内变体
@@ -257,7 +266,27 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 
 逐项字段、规则展开范围和脚本/人工分工见 [rule-execution-ledger.md](rule-execution-ledger.md)。
 
-### 4. 生成并校验写后人工语义复核回执
+### 4. 生成并校验开头承重契约
+
+大纲和正文各自生成回执，由当前模型逐项人工回填：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init \
+  --project "{项目名}" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md" \
+  --artifact-kind draft \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md"
+```
+
+只要任务说明先于关系钩子、主体三拍功能顺序被打乱，或题面未在前 `80 / 120` 字兑现，就返回 blocked。详见 [opening-contract-gate.md](opening-contract-gate.md)。
+
+### 5. 生成并校验写后人工语义复核回执
 
 全新正文：
 
@@ -346,6 +375,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" 
   --profile profiles/{项目名}.project.profile.json \
   --output-dir auto_revise_runs
 ```
+
+已识别的高风险桥段如果没有进入前排桥段任务，任务单生成直接阻断。已绑定 profile 时，`bridge_rules / scene_assets / style_assets / story_guardrails` 缺失也直接阻断并要求重建拆书/profile。短段偏多、局部频率和统计波动仍只作诊断预警，不得据此机械改文。
 
 ### 9. 跑单轮闭环
 

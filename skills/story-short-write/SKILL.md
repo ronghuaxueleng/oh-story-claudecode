@@ -133,6 +133,10 @@ metadata:
 31. 写作过程中执行一项标记一项；最终正文绑定后必须通过 `validate_rule_execution_ledger.py`，不得写完后批量伪造“已使用”记录。
 32. 完全重复规则初始化时自动合并，语义近似规则人工归入 canonical；只有失败的适用 `draft_constraint` 可以设置 `requires_text_change: true` 并进入正文修改单。
 33. 写后长窗审计必须先导出人工模型分段任务，由当前执行 skill 的模型完整读取正文并回填分段回执；禁止脚本调用外部 API、Claude CLI 或其他模型。正文 SHA 变化后旧分段回执立即失效；无回执的算法滑窗只能算预扫。
+34. 主体拆书的 `可直接仿写_导语拆解表.md` 必须单独生成开头承重契约；大纲和正文各过一次。前 `20 / 60 / 80 / 120` 字的关系锚、异常站位、题面兑现、读者问题、说明抢跑和功能顺序任一失败都直接阻断，不能并入普通规则卡后降级为 warning。
+35. profile、事实台账、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检、禁写清单、顺序/后果/外部秩序表即使并入 canonical，也必须逐来源填写 `source_contract_reviews`；主体治理资产不得标 `not_selected`。规则级文件父节点由子规则自动汇总，手填状态与子规则不一致时阻断。
+36. `setting_constraint / outline_constraint` 如果在 `target_scene` 同时宣称多个目标通过，必须逐目标填写 `structural_claim_reviews`；开头、反转、后果等任一目标没有对应产物原句时，不得整体判过。
+37. 警告必须按语义分级：已识别的高风险桥段未进入前排回修任务、强制资产缺失、承重顺序错乱属于硬失败；统计波动、短段偏多和局部频率异常只作诊断，不得反向驱动机械改文。
 
 ---
 
@@ -227,9 +231,44 @@ metadata:
 - 拆书候选按需选用，禁用规则只查污染
 - 只有失败的适用正文约束进入正文修改单
 
+普通动作、物件、对白和生活细节仍可作为候选按需选用；以下关键来源契约不允许被“候选可跳过”口径吞掉：
+
+- `book.profile.json`
+- `事实与推断台账.md`
+- `写作资产/样本分级与可学层.md`
+- `写作资产/作者DNA指纹.md`
+- `写作资产/桥段施工卡.md`
+- `写作资产/高敏桥段识别.md`
+- `写作资产/同桥段过检规则.md`
+- `写作资产/仿写约束_禁写清单.md`
+- `可直接仿写_顺序事件表.md`
+- `可直接仿写_后果链表.md`
+- `可直接仿写_外部秩序表.md`
+
+这些文件无论按规则级展开还是保留为文件级资产，被合并后 canonical 都必须对每个 `source_ref` 分别记录 `applied / not_selected / prohibition_checked`、源文件原句、人工判断和目标证据。主体的顺序、后果、外部秩序和公开场后果资产也不能标 `not_selected`。
+
+规则级资产父节点不要求人工再填一遍。运行 `refresh-summary`、`apply-plan` 或 `apply-model-groups` 时，脚本按子规则自动派生父节点的 `applicability / status / outcome / result`；父子状态不一致时直接阻断。
+
+设定/大纲规则若覆盖多个目标场景，还必须把 `target_scene` 中的每一项分别写入 `structural_claim_reviews`。不能用“后果链成立”的证据同时证明开头、反转和追妻线均已通过。
+
 额外挂载的题材规则或专项规则必须通过 `--skill-rule-file` 加进同一台账。完整字段和命令见：
 
 - [references/governance/rule-execution-ledger.md](references/governance/rule-execution-ledger.md)
+
+### 开头承重契约硬闸
+
+主体拆书导语资产中的“功能顺序”和“为什么不能换序”不允许只作为普通 `outline_constraint` 留在台账中。写完大纲后、正文首写或开头回炉后，分别运行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate ...
+```
+
+必须由当前模型读取主体 `可直接仿写_导语拆解表.md` 和目标前 `120` 字，逐项填写原句证据。任一检查失败就改大纲或开头；不允许用“第一节最终有冲突”“本轮只改中后段”或规则台账已通过替代本闸门。
+
+完整字段与命令见：
+
+- [references/governance/opening-contract-gate.md](references/governance/opening-contract-gate.md)
 
 ### 必备输入
 
@@ -271,14 +310,16 @@ metadata:
 8. 读取 `book.profile.json / project.profile.json`
 9. 判断 `讲法型 / 桥段链型 / 混合型`
 10. 起盘与细纲，同时逐项更新台账
-11. 正文，同时逐项更新台账
-12. 内部审计并回填脚本执行产物
-13. 生成回修任务单
-14. 定点回炉
-15. 重新审计
-16. 绑定最终写作产物并通过 `rule_execution_gate`
-17. 全文人工语义复扫并通过 `post_write_human_review_gate`
-18. 高风险任务再过第二闸门
+11. 对大纲执行开头承重契约硬闸
+12. 正文，同时逐项更新台账
+13. 对正文执行开头承重契约硬闸
+14. 内部审计并回填脚本执行产物
+15. 生成回修任务单
+16. 定点回炉；正文 SHA 变化后重过开头硬闸
+17. 重新审计
+18. 绑定最终写作产物并通过 `rule_execution_gate`
+19. 全文人工语义复扫并通过 `post_write_human_review_gate`
+20. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -305,12 +346,13 @@ metadata:
 
 ### 脚本入口
 
-常用入口只保留下面 7 个：
+常用入口只保留下面 8 个：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
@@ -352,11 +394,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 #### 开头硬闸
 
-前 60 到 100 字至少完成 3 件事里的 2 件：
-
-- 关系定位
-- 冲突起事
-- 后果预期
+通用最低要求是前 60 到 100 字至少完成 `关系定位 / 冲突起事 / 后果预期` 中的两项；存在主体拆书时，还必须通过开头承重契约，主体资产明确规定的顺序不得用通用最低要求覆盖。
 
 #### 高潮硬闸
 
@@ -522,6 +560,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
+```
+
+同时重新校验正文开头承重契约；正文或主体导语资产 SHA 变化后旧回执无效：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md"
 ```
 
 再过人工语义硬闸：

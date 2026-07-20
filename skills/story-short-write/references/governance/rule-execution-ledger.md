@@ -13,6 +13,59 @@
 - 导航、说明、例子和 profile 数据不能各自膨胀成一条强制执行规则。
 - 合并后仍必须阅读全部 `cases`，不能因为数量下降而漏掉案例差异。
 
+## 关键来源契约不能被合并降级
+
+以下资产含“必须保留、顺序不能乱、换序即失效、判假、禁写、事实边界”等阻断信息：
+
+- `book.profile.json`
+- `事实与推断台账.md`
+- `写作资产/样本分级与可学层.md`
+- `写作资产/作者DNA指纹.md`
+- `写作资产/桥段施工卡.md`
+- `写作资产/高敏桥段识别.md`
+- `写作资产/同桥段过检规则.md`
+- `写作资产/仿写约束_禁写清单.md`
+- `写作资产/公开场_关键硬牌_后果.md`
+- `可直接仿写_顺序事件表.md`
+- `可直接仿写_后果链表.md`
+- `可直接仿写_外部秩序表.md`
+
+这些资产可以合并进 canonical，但不能只留一条宽泛结论。canonical 必须在 `source_contract_reviews` 中逐个覆盖其 `source_refs`：
+
+```json
+{
+  "source_path": "/absolute/path/to/asset.md",
+  "source_sha256": "...",
+  "disposition": "applied",
+  "source_quote": "为什么这个顺序不能乱：……",
+  "judgment": "本稿采用哪一层、禁止哪一层。",
+  "target_evidence": [
+    {
+      "artifact": "大纲",
+      "quote": "当前大纲原句",
+      "judgment": "该句如何兑现来源契约。"
+    }
+  ],
+  "scope_reviews": [],
+  "non_dependency_reason": ""
+}
+```
+
+- `applied`：必须提供当前设定/大纲/正文原句证据。
+- `prohibition_checked`：必须提供全文范围复核。
+- `not_selected`：必须解释当前结构为何不依赖该契约，不能只写“本轮未调用、保留原稿”。
+- 主体的 profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检、禁写清单、平台提醒、顺序事件、后果链、外部秩序和公开场后果不得标 `not_selected`。
+- 文件级关键资产也执行同一套 `source_contract_reviews`，不能因为没有展开子规则而绕过契约复核。
+- 规则级资产父节点由子规则自动派生。`refresh-summary / apply-plan / apply-model-groups` 会同步 `applicability / status / outcome / result`；手填结果与子规则不一致时直接阻断。
+
+## 结构结论必须逐目标举证
+
+`setting_constraint / outline_constraint` 的 `target_scene` 如果写了多个目标，例如：
+
+`开头、反转揭示、正式后果及追妻后效应`
+
+则 `structural_claim_reviews` 必须分别覆盖 `开头 / 反转揭示 / 正式后果 / 追妻后效应`，每项都引用当前设定或大纲原句。只证明其中两项却把整张 canonical 判为 passed，直接阻断。
+
 ## 先分类，再执行
 
 台账中的规则不等于正文修改项。每条规则必须先确认 `rule_role`：
@@ -124,6 +177,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 
 - `applicable`：必须真正执行并标记 `status: completed`。
 - `rejected / not_applicable`：必须写具体 `decision_reason`，不能用“本次不需要”敷衍。
+- 关键来源契约还要逐来源填写 `source_contract_reviews`，不能用 canonical 的一条公共证据替代。
 - `merged`：只由 canonical 规则统一执行，重复项不得再生成一份正文修改任务。
 - `script`：填写 `script_artifacts` 的路径、SHA 和结果摘要。
 - `human`：填写 `human_judgment`，并在 `text_evidence` 中引用当前写作产物原句及逐项判断。

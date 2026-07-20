@@ -66,6 +66,20 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         )
         report = self.source / "拆文报告.md"
         report.write_text("# 报告\n\n这是一份整体分析。\n", encoding="utf-8")
+        facts = self.source / "事实与推断台账.md"
+        facts.write_text(
+            "# 事实与推断台账\n\n- 必须保持事实边界，不得把推断写成事实。\n",
+            encoding="utf-8",
+        )
+        bridge = self.source / "写作资产" / "桥段施工卡.md"
+        bridge.parent.mkdir(parents=True, exist_ok=True)
+        bridge.write_text(
+            "# 桥段施工卡\n\n"
+            "## 关键桥\n\n"
+            "- 必须保留的承重件：权限先失效，再出现替代者。\n"
+            "- 为什么这个顺序不能乱：先见人再补权限，物件只剩道具。\n",
+            encoding="utf-8",
+        )
 
     def _build_receipts(self) -> None:
         self.writing_receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -91,10 +105,12 @@ class RuleExecutionLedgerTest(unittest.TestCase):
             encoding="utf-8",
         )
         source_files = []
-        for path in sorted(self.source.iterdir()):
+        for path in sorted(self.source.rglob("*")):
+            if not path.is_file():
+                continue
             source_files.append(
                 {
-                    "path": path.name,
+                    "path": path.relative_to(self.source).as_posix(),
                     "sha256": GATE.sha256(path),
                     "status": "read",
                 }
@@ -160,6 +176,48 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                     "judgment": "该原句是本规则在正文中的落点。",
                 }
             ]
+        entry["structural_claim_reviews"] = []
+        if entry.get("rule_role") in {"setting_constraint", "outline_constraint"}:
+            entry["structural_claim_reviews"] = [
+                {
+                    "target": target,
+                    "artifact": "正文",
+                    "quote": "正文证据。",
+                    "judgment": f"该原句覆盖结构目标：{target}。",
+                }
+                for target in GATE.structural_targets(entry["target_scene"])
+            ]
+        entry["source_contract_reviews"] = []
+        for ref in entry.get("source_refs", []):
+            path = Path(str(ref.get("source_path") or "")).resolve()
+            if GATE.normalized_contract_name(path) not in GATE.SOURCE_CONTRACT_ASSET_NAMES:
+                continue
+            source_quote = next(
+                (
+                    line.strip()
+                    for line in path.read_text(encoding="utf-8").splitlines()
+                    if line.strip() and not line.lstrip().startswith("#")
+                ),
+                "",
+            )
+            entry["source_contract_reviews"].append(
+                {
+                    "source_path": str(path),
+                    "source_sha256": GATE.sha256(path),
+                    "disposition": "applied",
+                    "source_quote": source_quote,
+                    "judgment": "当前正文按权限失效先于替代者出现执行。",
+                    "target_evidence": [
+                        {
+                            "artifact": "正文",
+                            "quote": "正文证据。",
+                            "judgment": "该原句用于测试关键来源契约落点。",
+                        }
+                    ],
+                    "scope_reviews": [],
+                    "non_dependency_reason": "",
+                }
+            )
 
     def _write_completed_ledger(self) -> dict:
         ledger = self._create_ledger()
@@ -174,14 +232,12 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         for entry in ledger["skill_rules"]:
             self._complete_entry(entry)
         for asset in ledger["source_assets"]:
-            asset["applicability"] = "applicable"
-            asset["status"] = "completed"
-            asset["decision_reason"] = "已判断该拆书文件适用于当前项目。"
             if asset["rules"]:
                 for rule in asset["rules"]:
                     self._complete_entry(rule)
             else:
                 self._complete_entry(asset)
+        GATE.sync_rule_level_parent_statuses(ledger)
         ledger["execution_summary"] = GATE.calculate_execution_summary(ledger)
         self.ledger_path.write_text(
             json.dumps(ledger, ensure_ascii=False, indent=2),
@@ -218,8 +274,131 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         errors, summary = GATE.validate_ledger(self.ledger_path)
         self.assertEqual([], errors)
         self.assertGreater(summary["skill_rules"], 0)
-        self.assertEqual(2, summary["source_assets"])
+        self.assertEqual(4, summary["source_assets"])
         self.assertGreater(summary["asset_rules"], 0)
+
+    def test_critical_source_contract_requires_per_source_review(self) -> None:
+        ledger = self._write_completed_ledger()
+        critical = next(
+            rule
+            for asset in ledger["source_assets"]
+            for rule in asset.get("rules", [])
+            if rule.get("source_contract_reviews")
+            and rule.get("applicability") != "merged"
+        )
+        critical["source_contract_reviews"] = []
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_ledger(self.ledger_path)
+        self.assertTrue(any("缺少关键来源契约复核" in error for error in errors))
+
+    def test_main_governance_contract_cannot_be_not_selected(self) -> None:
+        ledger = self._write_completed_ledger()
+        critical = next(
+            rule
+            for asset in ledger["source_assets"]
+            for rule in asset.get("rules", [])
+            if rule.get("source_contract_reviews")
+            and rule.get("applicability") != "merged"
+        )
+        critical["source_contract_reviews"][0]["disposition"] = "not_selected"
+        critical["source_contract_reviews"][0]["non_dependency_reason"] = (
+            "当前结构完全不依赖该桥段。"
+        )
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_ledger(self.ledger_path)
+        self.assertTrue(any("主体关键承重契约不得标记未选用" in error for error in errors))
+
+    def test_rule_level_parent_cannot_remain_pending(self) -> None:
+        ledger = self._write_completed_ledger()
+        parent = next(asset for asset in ledger["source_assets"] if asset["rules"])
+        parent["outcome"] = "pending"
+        parent["result"] = ""
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_ledger(self.ledger_path)
+        self.assertTrue(any("父节点未按子规则自动汇总" in error for error in errors))
+
+    def test_refresh_summary_derives_rule_level_parent(self) -> None:
+        ledger = self._write_completed_ledger()
+        parent = next(asset for asset in ledger["source_assets"] if asset["rules"])
+        parent.update(
+            {
+                "applicability": "pending",
+                "status": "pending",
+                "decision_reason": "",
+                "outcome": "pending",
+                "result": "",
+            }
+        )
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        GATE.refresh_summary(self.ledger_path)
+        updated = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+        refreshed = next(
+            asset for asset in updated["source_assets"] if asset["id"] == parent["id"]
+        )
+        self.assertEqual("completed", refreshed["status"])
+        self.assertEqual("passed", refreshed["outcome"])
+        self.assertIn("子规则已完成", refreshed["result"])
+
+    def test_file_level_source_contract_requires_review(self) -> None:
+        ledger = self._write_completed_ledger()
+        report = next(
+            asset
+            for asset in ledger["source_assets"]
+            if asset["relative_path"] == "拆文报告.md"
+        )
+        report["source_refs"].append(
+            {
+                "id": "TEST-CONTRACT",
+                "source_path": str(self.source / "事实与推断台账.md"),
+                "source_sha256": GATE.sha256(self.source / "事实与推断台账.md"),
+            }
+        )
+        ledger["execution_summary"] = GATE.calculate_execution_summary(ledger)
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_ledger(self.ledger_path)
+        self.assertTrue(any("缺少关键来源契约复核" in error for error in errors))
+
+    def test_outline_claims_require_per_target_evidence(self) -> None:
+        ledger = self._write_completed_ledger()
+        entry = next(
+            item
+            for item in ledger["skill_rules"]
+            if item.get("applicability") != "merged"
+        )
+        entry["rule_role"] = "outline_constraint"
+        entry["remediation_target"] = "outline"
+        entry["target_stage"] = "outline"
+        entry["target_scene"] = "开头、反转、后果"
+        entry["structural_claim_reviews"] = [
+            {
+                "target": "后果",
+                "artifact": "正文",
+                "quote": "正文证据。",
+                "judgment": "只覆盖了后果。",
+            }
+        ]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_ledger(self.ledger_path)
+        self.assertTrue(any("结构结论缺少目标场景证据: 开头" in error for error in errors))
+        self.assertTrue(any("结构结论缺少目标场景证据: 反转" in error for error in errors))
 
     def test_missing_skill_rule_is_blocked(self) -> None:
         ledger = self._write_completed_ledger()
@@ -402,6 +581,7 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                 "outcome": "not_applicable",
             }
         )
+        GATE.sync_rule_level_parent_statuses(ledger)
         ledger["execution_summary"] = GATE.calculate_execution_summary(ledger)
         self.ledger_path.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
         errors, _ = GATE.validate_ledger(self.ledger_path)
@@ -430,6 +610,7 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                 ],
             }
         )
+        GATE.sync_rule_level_parent_statuses(ledger)
         ledger["execution_summary"] = GATE.calculate_execution_summary(ledger)
         self.ledger_path.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
         errors, _ = GATE.validate_ledger(self.ledger_path)

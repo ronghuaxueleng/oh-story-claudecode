@@ -1252,7 +1252,9 @@ def build_model_segmented_windows(
             p for p in paragraphs
             if p["start_char"] >= seg_start and p["end_char"] <= seg_end
         ]
-        # 直接用请求的字符边界切文本，不再对齐到段落边界，以最大限度贴近朱雀分段位置
+        # 直接用请求的字符边界切文本，以最大限度贴近朱雀分段位置。
+        # 正式人工分段在进入这里前已由回执校验保证边界合法且对齐段落；
+        # 这里保留任意边界能力，供朱雀结果模拟和诊断测试使用。
         windows.append(
             {
                 "window_index": seg_idx,
@@ -1268,17 +1270,29 @@ def build_model_segmented_windows(
     return windows
 
 _SEGMENT_PROMPT_TMPL = """\
-你是当前正在执行 story-short-write 的写作模型。请完整读取指定小说正文，找出叙事统计指纹（困惑度、突发性、对白/动作密度、叙述者气口）发生显著变化的位置。
+你是当前正在执行 story-short-write 的写作模型。请完整读取指定小说正文，找出文本 AIGC 信号密度（语言可预测性）发生显著跃变的位置。
 
-规则：
-- 统计特征均匀的大块叙述 → 归为一段（uncertain区）
-- 叙述者评价、句式剧烈交替、对白错位、荒诞动作或情绪骤变集中的短区域 → 独立切出
-- 目标为 4-7 段，即返回 3-6 个边界
-- 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置
-- 必须读取完整正文，不能只看开头、摘要或章节标题
-- 不调用外部 API、Claude CLI 或其他模型；由当前执行 skill 的模型人工完成
-- 回填 receipt 中的 boundaries、boundary_evidence、manual_judgment、status
-- 每个 boundary_evidence 必须写明 offset、该段开头原句和为什么在这里切
+核心概念：
+- 高 AIGC 信号区（低困惑度）：精确时间戳（凌晨X点X分、七点四十二分）、程序化问答流程（报警接警/调解程序）、格式化动作序列、工整对称短句对话 → 语言高度可预测
+- 低 AIGC 信号区（高困惑度）：心理流动与感知碎片、不对称句式、叙述者内在独白、情绪漂移、细节感知（气味/声音/触感）→ 语言不可预测性强
+
+切分规则：
+1. 在 AIGC 信号密度发生显著跃变的段落边界处切分；不在章节边界或叙事场景切换处切分（除非同时伴随语言可预测性的显著变化）
+2. 最小段长约束：每段字符数不得少于 500 字；若某边界会产生 < 500 字的段，延后至下一个满足约束的段落锚点
+3. 同质区合并：连续多章若 AIGC 信号密度相近（均为低密度叙述），归为一段，不因章节边界拆开
+4. 目标为 4-7 段，即返回 3-6 个边界
+5. 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置
+6. 必须读取完整正文，不能只看开头、摘要或章节标题
+7. 不调用外部 API、Claude CLI 或其他模型；由当前执行 skill 的模型人工完成
+8. 回填 receipt 中的 boundaries、boundary_evidence、manual_judgment、status
+9. 每个 boundary_evidence 必须写明 offset、该段开头原句（quote）和为什么在这里切（reason）
+10. 禁止将边界仅对齐章节标题（## N）：若某候选边界落在章节起始 5 字内，但该章节边界前后 AIGC 信号密度无显著变化，必须放弃该边界，重新选择段落内的密度跃变点
+
+判断顺序：
+① 先扫描全文，对每个段落标注 AIGC 信号密度（高/低）
+② 找出密度发生跃变的段落边界
+③ 合并相邻同密度段，检查最小段长约束（< 500 字则延后）
+④ 从满足约束的 paragraph_anchors.start_char 中选出最终边界
 
 正文路径：{source_path}
 正文 SHA256：{text_sha256}
@@ -1357,6 +1371,18 @@ def validate_manual_model_segmentation_receipt(
         errors.append("人工模型分段边界必须严格升序且不能重复")
     if any(value <= 0 or value >= len(text) for value in normalized):
         errors.append("人工模型分段边界必须位于正文内部")
+
+    cuts = [0, *normalized, len(text)]
+    short_segments = [
+        (start, end, end - start)
+        for start, end in zip(cuts[:-1], cuts[1:])
+        if end - start < 500
+    ]
+    if short_segments:
+        detail = "、".join(
+            f"{start}-{end}({size}字)" for start, end, size in short_segments
+        )
+        errors.append(f"人工模型分段每段不得少于500字: {detail}")
 
     paragraphs = build_paragraph_entries(text)
     anchor_map = {item["start_char"]: item for item in paragraphs}
@@ -1445,17 +1471,47 @@ def audit_rhythm_distribution(
             if 1 <= answer_len <= 15:
                 self_qa_pairs += 1
 
-        dialogue_lines = [
-            item
-            for item in window["text"].splitlines()
-            if is_dialogue_sentence(item.strip())
+        content_lines = [
+            item.strip() for item in window["text"].splitlines() if item.strip()
         ]
-        line_count = len([item for item in window["text"].splitlines() if item.strip()])
+        dialogue_flags = [is_dialogue_sentence(item) for item in content_lines]
+        dialogue_lines = [
+            item for item, is_dialogue in zip(content_lines, dialogue_flags)
+            if is_dialogue
+        ]
+        line_count = len(content_lines)
+        dialogue_line_ratio = len(dialogue_lines) / max(line_count, 1)
+        dialogue_lens = [count_chinese_chars(ln.strip()) for ln in dialogue_lines if ln.strip()]
+        avg_dialogue_len = statistics.mean(dialogue_lens) if dialogue_lens else 0.0
+        dialogue_len_cv_val = coeff_var(dialogue_lens) if len(dialogue_lens) >= 3 else 1.0
+        max_dialogue_run = 0
+        current_dialogue_run = 0
+        for is_dialogue in dialogue_flags:
+            if is_dialogue:
+                current_dialogue_run += 1
+                max_dialogue_run = max(max_dialogue_run, current_dialogue_run)
+            else:
+                current_dialogue_run = 0
+        # 对白对称性：高对白占比 + 平均行短 → 一问一答密集链，朱雀低困惑度区
+        # 连续对白链用于排除“对白很多、但持续被动作和生活杂音打断”的活场面。
+        symmetric_dialogue = (
+            len(dialogue_lines) >= 4
+            and dialogue_line_ratio >= 0.45
+            and avg_dialogue_len <= 12
+            and max_dialogue_run >= 4
+        )
         # 去重后合并计数，避免短反应句与显式评价句双重计数
         all_pulse_sentences: set[str] = set(short_reactions) | set(explicit_asides)
         # 突发性奖励：高句长方差 = 短句/长句激烈交替，类似朱雀检测的 burstiness 人味信号
         # 对话/动作密集段（如搬陶轮、创可贴场景）即使叙述者评价句少，也应有人味信号
         sentence_length_cv = coeff_var(lengths)
+        # 场面活性与叙述者气口是两套证据。动作、对白和生活干扰交错的窗口，
+        # 即使没有命中固定气口词典，也不应被误判成匀速平铺。
+        scene_variance_coverage = (
+            len(lengths) >= 8
+            and sentence_length_cv >= 0.5
+            and 0.2 <= dialogue_line_ratio <= 0.55
+        )
         short_window_high_variance = (
             len(lengths) >= 5
             and window["char_count"] < RHYTHM_WINDOW_MIN_CHARS
@@ -1481,7 +1537,7 @@ def audit_rhythm_distribution(
                 )},
                 "sentence_count": len(sentence_texts),
                 "sentence_length_cv": round(sentence_length_cv, 3),
-                "dialogue_line_ratio": round(len(dialogue_lines) / max(line_count, 1), 3),
+                "dialogue_line_ratio": round(dialogue_line_ratio, 3),
                 "narrator_question_count": len(narrator_questions),
                 "self_qa_pair_count": self_qa_pairs,
                 "explicit_aside_count": len(explicit_asides),
@@ -1489,7 +1545,12 @@ def audit_rhythm_distribution(
                 "narrator_pulse_count": pulse_count,
                 "narrator_pulse_density": pulse_density,
                 "burstiness_bonus": burstiness_bonus,
+                "scene_variance_coverage": scene_variance_coverage,
                 "short_window_high_variance": short_window_high_variance,
+                "avg_dialogue_len": round(avg_dialogue_len, 1),
+                "dialogue_len_cv": round(dialogue_len_cv_val, 3),
+                "max_dialogue_run": max_dialogue_run,
+                "symmetric_dialogue": symmetric_dialogue,
                 "pulse_examples": dedupe_keep_order(
                     short_reactions + narrator_questions + explicit_asides
                 )[:6],
@@ -1508,12 +1569,18 @@ def audit_rhythm_distribution(
             or item["narrator_pulse_density"] >= high_threshold
         ):
             item["status"] = "high-pulse"
+        elif item["symmetric_dialogue"]:
+            item["status"] = "symmetric-dialogue"
         elif (
             item["char_count"] < RHYTHM_WINDOW_MIN_CHARS
             and item["narrator_pulse_density"] < low_threshold
+            and not item["scene_variance_coverage"]
         ):
             item["status"] = "short-window-review"
-        elif item["narrator_pulse_density"] < low_threshold:
+        elif (
+            item["narrator_pulse_density"] < low_threshold
+            and not item["scene_variance_coverage"]
+        ):
             item["status"] = "low-pulse"
         else:
             item["status"] = "covered"
@@ -1521,6 +1588,9 @@ def audit_rhythm_distribution(
     low_windows = [item for item in results if item["status"] == "low-pulse"]
     short_review_windows = [
         item for item in results if item["status"] == "short-window-review"
+    ]
+    symmetric_dialogue_windows = [
+        item for item in results if item["status"] == "symmetric-dialogue"
     ]
     density_cv = round(coeff_var(densities), 3)
     return {
@@ -1543,6 +1613,8 @@ def audit_rhythm_distribution(
         "low_pulse_windows": low_windows,
         "short_window_review_count": len(short_review_windows),
         "short_window_review_windows": short_review_windows,
+        "symmetric_dialogue_window_count": len(symmetric_dialogue_windows),
+        "symmetric_dialogue_windows": symmetric_dialogue_windows,
         "windows": results,
     }
 
@@ -1550,6 +1622,7 @@ def audit_rhythm_distribution(
 def build_rhythm_impact_items(rhythm_audit: dict) -> list[dict]:
     low_windows = rhythm_audit.get("low_pulse_windows", [])
     short_review_windows = rhythm_audit.get("short_window_review_windows", [])
+    symmetric_dialogue_windows = rhythm_audit.get("symmetric_dialogue_windows", [])
     items: list[dict] = []
     if low_windows:
         evidence = [
@@ -1613,6 +1686,32 @@ def build_rhythm_impact_items(rhythm_audit: dict) -> list[dict]:
                     "fix_methods": [
                         "先看该短段是否存在对白错位、荒诞动作、情绪骤变或人物失手。",
                         "若只是平铺叙述被切短，调整人工模型边界，不要靠补短句抬分。",
+                    ],
+                },
+                source_family="rhythm_distribution",
+                focus_layer="block_rhythm",
+            )
+        )
+    if symmetric_dialogue_windows:
+        evidence = [
+            (
+                f"长窗{item['window_index']} 字符 {item['start_char']}-{item['end_char']} "
+                f"对白占比 {item['dialogue_line_ratio']} 平均对白长度 {item['avg_dialogue_len']} "
+                f"最长连续对白 {item['max_dialogue_run']} 行"
+            )
+            for item in symmetric_dialogue_windows[:4]
+        ]
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "连续短对白链需要人工复核",
+                    "priority": "P1",
+                    "why_it_hits_audit": "高对白占比、短句和连续问答叠加时，场面容易变成高效率的信息交换，缺少动作、回避和生活干扰。",
+                    "evidence": evidence,
+                    "fix_methods": [
+                        "先人工判断连续对白是否符合职业流程或冲突现场，不按命中数量机械拆句。",
+                        "若人物每句都准确回应上一句，优先加入回避、误听、动作中断或第三方闲枝。",
+                        "若对白已被动作和环境持续打断，保留正文并记录为人工放行，不为脚本改文。",
                     ],
                 },
                 source_family="rhythm_distribution",
@@ -3698,6 +3797,9 @@ def markdown_report(file_path: Path, light: dict, heavy: dict, recommendations: 
         lines.append("")
         lines.append(f"- 长窗数: `{rhythm_audit.get('window_count', 0)}`")
         lines.append(f"- 低气口长窗数: `{rhythm_audit.get('low_pulse_window_count', 0)}`")
+        lines.append(
+            f"- 连续短对白链窗口数: `{rhythm_audit.get('symmetric_dialogue_window_count', 0)}`"
+        )
         lines.append(f"- 跨窗落差: `{rhythm_audit.get('cross_window_contrast')}`")
         lines.append(f"- 气口密度离散度: `{rhythm_audit.get('pulse_density_cv')}`")
         lines.append("- 说明: 这里只做内部定位，不等同于外部检测器的 human/uncertain 分类。")
