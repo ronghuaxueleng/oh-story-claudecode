@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import statistics
@@ -1267,79 +1268,129 @@ def build_model_segmented_windows(
     return windows
 
 _SEGMENT_PROMPT_TMPL = """\
-你是一个文本分段分析器。读入下方中文小说文本，找出叙事统计指纹（困惑度/突发性）发生显著变化的位置，返回4-8个分段边界（字符偏移量）。
+你是当前正在执行 story-short-write 的写作模型。请完整读取指定小说正文，找出叙事统计指纹（困惑度、突发性、对白/动作密度、叙述者气口）发生显著变化的位置。
 
 规则：
 - 统计特征均匀的大块叙述 → 归为一段（uncertain区）
-- 叙述者评价密集、句式剧烈交替、自问自答集中的短区域 → 独立切出（human区）
-- 目标分段数：4-7段，边界尽量精确到段落边界
-- 只输出 JSON，格式：{"boundaries": [整数, ...]}，不要任何解释
+- 叙述者评价、句式剧烈交替、对白错位、荒诞动作或情绪骤变集中的短区域 → 独立切出
+- 目标为 4-7 段，即返回 3-6 个边界
+- 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置
+- 必须读取完整正文，不能只看开头、摘要或章节标题
+- 不调用外部 API、Claude CLI 或其他模型；由当前执行 skill 的模型人工完成
+- 回填 receipt 中的 boundaries、boundary_evidence、manual_judgment、status
+- 每个 boundary_evidence 必须写明 offset、该段开头原句和为什么在这里切
 
----
-文本（总字数 {total_chars}，章节分布：{chapter_map}）：
-
-{text_sample}
----
+正文路径：{source_path}
+正文 SHA256：{text_sha256}
+正文字符数：{total_chars}
+章节分布：{chapter_map}
 """
 
 
-def segment_text_with_model(
-    text: str,
-    *,
-    timeout: float = 40.0,
-    api_key: str = "",
-) -> list[int]:
-    """
-    调用模型获取文本分段边界，模拟朱雀的内容感知分段。
-    成功时返回边界偏移量列表；失败时返回空列表（调用方应 fallback 到算法分段）。
-    """
-    # 构建章节分布摘要
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def build_manual_model_segmentation_task(source_path: Path, text: str) -> dict:
+    paragraphs = build_paragraph_entries(text)
     chapter_map = ", ".join(
         f"第{m.group(1)}章[{m.start()}]"
         for m in re.finditer(r"^##\s*(\d+)", text, re.MULTILINE)
     )
-    # 取前 4000 字 + 章节标记作为上下文（避免 prompt 过长）
-    text_sample = text[:4000] + ("\n[...后续文本省略...]" if len(text) > 4000 else "")
     prompt = _SEGMENT_PROMPT_TMPL.format(
+        source_path=str(source_path.resolve()),
+        text_sha256=text_sha256(text),
         total_chars=len(text),
         chapter_map=chapter_map or "无章节标记",
-        text_sample=text_sample,
     )
+    return {
+        "version": "1.0",
+        "status": "pending",
+        "execution_mode": "current_model_manual",
+        "source": {
+            "path": str(source_path.resolve()),
+            "sha256": text_sha256(text),
+            "char_count": len(text),
+        },
+        "prompt": prompt,
+        "paragraph_anchors": [
+            {
+                "paragraph_index": item["paragraph_index"],
+                "start_char": item["start_char"],
+                "end_char": item["end_char"],
+                "text": item["text"],
+            }
+            for item in paragraphs
+        ],
+        "boundaries": [],
+        "boundary_evidence": [],
+        "manual_judgment": "",
+    }
 
-    # ── 尝试1：anthropic Python 库 ────────────────────────────────────────
-    try:
-        import anthropic  # type: ignore
-        key = api_key or os.environ.get("ANTHROPIC_API_KEY", "")
-        client = anthropic.Anthropic(api_key=key) if key else anthropic.Anthropic()
-        msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=256,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = msg.content[0].text.strip()
-        data = json.loads(re.search(r"\{.*\}", raw, re.DOTALL).group())
-        boundaries = [int(b) for b in data.get("boundaries", []) if isinstance(b, (int, float))]
-        if len(boundaries) >= 2:
-            return sorted(set(boundaries))
-    except Exception:
-        pass
 
-    # ── 尝试2：subprocess 调用 claude CLI ────────────────────────────────
-    try:
-        proc = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text"],
-            capture_output=True, text=True, timeout=timeout,
-        )
-        if proc.returncode == 0:
-            raw = proc.stdout.strip()
-            data = json.loads(re.search(r"\{.*\}", raw, re.DOTALL).group())
-            boundaries = [int(b) for b in data.get("boundaries", []) if isinstance(b, (int, float))]
-            if len(boundaries) >= 2:
-                return sorted(set(boundaries))
-    except Exception:
-        pass
+def validate_manual_model_segmentation_receipt(
+    receipt: dict,
+    source_path: Path,
+    text: str,
+) -> list[int]:
+    errors: list[str] = []
+    source = receipt.get("source") if isinstance(receipt.get("source"), dict) else {}
+    if receipt.get("status") != "completed":
+        errors.append("人工模型分段回执 status 必须为 completed")
+    if receipt.get("execution_mode") != "current_model_manual":
+        errors.append("人工模型分段回执 execution_mode 必须为 current_model_manual")
+    if str(source.get("path") or "") != str(source_path.resolve()):
+        errors.append("人工模型分段回执绑定的正文路径不一致")
+    if source.get("sha256") != text_sha256(text):
+        errors.append("正文 SHA 已变化，必须重新执行人工模型分段")
+    if source.get("char_count") != len(text):
+        errors.append("人工模型分段回执记录的正文字符数不一致")
 
-    return []
+    raw_boundaries = receipt.get("boundaries")
+    boundaries = raw_boundaries if isinstance(raw_boundaries, list) else []
+    if not 3 <= len(boundaries) <= 6:
+        errors.append("人工模型分段必须返回 3-6 个边界，形成 4-7 段")
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in boundaries):
+        errors.append("人工模型分段边界必须全部是整数")
+    normalized = [value for value in boundaries if isinstance(value, int) and not isinstance(value, bool)]
+    if normalized != sorted(set(normalized)):
+        errors.append("人工模型分段边界必须严格升序且不能重复")
+    if any(value <= 0 or value >= len(text) for value in normalized):
+        errors.append("人工模型分段边界必须位于正文内部")
+
+    paragraphs = build_paragraph_entries(text)
+    anchor_map = {item["start_char"]: item for item in paragraphs}
+    for value in normalized:
+        if value not in anchor_map:
+            errors.append(f"人工模型分段边界未对齐段落起点: {value}")
+
+    evidence = receipt.get("boundary_evidence")
+    if not isinstance(evidence, list) or len(evidence) != len(normalized):
+        errors.append("boundary_evidence 必须与 boundaries 一一对应")
+    else:
+        evidence_map = {
+            item.get("offset"): item
+            for item in evidence
+            if isinstance(item, dict)
+        }
+        for value in normalized:
+            item = evidence_map.get(value)
+            if not item:
+                errors.append(f"缺少边界证据: {value}")
+                continue
+            quote = str(item.get("quote") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            anchor = anchor_map.get(value)
+            if not quote or not anchor or not anchor["text"].startswith(quote):
+                errors.append(f"边界证据原句与段落起点不一致: {value}")
+            if not reason:
+                errors.append(f"边界证据缺少人工判断: {value}")
+
+    if not str(receipt.get("manual_judgment") or "").strip():
+        errors.append("人工模型分段回执缺少整体判断")
+    if errors:
+        raise RuntimeError("\n".join(errors))
+    return normalized
 
 
 def audit_rhythm_distribution(
@@ -1347,21 +1398,13 @@ def audit_rhythm_distribution(
     paragraphs: list[dict] | None = None,
     *,
     model_boundaries: list[int] | None = None,
-    use_model_segmentation: bool = True,
 ) -> dict:
-    # ── 窗口来源决策 ────────────────────────────────────────────────────
-    # 优先级：1. 外部传入边界  2. 模型自动获取  3. 算法自适应（fallback）
     boundaries: list[int] = []
     boundary_source = "algorithmic"
 
     if model_boundaries is not None:
-        # 外部显式传入（例如朱雀 API 分段结果）
         boundaries = [b for b in model_boundaries if isinstance(b, int)]
-        boundary_source = "external"
-    elif use_model_segmentation:
-        # 默认：调用模型获取边界
-        boundaries = segment_text_with_model(text)
-        boundary_source = "model" if boundaries else "algorithmic"
+        boundary_source = "manual-model"
 
     if boundaries:
         windows = build_model_segmented_windows(text, boundaries, paragraphs)
@@ -1412,7 +1455,18 @@ def audit_rhythm_distribution(
         all_pulse_sentences: set[str] = set(short_reactions) | set(explicit_asides)
         # 突发性奖励：高句长方差 = 短句/长句激烈交替，类似朱雀检测的 burstiness 人味信号
         # 对话/动作密集段（如搬陶轮、创可贴场景）即使叙述者评价句少，也应有人味信号
-        burstiness_bonus = 2 if len(lengths) >= 5 and coeff_var(lengths) > 0.75 else 0
+        sentence_length_cv = coeff_var(lengths)
+        short_window_high_variance = (
+            len(lengths) >= 5
+            and window["char_count"] < RHYTHM_WINDOW_MIN_CHARS
+            and sentence_length_cv >= 0.6
+        )
+        burstiness_bonus = (
+            2
+            if len(lengths) >= 5
+            and (sentence_length_cv > 0.75 or short_window_high_variance)
+            else 0
+        )
         pulse_count = len(all_pulse_sentences) + self_qa_pairs * 2 + burstiness_bonus
         pulse_density = round(pulse_count * 1000 / max(window["char_count"], 1), 3)
         results.append(
@@ -1426,7 +1480,7 @@ def audit_rhythm_distribution(
                     "char_count",
                 )},
                 "sentence_count": len(sentence_texts),
-                "sentence_length_cv": round(coeff_var(lengths), 3),
+                "sentence_length_cv": round(sentence_length_cv, 3),
                 "dialogue_line_ratio": round(len(dialogue_lines) / max(line_count, 1), 3),
                 "narrator_question_count": len(narrator_questions),
                 "self_qa_pair_count": self_qa_pairs,
@@ -1434,6 +1488,8 @@ def audit_rhythm_distribution(
                 "abrupt_reaction_count": len(short_reactions),
                 "narrator_pulse_count": pulse_count,
                 "narrator_pulse_density": pulse_density,
+                "burstiness_bonus": burstiness_bonus,
+                "short_window_high_variance": short_window_high_variance,
                 "pulse_examples": dedupe_keep_order(
                     short_reactions + narrator_questions + explicit_asides
                 )[:6],
@@ -1445,21 +1501,34 @@ def audit_rhythm_distribution(
     positive = [value for value in densities if value > 0]
     reference_density = statistics.median(positive) if positive else 0.0
     low_threshold = max(0.5, reference_density * 0.55) if results else 0.0
+    high_threshold = max(1.0, reference_density * 1.4) if results else 0.0
     for item in results:
-        item["status"] = (
-            "low-pulse"
-            if item["char_count"] >= RHYTHM_WINDOW_MIN_CHARS
+        if (
+            item["short_window_high_variance"]
+            or item["narrator_pulse_density"] >= high_threshold
+        ):
+            item["status"] = "high-pulse"
+        elif (
+            item["char_count"] < RHYTHM_WINDOW_MIN_CHARS
             and item["narrator_pulse_density"] < low_threshold
-            else "covered"
-        )
+        ):
+            item["status"] = "short-window-review"
+        elif item["narrator_pulse_density"] < low_threshold:
+            item["status"] = "low-pulse"
+        else:
+            item["status"] = "covered"
 
     low_windows = [item for item in results if item["status"] == "low-pulse"]
+    short_review_windows = [
+        item for item in results if item["status"] == "short-window-review"
+    ]
     density_cv = round(coeff_var(densities), 3)
     return {
         "window_target_chars": RHYTHM_WINDOW_TARGET_CHARS,
         "window_count": len(results),
         "reference_pulse_density": round(reference_density, 3),
         "low_pulse_threshold": round(low_threshold, 3),
+        "high_pulse_threshold": round(high_threshold, 3),
         "pulse_density_cv": density_cv,
         "boundary_source": boundary_source,
         "model_boundaries": boundaries if boundaries else [],
@@ -1472,12 +1541,15 @@ def audit_rhythm_distribution(
         ),
         "low_pulse_window_count": len(low_windows),
         "low_pulse_windows": low_windows,
+        "short_window_review_count": len(short_review_windows),
+        "short_window_review_windows": short_review_windows,
         "windows": results,
     }
 
 
 def build_rhythm_impact_items(rhythm_audit: dict) -> list[dict]:
     low_windows = rhythm_audit.get("low_pulse_windows", [])
+    short_review_windows = rhythm_audit.get("short_window_review_windows", [])
     items: list[dict] = []
     if low_windows:
         evidence = [
@@ -1521,6 +1593,30 @@ def build_rhythm_impact_items(rhythm_audit: dict) -> list[dict]:
                 },
                 source_family="style",
                 focus_layer="sentence_shell",
+            )
+        )
+    if short_review_windows:
+        evidence = [
+            (
+                f"短窗{item['window_index']} 字符 {item['start_char']}-{item['end_char']} "
+                f"字数 {item['char_count']} 气口密度 {item['narrator_pulse_density']}"
+            )
+            for item in short_review_windows[:4]
+        ]
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "短模型分段缺少可计算气口，必须人工复核",
+                    "priority": "P1",
+                    "why_it_hits_audit": "短段不能因为不足长窗阈值就自动算作已覆盖；如果没有词典气口或句式突发信号，需要人工判断它是动作/对白高波动段，还是被错误切碎的平段。",
+                    "evidence": evidence,
+                    "fix_methods": [
+                        "先看该短段是否存在对白错位、荒诞动作、情绪骤变或人物失手。",
+                        "若只是平铺叙述被切短，调整人工模型边界，不要靠补短句抬分。",
+                    ],
+                },
+                source_family="rhythm_distribution",
+                focus_layer="block_rhythm",
             )
         )
     return items
@@ -3966,12 +4062,59 @@ def main() -> int:
         "--audit-rulebook",
         help="可选：外置改稿规则簿 JSON。默认读取 skill/references/governance/audit-rulebook.json。",
     )
+    parser.add_argument(
+        "--export-model-segmentation-task",
+        help="只导出当前模型人工分段任务与待回填回执，然后退出。",
+    )
+    parser.add_argument(
+        "--model-segmentation-receipt",
+        help="当前执行 skill 的模型已人工完成的分段回执 JSON；校验正文 SHA 和边界证据后使用。",
+    )
     args = parser.parse_args()
 
     file_path = Path(args.file).resolve()
     if not file_path.exists():
         print(f"文件不存在: {file_path}", file=sys.stderr)
         return 2
+    source_text = file_path.read_text(encoding="utf-8")
+    if args.export_model_segmentation_task:
+        task_path = Path(args.export_model_segmentation_task).resolve()
+        task_path.parent.mkdir(parents=True, exist_ok=True)
+        task_path.write_text(
+            json.dumps(
+                build_manual_model_segmentation_task(file_path, source_text),
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        print("model_segmentation_task: exported")
+        print(f"task: {task_path}")
+        return 0
+
+    manual_model_boundaries: list[int] | None = None
+    model_segmentation_receipt_path: Path | None = None
+    if args.model_segmentation_receipt:
+        model_segmentation_receipt_path = Path(args.model_segmentation_receipt).resolve()
+        if not model_segmentation_receipt_path.is_file():
+            print(
+                f"人工模型分段回执不存在: {model_segmentation_receipt_path}",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            receipt = json.loads(
+                model_segmentation_receipt_path.read_text(encoding="utf-8")
+            )
+            manual_model_boundaries = validate_manual_model_segmentation_receipt(
+                receipt,
+                file_path,
+                source_text,
+            )
+        except (json.JSONDecodeError, RuntimeError) as exc:
+            print(f"人工模型分段回执无效:\n{exc}", file=sys.stderr)
+            return 2
 
     root = Path(__file__).resolve().parents[1]
     light_script = root / "scripts" / "audit_novel_ai_flavor.py"
@@ -4009,7 +4152,6 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 2
 
-    source_text = file_path.read_text(encoding="utf-8")
     sample_grading_guidance = build_sample_grading_guidance(profile)
     recommendations = build_recommendations(light_report, heavy_report)
     bridge_audit = bridge_rule_audit(source_text, profile)
@@ -4060,7 +4202,11 @@ def main() -> int:
         full_light_report=light_report,
         full_style_audits=style_audits,
     )
-    rhythm_distribution_audit = audit_rhythm_distribution(source_text, paragraphs)
+    rhythm_distribution_audit = audit_rhythm_distribution(
+        source_text,
+        paragraphs,
+        model_boundaries=manual_model_boundaries,
+    )
     rhythm_impact_items = [
         apply_sample_grading_item_bias(item, sample_grading_guidance)
         for item in build_rhythm_impact_items(rhythm_distribution_audit)
@@ -4080,6 +4226,11 @@ def main() -> int:
 
     combined = {
         "file": str(file_path),
+        "model_segmentation_receipt": (
+            str(model_segmentation_receipt_path)
+            if model_segmentation_receipt_path
+            else None
+        ),
         "profile": str(profile_path) if profile_path else None,
         "profile_payload": profile,
         "light_report": light_report,

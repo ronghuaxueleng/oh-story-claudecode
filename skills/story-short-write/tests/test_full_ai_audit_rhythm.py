@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 import unittest
 
 
@@ -66,6 +68,121 @@ class FullAiAuditRhythmTest(unittest.TestCase):
         audit = AUDIT.audit_rhythm_distribution(text)
         self.assertGreaterEqual(audit["window_count"], 2)
         self.assertGreaterEqual(audit["low_pulse_window_count"], 1)
+
+    def test_short_high_variance_manual_window_is_high_pulse(self) -> None:
+        prefix = "\n".join(
+            [f"我把第{i}份记录放进柜子，随后继续核对下一项。" for i in range(45)]
+        )
+        short_window = "\n".join(
+            [
+                "停。",
+                "铁架卡在楼梯拐角，他把重量压到自己那边，手臂擦过旧钉子，血顺着腕骨往下。",
+                '"搬上去再说。"',
+                '"你们男的是不是都觉得破伤风怕四楼？"',
+                "他没接。",
+                "黄色小鸭创可贴贴歪了。",
+            ]
+            * 3
+        )
+        suffix = "\n".join(
+            [f"第{i}项材料已经归档，下一项仍按原顺序处理。" for i in range(45)]
+        )
+        text = prefix + "\n" + short_window + "\n" + suffix
+        start = len(prefix) + 1
+        end = start + len(short_window)
+
+        audit = AUDIT.audit_rhythm_distribution(
+            text,
+            model_boundaries=[start, end],
+        )
+
+        middle = audit["windows"][1]
+        self.assertEqual("manual-model", audit["boundary_source"])
+        self.assertTrue(middle["short_window_high_variance"])
+        self.assertEqual(2, middle["burstiness_bonus"])
+        self.assertEqual("high-pulse", middle["status"])
+
+    def test_short_flat_manual_window_requires_review(self) -> None:
+        prefix = "\n".join(["前段继续核对记录。" for _ in range(80)])
+        short_window = "\n".join(["我继续核对记录。" for _ in range(12)])
+        suffix = "\n".join(["后段继续核对记录。" for _ in range(80)])
+        text = prefix + "\n" + short_window + "\n" + suffix
+        start = len(prefix) + 1
+        end = start + len(short_window)
+
+        audit = AUDIT.audit_rhythm_distribution(
+            text,
+            model_boundaries=[start, end],
+        )
+
+        middle = audit["windows"][1]
+        self.assertFalse(middle["short_window_high_variance"])
+        self.assertEqual("short-window-review", middle["status"])
+        self.assertGreaterEqual(audit["short_window_review_count"], 1)
+        self.assertIn(middle, audit["short_window_review_windows"])
+
+    def test_manual_model_segmentation_receipt_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                "# 测试\n## 1\n第一段。\n第二段。\n第三段。\n第四段。\n第五段。\n",
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            anchors = receipt["paragraph_anchors"]
+            selected = [anchors[index] for index in (1, 2, 3)]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [item["start_char"] for item in selected]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": item["start_char"],
+                    "quote": item["text"],
+                    "reason": "叙事统计特征在此发生变化。",
+                }
+                for item in selected
+            ]
+            receipt["manual_judgment"] = "当前模型已完整读取正文并人工确定边界。"
+
+            encoded = json.loads(json.dumps(receipt, ensure_ascii=False))
+            boundaries = AUDIT.validate_manual_model_segmentation_receipt(
+                encoded,
+                source,
+                text,
+            )
+
+            self.assertEqual(receipt["boundaries"], boundaries)
+            self.assertIn("不调用外部 API", receipt["prompt"])
+
+    def test_manual_model_segmentation_receipt_rejects_stale_text(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                "# 测试\n## 1\n第一段。\n第二段。\n第三段。\n第四段。\n第五段。\n",
+                encoding="utf-8",
+            )
+            original = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, original)
+            anchors = receipt["paragraph_anchors"]
+            selected = [anchors[index] for index in (1, 2, 3)]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [item["start_char"] for item in selected]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": item["start_char"],
+                    "quote": item["text"],
+                    "reason": "叙事统计特征在此发生变化。",
+                }
+                for item in selected
+            ]
+            receipt["manual_judgment"] = "已人工完成。"
+
+            with self.assertRaisesRegex(RuntimeError, "正文 SHA 已变化"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    original + "新增。",
+                )
 
 
 if __name__ == "__main__":

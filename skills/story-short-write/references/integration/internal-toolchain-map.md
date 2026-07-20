@@ -72,6 +72,9 @@
 - `run_full_ai_audit.py`
   - 总审计入口
   - 汇总轻审计、重审计、规则簿、profile、块级风险
+  - 先导出带正文 SHA 和段落起点的人工模型分段回执，再由当前执行 skill 的模型完整读文并回填边界
+  - 不调用外部模型 API 或 Claude CLI；无人工回执时仅使用算法滑窗预扫
+  - 短高波动段标为 `high-pulse`，短而无可计算信号的段标为 `short-window-review`
 - `audit_novel_ai_flavor.py`
   - 正文级 AI 味审计
   - 输出结构化热点和风险分

@@ -309,12 +309,34 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 ### 7. 跑全量审计
 
+先导出人工模型分段任务：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
+  正文.md \
+  --export-model-segmentation-task 写作资产/人工模型分段回执.json
+```
+
+当前执行 skill 的模型必须完整读取 `正文.md`，从回执
+`paragraph_anchors.start_char` 中选择 3-6 个边界，并用
+`apply_patch` 回填：
+
+- `status=completed`
+- `boundaries`
+- `boundary_evidence`
+- `manual_judgment`
+
+禁止调用 Anthropic/OpenAI 等外部 API，也禁止调用 Claude CLI。完成后再跑正式审计：
+
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   正文.md \
   --profile profiles/{项目名}.project.profile.json \
-  --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/governance/audit-rulebook.json"
+  --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/governance/audit-rulebook.json" \
+  --model-segmentation-receipt 写作资产/人工模型分段回执.json
 ```
+
+回执必须绑定当前正文路径、SHA 和字符数，边界必须严格对齐段落起点。正文修改后必须重新导出并人工执行，不能沿用旧边界。未传回执时只运行算法滑窗预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
 
 ### 8. 生成回修任务单
 
