@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.6.0
+  version: 1.7.0
 ---
 
 # story-short-write：短篇网文写作
@@ -59,9 +59,12 @@ metadata:
 - `validate_writing_rule_gate.py`
 - `validate_source_read_gate.py`
 - `validate_rule_execution_ledger.py`
+- `validate_write_release_gate.py`
+- `validate_sequence_contract.py`
 - `validate_post_write_human_review_gate.py`
 - `generate_story_profile.py`
 - `run_full_ai_audit.py`
+- `validate_pre_window_revision_gate.py`
 - `audit_novel_ai_flavor.py`
 - `auto_revise_ai_flavor.py`
 - `run_revision_cycle.py`
@@ -80,6 +83,7 @@ metadata:
 
 - [../story/references/short-high-risk/reference-index.md](../story/references/short-high-risk/reference-index.md)
 - [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [references/governance/global-humanity-audit.md](references/governance/global-humanity-audit.md)
 - [../story/references/high-risk-gates/reference-index.md](../story/references/high-risk-gates/reference-index.md)
 - [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 
@@ -137,6 +141,21 @@ metadata:
 35. profile、事实台账、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检、禁写清单、顺序/后果/外部秩序表即使并入 canonical，也必须逐来源填写 `source_contract_reviews`；主体治理资产不得标 `not_selected`。规则级文件父节点由子规则自动汇总，手填状态与子规则不一致时阻断。
 36. `setting_constraint / outline_constraint` 如果在 `target_scene` 同时宣称多个目标通过，必须逐目标填写 `structural_claim_reviews`；开头、反转、后果等任一目标没有对应产物原句时，不得整体判过。
 37. 警告必须按语义分级：已识别的高风险桥段未进入前排回修任务、强制资产缺失、承重顺序错乱属于硬失败；统计波动、短段偏多和局部频率异常只作诊断，不得反向驱动机械改文。
+38. **设定—大纲—正文顺序必须单独过顺序契约硬闸**：设定内部、设定与大纲、正文与 canonical sequence 任一冲突都阻断；“已读设定”“台账 passed”或“开头契约 passed”不能替代顺序契约。
+39. **写作放行是单独的硬闸，不得绕过或事后补票**：生成设定、大纲或正文前，必须运行 `validate_write_release_gate.py`。设定写完、开始写大纲前必须先通过 `validate_sequence_contract.py validate-setting`；大纲阶段必须传入通过的设定内部顺序回执；正文阶段必须传入通过的完整顺序契约回执。任一前置门禁不是 `passed`，立即停止当前阶段。
+40. **未通过写作放行闸时，禁止创建或修改目标产物**：不能因为“先写一版再修”“先生成正文测试流程”或“台账只是记录问题”而继续；必须先修门禁、回执、来源契约或台账，再重新运行放行闸。
+41. **完整流程不是部分检查相加**：只通过人工复核门、预检、AI 味脚本或算法长窗中的一部分，不得宣称流程完成；必须同时满足写前放行、顺序契约、规则台账、开头契约、正文人工复核和正式长窗审计。
+42. **算法窗口永远不能代替人工窗口**：未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束写作任务。
+43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。
+44. **人工窗口前必须先做通用规则/拆书资产定向回修**：正文初稿或上一轮正文完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
+45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。
+46. **窗口前回修后必须重新绑定正文**：正文 SHA、字符数或任何正文句子变化都会使窗口前回修回执和人工分段回执同时失效；必须先重新执行窗口前规则/资产回修，再重新导出并人工切窗。
+47. **全局成文形状必须单独审查**：局部窗口通过不能替代全文检查；必须检查章节弧线同构、章尾收束重复、主角连续正确、专业细节功能性和全文对白模式变化。
+48. **四项全局审查缺一不可**：`global_structure_and_chapter_endings`、`protagonist_irregularity_and_agency`、`technical_detail_function`、`dialogue_pattern_variation` 必须进入写后人工复核回执；缺项、空证据或未裁决都阻断。
+49. **已有规则不是建议**：凡是 skill、`anti-ai-writing.md`、`narrator-voice.md` 或拆书资产已声明为人工/混合检查项，必须在回执逐项标记 `passed` 或 `revise`；不能因为脚本没有命中就视为已执行。
+50. **全局人工审查必须解释放行理由**：如果审计预扫命中章节收束重复、专业细节密集或对白模式重复，人工回执必须给出正文原句和保留/回修理由；不得只写“已检查”。
+51. **拆书全局结论必须被写作阶段逐项消费**：存在主体拆书时，必须分别读取 `拆文报告.md`、`写作手法.md` 和 `写作资产/样本分级与可学层.md` 中的全局成文形状审计，并在规则执行台账中逐项处理 `全局结构形状`、`章尾收束模式`、`主角不规则性`、`专业细节功能性`、`全文对白模式`。只记录“已读”不算执行；每项必须判定为 `applied / not_selected / prohibition_checked`，并绑定设定、大纲、正文或人工审计证据。
+52. **拆书反面结论不得直接机械改正文**：写作阶段必须先区分正向 DNA、反面规则、题材限制和本稿不适用；没有 `draft_constraint + applicable + failed + requires_text_change=true`，不得为了“人味”强行添加失控、闲枝、术语删减或答非所问。
 
 ---
 
@@ -215,6 +234,59 @@ metadata:
 4. 确认由 `script / human / hybrid` 哪一类执行，并填写目标阶段和目标场景
 5. 写作过程中执行一项标记一项，并持续补脚本产物或人工原句证据
 6. 最终绑定设定、大纲、正文 SHA，再运行 `validate_rule_execution_ledger.py validate`
+
+进入任一写作阶段前，还必须运行写作放行闸：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gate.py" \
+  setting \
+  --writing-receipt 写作资产/写作规则读取回执.json \
+  --source-receipt 写作资产/拆文读取回执.json \
+  --ledger 写作资产/规则执行台账.json
+```
+
+正文阶段必须额外传入：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gate.py" \
+  draft \
+  --writing-receipt 写作资产/写作规则读取回执.json \
+  --source-receipt 写作资产/拆文读取回执.json \
+  --ledger 写作资产/规则执行台账.json \
+  --sequence-receipt 写作资产/顺序契约回执.json \
+  --opening-contract 写作资产/开头承重契约回执.json \
+  --profile profiles/{项目名}.project.profile.json
+```
+
+输出不是 `write_release_gate: passed` 时，当前模型必须停止，不能生成或修改目标产物。
+
+设定产出后、开始写大纲前，必须先建立并人工回填设定内部顺序契约：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" init-setting \
+  --project "{项目名}" \
+  --setting "设定.md" \
+  --receipt "写作资产/设定顺序契约回执.json"
+
+# 当前执行模型人工回填 canonical_sequence、设定原句 offset、
+# 设定内部冲突取舍和 manual_judgment 后再运行：
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" validate-setting \
+  --receipt "写作资产/设定顺序契约回执.json" \
+  --setting "设定.md"
+```
+
+只有输出 `setting_sequence_contract_gate: passed`，才能为大纲运行写作放行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gate.py" \
+  outline \
+  --writing-receipt "写作资产/写作规则读取回执.json" \
+  --source-receipt "写作资产/拆文读取回执.json" \
+  --ledger "写作资产/规则执行台账.json" \
+  --setting-sequence-receipt "写作资产/设定顺序契约回执.json"
+```
+
+大纲写完后，必须重新初始化完整顺序契约，人工核对设定与大纲的 canonical 顺序后，才允许写正文；正文节点和 `offset` 必须在正文生成后补齐并重新校验。不得把“设定顺序回执已通过”当成正文顺序已通过。
 
 固定分工：
 
@@ -309,17 +381,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 7. 读取 `profile_source.md`
 8. 读取 `book.profile.json / project.profile.json`
 9. 判断 `讲法型 / 桥段链型 / 混合型`
-10. 起盘与细纲，同时逐项更新台账
-11. 对大纲执行开头承重契约硬闸
-12. 正文，同时逐项更新台账
-13. 对正文执行开头承重契约硬闸
-14. 内部审计并回填脚本执行产物
-15. 生成回修任务单
-16. 定点回炉；正文 SHA 变化后重过开头硬闸
-17. 重新审计
-18. 绑定最终写作产物并通过 `rule_execution_gate`
-19. 全文人工语义复扫并通过 `post_write_human_review_gate`
-20. 高风险任务再过第二闸门
+10. 写设定，同时逐项更新台账
+11. 建立并通过设定内部顺序契约
+12. 通过大纲写作放行闸，再写细纲
+13. 建立并通过设定—大纲完整顺序契约
+14. 对大纲执行开头承重契约硬闸
+15. 通过正文写作放行闸，再写正文并逐项更新台账
+16. 补正文顺序节点证据并重新通过完整顺序契约
+17. 对正文执行开头承重契约硬闸
+18. 按通用规则和拆书资产定向回修
+19. 通过窗口前回修闸，再做人工模型切窗和正式审计
+20. 生成回修任务单
+21. 定点回炉；正文 SHA 变化后重过顺序、开头、窗口前回修和人工切窗
+22. 重新审计
+23. 绑定最终写作产物并通过 `rule_execution_gate`
+24. 全文人工语义复扫并通过 `post_write_human_review_gate`
+25. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -576,7 +653,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" validate \
   --receipt "{项目目录}/写作资产/写后人工语义复核回执.json" \
-  --text "{项目目录}/正文.md"
+  --text "{项目目录}/正文.md" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"
 ```
 
 局部或专项回炉初始化回执时必须传 `--base-text`。完整字段和自动/人工分工见：
@@ -588,6 +666,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
 
 - [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
 - [references/governance/high-sensitivity-block-audit-rewrite-playbook.md](references/governance/high-sensitivity-block-audit-rewrite-playbook.md)
+- [references/governance/global-humanity-audit.md](references/governance/global-humanity-audit.md)
 - [references/governance/no-external-block-audit-self-check.md](references/governance/no-external-block-audit-self-check.md)
 - [../story/references/high-risk-rewrite-governance.md](../story/references/high-risk-rewrite-governance.md)
 

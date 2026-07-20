@@ -67,9 +67,10 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" validate \
   --receipt "{项目目录}/写作资产/写后人工语义复核回执.json" \
-  --text "{项目目录}/正文.md"
+  --text "{项目目录}/正文.md" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"
 ```
 
-只有输出 `post_write_human_review_gate: passed` 才能结束当前写作或回炉任务。
+只有在人工语义回执和完整顺序契约都通过，并输出 `post_write_human_review_gate: passed` 后，才能结束当前写作或回炉任务。
 
 正文 SHA、母稿 SHA 或改写行发生变化后，旧回执立即失效。脚本只校验人工回执是否完整、证据是否真实、是否对应最终正文，不替人工填写语义结论。

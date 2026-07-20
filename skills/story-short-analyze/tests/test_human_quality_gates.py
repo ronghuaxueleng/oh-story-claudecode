@@ -411,6 +411,56 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertTrue(any("句法模板" in error for error in errors))
         self.assertTrue(any("段落节拍" in error for error in errors))
 
+    def test_craft_requires_global_shape_audit_with_evidence(self) -> None:
+        path = self._write(
+            "写作手法.md",
+            "\n".join(
+                [
+                    "## 10. 全局成文形状审计",
+                    "### 10.1 全局结构形状与章尾收束",
+                    "- 全局结构形状：整体偏工整",
+                    "- 章尾收束模式：反复动作收束",
+                    "### 10.2 主角不规则性与能动性",
+                    "- 主角不规则性：长期做正确决策",
+                    "### 10.3 专业细节功能性",
+                    "- 专业细节功能性：术语密集",
+                    "### 10.4 全文对白模式",
+                    "- 全文对白模式：反复问答确认",
+                ]
+            ),
+        )
+        errors: list[str] = []
+        VALIDATOR.check_global_shape_audit(path, errors)
+        self.assertTrue(any("缺少全局成文形状审计标题" in error for error in errors))
+        self.assertTrue(any("缺少证据字段" in error for error in errors))
+
+    def test_global_shape_audit_rejects_unverifiable_evidence(self) -> None:
+        sections = []
+        for heading, label in (
+            ("### 10.1 全局结构形状与章尾收束", "全局结构形状"),
+            ("### 10.2 主角不规则性与能动性", "主角不规则性"),
+            ("### 10.3 专业细节功能性", "专业细节功能性"),
+            ("### 10.4 全文对白模式", "全文对白模式"),
+        ):
+            sections.extend(
+                [
+                    heading,
+                    f"- {label}：这里是足够长的判断",
+                    "- 原文证据：整体就是这样",
+                    "- 风险判断：这里是足够长的判断",
+                    "- 可学层：这里只学承重结构",
+                    "- 禁学层：这里禁止照搬成品感",
+                    "- 迁移提醒：迁移时必须改变场面后果",
+                ]
+            )
+        path = self._write(
+            "写作手法.md",
+            "## 10. 全局成文形状审计\n" + "\n".join(sections),
+        )
+        errors: list[str] = []
+        VALIDATOR.check_global_shape_audit(path, errors)
+        self.assertTrue(any("没有行号或可核验原文短句" in error for error in errors))
+
     def test_layered_sample_requires_explicit_layer_consumption(self) -> None:
         path = self._write(
             "样本分级与可学层.md",
@@ -793,7 +843,7 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertFalse(payload["agent_strategy"]["spawn_each_lane_separately"])
         self.assertIn("foundation validator", payload["agent_strategy"]["disable_agents_for_checks"])
         self.assertIn("出现 429 / rate limit / queueing", payload["agent_strategy"]["degrade_when"])
-        self.assertEqual(payload["version"], 7)
+        self.assertEqual(payload["version"], 8)
         self.assertEqual(payload["executor_profile"], "short-reuse-3-agents")
         self.assertIn("_analysis_brief.md", payload["foundation_start_gate"])
         self.assertIn("validate_short_analyze_foundation.py", payload["foundation_preflight"])
@@ -852,8 +902,10 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertIn("BID-01 中段承重桥", node_contract["bid_rules"][1])
         self.assertIn("故事时序", node_contract["required_entry_fields"])
         craft_contract = chronology_contract["files"]["写作手法.md"]
-        self.assertEqual(len(craft_contract["required_headings"]), 9)
+        self.assertEqual(len(craft_contract["required_headings"]), 14)
         self.assertIn("反面仿写句", craft_contract["required_sentence_assets"])
+        self.assertIn("## 10. 全局成文形状审计", craft_contract["required_headings"])
+        self.assertIn("原文证据", craft_contract["global_shape_audit_fields"])
         discovery_contract = foundation_contracts["discovery_index"]["files"]
         self.assertEqual(
             discovery_contract["写作资产/本书动态信号字典.json"]["format"],

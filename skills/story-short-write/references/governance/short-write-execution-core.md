@@ -85,28 +85,45 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 10. 读取 `book.profile.json / project.profile.json`
 11. 判断 `讲法型 / 桥段链型 / 混合型`
 12. 起盘和细纲，同时逐项标记规则
-13. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-14. 正文，同时逐项标记规则
-15. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
-16. 跑内部审计并回填脚本产物
-17. 生成回修任务单
-18. 回修；正文 SHA 变化后重建开头回执
-19. 重审
-20. 绑定最终写作产物并通过 `rule_execution_gate`
-21. 重新校验正文 `opening_contract_gate`
-22. 生成人工语义复核回执并人工复扫全文
-23. 通过 `post_write_human_review_gate`
-24. 高风险任务再过第二闸门
+13. 设定完成后，用 `validate_sequence_contract.py init-setting` 建立设定内部顺序契约
+14. 当前模型人工回填设定 canonical 顺序、原句 `offset`、冲突取舍和总判断，并通过 `validate_sequence_contract.py validate-setting`
+15. 用已通过的设定顺序回执运行 `validate_write_release_gate.py outline`，再写大纲
+16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
+17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
+18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
+19. 通过 `validate_write_release_gate.py draft --sequence-receipt ...`，再写正文
+20. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
+21. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
+22. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
+23. 通过 `validate_pre_window_revision_gate.py`
+24. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
+25. 跑正式全量审计并回填脚本产物
+26. 逐窗人工判断剩余问题，生成回修任务单
+27. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执和正式审计全部失效
+28. 回到第 22 步，重新做规则/资产定向回修，再重新切窗和重审
+29. 无正文变化后，绑定最终写作产物并通过 `rule_execution_gate`
+30. 重新校验正文 `opening_contract_gate` 和完整顺序契约
+31. 生成人工语义复核回执并人工复扫全文
+32. 通过 `post_write_human_review_gate`
+33. 高风险任务再过第二闸门
 
 关键原则：
 
 - 规则只用于约束，不替代正文生成
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
+- 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`
 - 普通素材候选可以不选；主体治理资产及顺序、后果、外部秩序、公开场后果不能用“未调用、保留原稿”跳过
 - 文件级关键契约也必须逐来源复核；规则级文件父节点由子规则自动派生，不能手填假完成
 - 设定/大纲 canonical 同时覆盖多个目标时，每个目标都要有 `structural_claim_reviews` 原句证据，不能跨范围代证
 - 读取回执不能代替执行台账；执行一项标记一项，不能最后统一补“已使用”
+- 写作放行必须独立运行 `validate_write_release_gate.py`；任一前置门禁不是 `passed` 时禁止生成或修改当前阶段产物，不能先写后补
+- 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
+- 正文完成判定必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
+- 人工窗口不是首轮通用规则执行器。正文首稿完成后，必须先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
+- `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
+- 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
+- 窗口人工判断还必须逐节点确认主桥顺序、节点窗口归属和跨窗风险；窗口切分本身不是顺序契约，缺少该复核不得宣称窗口审计完成
 - 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
 - 完全重复规则族自动合并，近义规则族由模型归一；canonical 执行一次并保留全部来源和族内变体
 - 脚本只执行可计算规则，人物、叙述、认知和生活性规则必须人工逐项裁决
@@ -338,11 +355,30 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 ### 7. 跑全量审计
 
-先导出人工模型分段任务：
+窗口前先初始化并回填规则/资产定向回修回执：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_pre_window_revision_gate.py" init \
+  --project "{项目名}" \
+  --text "正文.md" \
+  --receipt "写作资产/窗口前规则资产回修回执.json"
+```
+
+回填后必须通过：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_pre_window_revision_gate.py" validate \
+  --receipt "写作资产/窗口前规则资产回修回执.json" \
+  --text "正文.md"
+```
+
+通过后再导出人工模型分段任务：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   正文.md \
+  --pre-window-revision-receipt 写作资产/窗口前规则资产回修回执.json \
+  --sequence-receipt 写作资产/顺序契约回执.json \
   --export-model-segmentation-task 写作资产/人工模型分段回执.json
 ```
 
@@ -362,10 +398,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   正文.md \
   --profile profiles/{项目名}.project.profile.json \
   --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/governance/audit-rulebook.json" \
+  --pre-window-revision-receipt 写作资产/窗口前规则资产回修回执.json \
+  --sequence-receipt 写作资产/顺序契约回执.json \
   --model-segmentation-receipt 写作资产/人工模型分段回执.json
 ```
 
-回执必须绑定当前正文路径、SHA 和字符数，边界必须严格对齐段落起点。正文修改后必须重新导出并人工执行，不能沿用旧边界。未传回执时只运行算法滑窗预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
+正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断；任何 `out_of_order / missing / ambiguous` 都阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
 
 ### 8. 生成回修任务单
 

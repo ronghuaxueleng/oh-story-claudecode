@@ -208,6 +208,7 @@ REPORT_HEADINGS = [
     "### 题面拆解",
     "### 故事梗概",
     "### 结构划分",
+    "### 全局成文形状审计",
 ]
 
 REPORT_DEEP_HEADINGS = [
@@ -244,6 +245,30 @@ REPORT_EXPECTATION_FLIP_LABELS = (
     "读者最先以为",
     "后面哪一步改写了这个预期",
 )
+
+GLOBAL_SHAPE_AUDIT_HEADINGS = [
+    "### 全局成文形状审计",
+    "### 10.1 全局结构形状与章尾收束",
+    "### 10.2 主角不规则性与能动性",
+    "### 10.3 专业细节功能性",
+    "### 10.4 全文对白模式",
+]
+
+GLOBAL_SHAPE_AUDIT_LABELS = [
+    "全局结构形状",
+    "章尾收束模式",
+    "主角不规则性",
+    "专业细节功能性",
+    "全文对白模式",
+]
+
+GLOBAL_SHAPE_EVIDENCE_LABELS = [
+    "原文证据",
+    "风险判断",
+    "可学层",
+    "禁学层",
+    "迁移提醒",
+]
 
 CRAFT_HEADINGS = [
     "## 1. POV策略",
@@ -2180,6 +2205,54 @@ def check_craft_quality(
             errors.append(f"{path} 缺少句子级成文资产：至少补 1 条有效 `{label}`")
 
 
+def check_global_shape_audit(
+    path: Path,
+    errors: list[str],
+    *,
+    require_sections: bool = True,
+) -> None:
+    """Require evidence-backed whole-book shape judgments, not impressionistic labels."""
+    if not path.exists() or not path.is_file():
+        return
+    text = read_text(path)
+    if not require_sections:
+        if GLOBAL_SHAPE_AUDIT_HEADINGS[0] not in text:
+            errors.append(f"{path} 缺少全局成文形状审计标题：{GLOBAL_SHAPE_AUDIT_HEADINGS[0]}")
+        for label in GLOBAL_SHAPE_AUDIT_LABELS:
+            value = extract_labeled_value(text, label)
+            if len(normalize_text(value)) < 8:
+                errors.append(f"{path} 全局成文形状审计缺少有效字段：{label}")
+        return
+
+    for heading in GLOBAL_SHAPE_AUDIT_HEADINGS:
+        if heading not in text:
+            errors.append(f"{path} 缺少全局成文形状审计标题：{heading}")
+
+    section_map = {
+        "### 10.1 全局结构形状与章尾收束": ("全局结构形状", "章尾收束模式"),
+        "### 10.2 主角不规则性与能动性": ("主角不规则性",),
+        "### 10.3 专业细节功能性": ("专业细节功能性",),
+        "### 10.4 全文对白模式": ("全文对白模式",),
+    }
+    for heading, labels in section_map.items():
+        section = extract_any_section_text(text, (heading,))
+        if not section:
+            continue
+        for label in labels:
+            value = extract_labeled_value(section, label)
+            if len(normalize_text(value)) < 8:
+                errors.append(f"{path} `{heading}` 缺少有效字段：{label}")
+        for label in GLOBAL_SHAPE_EVIDENCE_LABELS:
+            value = extract_labeled_value(section, label)
+            if len(normalize_text(value)) < 8:
+                errors.append(f"{path} `{heading}` 缺少证据字段：{label}")
+        evidence = extract_labeled_value(section, "原文证据")
+        if not re.search(r"(?:L\d+|“[^”]{4,}”|「[^」]{4,}」)", evidence):
+            errors.append(
+                f"{path} `{heading}` 的 `原文证据` 没有行号或可核验原文短句"
+            )
+
+
 def extract_labeled_value(text: str, label: str) -> str:
     match = re.search(rf"^\s*-\s*{re.escape(label)}[：:]\s*(.+)$", text, flags=re.M)
     return match.group(1).strip() if match else ""
@@ -2214,7 +2287,12 @@ def parse_grade_value(text: str, label: str) -> str:
     return match.group(1) if match else ""
 
 
-def check_sample_grading_quality(path: Path, errors: list[str]) -> None:
+def check_sample_grading_quality(
+    path: Path,
+    errors: list[str],
+    *,
+    require_global_shape: bool = False,
+) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
@@ -2228,6 +2306,26 @@ def check_sample_grading_quality(path: Path, errors: list[str]) -> None:
         value = extract_labeled_value(text, label)
         if len(normalize_text(value)) < 2:
             errors.append(f"{path} 缺少分层消费字段 `{label}`")
+    if require_global_shape:
+        for label in GLOBAL_SHAPE_AUDIT_LABELS:
+            value = extract_labeled_value(text, label)
+            if len(normalize_text(value)) < 8:
+                errors.append(f"{path} 缺少全局成文形状字段 `{label}`")
+        audit_evidence = extract_any_section_text(text, ("## 4.4 全局成文形状审计",))
+        if not audit_evidence:
+            errors.append(f"{path} 缺少 `## 4.4 全局成文形状审计` 证据区")
+        else:
+            for label in GLOBAL_SHAPE_AUDIT_LABELS:
+                block = extract_any_section_text(
+                    audit_evidence,
+                    (f"### {label}",),
+                )
+                if len(normalize_text(block)) < 16:
+                    errors.append(f"{path} 全局成文形状证据区缺少案例：{label}")
+            if len(re.findall(r"(?:L\d+|“[^”]{4,}”|「[^」]{4,}」)", audit_evidence)) < 4:
+                errors.append(
+                    f"{path} 全局成文形状证据不足：至少需要 4 个可核验行号或原文短句"
+                )
 
 
 def check_bridge_reconciliation(
@@ -2962,16 +3060,22 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     check_contains_all(root / "写作手法.md", CRAFT_HEADINGS, errors)
     check_contains_all(asset_dir / "profile_source.md", PROFILE_SOURCE_HEADINGS, errors)
     check_report_quality(root / "拆文报告.md", word_count, errors, notes)
+    check_global_shape_audit(root / "拆文报告.md", errors, require_sections=False)
     check_report_agency_layers(root / "拆文报告.md", errors, notes)
     check_plot_nodes_quality(root / "情节节点.md", word_count, errors, notes)
     check_craft_quality(root / "写作手法.md", errors, notes)
+    check_global_shape_audit(root / "写作手法.md", errors)
     check_profile_source_quality(
         asset_dir / "profile_source.md",
         word_count,
         errors,
         notes,
     )
-    check_sample_grading_quality(asset_dir / "样本分级与可学层.md", errors)
+    check_sample_grading_quality(
+        asset_dir / "样本分级与可学层.md",
+        errors,
+        require_global_shape=True,
+    )
     check_sample_grading_quality(asset_dir / "profile_source.md", errors)
     check_bridge_workcards_quality(asset_dir / "桥段施工卡.md", word_count, errors, notes)
     check_high_risk_asset_quality(asset_dir / "高敏桥段识别.md", word_count, errors)

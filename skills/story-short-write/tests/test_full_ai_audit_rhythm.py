@@ -232,6 +232,44 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self.assertEqual(receipt["boundaries"], boundaries)
             self.assertIn("不调用外部 API", receipt["prompt"])
 
+    def test_formal_segmentation_requires_sequence_review_when_context_is_bound(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            paragraphs_text = [
+                f"第{i}段。" + ("这里是用于分段校验的正文内容。" * 80)
+                for i in range(1, 6)
+            ]
+            source.write_text(
+                "# 测试\n## 1\n" + "\n".join(paragraphs_text) + "\n",
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            context = [
+                {"id": "a", "label": "第一个节点"},
+                {"id": "b", "label": "第二个节点"},
+            ]
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text, context)
+            anchors = receipt["paragraph_anchors"]
+            selected = [anchors[index] for index in (1, 2, 3)]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [item["start_char"] for item in selected]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": item["start_char"],
+                    "quote": item["text"],
+                    "reason": "叙事统计特征在此发生变化。",
+                }
+                for item in selected
+            ]
+            receipt["manual_judgment"] = "已人工完成。"
+            with self.assertRaisesRegex(RuntimeError, "顺序契约结构复核"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                    context,
+                )
+
     def test_manual_model_segmentation_receipt_rejects_short_segment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             source = Path(tmp) / "正文.md"

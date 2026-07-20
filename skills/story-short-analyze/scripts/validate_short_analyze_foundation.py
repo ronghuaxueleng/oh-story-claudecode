@@ -139,9 +139,15 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     VALIDATOR.check_contains_all(root / "拆文报告.md", VALIDATOR.REPORT_HEADINGS, errors)
     VALIDATOR.check_contains_all(root / "写作手法.md", VALIDATOR.CRAFT_HEADINGS, errors)
     VALIDATOR.check_report_quality(root / "拆文报告.md", word_count, errors, notes)
+    VALIDATOR.check_global_shape_audit(
+        root / "拆文报告.md",
+        errors,
+        require_sections=False,
+    )
     VALIDATOR.check_report_agency_layers(root / "拆文报告.md", errors, notes)
     VALIDATOR.check_plot_nodes_quality(root / "情节节点.md", word_count, errors, notes)
     VALIDATOR.check_craft_quality(root / "写作手法.md", errors, notes)
+    VALIDATOR.check_global_shape_audit(root / "写作手法.md", errors)
     check_bid_alignment(root, bids, errors)
 
     candidate_errors: list[str] = []

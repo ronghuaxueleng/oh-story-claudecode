@@ -18,7 +18,40 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import importlib.util
 from pathlib import Path
+
+try:
+    from validate_pre_window_revision_gate import (
+        validate as validate_pre_window_revision,
+    )
+except ModuleNotFoundError:
+    _pre_window_path = Path(__file__).with_name("validate_pre_window_revision_gate.py")
+    _pre_window_spec = importlib.util.spec_from_file_location(
+        "story_short_write_pre_window_revision_gate",
+        _pre_window_path,
+    )
+    if not _pre_window_spec or not _pre_window_spec.loader:
+        raise
+    _pre_window_module = importlib.util.module_from_spec(_pre_window_spec)
+    _pre_window_spec.loader.exec_module(_pre_window_module)
+    validate_pre_window_revision = _pre_window_module.validate
+
+try:
+    from validate_sequence_contract import (
+        validate as validate_sequence_contract,
+    )
+except ModuleNotFoundError:
+    _sequence_path = Path(__file__).with_name("validate_sequence_contract.py")
+    _sequence_spec = importlib.util.spec_from_file_location(
+        "story_short_write_sequence_contract",
+        _sequence_path,
+    )
+    if not _sequence_spec or not _sequence_spec.loader:
+        raise
+    _sequence_module = importlib.util.module_from_spec(_sequence_spec)
+    _sequence_spec.loader.exec_module(_sequence_module)
+    validate_sequence_contract = _sequence_module.validate
 
 
 def legacy_external_audit_key(suffix: str) -> str:
@@ -1305,7 +1338,11 @@ def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def build_manual_model_segmentation_task(source_path: Path, text: str) -> dict:
+def build_manual_model_segmentation_task(
+    source_path: Path,
+    text: str,
+    sequence_context: list[dict] | None = None,
+) -> dict:
     paragraphs = build_paragraph_entries(text)
     chapter_map = ", ".join(
         f"第{m.group(1)}章[{m.start()}]"
@@ -1317,6 +1354,21 @@ def build_manual_model_segmentation_task(source_path: Path, text: str) -> dict:
         total_chars=len(text),
         chapter_map=chapter_map or "无章节标记",
     )
+    sequence_context = sequence_context or []
+    if sequence_context:
+        sequence_lines = "\n".join(
+            f"- {item.get('id')}: {item.get('label')}"
+            for item in sequence_context
+            if isinstance(item, dict)
+        )
+        prompt += (
+            "\n\n顺序契约结构复核（必须执行，不是可选项）：\n"
+            "以下是已经绑定设定、大纲和正文的 canonical 顺序节点。"
+            "切窗时必须确认每个节点落在哪个窗口，并判断节点之间的先后是否在正文中保持。"
+            "如果发现 out_of_order、missing 或 ambiguous，不得把回执标为 completed，"
+            "必须先返回顺序契约闸门修复。\n"
+            f"{sequence_lines}\n"
+        )
     return {
         "version": "1.0",
         "status": "pending",
@@ -1338,6 +1390,12 @@ def build_manual_model_segmentation_task(source_path: Path, text: str) -> dict:
         ],
         "boundaries": [],
         "boundary_evidence": [],
+        "sequence_review": {
+            "status": "pending",
+            "node_reviews": [],
+            "cross_window_risks": [],
+            "overall_judgment": "",
+        },
         "manual_judgment": "",
     }
 
@@ -1346,6 +1404,7 @@ def validate_manual_model_segmentation_receipt(
     receipt: dict,
     source_path: Path,
     text: str,
+    sequence_context: list[dict] | None = None,
 ) -> list[int]:
     errors: list[str] = []
     source = receipt.get("source") if isinstance(receipt.get("source"), dict) else {}
@@ -1414,9 +1473,89 @@ def validate_manual_model_segmentation_receipt(
 
     if not str(receipt.get("manual_judgment") or "").strip():
         errors.append("人工模型分段回执缺少整体判断")
+    if sequence_context:
+        sequence_review = receipt.get("sequence_review")
+        if not isinstance(sequence_review, dict):
+            errors.append("人工模型分段回执缺少顺序契约结构复核")
+        else:
+            if sequence_review.get("status") != "completed":
+                errors.append("顺序契约结构复核 status 必须为 completed")
+            if not str(sequence_review.get("overall_judgment") or "").strip():
+                errors.append("顺序契约结构复核缺少整体判断")
+            node_reviews = sequence_review.get("node_reviews")
+            review_map = {
+                str(item.get("id") or ""): item
+                for item in node_reviews
+                if isinstance(item, dict) and str(item.get("id") or "")
+            } if isinstance(node_reviews, list) else {}
+            if not isinstance(node_reviews, list):
+                errors.append("顺序契约结构复核 node_reviews 必须是列表")
+            for node in sequence_context:
+                if not isinstance(node, dict):
+                    continue
+                node_id = str(node.get("id") or "").strip()
+                item = review_map.get(node_id)
+                if not item:
+                    errors.append(f"顺序契约结构复核缺少节点: {node_id}")
+                    continue
+                window_index = item.get("window_index")
+                if not isinstance(window_index, int) or not 1 <= window_index <= len(cuts) - 1:
+                    errors.append(f"顺序契约节点窗口编号无效: {node_id}")
+                quote = str(item.get("quote") or "").strip()
+                if not quote or quote not in text:
+                    errors.append(f"顺序契约节点复核缺少正文原句: {node_id}")
+                if not str(item.get("judgment") or "").strip():
+                    errors.append(f"顺序契约节点复核缺少人工判断: {node_id}")
+                if item.get("order_status") != "preserved":
+                    errors.append(
+                        f"顺序契约节点未确认保持顺序: {node_id} "
+                        f"(order_status={item.get('order_status')!r})"
+                    )
+            risks = sequence_review.get("cross_window_risks")
+            if not isinstance(risks, list):
+                errors.append("顺序契约结构复核 cross_window_risks 必须是列表")
+            elif any(
+                isinstance(item, dict)
+                and item.get("status") not in {"resolved", "not_found"}
+                for item in risks
+            ):
+                errors.append("顺序契约结构复核仍有未解决的跨窗口风险")
     if errors:
         raise RuntimeError("\n".join(errors))
     return normalized
+
+
+def load_sequence_context_for_audit(
+    receipt_path: Path,
+    draft_path: Path,
+) -> tuple[dict, list[dict]]:
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"顺序契约回执无效: {exc}") from exc
+    if not isinstance(receipt, dict):
+        raise RuntimeError("顺序契约回执必须是 JSON 对象")
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise RuntimeError("顺序契约回执缺少 artifacts")
+    paths = {}
+    for key in ("setting", "outline", "draft"):
+        binding = artifacts.get(key)
+        if not isinstance(binding, dict) or not str(binding.get("path") or "").strip():
+            raise RuntimeError(f"顺序契约回执缺少 {key} 绑定")
+        paths[key] = Path(str(binding["path"])).resolve()
+    errors = validate_sequence_contract(
+        receipt_path.resolve(),
+        paths["setting"],
+        paths["outline"],
+        draft_path.resolve(),
+    )
+    if errors:
+        raise RuntimeError("顺序契约未通过:\n" + "\n".join(errors))
+    sequence = receipt.get("canonical_sequence")
+    if not isinstance(sequence, list) or not sequence:
+        raise RuntimeError("顺序契约缺少 canonical_sequence")
+    return receipt, sequence
 
 
 def audit_rhythm_distribution(
@@ -4172,6 +4311,14 @@ def main() -> int:
         "--model-segmentation-receipt",
         help="当前执行 skill 的模型已人工完成的分段回执 JSON；校验正文 SHA 和边界证据后使用。",
     )
+    parser.add_argument(
+        "--sequence-receipt",
+        help="正式人工窗口审计必须绑定并通过的设定—大纲—正文顺序契约回执。",
+    )
+    parser.add_argument(
+        "--pre-window-revision-receipt",
+        help="窗口前规则/拆书资产定向回修回执；导出人工分段任务和正式人工窗口审计时必填。",
+    )
     args = parser.parse_args()
 
     file_path = Path(args.file).resolve()
@@ -4179,12 +4326,70 @@ def main() -> int:
         print(f"文件不存在: {file_path}", file=sys.stderr)
         return 2
     source_text = file_path.read_text(encoding="utf-8")
+    sequence_receipt_path = (
+        Path(args.sequence_receipt).resolve()
+        if args.sequence_receipt
+        else None
+    )
+    sequence_receipt_data: dict | None = None
+    sequence_context: list[dict] = []
+    pre_window_receipt_path = (
+        Path(args.pre_window_revision_receipt).resolve()
+        if args.pre_window_revision_receipt
+        else None
+    )
+    if args.export_model_segmentation_task or args.model_segmentation_receipt:
+        if sequence_receipt_path is None:
+            print(
+                "正式人工窗口必须绑定 --sequence-receipt，"
+                "否则只能运行算法预扫",
+                file=sys.stderr,
+            )
+            return 2
+        if not sequence_receipt_path.is_file():
+            print(f"顺序契约回执不存在: {sequence_receipt_path}", file=sys.stderr)
+            return 2
+        try:
+            sequence_receipt_data, sequence_context = load_sequence_context_for_audit(
+                sequence_receipt_path,
+                file_path,
+            )
+        except (OSError, RuntimeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        if pre_window_receipt_path is None:
+            print(
+                "人工窗口必须先完成窗口前规则/拆书资产定向回修，"
+                "请传入 --pre-window-revision-receipt",
+                file=sys.stderr,
+            )
+            return 2
+        if not pre_window_receipt_path.is_file():
+            print(f"窗口前回修回执不存在: {pre_window_receipt_path}", file=sys.stderr)
+            return 2
+        try:
+            pre_window_errors = validate_pre_window_revision(
+                pre_window_receipt_path,
+                file_path,
+            )
+        except (json.JSONDecodeError, OSError) as exc:
+            print(f"窗口前回修回执无效: {exc}", file=sys.stderr)
+            return 2
+        if pre_window_errors:
+            print("窗口前规则/拆书资产定向回修未通过:", file=sys.stderr)
+            for error in pre_window_errors:
+                print(f"- {error}", file=sys.stderr)
+            return 2
     if args.export_model_segmentation_task:
         task_path = Path(args.export_model_segmentation_task).resolve()
         task_path.parent.mkdir(parents=True, exist_ok=True)
         task_path.write_text(
             json.dumps(
-                build_manual_model_segmentation_task(file_path, source_text),
+                build_manual_model_segmentation_task(
+                    file_path,
+                    source_text,
+                    sequence_context,
+                ),
                 ensure_ascii=False,
                 indent=2,
             )
@@ -4213,6 +4418,7 @@ def main() -> int:
                 receipt,
                 file_path,
                 source_text,
+                sequence_context,
             )
         except (json.JSONDecodeError, RuntimeError) as exc:
             print(f"人工模型分段回执无效:\n{exc}", file=sys.stderr)
@@ -4331,6 +4537,11 @@ def main() -> int:
         "model_segmentation_receipt": (
             str(model_segmentation_receipt_path)
             if model_segmentation_receipt_path
+            else None
+        ),
+        "sequence_receipt": (
+            str(sequence_receipt_path)
+            if sequence_receipt_path
             else None
         ),
         "profile": str(profile_path) if profile_path else None,

@@ -6,11 +6,26 @@ from __future__ import annotations
 import argparse
 import difflib
 import hashlib
+import importlib.util
 import json
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    from validate_sequence_contract import validate as validate_sequence_contract
+except ModuleNotFoundError:
+    _sequence_path = Path(__file__).with_name("validate_sequence_contract.py")
+    _sequence_spec = importlib.util.spec_from_file_location(
+        "story_short_write_sequence_contract",
+        _sequence_path,
+    )
+    if not _sequence_spec or not _sequence_spec.loader:
+        raise
+    _sequence_module = importlib.util.module_from_spec(_sequence_spec)
+    _sequence_spec.loader.exec_module(_sequence_module)
+    validate_sequence_contract = _sequence_module.validate
 
 
 REQUIRED_HUMAN_CHECKS = (
@@ -22,6 +37,10 @@ REQUIRED_HUMAN_CHECKS = (
     "dialogue_efficiency",
     "long_window_dialogue_efficiency",
     "cross_block_rhythm_contrast",
+    "global_structure_and_chapter_endings",
+    "protagonist_irregularity_and_agency",
+    "technical_detail_function",
+    "dialogue_pattern_variation",
     "full_text_legacy_rescan",
 )
 
@@ -172,6 +191,33 @@ def nonempty_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def validate_sequence_receipt_for_text(
+    sequence_receipt_path: Path,
+    text_path: Path,
+) -> list[str]:
+    try:
+        data = json.loads(sequence_receipt_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return [f"顺序契约回执无效: {exc}"]
+    if not isinstance(data, dict):
+        return ["顺序契约回执必须是 JSON 对象"]
+    artifacts = data.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return ["顺序契约回执缺少 artifacts"]
+    paths: dict[str, Path] = {}
+    for key in ("setting", "outline", "draft"):
+        binding = artifacts.get(key)
+        if not isinstance(binding, dict) or not str(binding.get("path") or "").strip():
+            return [f"顺序契约回执缺少 {key} 绑定"]
+        paths[key] = Path(str(binding["path"])).resolve()
+    return validate_sequence_contract(
+        sequence_receipt_path.resolve(),
+        paths["setting"],
+        paths["outline"],
+        text_path.resolve(),
+    )
 
 
 def validate_receipt(
@@ -353,6 +399,7 @@ def main() -> int:
     validate_parser = subparsers.add_parser("validate", help="校验人工语义复核回执")
     validate_parser.add_argument("--receipt", required=True)
     validate_parser.add_argument("--text", required=True)
+    validate_parser.add_argument("--sequence-receipt", required=True)
 
     args = parser.parse_args()
     receipt_path = Path(args.receipt).resolve()
@@ -384,7 +431,13 @@ def main() -> int:
     if not receipt_path.is_file():
         print(f"人工复核回执不存在: {receipt_path}")
         return 2
-    errors, summary = validate_receipt(receipt_path, Path(args.text))
+    text_path = Path(args.text)
+    errors = validate_sequence_receipt_for_text(
+        Path(args.sequence_receipt).resolve(),
+        text_path,
+    )
+    review_errors, summary = validate_receipt(receipt_path, text_path)
+    errors.extend(review_errors)
     print(f"receipt: {receipt_path}")
     print(f"human_checks: {summary['reviewed_human_checks']}/{summary['human_check_count']}")
     print(
