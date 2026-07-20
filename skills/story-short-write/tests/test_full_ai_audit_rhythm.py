@@ -231,6 +231,12 @@ class FullAiAuditRhythmTest(unittest.TestCase):
 
             self.assertEqual(receipt["boundaries"], boundaries)
             self.assertIn("不调用外部 API", receipt["prompt"])
+            self.assertIn("规则辅助切分", receipt["prompt"])
+            self.assertIn("结构/章尾", receipt["prompt"])
+            self.assertIn("主角不规则性", receipt["prompt"])
+            self.assertIn("专业细节功能性", receipt["prompt"])
+            self.assertIn("对白模式", receipt["prompt"])
+            self.assertIn("跨窗口记录", receipt["prompt"])
 
     def test_formal_segmentation_requires_sequence_review_when_context_is_bound(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
