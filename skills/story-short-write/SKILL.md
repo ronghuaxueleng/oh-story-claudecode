@@ -62,6 +62,7 @@ metadata:
 - `validate_write_release_gate.py`
 - `validate_sequence_contract.py`
 - `validate_post_write_human_review_gate.py`
+- `validate_zhihu_section_format.py`
 - `generate_story_profile.py`
 - `run_full_ai_audit.py`
 - `validate_pre_window_revision_gate.py`
@@ -146,7 +147,7 @@ metadata:
 40. **未通过写作放行闸时，禁止创建或修改目标产物**：不能因为“先写一版再修”“先生成正文测试流程”或“台账只是记录问题”而继续；必须先修门禁、回执、来源契约或台账，再重新运行放行闸。
 41. **完整流程不是部分检查相加**：只通过人工复核门、预检、AI 味脚本或算法长窗中的一部分，不得宣称流程完成；必须同时满足写前放行、顺序契约、规则台账、开头契约、正文人工复核和正式长窗审计。
 42. **算法窗口永远不能代替人工窗口**：未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束写作任务。
-43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。
+43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。
 44. **人工窗口前必须先做通用规则/拆书资产定向回修**：正文初稿或上一轮正文完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
 45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。
 46. **窗口前回修后必须重新绑定正文**：正文 SHA、字符数或任何正文句子变化都会使窗口前回修回执和人工分段回执同时失效；必须先重新执行窗口前规则/资产回修，再重新导出并人工切窗。
@@ -160,13 +161,16 @@ metadata:
 54. **题材承诺和卖点兑现必须单独过人工硬闸**：写后人工复核回执必须新增 `premise_genre_promise_alignment` 与 `core_selling_point_payoff` 两项，分别核对“题面 / 设定 / 大纲承诺的文类体感有没有跑偏”与“全文是否持续提供对应的高价值读点、掉位后果和关系回弹”。只用开头契约、顺序契约、窗口检测或 AI 味结果代替这两项，直接失败。
 55. **强情绪追妻题的男主姿态必须验收**：若设定把关系线归为 `追妻`、`婚恋清算` 或近似题材，正文必须出现可观察的 `失位后持续后果 + 低位补救失败/狼狈求回 + 女主明确边界动作`；若男主只剩功能性修补、理性解释或秩序恢复，视为题材漂移，不得放行。
 56. **选中的题材公式必须逐条生成专项复核，不得只读不验**：写前从实际采用的题材公式中抽出本稿适用规则；写后在 `genre_formula_review.rules` 中逐条填写 `id / rule / status / evidence`。每条证据必须引用最终正文原句并给出人工判断，不能用“结构成立”“整体已执行”代替。
-57. **追妻题三项句段级检查为强制项**：`female_softening_externalized` 检查女主的一秒松动是否由动作、停顿或外部细节折射；`no_emotional_after_summary` 检查情绪破绽后是否又补作者总结；`repair_failure_fact_based` 检查补救失败是否落在再次选择和具体事实上。缺任一项，写后人工复核不得通过。
+57. **追妻题句段级检查为强制项**：`female_softening_externalized` 检查女主的一秒松动是否由动作、停顿或外部细节折射；该证据必须紧邻男主实际承担的关系代价或有效补救，职业文件、普通工作动作或无关停顿不能冒充情感松动。`no_emotional_after_summary` 检查情绪破绽后是否又补作者总结；`repair_failure_fact_based` 检查补救失败是否落在再次选择和具体事实上。缺任一项，写后人工复核不得通过。
 58. **题材公式专项回执同时绑定最终正文和公式来源**：正文 SHA 或题材公式来源 SHA 任一变化，旧回执立即失效；必须在最后一次正文修改后重新逐条复核。不能因为本轮只改一句，就沿用上一轮“已检查”的题材结论。
 59. **写后必须执行局部生硬候选扫描，但脚本不得代判**：运行 `audit_local_stiffness.py` 定位 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾钩子 / 克制解释过度 / 高价值场景摘要化`。脚本命中只算候选；当前模型必须完整读取上下文，逐项判断 `保留 / 回修 / 删除`。
 60. **人工复核必须做全文反例扫描，不能只找一条合格证据**：`direct_psychology_externalization`、`post_emotion_summary_residue`、`result_reporting_chain`、`thesis_dialogue_concreteness`、`chapter_end_hook_naturalness`、`restraint_overexplained`、`high_value_scene_summary_compression` 七项必须进入 `human_checks`。每项应证明全文剩余候选均已裁决；只引用一处合格句、未处理同类反例，视为未执行。
 61. **通过状态不得包含待改证据**：任何人工检查证据的 `action` 只要是 `revise / delete`，该项就不能标记 `passed`；必须先修改正文、重建绑定最终 SHA 的回执，再重新检查。禁止把“已发现问题”冒充“已通过检查”。
 62. **克制不能由连续否定句自证**：同一小段连续出现三次以上 `我没有 / 我不知道 / 我没问 / 这件事我后来也没`，必须进入 `restraint_overexplained`；优先删除解释，让前面的物件和动作自己承担克制。不能为了表现冷静，把“不做什么”逐项讲给读者。
 63. **高价值桥段禁止被转述摘要吞掉**：追妻低位、公开掉位、揭示、决裂、求回等承重场景若出现 `他先说……又说……` 一类复合转述，必须进入 `high_value_scene_summary_compression`；当前模型要判断是否恢复为现场对白、动作和停顿。普通过场可保留转述，承重场景默认现场化。
+64. **知乎 / 盐言正文禁止章节名**：平台为知乎或盐言时，正文小节只允许独占一行的连续纯数字 `1.`、`2.`、`3.`；文件开头可保留一行书名。`## 1. 标题`、`###1.`、`第一章 标题`、`1. 标题`、`1、标题` 均直接阻断。大纲可以有小节名，但写正文时不得继承；正文首次完成及每次回修后必须运行 `validate_zhihu_section_format.py`。
+65. **追妻题不可逆去留决定必须验时机**：若卖点包含“她本来可能留下，但男主连续选择亲手关门”，接受新岗位、签署不可撤回协议、永久迁离等动作不得在关键重复伤害发生前完成。写后必须执行 `irreversible_exit_timing`，引用决定前后的正文证据；若题型从开头就承诺女主立即退出、悬念只在后果，则必须明确记录该例外，不能默认套用拖延决定。
+66. **一秒松动必须验触发对象，结尾必须验完成感**：追妻专项新增 `female_softening_trigger_relevance`，确认松动由婚姻、共同生活、公开失位或男主真实代价触发，而非相邻职业道具；全文人工复核新增 `ending_action_completion`，确认结尾落在已完成的动作、关系后果或明确选择上。禁止用“任务刚出现新信号”式机械中断冒充余韵，也禁止为收束追加主题总结。
 
 ---
 
@@ -398,16 +402,17 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 13. 建立并通过设定—大纲完整顺序契约
 14. 对大纲执行开头承重契约硬闸
 15. 通过正文写作放行闸，再写正文并逐项更新台账
-16. 补正文顺序节点证据并重新通过完整顺序契约
-17. 对正文执行开头承重契约硬闸
-18. 按通用规则和拆书资产定向回修
-19. 通过窗口前回修闸，再做人工模型切窗和正式审计
-20. 生成回修任务单
-21. 定点回炉；正文 SHA 变化后重过顺序、开头、窗口前回修和人工切窗
-22. 重新审计
-23. 绑定最终写作产物并通过 `rule_execution_gate`
-24. 全文人工语义复扫并通过 `post_write_human_review_gate`
-25. 高风险任务再过第二闸门
+16. 知乎 / 盐言正文运行纯数字分节格式校验
+17. 补正文顺序节点证据并重新通过完整顺序契约
+18. 对正文执行开头承重契约硬闸
+19. 按通用规则和拆书资产定向回修
+20. 通过窗口前回修闸，再做人工模型切窗和正式审计
+21. 生成回修任务单
+22. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
+23. 重新审计
+24. 绑定最终写作产物并通过 `rule_execution_gate`
+25. 全文人工语义复扫并通过 `post_write_human_review_gate`
+26. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -434,13 +439,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 ### 脚本入口
 
-常用入口只保留下面 8 个：
+常用入口只保留下面 9 个：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" --text "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
@@ -469,6 +475,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 - 工作稿正文只放在 `正文.md`
 - 投稿版和工作稿必须分离
+- 知乎 / 盐言正文只用 `1.`、`2.` 纯数字分节；大纲小节名不得带入正文
 - 正文分段服从阅读节奏，不服从审计切块
 - 不允许把正文写成“一句一段”的碎句施工稿
 - 也不允许把多个动作、信息、对白回合糊成一整块墙文
@@ -669,6 +676,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
   --target "{项目目录}/正文.md"
 ```
 
+知乎 / 盐言正文还必须通过纯数字分节格式硬闸；每次回修后都要重跑：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" \
+  --text "{项目目录}/正文.md"
+```
+
 再生成局部生硬候选报告：
 
 ```bash
@@ -695,7 +709,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
 - `rules`：本稿适用规则逐项证据
 - `conclusion`：题材公式是否全部落实到最终正文
 
-追妻题至少包含 `female_softening_externalized`、`no_emotional_after_summary`、`repair_failure_fact_based`。任一证据仍应 `revise / delete` 时，先改正文，再重新初始化和复核回执。
+追妻题至少包含 `female_softening_externalized`、`female_softening_trigger_relevance`、`irreversible_exit_timing`、`no_emotional_after_summary`、`repair_failure_fact_based`。任一证据仍应 `revise / delete` 时，先改正文，再重新初始化和复核回执。
 
 局部或专项回炉初始化回执时必须传 `--base-text`。完整字段和自动/人工分工见：
 

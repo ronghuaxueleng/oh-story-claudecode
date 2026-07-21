@@ -140,6 +140,7 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         self.assertIn("cross_block_rhythm_contrast", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("premise_genre_promise_alignment", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("core_selling_point_payoff", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("ending_action_completion", GATE.REQUIRED_HUMAN_CHECKS)
 
         receipt = self._write_completed_receipt()
         receipt["human_checks"] = [
@@ -177,6 +178,13 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
                 for error in errors
             )
         )
+
+    def test_chase_wife_timing_and_trigger_rules_are_mandatory(self) -> None:
+        self.assertIn(
+            "female_softening_trigger_relevance",
+            GATE.CHASE_WIFE_REQUIRED_RULES,
+        )
+        self.assertIn("irreversible_exit_timing", GATE.CHASE_WIFE_REQUIRED_RULES)
 
     def test_changed_genre_formula_source_invalidates_receipt(self) -> None:
         self._write_completed_receipt()

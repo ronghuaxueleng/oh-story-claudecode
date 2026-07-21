@@ -48,6 +48,7 @@ REQUIRED_HUMAN_CHECKS = (
     "result_reporting_chain",
     "thesis_dialogue_concreteness",
     "chapter_end_hook_naturalness",
+    "ending_action_completion",
     "restraint_overexplained",
     "high_value_scene_summary_compression",
     "full_text_legacy_rescan",
@@ -56,6 +57,8 @@ REQUIRED_HUMAN_CHECKS = (
 NARRATOR_OR_AUTHOR = {"narrator_voice", "author_summary", "neutral"}
 CHASE_WIFE_REQUIRED_RULES = {
     "female_softening_externalized",
+    "female_softening_trigger_relevance",
+    "irreversible_exit_timing",
     "no_emotional_after_summary",
     "repair_failure_fact_based",
 }
