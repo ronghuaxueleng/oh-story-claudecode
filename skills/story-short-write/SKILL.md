@@ -156,6 +156,17 @@ metadata:
 50. **全局人工审查必须解释放行理由**：如果审计预扫命中章节收束重复、专业细节密集或对白模式重复，人工回执必须给出正文原句和保留/回修理由；不得只写“已检查”。
 51. **拆书全局结论必须被写作阶段逐项消费**：存在主体拆书时，必须分别读取 `拆文报告.md`、`写作手法.md` 和 `写作资产/样本分级与可学层.md` 中的全局成文形状审计，并在规则执行台账中逐项处理 `全局结构形状`、`章尾收束模式`、`主角不规则性`、`专业细节功能性`、`全文对白模式`。只记录“已读”不算执行；每项必须判定为 `applied / not_selected / prohibition_checked`，并绑定设定、大纲、正文或人工审计证据。
 52. **拆书反面结论不得直接机械改正文**：写作阶段必须先区分正向 DNA、反面规则、题材限制和本稿不适用；没有 `draft_constraint + applicable + failed + requires_text_change=true`，不得为了“人味”强行添加失控、闲枝、术语删减或答非所问。
+53. **题材壳 / 主卖点 / 核心情绪必须先锁死再写**：设定阶段必须明确 `题材壳`、`主卖点`、`核心情绪`、`付费期待`、`禁止漂移方向` 五项；若是 `追妻 / 婚恋清算 / 强情绪关系文`，禁止把成文主体写成 `职业流程文 / 冷处理撤离文 / 现实切割说明文`。五项缺任一，阻断大纲和正文。
+54. **题材承诺和卖点兑现必须单独过人工硬闸**：写后人工复核回执必须新增 `premise_genre_promise_alignment` 与 `core_selling_point_payoff` 两项，分别核对“题面 / 设定 / 大纲承诺的文类体感有没有跑偏”与“全文是否持续提供对应的高价值读点、掉位后果和关系回弹”。只用开头契约、顺序契约、窗口检测或 AI 味结果代替这两项，直接失败。
+55. **强情绪追妻题的男主姿态必须验收**：若设定把关系线归为 `追妻`、`婚恋清算` 或近似题材，正文必须出现可观察的 `失位后持续后果 + 低位补救失败/狼狈求回 + 女主明确边界动作`；若男主只剩功能性修补、理性解释或秩序恢复，视为题材漂移，不得放行。
+56. **选中的题材公式必须逐条生成专项复核，不得只读不验**：写前从实际采用的题材公式中抽出本稿适用规则；写后在 `genre_formula_review.rules` 中逐条填写 `id / rule / status / evidence`。每条证据必须引用最终正文原句并给出人工判断，不能用“结构成立”“整体已执行”代替。
+57. **追妻题三项句段级检查为强制项**：`female_softening_externalized` 检查女主的一秒松动是否由动作、停顿或外部细节折射；`no_emotional_after_summary` 检查情绪破绽后是否又补作者总结；`repair_failure_fact_based` 检查补救失败是否落在再次选择和具体事实上。缺任一项，写后人工复核不得通过。
+58. **题材公式专项回执同时绑定最终正文和公式来源**：正文 SHA 或题材公式来源 SHA 任一变化，旧回执立即失效；必须在最后一次正文修改后重新逐条复核。不能因为本轮只改一句，就沿用上一轮“已检查”的题材结论。
+59. **写后必须执行局部生硬候选扫描，但脚本不得代判**：运行 `audit_local_stiffness.py` 定位 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾钩子 / 克制解释过度 / 高价值场景摘要化`。脚本命中只算候选；当前模型必须完整读取上下文，逐项判断 `保留 / 回修 / 删除`。
+60. **人工复核必须做全文反例扫描，不能只找一条合格证据**：`direct_psychology_externalization`、`post_emotion_summary_residue`、`result_reporting_chain`、`thesis_dialogue_concreteness`、`chapter_end_hook_naturalness`、`restraint_overexplained`、`high_value_scene_summary_compression` 七项必须进入 `human_checks`。每项应证明全文剩余候选均已裁决；只引用一处合格句、未处理同类反例，视为未执行。
+61. **通过状态不得包含待改证据**：任何人工检查证据的 `action` 只要是 `revise / delete`，该项就不能标记 `passed`；必须先修改正文、重建绑定最终 SHA 的回执，再重新检查。禁止把“已发现问题”冒充“已通过检查”。
+62. **克制不能由连续否定句自证**：同一小段连续出现三次以上 `我没有 / 我不知道 / 我没问 / 这件事我后来也没`，必须进入 `restraint_overexplained`；优先删除解释，让前面的物件和动作自己承担克制。不能为了表现冷静，把“不做什么”逐项讲给读者。
+63. **高价值桥段禁止被转述摘要吞掉**：追妻低位、公开掉位、揭示、决裂、求回等承重场景若出现 `他先说……又说……` 一类复合转述，必须进入 `high_value_scene_summary_compression`；当前模型要判断是否恢复为现场对白、动作和停顿。普通过场可保留转述，承重场景默认现场化。
 
 ---
 
@@ -554,6 +565,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - 主情绪
 - 爽点类型
 - 关系重组方式
+- 题材壳
+- 禁止漂移方向
+
+起盘完成后，必须在设定里明确落盘以下五项，后续每轮回修不得偷换：
+
+- `题材壳`
+- `主卖点`
+- `核心情绪`
+- `付费期待`
+- `禁止漂移方向`
 
 起盘、题面、导语、平台适配的详细方法见：
 
@@ -648,6 +669,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
   --target "{项目目录}/正文.md"
 ```
 
+再生成局部生硬候选报告：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/audit_local_stiffness.py" \
+  --text "{项目目录}/正文.md" \
+  --output "{项目目录}/写作资产/局部生硬候选报告.json"
+```
+
+报告中的 `script` 项可由脚本定位，`mixed` 项只能由当前模型结合上下文裁决。无命中不等于通过，仍须人工复扫 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾 / 克制解释过度 / 高价值场景摘要化` 七类问题。
+
 再过人工语义硬闸：
 
 ```bash
@@ -656,6 +687,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
   --text "{项目目录}/正文.md" \
   --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"
 ```
+
+人工回填 `写后人工语义复核回执.json` 时，除通用 `human_checks` 外必须完成 `genre_formula_review`：
+
+- `selected_genre`：当前实际采用的题材公式
+- `source_files`：公式文件绝对路径与 SHA256
+- `rules`：本稿适用规则逐项证据
+- `conclusion`：题材公式是否全部落实到最终正文
+
+追妻题至少包含 `female_softening_externalized`、`no_emotional_after_summary`、`repair_failure_fact_based`。任一证据仍应 `revise / delete` 时，先改正文，再重新初始化和复核回执。
 
 局部或专项回炉初始化回执时必须传 `--base-text`。完整字段和自动/人工分工见：
 

@@ -25,12 +25,17 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         self.base = self.root / "母稿.md"
         self.text = self.root / "正文.md"
         self.receipt = self.root / "人工语义复核回执.json"
+        self.genre_source = self.root / "题材公式.md"
         self.base.write_text(
             "# 测试\n原句一。\n他没说话。\n",
             encoding="utf-8",
         )
         self.text.write_text(
             "# 测试\n原句一。\n他没说话。\n难为他，还知道回来。\n",
+            encoding="utf-8",
+        )
+        self.genre_source.write_text(
+            "# 追妻公式\n女主波动必须外显。\n",
             encoding="utf-8",
         )
 
@@ -58,6 +63,32 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
                 }
             ]
             item["conclusion"] = "已人工复核全文。"
+        receipt["genre_formula_review"] = {
+            "status": "completed",
+            "selected_genre": "现代都市追妻",
+            "source_files": [
+                {
+                    "path": str(self.genre_source.resolve()),
+                    "sha256": GATE.sha256(self.genre_source),
+                }
+            ],
+            "rules": [
+                {
+                    "id": rule_id,
+                    "rule": rule_id,
+                    "status": "passed",
+                    "evidence": [
+                        {
+                            "quote": "他没说话。",
+                            "judgment": "测试正文证据已人工核对。",
+                            "action": "keep",
+                        }
+                    ],
+                }
+                for rule_id in sorted(GATE.CHASE_WIFE_REQUIRED_RULES)
+            ],
+            "conclusion": "追妻题材专项规则已逐条复核。",
+        }
         for item in receipt["changed_sentence_reviews"]:
             item.update(
                 {
@@ -97,18 +128,24 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         errors, summary = GATE.validate_receipt(self.receipt, self.text)
         self.assertEqual([], errors)
         self.assertEqual(len(GATE.REQUIRED_HUMAN_CHECKS), summary["reviewed_human_checks"])
+        self.assertEqual(
+            len(GATE.CHASE_WIFE_REQUIRED_RULES),
+            summary["reviewed_genre_rules"],
+        )
         self.assertEqual(1, summary["reviewed_changed_sentences"])
 
     def test_macro_rhythm_checks_are_mandatory(self) -> None:
         self.assertIn("narrator_voice_distribution", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("long_window_dialogue_efficiency", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("cross_block_rhythm_contrast", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("premise_genre_promise_alignment", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("core_selling_point_payoff", GATE.REQUIRED_HUMAN_CHECKS)
 
         receipt = self._write_completed_receipt()
         receipt["human_checks"] = [
             item
             for item in receipt["human_checks"]
-            if item["id"] != "narrator_voice_distribution"
+            if item["id"] != "premise_genre_promise_alignment"
         ]
         self.receipt.write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2),
@@ -116,7 +153,40 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         )
         errors, _ = GATE.validate_receipt(self.receipt, self.text)
         self.assertTrue(
-            any("缺少人工检查项: narrator_voice_distribution" in error for error in errors)
+            any(
+                "缺少人工检查项: premise_genre_promise_alignment" in error
+                for error in errors
+            )
+        )
+
+    def test_chase_wife_required_genre_rule_is_mandatory(self) -> None:
+        receipt = self._write_completed_receipt()
+        receipt["genre_formula_review"]["rules"] = [
+            item
+            for item in receipt["genre_formula_review"]["rules"]
+            if item["id"] != "female_softening_externalized"
+        ]
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.text)
+        self.assertTrue(
+            any(
+                "追妻题缺少强制专项规则: female_softening_externalized" in error
+                for error in errors
+            )
+        )
+
+    def test_changed_genre_formula_source_invalidates_receipt(self) -> None:
+        self._write_completed_receipt()
+        self.genre_source.write_text(
+            "# 追妻公式\n女主波动必须外显，情绪后不得追加总结。\n",
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.text)
+        self.assertTrue(
+            any("题材公式来源已变化，必须重新复核" in error for error in errors)
         )
 
     def test_changed_text_invalidates_receipt(self) -> None:

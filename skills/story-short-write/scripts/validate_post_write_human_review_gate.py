@@ -41,10 +41,24 @@ REQUIRED_HUMAN_CHECKS = (
     "protagonist_irregularity_and_agency",
     "technical_detail_function",
     "dialogue_pattern_variation",
+    "premise_genre_promise_alignment",
+    "core_selling_point_payoff",
+    "direct_psychology_externalization",
+    "post_emotion_summary_residue",
+    "result_reporting_chain",
+    "thesis_dialogue_concreteness",
+    "chapter_end_hook_naturalness",
+    "restraint_overexplained",
+    "high_value_scene_summary_compression",
     "full_text_legacy_rescan",
 )
 
 NARRATOR_OR_AUTHOR = {"narrator_voice", "author_summary", "neutral"}
+CHASE_WIFE_REQUIRED_RULES = {
+    "female_softening_externalized",
+    "no_emotional_after_summary",
+    "repair_failure_fact_based",
+}
 
 
 def read_text(path: Path) -> str:
@@ -181,6 +195,13 @@ def create_receipt(
             }
             for check_id in REQUIRED_HUMAN_CHECKS
         ],
+        "genre_formula_review": {
+            "status": "pending",
+            "selected_genre": "",
+            "source_files": [],
+            "rules": [],
+            "conclusion": "",
+        },
         "changed_sentence_reviews": changed_lines(base_text, current_text)
         if resolved_base
         else [],
@@ -231,6 +252,7 @@ def validate_receipt(
         return [f"正文不存在: {resolved_text}"], {
             "human_check_count": len(REQUIRED_HUMAN_CHECKS),
             "reviewed_human_checks": 0,
+            "reviewed_genre_rules": 0,
             "changed_sentence_count": 0,
             "reviewed_changed_sentences": 0,
         }
@@ -305,14 +327,104 @@ def validate_receipt(
             if not judgment:
                 errors.append(f"人工证据缺少语义判断: {check_id}[{index}]")
                 valid_evidence = False
-            if action not in {"keep", "revise", "delete"}:
-                errors.append(f"人工证据 action 非法: {check_id}[{index}]")
+            if action != "keep":
+                errors.append(
+                    f"人工证据仍需回修，当前检查不得通过: {check_id}[{index}]"
+                )
                 valid_evidence = False
         if not str(entry.get("conclusion") or "").strip():
             errors.append(f"人工检查项缺少结论: {check_id}")
             valid_evidence = False
         if valid_evidence:
             reviewed_human_checks += 1
+
+    genre_review = data.get("genre_formula_review")
+    reviewed_genre_rules = 0
+    if not isinstance(genre_review, dict):
+        errors.append("genre_formula_review 必须是对象")
+    else:
+        if genre_review.get("status") != "completed":
+            errors.append("题材公式专项复核尚未完成")
+        selected_genre = str(genre_review.get("selected_genre") or "").strip()
+        if not selected_genre:
+            errors.append("题材公式专项复核缺少 selected_genre")
+        source_files = genre_review.get("source_files")
+        if not isinstance(source_files, list) or not source_files:
+            errors.append("题材公式专项复核缺少 source_files")
+            source_files = []
+        for index, source in enumerate(source_files, start=1):
+            if not isinstance(source, dict):
+                errors.append(f"题材公式来源格式错误: [{index}]")
+                continue
+            source_path = Path(str(source.get("path") or "")).resolve()
+            source_sha = str(source.get("sha256") or "").strip()
+            if not source_path.is_file():
+                errors.append(f"题材公式来源不存在: {source_path}")
+                continue
+            if not source_sha:
+                errors.append(f"题材公式来源缺少 sha256: [{index}]")
+            elif source_sha != sha256(source_path):
+                errors.append(f"题材公式来源已变化，必须重新复核: {source_path}")
+        if not str(genre_review.get("conclusion") or "").strip():
+            errors.append("题材公式专项复核缺少 conclusion")
+
+        genre_rules = genre_review.get("rules")
+        actual_rule_ids: set[str] = set()
+        if not isinstance(genre_rules, list) or not genre_rules:
+            errors.append("题材公式专项复核必须逐条列出适用规则")
+            genre_rules = []
+        for index, item in enumerate(genre_rules, start=1):
+            if not isinstance(item, dict):
+                errors.append(f"题材公式规则格式错误: [{index}]")
+                continue
+            rule_id = str(item.get("id") or "").strip()
+            rule_text = str(item.get("rule") or "").strip()
+            if not rule_id:
+                errors.append(f"题材公式规则缺少 id: [{index}]")
+            else:
+                actual_rule_ids.add(rule_id)
+            if not rule_text:
+                errors.append(f"题材公式规则缺少 rule: [{index}]")
+            if item.get("status") != "passed":
+                errors.append(f"题材公式规则尚未通过: {rule_id or index}")
+                continue
+            evidence = item.get("evidence")
+            if not isinstance(evidence, list) or not evidence:
+                errors.append(f"题材公式规则缺少正文证据: {rule_id or index}")
+                continue
+            valid_rule = True
+            for evidence_index, evidence_item in enumerate(evidence, start=1):
+                if not isinstance(evidence_item, dict):
+                    errors.append(
+                        f"题材公式证据格式错误: {rule_id or index}[{evidence_index}]"
+                    )
+                    valid_rule = False
+                    continue
+                quote = str(evidence_item.get("quote") or "").strip()
+                judgment = str(evidence_item.get("judgment") or "").strip()
+                action = str(evidence_item.get("action") or "").strip()
+                if not quote or quote not in current_text:
+                    errors.append(
+                        f"题材公式证据原句不在正文中: {rule_id or index}[{evidence_index}]"
+                    )
+                    valid_rule = False
+                if not judgment:
+                    errors.append(
+                        f"题材公式证据缺少判断: {rule_id or index}[{evidence_index}]"
+                    )
+                    valid_rule = False
+                if action != "keep":
+                    errors.append(
+                        f"题材公式证据仍需回修: {rule_id or index}[{evidence_index}]"
+                    )
+                    valid_rule = False
+            if valid_rule:
+                reviewed_genre_rules += 1
+
+        if "追妻" in selected_genre:
+            missing_rules = sorted(CHASE_WIFE_REQUIRED_RULES - actual_rule_ids)
+            for rule_id in missing_rules:
+                errors.append(f"追妻题缺少强制专项规则: {rule_id}")
 
     base_info = data.get("base_text")
     expected_changed: list[dict[str, Any]] = []
@@ -378,6 +490,7 @@ def validate_receipt(
     return errors, {
         "human_check_count": len(REQUIRED_HUMAN_CHECKS),
         "reviewed_human_checks": reviewed_human_checks,
+        "reviewed_genre_rules": reviewed_genre_rules,
         "changed_sentence_count": len(expected_changed),
         "reviewed_changed_sentences": reviewed_changed_sentences,
     }
