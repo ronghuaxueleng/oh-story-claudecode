@@ -141,6 +141,11 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         self.assertIn("premise_genre_promise_alignment", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("core_selling_point_payoff", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("ending_action_completion", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("interpersonal_exchange_full_text_review", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("author_substitution_in_exchange", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("conflict_carrier_distribution", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("physical_object_space_consequence", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("irreversible_violence_genre_alignment", GATE.REQUIRED_HUMAN_CHECKS)
 
         receipt = self._write_completed_receipt()
         receipt["human_checks"] = [

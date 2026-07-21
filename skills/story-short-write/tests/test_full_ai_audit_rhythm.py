@@ -19,6 +19,87 @@ SPEC.loader.exec_module(AUDIT)
 
 
 class FullAiAuditRhythmTest(unittest.TestCase):
+    @staticmethod
+    def _fill_segment_scores(receipt: dict, text: str) -> None:
+        boundaries = receipt.get("boundaries", [])
+        cuts = [0, *boundaries, len(text)]
+        receipt["segment_scores"] = [
+            {
+                "start": start,
+                "end": end,
+                "aigc_estimate": 0.2,
+                "label": "人工特征",
+            }
+            for start, end in zip(cuts[:-1], cuts[1:])
+        ]
+
+    @staticmethod
+    def _fill_conflict_review(receipt: dict, text: str) -> None:
+        quote = next(
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        receipt["conflict_carrier_review"] = {
+            "status": "completed",
+            "reviewed_full_text": True,
+            "scene_reviews": [
+                {
+                    "scene": "测试冲突场",
+                    "status": "passed",
+                    "carriers": ["dialogue", "identity"],
+                    "evidence": [
+                        {
+                            "quote": quote,
+                            "judgment": "当前模型已结合完整场景判断冲突载体。",
+                        }
+                    ],
+                    "consequence": "人物位置和后续选择发生变化。",
+                    "judgment": "不是只靠孤立台词推进。",
+                }
+            ],
+            "dialogue_only_conflict": False,
+            "irreversible_violence_review": {
+                "status": "completed",
+                "present": False,
+                "decision": "absent",
+                "evidence": [],
+                "judgment": "全文未出现直接殴打。",
+            },
+            "global_judgment": "已完整阅读正文并完成人工冲突载体复核。",
+        }
+
+    @staticmethod
+    def _fill_exchange_review(receipt: dict, text: str) -> None:
+        quote = next(
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        receipt["interaction_exchange_review"] = {
+            "status": "completed",
+            "reviewed_full_text": True,
+            "scene_reviews": [
+                {
+                    "scene": "测试交流场",
+                    "status": "passed",
+                    "pressure_source": "一方用问题和身份压力逼迫另一方回应。",
+                    "response_mode": "另一方改变动作并收窄回答范围。",
+                    "changed_target": ["action", "answer_scope"],
+                    "real_exchange": True,
+                    "author_substitution": False,
+                    "evidence": [
+                        {
+                            "quote": quote,
+                            "judgment": "压力实际改变了对方的现场反应。",
+                        }
+                    ],
+                    "judgment": "形成真实压力交换。",
+                }
+            ],
+            "global_judgment": "已完整复核全文承重交流场。",
+        }
+
     def test_tight_markdown_lines_are_real_paragraphs(self) -> None:
         text = "# 标题\n## 1\n第一段。\n第二段。\n## 2\n第三段。\n"
         paragraphs = AUDIT.build_paragraph_entries(text)
@@ -221,6 +302,9 @@ class FullAiAuditRhythmTest(unittest.TestCase):
                 for item in selected
             ]
             receipt["manual_judgment"] = "当前模型已完整读取正文并人工确定边界。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
 
             encoded = json.loads(json.dumps(receipt, ensure_ascii=False))
             boundaries = AUDIT.validate_manual_model_segmentation_receipt(
@@ -237,6 +321,9 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self.assertIn("专业细节功能性", receipt["prompt"])
             self.assertIn("对白模式", receipt["prompt"])
             self.assertIn("跨窗口记录", receipt["prompt"])
+            self.assertIn("冲突载体人工复核", receipt["prompt"])
+            self.assertIn("固定词只算候选", receipt["prompt"])
+            self.assertIn("人物交流人工复核", receipt["prompt"])
 
     def test_formal_segmentation_requires_sequence_review_when_context_is_bound(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -268,6 +355,9 @@ class FullAiAuditRhythmTest(unittest.TestCase):
                 for item in selected
             ]
             receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
             with self.assertRaisesRegex(RuntimeError, "顺序契约结构复核"):
                 AUDIT.validate_manual_model_segmentation_receipt(
                     receipt,
@@ -309,8 +399,11 @@ class FullAiAuditRhythmTest(unittest.TestCase):
                 for item in [anchors[0], anchors[1], anchors[2]]
             ]
             receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
 
-            with self.assertRaisesRegex(RuntimeError, "每段不得少于500字"):
+            with self.assertRaisesRegex(RuntimeError, "每段不得少于200字"):
                 AUDIT.validate_manual_model_segmentation_receipt(
                     receipt,
                     source,
@@ -339,12 +432,123 @@ class FullAiAuditRhythmTest(unittest.TestCase):
                 for item in selected
             ]
             receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, original)
+            self._fill_conflict_review(receipt, original)
+            self._fill_exchange_review(receipt, original)
 
             with self.assertRaisesRegex(RuntimeError, "正文 SHA 已变化"):
                 AUDIT.validate_manual_model_segmentation_receipt(
                     receipt,
                     source,
                     original + "新增。",
+                )
+
+    def test_exchange_audit_recognizes_six_layer_interaction(self) -> None:
+        text = "\n".join(
+            [
+                "他堵在门口，抓住我的手腕。",
+                "“把本子给我。”",
+                "我把册子抽回来，书脊在我们中间扯裂。",
+            ]
+        )
+        result = AUDIT.audit_interpersonal_exchange(text, {"line_hits": []})
+        layers = result["interaction_layers"]
+        self.assertTrue(layers["肢体摩擦"])
+        self.assertTrue(layers["物件摩擦"])
+        self.assertTrue(layers["空间压力"])
+        self.assertTrue(result["candidate_scan_only"])
+        self.assertEqual([], result["issue_blocks"])
+        self.assertIsNone(result["manual_review"])
+
+    def test_exchange_candidates_do_not_create_manual_failures(self) -> None:
+        text = "\n".join(["“你说清楚。”", "“没什么可说的。”"] * 20)
+        result = AUDIT.audit_interpersonal_exchange(text, {"line_hits": []})
+        self.assertTrue(result["candidate_blocks"])
+        self.assertEqual([], AUDIT.exchange_manual_failures(result))
+
+    def test_conflict_candidate_scan_never_decides_failure(self) -> None:
+        text = "\n".join(["“你凭什么？”", "“我就这样。”"] * 20)
+        result = AUDIT.audit_conflict_carrier_distribution(text, {})
+        self.assertTrue(result["candidate_scan_only"])
+        self.assertNotIn("dialogue_only_conflict", result)
+        self.assertIsNone(result["manual_review"])
+
+    def test_manual_conflict_review_blocks_dialogue_only_conflict(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            text = ("这是一个足够长的测试段落。" * 80) + "\n"
+            source.write_text(text, encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            receipt["conflict_carrier_review"]["dialogue_only_conflict"] = True
+
+            with self.assertRaisesRegex(RuntimeError, "强冲突仍可能只靠对白"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                )
+
+    def test_manual_exchange_review_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            text = ("这是一个足够长的测试段落。" * 80) + "\n"
+            source.write_text(text, encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+
+            with self.assertRaisesRegex(RuntimeError, "人物交流人工复核"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                )
+
+    def test_manual_exchange_review_blocks_false_exchange(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            text = ("这是一个足够长的测试段落。" * 80) + "\n"
+            source.write_text(text, encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            receipt["interaction_exchange_review"]["scene_reviews"][0]["real_exchange"] = False
+
+            with self.assertRaisesRegex(RuntimeError, "未形成真实压力交换"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                )
+
+    def test_manual_exchange_review_blocks_author_substitution(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            text = ("这是一个足够长的测试段落。" * 80) + "\n"
+            source.write_text(text, encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            receipt["interaction_exchange_review"]["scene_reviews"][0]["author_substitution"] = True
+
+            with self.assertRaisesRegex(RuntimeError, "作者解释抢位"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
                 )
 
 

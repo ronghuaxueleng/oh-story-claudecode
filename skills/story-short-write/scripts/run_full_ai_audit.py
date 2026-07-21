@@ -448,6 +448,529 @@ def top_hotspots(heavy_report: dict, limit: int = 5) -> list[str]:
     return items
 
 
+def clean_excerpt(text: str, limit: int = 68) -> str:
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "..."
+
+
+def trim_evidence_label(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    text = re.sub(r"^[A-Za-z0-9_一-龥]+[:：]\s*", "", text.strip(), count=1)
+    return text.strip()
+
+
+def item_title_matches(item: dict, *keywords: str) -> bool:
+    title = str(item.get("title", ""))
+    return any(keyword in title for keyword in keywords)
+
+
+RELATION_FEELING_RULES = [
+    {
+        "name": "针锋相对",
+        "when": "双方都在抢定义权，句子互顶，谁也不肯退到解释位。",
+        "title_keywords": ("烂关系",),
+        "flag_keywords": ("高效对白块",),
+    },
+    {
+        "name": "假冷静",
+        "when": "表面压住声量，但句子功能极强，冷静只是外壳。",
+        "title_keywords": ("开头成品感", "对白效率", "人物偏手"),
+        "flag_keywords": ("高效对白块", "开头承压"),
+    },
+    {
+        "name": "压着说",
+        "when": "人物不正面爆，但一直抢节奏、抢结论、抢现场秩序。",
+        "title_keywords": ("对白", "人物偏手"),
+        "flag_keywords": ("高效对白块",),
+    },
+    {
+        "name": "被迫解释",
+        "when": "一方始终被推到答辩位，只能不停补理由、补证据、补流程。",
+        "title_keywords": ("开头成品感", "流程件", "对白"),
+        "flag_keywords": ("说明句偏强",),
+    },
+    {
+        "name": "旧账对冲",
+        "when": "人物说的不是眼前这件事，而是在拿过去的亏欠互相抵消。",
+        "title_keywords": ("烂关系",),
+        "flag_keywords": (),
+    },
+    {
+        "name": "关系掉位",
+        "when": "名义上的位置还在，但现场权限、边缘站位和默认顺序已经变了。",
+        "title_keywords": ("人物偏手", "烂关系"),
+        "flag_keywords": ("多资产挤压",),
+    },
+    {
+        "name": "关系先被盖章",
+        "when": "还没让读者看到关系自己漏出来，文本先替人物下了定性。",
+        "title_keywords": ("开头成品感", "作者替角色下结论"),
+        "flag_keywords": ("说明句偏强", "开头承压"),
+    },
+    {
+        "name": "一方在压场，一方在守边界",
+        "when": "一方主攻现场秩序和话语节奏，另一方只守住最低边界不让步。",
+        "title_keywords": ("人物偏手", "流程件"),
+        "flag_keywords": ("高效对白块", "说明句偏强"),
+    },
+    {
+        "name": "对压没接上",
+        "when": "人物开口了，但没有形成盯视、停顿、回避、顶回去这类真实接招，只剩孤立台词。",
+        "title_keywords": ("没有交流", "交流感缺失"),
+        "flag_keywords": (),
+    },
+    {
+        "name": "作者代替交流",
+        "when": "本该落在视线、停顿和接话里的压力，被作者一句解释提前包办了。",
+        "title_keywords": ("没有交流", "作者替角色下结论"),
+        "flag_keywords": ("说明句偏强",),
+    },
+]
+
+
+OPENING_SUBCAUSE_LIBRARY = [
+    {
+        "name": "信息揭露链太顺",
+        "why": "首屏把事故、关系、证据、程序和结论排成顺滑链条，读者没有参与追问的空间。",
+        "signals": ("opening_signature_risks", "opening_reveal_chain"),
+        "fix": "首屏只留事故和第二推进点，关系和证据错后半拍再漏。",
+    },
+    {
+        "name": "对白太快对题",
+        "why": "人物开口就解决主问题，缺回避、打岔、压声和现场阻隔。",
+        "signals": ("over_effective_dialogue_blocks",),
+        "fix": "拆掉最会解释关系的那句，换成控场句、回避句或手续句。",
+    },
+    {
+        "name": "作者先替关系盖章",
+        "why": "人还在现场承受，作者已经先总结意义和关系，成品感会立刻升高。",
+        "signals": ("author_verdict", "theme_explanation", "direct_mental_state"),
+        "fix": "删掉总结句，把关系定性退回动作、走位、停顿和后果里。",
+    },
+    {
+        "name": "首屏物件全都在服务主线",
+        "why": "每个物件一出场都直接对题，会像精修过的成品钩子，不像生活现场。",
+        "signals": ("opening_metrics",),
+        "fix": "首屏只让一个物件承担主功能，其他物件先做噪音和阻力。",
+    },
+]
+
+
+EXCHANGE_LAYER_CUES = {
+    "视线压力": [
+        "看着我", "看着他", "看着她",
+        "盯着我", "盯着他", "盯着她",
+        "看了我一眼", "看了他一眼", "看了她一眼",
+        "没看我", "没看他", "没看她", "避开了我的眼睛",
+        "抬头", "低头", "先看了一眼", "目光偏了一下",
+    ],
+    "肢体摩擦": [
+        "抓住", "攥住", "拽住", "扯住", "扣住", "按住",
+        "推开", "挥开", "甩开", "撞到", "撞上", "碰到",
+        "挡住", "拦住", "退开半步", "抓住我的手腕",
+        "从我指间抽走", "手停在半空",
+    ],
+    "物件摩擦": [
+        "抽出来", "推过去", "推回来", "递给他", "递给我",
+        "摔在", "砸在", "扔在", "撕开", "扯裂", "折断",
+        "抢走", "抽走", "夺过", "掀翻", "踩碎", "摔裂",
+        "扣在桌上", "压在桌上", "按平", "翻了个面",
+    ],
+    "空间压力": [
+        "堵在门口", "挡在门口", "拦在门口", "站到中间",
+        "退到黄色安全线外", "退到安全线外", "站到了黄线外面",
+        "逼到墙边", "抵在墙边", "关上门", "锁了门",
+        "拉到白板另一边", "挡着外面的视线", "往前追了两步",
+    ],
+    "节奏接招": [
+        "顿了半秒", "顿了一下", "停了", "没有立刻接话",
+        "没立刻再问", "没接", "接话", "打断", "咽了回去",
+        "声音压得很低", "把声音压得更低", "没再问",
+        "说到一半", "没答", "没回头", "没再往下接",
+    ],
+    "身份压力": [
+        "移出", "停用权限", "暂停权限", "无此人员", "收走钥匙",
+        "撤销权限", "临时管理员", "责任栏", "审批人", "申请人",
+        "见证人", "交接单", "离场单", "撤签", "管理员钥匙",
+    ],
+}
+
+
+CONFLICT_CARRIER_CUES = {
+    "dialogue": ["“", "\""],
+    "body": EXCHANGE_LAYER_CUES["肢体摩擦"],
+    "object": EXCHANGE_LAYER_CUES["物件摩擦"],
+    "space": EXCHANGE_LAYER_CUES["空间压力"],
+    "identity": EXCHANGE_LAYER_CUES["身份压力"],
+}
+
+
+STRONG_CONFLICT_CUES = [
+    "争", "吵", "质问", "逼问", "冲突", "失控", "撤签", "离婚",
+    "辞职", "停用权限", "无此人员", "报警", "封存", "追偿",
+    "抓住", "拽住", "推开", "摔在", "砸在", "扯裂", "抢走",
+]
+
+
+IRREVERSIBLE_VIOLENCE_CUES = [
+    "扇了我", "扇了她", "打了我", "打了她", "一巴掌",
+    "掐住脖子", "踹了我", "踹了她", "拳头砸在我",
+]
+
+
+CONFLICT_REVIEW_CARRIERS = {
+    "dialogue",
+    "body",
+    "object",
+    "space",
+    "identity",
+    "rhythm",
+}
+
+
+VIOLENCE_REVIEW_DECISIONS = {
+    "absent",
+    "aligned_irredeemable",
+    "revised",
+}
+
+
+EXCHANGE_CHANGED_TARGETS = {
+    "action",
+    "position",
+    "object",
+    "answer_scope",
+    "identity",
+    "consequence",
+}
+
+
+EXCHANGE_AUTHOR_SUBSTITUTE_CUES = [
+    "谁都该自己接上",
+    "这口气我太熟了",
+    "先压扩散，后补责任",
+    "这才像追妻",
+    "像是后半句",
+    "像是他自己都知道",
+]
+
+
+def collect_exchange_layers(text: str) -> dict[str, list[str]]:
+    return {
+        layer: collect_term_hits(text, cues, limit=8)
+        for layer, cues in EXCHANGE_LAYER_CUES.items()
+    }
+
+
+def collect_item_flags(item: dict, combined: dict) -> list[str]:
+    flags = []
+    for text in find_related_paragraph_evidence(item, combined, 4):
+        parts = [part.strip() for part in text.split("/") if part.strip()]
+        if len(parts) >= 3:
+            flags.extend([part.strip() for part in parts[2].split(" / ") if part.strip()])
+    return normalize_terms(flags)
+
+
+def build_relation_feelings(item: dict, combined: dict) -> list[dict]:
+    title = str(item.get("title", ""))
+    flags = collect_item_flags(item, combined)
+    matches: list[dict] = []
+    for rule in RELATION_FEELING_RULES:
+        if any(keyword in title for keyword in rule.get("title_keywords", ())):
+            matches.append({"name": rule["name"], "when": rule["when"]})
+            continue
+        if any(keyword in flags for keyword in rule.get("flag_keywords", ())):
+            matches.append({"name": rule["name"], "when": rule["when"]})
+    if not matches:
+        fallback = infer_relation_tags(item)
+        return [{"name": name, "when": "当前命中更接近这类关系气味，需要回到正文确认站位和说话方式。"} for name in fallback]
+    deduped: list[dict] = []
+    seen = set()
+    for item_data in matches:
+        name = item_data["name"]
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(item_data)
+    return deduped[:5]
+
+
+def build_opening_subcauses_from_library(light_report: dict) -> list[dict]:
+    opening_metrics = light_report.get("opening_metrics", {})
+    subcauses: list[dict] = []
+    for spec in OPENING_SUBCAUSE_LIBRARY:
+        evidence: list[str] = []
+        for signal in spec.get("signals", ()):
+            if signal == "opening_signature_risks":
+                evidence.extend(
+                    f"{it.get('type')}: {it.get('detail')}" for it in light_report.get("opening_signature_risks", [])[:2]
+                )
+            elif signal == "opening_reveal_chain":
+                evidence.extend(f"翻刀链: {it}" for it in light_report.get("opening_reveal_chain", [])[:2])
+            elif signal == "over_effective_dialogue_blocks":
+                evidence.extend(
+                    f"L{it.get('line')} 段{it.get('paragraph_index')}: {it.get('detail')}"
+                    for it in light_report.get("over_effective_dialogue_blocks", [])[:2]
+                )
+            elif signal == "author_verdict":
+                evidence.extend(sample_lines_by_type(light_report, "author_verdict", 2))
+            elif signal == "theme_explanation":
+                evidence.extend(sample_lines_by_type(light_report, "theme_explanation", 2))
+            elif signal == "direct_mental_state":
+                evidence.extend(sample_lines_by_type(light_report, "direct_mental_state", 1))
+            elif signal == "opening_metrics":
+                dialogue_count = opening_metrics.get("dialogue_count", 0)
+                single_ratio = opening_metrics.get("single_sentence_ratio", 0)
+                if dialogue_count:
+                    evidence.append(f"开头1200字对话数 {dialogue_count}")
+                if single_ratio:
+                    evidence.append(f"开头1200字单句段占比 {single_ratio}")
+        clean_evidence = normalize_terms([trim_evidence_label(ev) for ev in evidence if trim_evidence_label(ev)])
+        if not clean_evidence:
+            continue
+        subcauses.append(
+            {
+                "label": spec["name"],
+                "trigger": spec["why"],
+                "evidence": clean_evidence[:3],
+                "fix": spec["fix"],
+            }
+        )
+    return subcauses
+
+
+def find_related_paragraph_evidence(item: dict, combined: dict, limit: int = 3) -> list[str]:
+    paragraph_scores = combined.get("paragraph_scores", [])
+    title = str(item.get("title", ""))
+    focus_layer = str(item.get("focus_layer", ""))
+    scored: list[tuple[float, str]] = []
+
+    for para in paragraph_scores:
+        flags = para.get("flags", [])
+        excerpt = clean_excerpt(para.get("excerpt", ""))
+        if not excerpt:
+            continue
+        score = float(para.get("risk_score", 0))
+        if "开头成品感过高" in title:
+            if para.get("paragraph_index", 999) <= 4:
+                score += 30
+            if "开头承压" in flags:
+                score += 12
+            if "说明句偏强" in flags:
+                score += 8
+        if "流程件和证据件摆放过整齐" in title:
+            if "说明句偏强" in flags:
+                score += 14
+            if "单场戏功能过多" in flags:
+                score += 10
+        if "人物偏手没有立住" in title:
+            if "多资产挤压" in flags:
+                score += 10
+            if "高效对白块" in flags:
+                score += 8
+        if "烂关系没有自己漏出来" in title:
+            if "多资产挤压" in flags:
+                score += 8
+            if "说明句偏强" in flags:
+                score += 8
+        if "对白" in title:
+            if "高效对白块" in flags:
+                score += 18
+            if "短段对白密" in flags:
+                score += 8
+        if "作者替角色下结论" in title and "说明句偏强" in flags:
+            score += 16
+        if focus_layer == "scene_order" and "单场戏功能过多" in flags:
+            score += 12
+        if focus_layer == "sentence_shell" and "说明句偏强" in flags:
+            score += 12
+        if focus_layer == "dialogue_polish" and "高效对白块" in flags:
+            score += 10
+        if focus_layer == "character_reaction" and "多资产挤压" in flags:
+            score += 6
+        if score <= 0:
+            continue
+        scored.append(
+            (
+                score,
+                f"原始段{para.get('paragraph_index')} / 风险 {para.get('risk_score')} / {' / '.join(flags[:4]) or '局部承压'} / {excerpt}",
+            )
+        )
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return normalize_terms([text for _, text in scored[:limit]])
+
+
+def infer_relation_tags(item: dict) -> list[str]:
+    title = str(item.get("title", ""))
+    tags: list[str] = []
+    if "开头成品感过高" in title:
+        tags.extend(["假冷静", "关系先被盖章", "被迫解释"])
+    if "流程件和证据件摆放过整齐" in title:
+        tags.extend(["答辩感", "被迫解释", "一方压场一方接招"])
+    if "人物偏手没有立住" in title:
+        tags.extend(["一方在压场，一方在守边界", "假冷静", "关系掉位"])
+    if "烂关系没有自己漏出来" in title:
+        tags.extend(["针锋相对", "旧账对冲", "掉位但还想维持体面"])
+    if "对白效率过高" in title or "对白缺失控层" in title or "对白衔接过直" in title:
+        tags.extend(["压着说", "被迫解释", "假冷静"])
+    if "人物开口了，但没有交流" in title:
+        tags.extend(["对压没接上", "作者代替交流", "假冷静"])
+    if "作者替角色下结论" in title:
+        tags.extend(["关系被作者代判", "现场还没炸完就先定性"])
+    if "情绪没有落进微动作" in title:
+        tags.extend(["话在前，身子在后", "表情绪，不表关系"])
+    if not tags:
+        focus_layer = str(item.get("focus_layer", ""))
+        fallback = {
+            "scene_order": ["场面被整理过", "关系被秩序盖掉"],
+            "character_reaction": ["关系先靠反应漏出", "不要先讲道理"],
+            "dialogue_polish": ["话太直", "人物太会接招"],
+            "sentence_shell": ["作者口先跑到前面"],
+        }
+        tags.extend(fallback.get(focus_layer, ["关系气味偏说明层"]))
+    return normalize_terms(tags)
+
+
+def build_subcauses(item: dict, combined: dict) -> list[dict]:
+    light_report = combined.get("light_report", {})
+    style_audits = combined.get("style_audits", {})
+    line_types = light_report.get("line_hit_types", {})
+    subcauses: list[dict] = []
+
+    def add(label: str, trigger: str, evidence: list[str], fix: str) -> None:
+        clean_evidence = normalize_terms([trim_evidence_label(ev) for ev in evidence if trim_evidence_label(ev)])
+        if not clean_evidence:
+            return
+        subcauses.append(
+            {
+                "label": label,
+                "trigger": trigger,
+                "evidence": clean_evidence[:3],
+                "fix": fix.strip(),
+            }
+        )
+
+    if item_title_matches(item, "开头成品感过高"):
+        subcauses.extend(build_opening_subcauses_from_library(light_report))
+
+    if item_title_matches(item, "流程件和证据件摆放过整齐"):
+        add(
+            "证据像案卷一样连续宣读",
+            "时间线、证据链、程序节点排得太工整，会有答辩稿味。",
+            [item.get("why_it_hits_audit", "")] + item.get("evidence", [])[:3],
+            "让证据分两次以上漏出，中间插入翻找、打断、质疑和迟滞。",
+        )
+        add(
+            "手续流不卡壳",
+            "流程只负责推进，不负责制造阻力，场面就会被看成整理后的说明件。",
+            find_related_paragraph_evidence(item, combined, 2),
+            "把程序动作改成有人拦、有人催、有人插话，别一路顺着宣读完。",
+        )
+
+    if item_title_matches(item, "人物偏手没有立住"):
+        add(
+            "人物先说对的话，没先做本能反应",
+            "核心人物缺少稳定的第一反应手势，只剩功能型发言。",
+            ["人物偏手命中不足"] + find_related_paragraph_evidence(item, combined, 2),
+            "先写谁压场、谁守边界、谁先收东西，再补解释句。",
+        )
+        dialogue_count = style_audits.get("meltdown_dialogue_audit", {}).get("dialogue_count", 0)
+        explanation_evidence = find_related_paragraph_evidence(item, combined, 2)
+        if dialogue_count:
+            explanation_evidence = [f"对白数 {dialogue_count}"] + explanation_evidence
+        add(
+            "理亏方太会解释",
+            "理亏角色如果直接给标准答案，关系张力会塌成作者控场。",
+            explanation_evidence + item.get("evidence", [])[:1],
+            "让理亏方先绕、先拖、先压程序，不要马上答题。",
+        )
+
+    if item_title_matches(item, "人物开口了，但没有交流"):
+        exchange_issues = exchange_manual_failures(
+            style_audits.get("exchange_audit", {})
+        )
+        author_substitute_hits = style_audits.get("exchange_audit", {}).get("author_substitute_hits", [])
+        issue_evidence = [
+            f"{entry.get('scene')} / {entry.get('judgment')}"
+            for entry in exchange_issues[:3]
+        ]
+        add(
+            "只有台词，没有接招",
+            "人物说了话，但现场没有形成对视、停顿、压声、顶回去这些真正的交流动作。",
+            issue_evidence,
+            "给关键台词后面补一个被迫接招的动作，不一定回嘴，但一定要让压力落到人身上。",
+        )
+        add(
+            "作者解释抢走了交流位",
+            "本该让读者从人和人的反应里读出来的气味，被作者一句概括提前说完了。",
+            author_substitute_hits[:3] + sample_lines_by_type(light_report, "author_verdict", 1) + sample_lines_by_type(light_report, "theme_explanation", 1),
+            "删掉那句解释，把它拆成视线、停住、没接话、改口或转去压程序。",
+        )
+
+    if item_title_matches(item, "烂关系没有自己漏出来"):
+        add(
+            "关系主要靠旧账复述",
+            "坏关系没有先从空间、权限、默认反应里漏出来，只能靠台词解释。",
+            ["烂关系漏出资产命中不足"] + find_related_paragraph_evidence(item, combined, 2),
+            "把坏关系改写成门口、座位、登记口、物件归属和谁先被晾着。",
+        )
+        add(
+            "掉位感不够具体",
+            "读者没法一眼看出谁被挤到边上、谁默认有权限，关系就还是抽象的。",
+            item.get("fix_methods", [])[:2],
+            "别再加旧账总结，直接补谁站外圈、谁被越过、谁的东西先被动。",
+        )
+
+    if item_title_matches(item, "对白效率过高", "对白缺失控层", "对白衔接过直"):
+        add(
+            "句句都在对题",
+            "每句对白都推进主线，会失去真人冲突里的绕、憋、截断和废气。",
+            item.get("evidence", [])[:3],
+            "每段对白至少拆掉一句直答，换成控场句、回避句或手续句。",
+        )
+        add(
+            "缺现场桥",
+            "没有走位、噪音、旁人插话和手续件切断，对话像连续投喂信息。",
+            ["对话衔接/对白功能资产命中不足"] + find_related_paragraph_evidence(item, combined, 2),
+            "给对话中间塞一次走位或旁人打断，让人物来不及把话说完整。",
+        )
+
+    if item_title_matches(item, "作者替角色下结论"):
+        add(
+            "作者站位跑到人物前面",
+            "人物还在承受现场，文本先概括意义，会像后加工评论。",
+            item.get("evidence", [])[:3],
+            "删掉定性句，改成读者自己能从动作和后果里看出来的东西。",
+        )
+
+    if item_title_matches(item, "情绪没有落进微动作"):
+        add(
+            "情绪词直给，身体没跟上",
+            "标准反应和心理句多，手上动作却没承住情绪。",
+            [
+                f"direct_mental_state {line_types.get('direct_mental_state', 0)}",
+                f"standard_reaction {line_types.get('standard_reaction', 0)}",
+            ] + find_related_paragraph_evidence(item, combined, 2),
+            "删一条情绪句，补一个收回、按住、放回去、划掉之类的动作。",
+        )
+
+    return subcauses[:6]
+
+
+def build_minimal_fix_map(item: dict, subcauses: list[dict]) -> list[str]:
+    fixes: list[str] = []
+    for subcause in subcauses[:4]:
+        fixes.append(f"{subcause['label']} -> {subcause['fix']}")
+    if not fixes:
+        fixes.extend([method.strip() for method in item.get("fix_methods", [])[:3] if str(method).strip()])
+    return normalize_terms(fixes)
+
+
 def extract_proxy_features(heavy_report: dict, heavy_summary: dict) -> dict[str, float]:
     display_blocks = heavy_report.get("display_block_scores", [])
     values: list[float] = []
@@ -1311,15 +1834,24 @@ _SEGMENT_PROMPT_TMPL = """\
 
 切分规则：
 1. 在 AIGC 信号密度发生显著跃变的段落边界处切分；不在章节边界或叙事场景切换处切分（除非同时伴随语言可预测性的显著变化）
-2. 最小段长约束：每段字符数不得少于 500 字；若某边界会产生 < 500 字的段，延后至下一个满足约束的段落锚点
+2. 最小段长约束：每段字符数不得少于 200 字；若某边界会产生 < 200 字的段，延后至下一个满足约束的段落锚点
 3. 同质区合并：连续多章若 AIGC 信号密度相近（均为低密度叙述），归为一段，不因章节边界拆开
-4. 目标为 4-7 段，即返回 3-6 个边界
+3.5. 短高密度尖峰（micro-spike）：若文中出现一段 200-500 字的集中程序化场景（如急诊挂号流程、填表签字、手续办理），其前后 AIGC 信号与相邻内容有显著落差（≥0.15 差值），必须单独切出，不得与前后低密度段合并
+4. 目标段数与正文 AIGC 分布一致，通常为 1-13 段，即返回 0-12 个边界；若全文信号高度一致（整体高 AIGC 或整体低 AIGC），可返回 0 个边界（一整段）
 5. 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置
 6. 必须读取完整正文，不能只看开头、摘要或章节标题
 7. 不调用外部 API、Claude CLI 或其他模型；由当前执行 skill 的模型人工完成
 8. 回填 receipt 中的 boundaries、boundary_evidence、manual_judgment、status
 9. 每个 boundary_evidence 必须写明 offset、该段开头原句（quote）和为什么在这里切（reason）
 10. 禁止将边界仅对齐章节标题（## N）：若某候选边界落在章节起始 5 字内，但该章节边界前后 AIGC 信号密度无显著变化，必须放弃该边界，重新选择段落内的密度跃变点
+10.5. 每个最终窗口必须估算 AIGC 值并回填至 segment_scores，格式：{{start, end, aigc_estimate, label}}
+    - aigc_estimate：0.00-1.00 的浮点数，根据窗口语言特征判断
+      · 高程序化场景（挂号/填表/手续/格式化动作序列）→ 0.60-0.85
+      · 全流水账/纯清单/精确时间戳密集 → 0.85+
+      · 情绪化对话/感知碎片/内心独白 → 0.25-0.45
+      · 纯人工感知叙述/强不可预测性 → 0.05-0.25
+      · 混合段（程序化+情绪交织）→ 0.45-0.60
+    - label：按朱雀标准自动推导，aigc_estimate < 0.50 → "人工特征"，0.50-0.99 → "疑似AI"，≥ 0.99 → "AI特征"
 
 规则辅助切分（必须执行，但不能机械切刀）：
 11. 将下面四类规则作为候选边界的观察维度：
@@ -1332,11 +1864,24 @@ _SEGMENT_PROMPT_TMPL = """\
 14. 全局规则不能只在单窗内判断：跨窗口记录章节弧线/章尾是否重复、主角是否连续过度正确、专业细节是否长期无功能、对白是否反复同构；这些属于跨窗复核，不得用一个局部窗口结论代替。
 15. 每个最终窗口的人工说明必须注明：使用了哪些规则作为切分依据，哪些规则只做跨窗观察，以及该边界为何比相邻候选更合理。
 
+冲突载体人工复核（必须执行，固定词只算候选）：
+16. 完整读取全文后，逐场填写 conflict_carrier_review.scene_reviews；至少覆盖所有承重冲突场，不得只抽一处合格证据。
+17. carriers 只能从 dialogue / body / object / space / identity / rhythm 中选择；每场必须引用正文原句并说明压力如何改变动作、站位、物件控制权、身份或后果。
+18. dialogue_only_conflict 由当前模型根据全文判断，固定词数量不得直接代判。若强冲突长期只靠克制问答，必须标 true 并先回正文修改，不能把回执标 completed。
+19. irreversible_violence_review 必须判断直接殴打是否存在。若存在，必须裁决为 aligned_irredeemable 或先修改正文后标 revised；不得把打人自动包装成爱、吃醋或追妻资格。
+20. 脚本输出的 conflict_carrier_audit.candidate_scan_only 永远只是候选，不能直接加风险分、不能直接生成改文结论。
+
+人物交流人工复核（同样必须执行）：
+21. 完整读取全文后填写 interaction_exchange_review.scene_reviews，覆盖所有承重对话场，不得按“看、盯、停顿”等词语数量判定。
+22. 每场必须写清 pressure_source（谁用什么施压）、response_mode（对方如何接招）、changed_target（动作、站位、物件、回答范围、身份或后果中哪些被改变）。
+23. real_exchange 只有在压力实际落到另一个人物并改变其现场反应时才能标 true；孤立台词、答题对白和作者解释不能冒充交流。
+24. author_substitution 若为 true，或任一承重场 real_exchange=false，必须先修改正文；正式回执不得标 completed。
+
 判断顺序：
 ① 先扫描全文，对每个段落标注 AIGC 信号密度（高/低）
 ② 标记四类规则在全文的局部变化点和跨窗重复风险
 ③ 找出同时满足信号跃变、规则变化和段落可读性的候选边界
-④ 合并相邻同质段，检查最小段长约束（< 500 字则延后）
+④ 合并相邻同质段，检查最小段长约束（< 200 字则延后；200-500 字的 micro-spike 高密度段不合并，保留）
 ⑤ 从满足约束的 paragraph_anchors.start_char 中选出最终边界，并回填边界的规则证据
 
 正文路径：{source_path}
@@ -1402,11 +1947,32 @@ def build_manual_model_segmentation_task(
         ],
         "boundaries": [],
         "boundary_evidence": [],
+        "segment_scores": [],
         "sequence_review": {
             "status": "pending",
             "node_reviews": [],
             "cross_window_risks": [],
             "overall_judgment": "",
+        },
+        "conflict_carrier_review": {
+            "status": "pending",
+            "reviewed_full_text": False,
+            "scene_reviews": [],
+            "dialogue_only_conflict": None,
+            "irreversible_violence_review": {
+                "status": "pending",
+                "present": None,
+                "decision": "pending",
+                "evidence": [],
+                "judgment": "",
+            },
+            "global_judgment": "",
+        },
+        "interaction_exchange_review": {
+            "status": "pending",
+            "reviewed_full_text": False,
+            "scene_reviews": [],
+            "global_judgment": "",
         },
         "manual_judgment": "",
     }
@@ -1433,8 +1999,8 @@ def validate_manual_model_segmentation_receipt(
 
     raw_boundaries = receipt.get("boundaries")
     boundaries = raw_boundaries if isinstance(raw_boundaries, list) else []
-    if not 3 <= len(boundaries) <= 6:
-        errors.append("人工模型分段必须返回 3-6 个边界，形成 4-7 段")
+    if not 0 <= len(boundaries) <= 12:
+        errors.append("人工模型分段必须返回 0-12 个边界，形成 1-13 段")
     if any(not isinstance(value, int) or isinstance(value, bool) for value in boundaries):
         errors.append("人工模型分段边界必须全部是整数")
     normalized = [value for value in boundaries if isinstance(value, int) and not isinstance(value, bool)]
@@ -1447,13 +2013,13 @@ def validate_manual_model_segmentation_receipt(
     short_segments = [
         (start, end, end - start)
         for start, end in zip(cuts[:-1], cuts[1:])
-        if end - start < 500
+        if end - start < 200
     ]
     if short_segments:
         detail = "、".join(
             f"{start}-{end}({size}字)" for start, end, size in short_segments
         )
-        errors.append(f"人工模型分段每段不得少于500字: {detail}")
+        errors.append(f"人工模型分段每段不得少于200字: {detail}")
 
     paragraphs = build_paragraph_entries(text)
     anchor_map = {item["start_char"]: item for item in paragraphs}
@@ -1485,6 +2051,199 @@ def validate_manual_model_segmentation_receipt(
 
     if not str(receipt.get("manual_judgment") or "").strip():
         errors.append("人工模型分段回执缺少整体判断")
+
+    expected_seg_count = len(cuts) - 1
+    segment_scores = receipt.get("segment_scores")
+    if not isinstance(segment_scores, list) or len(segment_scores) != expected_seg_count:
+        errors.append(f"segment_scores 必须与分段数量一致（{expected_seg_count} 个）")
+    else:
+        valid_labels = {"人工特征", "疑似AI", "AI特征"}
+        for i, item in enumerate(segment_scores):
+            if not isinstance(item, dict):
+                errors.append(f"segment_scores[{i}] 格式错误，必须是对象")
+                continue
+            seg_start = item.get("start")
+            seg_end = item.get("end")
+            expected_start = cuts[i]
+            expected_end = cuts[i + 1]
+            if seg_start != expected_start or seg_end != expected_end:
+                errors.append(
+                    "segment_scores"
+                    f"[{i}] 的 start/end 必须与分段边界一致"
+                    f"（应为 {expected_start}-{expected_end}，实际为 {seg_start}-{seg_end}）"
+                )
+            aigc = item.get("aigc_estimate")
+            if not isinstance(aigc, (int, float)) or isinstance(aigc, bool) or not 0.0 <= float(aigc) <= 1.0:
+                errors.append(f"segment_scores[{i}].aigc_estimate 必须是 0-1 之间的数值")
+            label = item.get("label")
+            if label not in valid_labels:
+                errors.append(f"segment_scores[{i}].label 必须是 人工特征/疑似AI/AI特征 之一，实际为: {label!r}")
+            # 校验 label 与 aigc_estimate 的一致性
+            if isinstance(aigc, (int, float)) and not isinstance(aigc, bool) and label in valid_labels:
+                v = float(aigc)
+                expected_label = "AI特征" if v >= 0.99 else ("疑似AI" if v >= 0.50 else "人工特征")
+                if label != expected_label:
+                    errors.append(f"segment_scores[{i}].label 与 aigc_estimate={v:.4f} 不一致（应为 {expected_label}）")
+
+    conflict_review = receipt.get("conflict_carrier_review")
+    if not isinstance(conflict_review, dict):
+        errors.append("人工模型分段回执缺少冲突载体人工复核")
+    else:
+        if conflict_review.get("status") != "completed":
+            errors.append("冲突载体人工复核 status 必须为 completed")
+        if conflict_review.get("reviewed_full_text") is not True:
+            errors.append("冲突载体人工复核必须确认已完整阅读正文")
+        if conflict_review.get("dialogue_only_conflict") is not False:
+            errors.append("强冲突仍可能只靠对白，必须先回正文修改并重新复核")
+        if not str(conflict_review.get("global_judgment") or "").strip():
+            errors.append("冲突载体人工复核缺少全文判断")
+
+        scene_reviews = conflict_review.get("scene_reviews")
+        if not isinstance(scene_reviews, list) or not scene_reviews:
+            errors.append("冲突载体人工复核缺少逐场记录")
+        else:
+            for index, item in enumerate(scene_reviews, 1):
+                if not isinstance(item, dict):
+                    errors.append(f"冲突载体场景复核格式错误[{index}]")
+                    continue
+                if item.get("status") != "passed":
+                    errors.append(f"冲突载体场景尚未通过[{index}]")
+                if not str(item.get("scene") or "").strip():
+                    errors.append(f"冲突载体场景缺少 scene[{index}]")
+                carriers = item.get("carriers")
+                if not isinstance(carriers, list) or not carriers:
+                    errors.append(f"冲突载体场景缺少 carriers[{index}]")
+                else:
+                    invalid = [
+                        str(value)
+                        for value in carriers
+                        if value not in CONFLICT_REVIEW_CARRIERS
+                    ]
+                    if invalid:
+                        errors.append(
+                            f"冲突载体场景包含无效 carriers[{index}]: "
+                            + " / ".join(invalid)
+                        )
+                evidence_items = item.get("evidence")
+                if not isinstance(evidence_items, list) or not evidence_items:
+                    errors.append(f"冲突载体场景缺少正文证据[{index}]")
+                else:
+                    for evidence_index, evidence_item in enumerate(evidence_items, 1):
+                        if not isinstance(evidence_item, dict):
+                            errors.append(
+                                f"冲突载体正文证据格式错误[{index}.{evidence_index}]"
+                            )
+                            continue
+                        quote = str(evidence_item.get("quote") or "").strip()
+                        if not quote or quote not in text:
+                            errors.append(
+                                f"冲突载体正文证据不在正文[{index}.{evidence_index}]"
+                            )
+                        if not str(evidence_item.get("judgment") or "").strip():
+                            errors.append(
+                                f"冲突载体正文证据缺少人工判断[{index}.{evidence_index}]"
+                            )
+                if not str(item.get("consequence") or "").strip():
+                    errors.append(f"冲突载体场景缺少实际后果[{index}]")
+                if not str(item.get("judgment") or "").strip():
+                    errors.append(f"冲突载体场景缺少总判断[{index}]")
+
+        violence_review = conflict_review.get("irreversible_violence_review")
+        if not isinstance(violence_review, dict):
+            errors.append("冲突载体人工复核缺少直接暴力裁决")
+        else:
+            if violence_review.get("status") != "completed":
+                errors.append("直接暴力裁决 status 必须为 completed")
+            present = violence_review.get("present")
+            decision = violence_review.get("decision")
+            if not isinstance(present, bool):
+                errors.append("直接暴力裁决 present 必须是布尔值")
+            if decision not in VIOLENCE_REVIEW_DECISIONS:
+                errors.append("直接暴力裁决 decision 无效")
+            if decision == "absent" and present is not False:
+                errors.append("直接暴力裁决 absent 必须对应 present=false")
+            if decision == "aligned_irredeemable" and present is not True:
+                errors.append("直接暴力裁决 aligned_irredeemable 必须对应 present=true")
+            if decision == "revised" and present is not False:
+                errors.append("直接暴力裁决 revised 必须对应修改后 present=false")
+            if not str(violence_review.get("judgment") or "").strip():
+                errors.append("直接暴力裁决缺少人工判断")
+            violence_evidence = violence_review.get("evidence")
+            if present is True:
+                if not isinstance(violence_evidence, list) or not violence_evidence:
+                    errors.append("存在直接暴力时必须提供正文证据")
+                else:
+                    for index, item in enumerate(violence_evidence, 1):
+                        quote = str(item.get("quote") or "").strip() if isinstance(item, dict) else ""
+                        if not quote or quote not in text:
+                            errors.append(f"直接暴力证据不在正文[{index}]")
+
+    exchange_review = receipt.get("interaction_exchange_review")
+    if not isinstance(exchange_review, dict):
+        errors.append("人工模型分段回执缺少人物交流人工复核")
+    else:
+        if exchange_review.get("status") != "completed":
+            errors.append("人物交流人工复核 status 必须为 completed")
+        if exchange_review.get("reviewed_full_text") is not True:
+            errors.append("人物交流人工复核必须确认已完整阅读正文")
+        if not str(exchange_review.get("global_judgment") or "").strip():
+            errors.append("人物交流人工复核缺少全文判断")
+        scene_reviews = exchange_review.get("scene_reviews")
+        if not isinstance(scene_reviews, list) or not scene_reviews:
+            errors.append("人物交流人工复核缺少逐场记录")
+        else:
+            for index, item in enumerate(scene_reviews, 1):
+                if not isinstance(item, dict):
+                    errors.append(f"人物交流场景复核格式错误[{index}]")
+                    continue
+                if item.get("status") != "passed":
+                    errors.append(f"人物交流场景尚未通过[{index}]")
+                if not str(item.get("scene") or "").strip():
+                    errors.append(f"人物交流场景缺少 scene[{index}]")
+                if not str(item.get("pressure_source") or "").strip():
+                    errors.append(f"人物交流场景缺少 pressure_source[{index}]")
+                if not str(item.get("response_mode") or "").strip():
+                    errors.append(f"人物交流场景缺少 response_mode[{index}]")
+                changed_targets = item.get("changed_target")
+                if not isinstance(changed_targets, list) or not changed_targets:
+                    errors.append(f"人物交流场景缺少 changed_target[{index}]")
+                else:
+                    invalid = [
+                        str(value)
+                        for value in changed_targets
+                        if value not in EXCHANGE_CHANGED_TARGETS
+                    ]
+                    if invalid:
+                        errors.append(
+                            f"人物交流场景包含无效 changed_target[{index}]: "
+                            + " / ".join(invalid)
+                        )
+                if item.get("real_exchange") is not True:
+                    errors.append(f"人物交流场景未形成真实压力交换[{index}]")
+                if item.get("author_substitution") is not False:
+                    errors.append(f"人物交流场景仍由作者解释抢位[{index}]")
+                evidence_items = item.get("evidence")
+                if not isinstance(evidence_items, list) or not evidence_items:
+                    errors.append(f"人物交流场景缺少正文证据[{index}]")
+                else:
+                    for evidence_index, evidence_item in enumerate(evidence_items, 1):
+                        if not isinstance(evidence_item, dict):
+                            errors.append(
+                                f"人物交流正文证据格式错误[{index}.{evidence_index}]"
+                            )
+                            continue
+                        quote = str(evidence_item.get("quote") or "").strip()
+                        if not quote or quote not in text:
+                            errors.append(
+                                f"人物交流正文证据不在正文[{index}.{evidence_index}]"
+                            )
+                        if not str(evidence_item.get("judgment") or "").strip():
+                            errors.append(
+                                f"人物交流正文证据缺少人工判断[{index}.{evidence_index}]"
+                            )
+                if not str(item.get("judgment") or "").strip():
+                    errors.append(f"人物交流场景缺少总判断[{index}]")
+
     if sequence_context:
         sequence_review = receipt.get("sequence_review")
         if not isinstance(sequence_review, dict):
@@ -3093,6 +3852,130 @@ def audit_dialogue_bridges(text: str, profile: dict) -> dict:
     return {"hits": hits}
 
 
+def audit_interpersonal_exchange(text: str, light_report: dict) -> dict:
+    paragraphs = split_paragraphs(text)
+    candidate_blocks: list[dict] = []
+    interaction_hits_all: list[str] = []
+    interaction_layers_all: dict[str, list[str]] = {
+        layer: [] for layer in EXCHANGE_LAYER_CUES
+    }
+    author_substitute_hits_all: list[str] = []
+
+    for idx, para in enumerate(paragraphs):
+        if "“" not in para and '"' not in para:
+            continue
+        window_paras = paragraphs[max(0, idx - 1): min(len(paragraphs), idx + 2)]
+        window_text = "\n".join(window_paras)
+        dialogue_count = sum(1 for item in window_paras if "“" in item or '"' in item)
+        interaction_layers = collect_exchange_layers(window_text)
+        active_layers = [
+            layer for layer, hits in interaction_layers.items() if hits
+        ]
+        interaction_hits = normalize_terms(
+            hit
+            for hits in interaction_layers.values()
+            for hit in hits
+        )
+        author_substitute_hits = collect_term_hits(window_text, EXCHANGE_AUTHOR_SUBSTITUTE_CUES, limit=6)
+        has_author_line = any(
+            hit.get("type") in {"author_verdict", "theme_explanation"}
+            for hit in light_report.get("line_hits", [])
+            if isinstance(hit, dict) and isinstance(hit.get("text"), str) and hit.get("text") in window_text
+        )
+        if dialogue_count <= 0:
+            continue
+        if (
+            (len(active_layers) >= 2 or len(interaction_hits) >= 2)
+            and not author_substitute_hits
+            and not has_author_line
+        ):
+            interaction_hits_all.extend(interaction_hits)
+            for layer, hits in interaction_layers.items():
+                interaction_layers_all[layer].extend(hits)
+            continue
+        candidate_blocks.append(
+            {
+                "paragraph_index": idx + 1,
+                "dialogue_count": dialogue_count,
+                "interaction_hits": interaction_hits[:4],
+                "interaction_layers": active_layers,
+                "author_substitute_hits": author_substitute_hits[:4],
+                "has_author_line": has_author_line,
+                "candidate_only": True,
+                "excerpt": clean_excerpt(window_text, 120),
+            }
+        )
+        interaction_hits_all.extend(interaction_hits)
+        for layer, hits in interaction_layers.items():
+            interaction_layers_all[layer].extend(hits)
+        author_substitute_hits_all.extend(author_substitute_hits)
+        if len(candidate_blocks) >= 8:
+            break
+
+    return {
+        "candidate_scan_only": True,
+        "candidate_blocks": candidate_blocks,
+        "issue_blocks": [],
+        "interaction_hits": normalize_terms(interaction_hits_all)[:12],
+        "interaction_layers": {
+            layer: normalize_terms(hits)[:12]
+            for layer, hits in interaction_layers_all.items()
+        },
+        "author_substitute_hits": normalize_terms(author_substitute_hits_all)[:12],
+        "manual_review": None,
+    }
+
+
+def exchange_manual_failures(exchange_audit: dict) -> list[dict]:
+    review = exchange_audit.get("manual_review")
+    if not isinstance(review, dict):
+        return []
+    scene_reviews = review.get("scene_reviews")
+    if not isinstance(scene_reviews, list):
+        return []
+    return [
+        item
+        for item in scene_reviews
+        if isinstance(item, dict)
+        and (
+            item.get("status") != "passed"
+            or item.get("real_exchange") is not True
+            or item.get("author_substitution") is True
+        )
+    ]
+
+
+def audit_conflict_carrier_distribution(text: str, profile: dict) -> dict:
+    dialogue_count = len(split_dialogue_segments(text))
+    carrier_hits = {
+        carrier: collect_term_hits(text, cues, limit=20)
+        for carrier, cues in CONFLICT_CARRIER_CUES.items()
+        if carrier != "dialogue"
+    }
+    active_non_dialogue = [
+        carrier for carrier, hits in carrier_hits.items() if hits
+    ]
+    strong_conflict_hits = collect_term_hits(text, STRONG_CONFLICT_CUES, limit=20)
+    irreversible_violence_hits = collect_term_hits(
+        text,
+        IRREVERSIBLE_VIOLENCE_CUES,
+        limit=12,
+    )
+    return {
+        "candidate_scan_only": True,
+        "dialogue_count": dialogue_count,
+        "strong_conflict_candidates": strong_conflict_hits,
+        "carrier_candidates": carrier_hits,
+        "active_non_dialogue_candidate_types": active_non_dialogue,
+        "irreversible_violence_candidates": irreversible_violence_hits,
+        "manual_review": None,
+        "manual_rule": (
+            "强情绪冲突应按场景分配对白、肢体、物件、空间和身份后果；"
+            "直接殴打会改变角色可追性，必须由题材设定主动选择。"
+        ),
+    }
+
+
 def audit_scene_function_overload(text: str, profile: dict) -> list[dict]:
     style_assets = get_style_assets(profile)
     categories = {
@@ -3169,6 +4052,20 @@ def build_style_recommendations(style_audits: dict) -> list[str]:
     meltdown = style_audits.get("meltdown_dialogue_audit", {})
     if meltdown and meltdown.get("dialogue_count", 0) >= 8 and not meltdown.get("hits"):
         recs.append("对白多但缺失控说话资产，人物太会说，会像高效剧本对白。")
+
+    exchange = style_audits.get("exchange_audit", {})
+    if exchange_manual_failures(exchange):
+        recs.append("人物开口了，但交流没接上：检查视线、肢体、物件、空间、节奏和身份压力，别只机械补眼神。")
+
+    conflict_review = (
+        style_audits.get("conflict_carrier_audit", {}).get("manual_review")
+        or {}
+    )
+    if conflict_review.get("dialogue_only_conflict") is True:
+        recs.append("强冲突几乎只靠对白推进：选少数承重场补身体边界、夺物/毁物、拦路或身份后果，不要全篇继续克制答题。")
+    violence_review = conflict_review.get("irreversible_violence_review") or {}
+    if violence_review.get("decision") == "unresolved":
+        recs.append("正文出现直接殴打信号：必须人工确认男主是否已转为不可洗白角色，并同步修改题材承诺、结局和追妻资格。")
 
     rotten = style_audits.get("rotten_relationship_audit", {})
     if rotten is not None and not rotten.get("hits"):
@@ -3275,6 +4172,81 @@ def build_style_impact_items(style_audits: dict, light_report: dict) -> list[dic
                 },
                 source_family="style",
                 focus_layer="dialogue_polish",
+            )
+        )
+
+    exchange = style_audits.get("exchange_audit", {})
+    exchange_failures = exchange_manual_failures(exchange)
+    if exchange_failures:
+        evidence = [
+            f"{item.get('scene')} / {item.get('judgment')}"
+            for item in exchange_failures[:4]
+        ]
+        if exchange.get("author_substitute_hits"):
+            evidence.append("作者代替交流命中: " + " / ".join(exchange.get("author_substitute_hits", [])[:4]))
+        items.append(
+            annotate_impact_item(
+                {
+                "title": "人物开口了，但没有交流",
+                "priority": "P0",
+                "why_it_hits_audit": "真人冲突不是只把台词摆出来，而是要有人盯住、有人停住、有人被迫接招。只有孤立台词和作者解释时，交流感会直接塌掉。",
+                "evidence": evidence[:5],
+                "fix_methods": [
+                    "先判断该场主压力来自视线、肢体、物件、空间、节奏还是身份，不要所有场都补对视。",
+                    "让关键台词改变对方的动作、站位、物件控制权或回答范围。",
+                    "删掉替人物解释气味的那句作者话，把压力退回到现场交流里。",
+                    "让一句重要台词后面真的有人被逼着接，哪怕只是没接住、咽回去、转去压程序。",
+                ],
+                },
+                source_family="style",
+                focus_layer="character_reaction",
+            )
+        )
+
+    conflict_review = (
+        style_audits.get("conflict_carrier_audit", {}).get("manual_review")
+        or {}
+    )
+    if conflict_review.get("dialogue_only_conflict") is True:
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "强冲突只剩对话，没有身体或物件后果",
+                    "priority": "P0",
+                    "why_it_hits_audit": "强情绪场如果一直靠克制问答、条件陈述和漂亮反击推进，人物不会真正侵犯彼此边界，读者只会觉得板正，不会恨也不会疼。",
+                    "evidence": [
+                        str(conflict_review.get("global_judgment") or ""),
+                    ],
+                    "fix_methods": [
+                        "只选两到三场承重冲突升级，不要每场都摔东西。",
+                        "优先使用拦门、抓腕、夺物、推撞、撕裂珍爱物、把人挤出原有空间等可观察越界。",
+                        "伤害必须留下后续：淤痕、物件损坏、权限变化、旁人站位或无法撤回的关系判断。",
+                        "直接扇打、掐脖、踢踹会改变角色可追性；只有设定明确要写不可洗白施暴者时才使用。",
+                    ],
+                },
+                source_family="style",
+                focus_layer="bridge_structure",
+            )
+        )
+    violence_review = conflict_review.get("irreversible_violence_review") or {}
+    if violence_review.get("decision") == "unresolved":
+        items.append(
+            annotate_impact_item(
+                {
+                    "title": "直接殴打已改变男主可追性",
+                    "priority": "P0",
+                    "why_it_hits_audit": "直接殴打不是普通冲突升级，而是角色伦理和文类承诺变化；若仍按可怜追妻、误会解开或补救复合处理，会造成价值判断断裂。",
+                    "evidence": [
+                        str(violence_review.get("judgment") or "")
+                    ],
+                    "fix_methods": [
+                        "人工确认该角色是否从追妻男主转为不可洗白施暴者。",
+                        "若保留，设定、大纲、正文必须同步写明不复合、现实后果和女主安全边界。",
+                        "若仍需保留可追性，改成拦路、夺物、抓腕后立刻松手或毁物等严重越界，并保留后果，不能把暴力美化成在乎。",
+                    ],
+                },
+                source_family="style",
+                focus_layer="genre_promise",
             )
         )
 
@@ -3421,6 +4393,8 @@ def build_style_audits(text: str, profile: dict, light_report: dict) -> dict:
         "meltdown_dialogue_audit": audit_meltdown_dialogue(text, profile),
         "rotten_relationship_audit": audit_rotten_relationship(text, profile),
         "dialogue_bridges_audit": audit_dialogue_bridges(text, profile),
+        "exchange_audit": audit_interpersonal_exchange(text, light_report),
+        "conflict_carrier_audit": audit_conflict_carrier_distribution(text, profile),
         "scene_function_overload_audit": audit_scene_function_overload(text, profile),
         "ending_closure_audit": audit_ending_closure(text, profile),
     }
@@ -3451,12 +4425,16 @@ def compute_local_risk_score(
     meltdown = style_audits.get("meltdown_dialogue_audit", {})
     object_hits = style_audits.get("object_pressure_audit", {}).get("hits", [])
     quiet_hits = style_audits.get("quiet_pressure_audit", {}).get("hits", [])
+    exchange_issues = exchange_manual_failures(
+        style_audits.get("exchange_audit", {})
+    )
     external_pressure = bool(consequence_audit and consequence_audit.get("external_order_hits"))
     public_pressure = bool(consequence_audit and consequence_audit.get("public_explosion_hits"))
     conflict_surface = bool(
         scene_overload
         or light_report.get("over_effective_dialogue_blocks")
         or meltdown.get("dialogue_count", 0) >= 6
+        or exchange_issues
         or public_pressure
         or external_pressure
     )
@@ -3472,6 +4450,8 @@ def compute_local_risk_score(
         style_penalty += 7
     if conflict_surface and not style_audits.get("character_bias_audit", {}).get("hits"):
         style_penalty += 3
+    if exchange_issues:
+        style_penalty += 5
     if relationship_surface and not style_audits.get("rotten_relationship_audit", {}).get("hits"):
         style_penalty += 2
     if (
@@ -3510,16 +4490,22 @@ def build_local_style_flags(style_audits: dict, light_report: dict, consequence_
     meltdown = style_audits.get("meltdown_dialogue_audit", {})
     object_hits = style_audits.get("object_pressure_audit", {}).get("hits", [])
     quiet_hits = style_audits.get("quiet_pressure_audit", {}).get("hits", [])
+    exchange_issues = exchange_manual_failures(
+        style_audits.get("exchange_audit", {})
+    )
     conflict_surface = bool(
         scene_overload
         or light_report.get("over_effective_dialogue_blocks")
         or meltdown.get("dialogue_count", 0) >= 6
+        or exchange_issues
         or (consequence_audit and consequence_audit.get("public_explosion_hits"))
     )
     relationship_surface = bool(conflict_surface or object_hits or quiet_hits)
 
     if conflict_surface and not style_audits.get("character_bias_audit", {}).get("hits"):
         flags.append("人物偏手没有立住")
+    if exchange_issues:
+        flags.append("人物开口了，但没有交流")
     if relationship_surface and not style_audits.get("rotten_relationship_audit", {}).get("hits"):
         flags.append("烂关系没有自己漏出来")
     if scene_overload:
@@ -4157,6 +5143,16 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
         for item in combined["sample_grading_guidance"].get("hard_stops", [])[:4]:
             lines.append(f"- {item}")
     lines.append("")
+    lines.append("## 关系体感词典")
+    lines.append("")
+    for item in RELATION_FEELING_RULES[:8]:
+        lines.append(f"- `{item['name']}`: {item['when']}")
+    lines.append("")
+    lines.append("## 开头成品感子因库")
+    lines.append("")
+    for item in OPENING_SUBCAUSE_LIBRARY:
+        lines.append(f"- `{item['name']}`: {item['why']} 改法：{item['fix']}")
+    lines.append("")
     lines.append("## 当前最影响内部过稿判定的部分")
     lines.append("")
     asset_coverage = combined.get("asset_coverage", {})
@@ -4254,16 +5250,39 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
         return "\n".join(lines)
 
     for idx, item in enumerate(items, start=1):
+        subcauses = build_subcauses(item, combined)
+        relation_feelings = build_relation_feelings(item, combined)
+        relation_tags = [item["name"] for item in relation_feelings] or infer_relation_tags(item)
+        detailed_evidence = normalize_terms(item.get("evidence", []) + find_related_paragraph_evidence(item, combined, 3))
+        minimal_fixes = build_minimal_fix_map(item, subcauses)
         lines.append(f"### {idx}. {item['title']}（{item['priority']}）")
         lines.append("")
         lines.append(f"- 为什么会被打: {item['why_it_hits_audit']}")
         if item.get("sample_bias_note"):
             lines.append(f"- 样本等级调度: {item['sample_bias_note']}")
-        if item.get("evidence"):
+        if relation_tags:
+            lines.append(f"- 关系体感: {' / '.join(relation_tags[:5])}")
+        if relation_feelings:
+            lines.append("- 关系判词说明:")
+            for feeling in relation_feelings[:4]:
+                lines.append(f"  - {feeling['name']}：{feeling['when']}")
+        if subcauses:
+            lines.append("- 失败拆因:")
+            for sub_idx, subcause in enumerate(subcauses, start=1):
+                lines.append(f"  - {sub_idx}. {subcause['label']}：{subcause['trigger']}")
+                for ev in subcause.get("evidence", [])[:3]:
+                    lines.append(f"    - 证据: {ev}")
+                if subcause.get("fix"):
+                    lines.append(f"    - 最小改法: {subcause['fix']}")
+        if detailed_evidence:
             lines.append("- 本稿证据:")
-            for ev in item["evidence"]:
+            for ev in detailed_evidence[:6]:
                 lines.append(f"  - {ev}")
-        if item.get("fix_methods"):
+        if minimal_fixes:
+            lines.append("- 一条失败对应一条改法:")
+            for method in minimal_fixes[:5]:
+                lines.append(f"  - {method}")
+        elif item.get("fix_methods"):
             lines.append("- 修改方法:")
             for method in item["fix_methods"]:
                 lines.append(f"  - {method}")
@@ -4414,6 +5433,7 @@ def main() -> int:
 
     manual_model_boundaries: list[int] | None = None
     model_segmentation_receipt_path: Path | None = None
+    model_segmentation_receipt_data: dict | None = None
     if args.model_segmentation_receipt:
         model_segmentation_receipt_path = Path(args.model_segmentation_receipt).resolve()
         if not model_segmentation_receipt_path.is_file():
@@ -4423,11 +5443,11 @@ def main() -> int:
             )
             return 2
         try:
-            receipt = json.loads(
+            model_segmentation_receipt_data = json.loads(
                 model_segmentation_receipt_path.read_text(encoding="utf-8")
             )
             manual_model_boundaries = validate_manual_model_segmentation_receipt(
-                receipt,
+                model_segmentation_receipt_data,
                 file_path,
                 source_text,
                 sequence_context,
@@ -4477,6 +5497,13 @@ def main() -> int:
     bridge_audit = bridge_rule_audit(source_text, profile)
     consequence_audit = consequence_chain_audit(source_text, profile)
     style_audits = build_style_audits(source_text, profile, light_report)
+    if model_segmentation_receipt_data:
+        style_audits["exchange_audit"]["manual_review"] = (
+            model_segmentation_receipt_data.get("interaction_exchange_review")
+        )
+        style_audits["conflict_carrier_audit"]["manual_review"] = (
+            model_segmentation_receipt_data.get("conflict_carrier_review")
+        )
     asset_coverage = audit_profile_asset_coverage(profile, bridge_audit, consequence_audit, style_audits)
     recommendations.extend(build_bridge_recommendations(bridge_audit))
     recommendations.extend(build_consequence_recommendations(consequence_audit))

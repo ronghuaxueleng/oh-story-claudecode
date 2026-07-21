@@ -1,0 +1,17 @@
+{
+  "description": "Story workflow lifecycle guards.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .codex/hooks/stop-short-write-if-incomplete.sh",
+            "timeout": 30,
+            "statusMessage": "Checking story-short-write completion"
+          }
+        ]
+      }
+    ]
+  }
+}
