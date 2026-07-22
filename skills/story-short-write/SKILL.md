@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.7.1
+  version: 1.8.1
 ---
 
 # story-short-write：短篇网文写作
@@ -61,8 +61,10 @@ metadata:
 - `validate_rule_execution_ledger.py`
 - `validate_write_release_gate.py`
 - `validate_sequence_contract.py`
+- `validate_outline_performance_contract.py`
 - `validate_post_write_human_review_gate.py`
 - `validate_zhihu_section_format.py`
+- `count_words.py`
 - `generate_story_profile.py`
 - `run_full_ai_audit.py`
 - `validate_pre_window_revision_gate.py`
@@ -138,8 +140,8 @@ metadata:
 31. 写作过程中执行一项标记一项；最终正文绑定后必须通过 `validate_rule_execution_ledger.py`，不得写完后批量伪造“已使用”记录。
 32. 完全重复规则初始化时自动合并，语义近似规则人工归入 canonical；只有失败的适用 `draft_constraint` 可以设置 `requires_text_change: true` 并进入正文修改单。
 33. 写后长窗审计必须先导出人工模型分段任务，由当前执行 skill 的模型完整读取正文并回填分段回执；禁止脚本调用外部 API、Claude CLI 或其他模型。正文 SHA 变化后旧分段回执立即失效；无回执的算法滑窗只能算预扫。
-34. 主体拆书的 `可直接仿写_导语拆解表.md` 必须单独生成开头承重契约；大纲和正文各过一次。前 `20 / 60 / 80 / 120` 字的关系锚、异常站位、题面兑现、读者问题、说明抢跑和功能顺序任一失败都直接阻断，不能并入普通规则卡后降级为 warning。
-35. profile、事实台账、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检、禁写清单、顺序/后果/外部秩序表即使并入 canonical，也必须逐来源填写 `source_contract_reviews`；主体治理资产不得标 `not_selected`。规则级文件父节点由子规则自动汇总，手填状态与子规则不一致时阻断。
+34. 主体拆书的 `可直接仿写_导语拆解表.md` 必须单独生成开头承重契约；大纲和正文各过一次。前 `20 / 60 / 80 / 120` 字的关系锚、异常站位、题面兑现、读者问题、说明抢跑、功能顺序、原文真实开口对照和去分镜/去施工单任一失败都直接阻断，不能并入普通规则卡后降级为 warning。
+35. profile、事实台账、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检、禁写清单、顺序/后果/外部秩序表即使并入 canonical，也必须逐来源填写 `source_contract_reviews`；主体治理资产不得标 `not_selected`。规则级文件父节点由子规则自动汇总，手填状态与子规则不一致时阻断。**最终产物一旦重新绑定，台账证据必须递归重绑**：`skill_rules / source_assets / asset_rules` 中所有 `text_evidence / structural_claim_reviews / source_contract_reviews.target_evidence / scope_reviews` 都必须引用当前设定、大纲、正文中真实存在的原句；canonical 合并规则不能只改代表项，必须按每条规则实际 `source_refs` 重建 `source_contract_reviews`，旧正文证据、旧 SHA、缺来源、残留无关来源或“公共证据代替逐来源契约”一律阻断。`validate_rule_execution_ledger.py validate` 未输出 `passed` 时，不得进入完成态，也不得用人工口头说明替代。
 36. `setting_constraint / outline_constraint` 如果在 `target_scene` 同时宣称多个目标通过，必须逐目标填写 `structural_claim_reviews`；开头、反转、后果等任一目标没有对应产物原句时，不得整体判过。
 37. 警告必须按语义分级：已识别的高风险桥段未进入前排回修任务、强制资产缺失、承重顺序错乱属于硬失败；统计波动、短段偏多和局部频率异常只作诊断，不得反向驱动机械改文。
 38. **设定—大纲—正文顺序必须单独过顺序契约硬闸**：设定内部、设定与大纲、正文与 canonical sequence 任一冲突都阻断；“已读设定”“台账 passed”或“开头契约 passed”不能替代顺序契约。
@@ -147,9 +149,9 @@ metadata:
 40. **未通过写作放行闸时，禁止创建或修改目标产物**：不能因为“先写一版再修”“先生成正文测试流程”或“台账只是记录问题”而继续；必须先修门禁、回执、来源契约或台账，再重新运行放行闸。
 41. **完整流程不是部分检查相加**：只通过人工复核门、预检、AI 味脚本或算法长窗中的一部分，不得宣称流程完成；必须同时满足写前放行、顺序契约、规则台账、开头契约、正文人工复核和正式长窗审计。
 42. **算法窗口永远不能代替人工窗口**：未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束写作任务。
-43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。
+43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。其中正文字符数必须统一使用 `count_words.py` 的番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符；禁止用估算、编辑器统计或其他临时脚本替代。
 44. **人工窗口前必须先做通用规则/拆书资产定向回修**：正文初稿或上一轮正文完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
-45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。
+45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。人工窗口还必须逐窗填写 `procedural_stiffness_review`，把 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 汇总成正式审计和施工单里的可改问题；只给 AIGC 分数、不列具体原句和改法，视为人工窗口未完成。
 46. **窗口前回修后必须重新绑定正文**：正文 SHA、字符数或任何正文句子变化都会使窗口前回修回执和人工分段回执同时失效；必须先重新执行窗口前规则/资产回修，再重新导出并人工切窗。
 47. **全局成文形状必须单独审查**：局部窗口通过不能替代全文检查；必须检查章节弧线同构、章尾收束重复、主角连续正确、专业细节功能性和全文对白模式变化。
 48. **四项全局审查缺一不可**：`global_structure_and_chapter_endings`、`protagonist_irregularity_and_agency`、`technical_detail_function`、`dialogue_pattern_variation` 必须进入写后人工复核回执；缺项、空证据或未裁决都阻断。
@@ -164,7 +166,7 @@ metadata:
 57. **追妻题句段级检查为强制项**：`female_softening_externalized` 检查女主的一秒松动是否由动作、停顿或外部细节折射；该证据必须紧邻男主实际承担的关系代价或有效补救，职业文件、普通工作动作或无关停顿不能冒充情感松动。`no_emotional_after_summary` 检查情绪破绽后是否又补作者总结；`repair_failure_fact_based` 检查补救失败是否落在再次选择和具体事实上。缺任一项，写后人工复核不得通过。
 58. **题材公式专项回执同时绑定最终正文和公式来源**：正文 SHA 或题材公式来源 SHA 任一变化，旧回执立即失效；必须在最后一次正文修改后重新逐条复核。不能因为本轮只改一句，就沿用上一轮“已检查”的题材结论。
 59. **写后必须执行局部生硬候选扫描，但脚本不得代判**：运行 `audit_local_stiffness.py` 定位 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾钩子 / 克制解释过度 / 高价值场景摘要化`。脚本命中只算候选；当前模型必须完整读取上下文，逐项判断 `保留 / 回修 / 删除`。
-60. **人工复核必须做全文反例扫描，不能只找一条合格证据**：`direct_psychology_externalization`、`post_emotion_summary_residue`、`result_reporting_chain`、`thesis_dialogue_concreteness`、`chapter_end_hook_naturalness`、`restraint_overexplained`、`high_value_scene_summary_compression` 七项必须进入 `human_checks`。每项应证明全文剩余候选均已裁决；只引用一处合格句、未处理同类反例，视为未执行。
+60. **人工复核必须做全文反例扫描，不能只找一条合格证据**：`direct_psychology_externalization`、`post_emotion_summary_residue`、`result_reporting_chain`、`thesis_dialogue_concreteness`、`chapter_end_hook_naturalness`、`restraint_overexplained`、`high_value_scene_summary_compression`、`full_text_storyboard_construction_list_review` 八项必须进入 `human_checks`。每项应证明全文剩余候选均已裁决；只引用一处合格句、未处理同类反例，视为未执行。
 61. **通过状态不得包含待改证据**：任何人工检查证据的 `action` 只要是 `revise / delete`，该项就不能标记 `passed`；必须先修改正文、重建绑定最终 SHA 的回执，再重新检查。禁止把“已发现问题”冒充“已通过检查”。
 62. **克制不能由连续否定句自证**：同一小段连续出现三次以上 `我没有 / 我不知道 / 我没问 / 这件事我后来也没`，必须进入 `restraint_overexplained`；优先删除解释，让前面的物件和动作自己承担克制。不能为了表现冷静，把“不做什么”逐项讲给读者。
 63. **高价值桥段禁止被转述摘要吞掉**：追妻低位、公开掉位、揭示、决裂、求回等承重场景若出现 `他先说……又说……` 一类复合转述，必须进入 `high_value_scene_summary_compression`；当前模型要判断是否恢复为现场对白、动作和停顿。普通过场可保留转述，承重场景默认现场化。
@@ -173,6 +175,23 @@ metadata:
 66. **一秒松动必须验触发对象，结尾必须验完成感**：追妻专项新增 `female_softening_trigger_relevance`，确认松动由婚姻、共同生活、公开失位或男主真实代价触发，而非相邻职业道具；全文人工复核新增 `ending_action_completion`，确认结尾落在已完成的动作、关系后果或明确选择上。禁止用“任务刚出现新信号”式机械中断冒充余韵，也禁止为收束追加主题总结。
 67. **强冲突载体必须由当前模型逐场人工验收**：这里的“冲突”不是“双方意见不一致”，而是争夺某种现实权力、位置或后果，例如 `制止权 / 签字权 / 解释权 / 入场权 / 物件处置权 / 花钱决定权 / 谁先被救 / 谁先被信`。固定词、动作词和统计只能导出候选，不能直接判定“有肢体冲突”或“冲突只靠对白”。正式人工分段回执必须填写 `conflict_carrier_review`，逐场判断 `dialogue / body / object / space / identity / rhythm` 如何改变动作、站位、物件控制权、身份或后果；并明确回答“这场到底在抢什么权”。若一场戏只能总结为“他们吵了一架 / 有分歧 / 情绪很重”，但答不出被争夺的现实控制权，视为冲突未立住。强情绪追妻稿若长期只靠克制问答，直接阻断。直接扇打、掐脖、踢踹等行为会改变角色可追性，必须人工裁决为不可洗白并同步题材与结局，或先修改正文；禁止把直接暴力自动包装成爱、吃醋或追妻张力。
 68. **人物交流必须由当前模型逐场人工验收**：这里的“交流”不是“人物开口说话”或“补了眼神动作词”，而是 `一方施压 -> 另一方被迫接招 -> 现场发生可见变化`。视线、肢体、物件、空间、节奏、身份等固定词只用于导出候选，不得直接判定“有交流”或“没有交流”，也不得据此自动加风险分、挂失败标签或机械补写。正式人工分段回执必须填写 `interaction_exchange_review`，覆盖所有承重对话场，并证明一方施加的压力实际改变了另一方的 `动作 / 站位 / 物件控制权 / 回答范围 / 身份 / 后果 / 现场秩序` 至少一项。孤立台词、答题对白和作者解释不能冒充人物交流；只补“他盯着我”“她顿了一下”“他缓缓开口”也不算修复。任一承重场 `real_exchange=false`、`change_visible=false` 或 `author_substitution=true`，必须先回正文修改，不能结束流程。
+69. **灵动感和规则证据感必须由当前模型全文人工验收**：新增写后人工复核项 `rule_evidence_stiffness_and_liveliness`。模型必须逐场判断正文是否把 `门槛 / 黄线 / 钥匙 / 确认框 / 工具箱 / 证据袋 / 麦克风` 等冲突载体写成“规则检查证据”，而不是人物自然反应。合格标准不是多加动作词，而是人物有临场偏差、错答、回避、手忙脚乱、生活毛边或不完全服务主题的小动作；这些毛边仍需服务人物真实，不得变成随机废话。若承重场读起来像“规则 A 已执行、证据 B 已展示、边界 C 已落地”的施工说明，必须回正文改成现场化人物反应；脚本、固定词和物件数量不得代判通过。
+70. **开头回炉必须对照原文真实开口，且不得改成分镜/施工单**：凡用户指出开头啰嗦、说明抢跑、成品感高、像剧本分镜或像规则施工稿，必须读取所有选中主体/辅助拆文的 `原文/` 开头样本，不得只看导语拆解表、profile 或规则摘要。回修后开头不能是一句一个动作、一句一个证据、一句一个反应的清单，也不能像“规则 A 执行、证据 B 展示、边界 C 落地”的验收单；必须把人物动作、现场噪音、物件证据和关系反应揉进连续叙述气口。`validate_opening_contract.py` 中 `original_opening_samples_compared_before_revision` 与 `opening_not_storyboard_or_construction_list` 必须为 `true`，并填写 `original_opening_comparison` 和 `opening_flow_review`；缺字段、空证据或只写“已检查”均阻断。
+71. **分镜清单 / 规则施工稿是全文禁区，不只限开头**：新增写后人工复核项 `full_text_storyboard_construction_list_review`。当前模型必须全文扫描是否存在“一句一个动作 / 一句一个证据 / 一句一个反应”的镜头清单，或“规则 A 执行、证据 B 展示、边界 C 落地”的验收施工稿。若出现在叙述正文、关系场、冲突场、追妻低位、揭示或结尾中，必须回修为连续现场叙述；不得因为格式短、节奏快或脚本未命中而放行。唯一例外是正文情节内真实出现的清单、报告、日志、合同、群公告、流程单等文本本身；例外必须在 `allowed_in_story_artifacts` 中逐条引用原文并说明其情节功能，不能把作者写法问题伪装成“角色正在看文件”。
+72. **回修前必须先判问题粒度，禁止把大块病当小句病补丁化处理**：每轮改正文前必须先给出 `revision_scope_decision`，至少判断问题是 `global_structure / coarse_block / full_scene / paragraph_cluster / sentence_hotspot / format_only` 哪一类。凡命中 `成文真实感、题材承诺、主桥顺序、场戏功能、人物偏手、人物交流、冲突载体、流程硬化、分镜施工稿、追妻低位、开头成品感` 等场面级或结构级问题，默认按整场/大段回炉处理，必须重写该场的动作链、交流链、物件控制权和气口，不得只补一两句动作词或替换词。只有当人工证据证明问题只剩 `重复词、冒号模板、单句直白心理、格式、错别字、局部标点、单个术语残留` 时，才允许小改。若连续两轮正式审计仍命中同一 P0/P1，必须升级回修幅度：`sentence_hotspot -> paragraph_cluster -> full_scene/coarse_block`，不能继续在原位置小补丁。
+73. **细纲表演验收是正文前独立硬闸**：仿写、融合和强情绪关系稿写完细纲后，必须用 `validate_outline_performance_contract.py` 绑定细纲与所有选中原文 SHA，并由当前模型逐节人工验收 `唯一不可逆动作 / 主控物件 / 拆书功能机制 / 原文场面颗粒度 / 原文表演机制及迁移边界 / 信息延迟 / 人物偏手与错答 / 交流变化链 / 冲突载体 / 禁写项 / 细纲原句证据`。只通过规则台账、顺序契约或开头契约不算细纲合格；任一节仍是多节点排队、证据清单、对白答题或分镜施工稿，必须先回细纲整场重构，禁止写正文。
+74. **“完全参照原文”必须落实为表演机制对照，不得降级成桥段参考**：当前模型必须完整参照选中原文的结构、场景推进、信息延迟、物件/动作控制权、关系压力与场末信息边界，并在细纲表演验收中逐节说明迁移机制；不得复制原人物、职业、原句和完整情节壳。只写“参考《某书》”或只套题材、人设、反转位置，视为未执行。
+75. **验收字段不得污染写作细纲**：`唯一不可逆动作 / 主控物件 / 信息延迟 / 交流变化链 / 禁写项` 等字段只能填写在 `细纲表演验收回执.json`，不能把 `小节大纲.md` 写成一节一张字段表。用于生成正文的细纲必须是连续的表演型场面，按 `人物如何入场 -> 压力如何出现 -> 谁先偏手或错答 -> 动作/物件/站位如何换主 -> 哪个信息仍不说 -> 场末留下什么余波` 详细展开。若细纲直接呈现为“目标、机制、载体、禁写、证据”的规则清单，即使回执字段齐全也必须回炉，不得写正文。
+76. **细纲必须双轨参照，不得只做功能映射**：写细纲时，每节必须先从拆书资料确认 `功能机制`，再回到选中原文对应桥段确认 `场面颗粒度`。功能机制回答“这一节迁移公开掉位、私域换主、不可替代物爆体、高成本补救后再选错、行动验收、公开反噬、私人尾声中的哪一种”；场面颗粒度回答“原文里谁先动、谁抢/挡/松手、哪个物件或空间改归属、哪句台词逼出动作、旁观者或外部秩序如何改变现场”。只引用拆书报告、profile、同桥过检摘要或规则卡，不回看原文具体段落，视为未执行；只写“机制已迁移”但答不出原文场面颗粒，细纲表演验收必须失败。
+77. **原文桥段流程对齐必须在细纲阶段完成，不得拖到正文后审计**：主流程仿写、融合仿写、同桥仿写或用户要求“完全参照原文”时，写正文前必须先建立 `source_bridge_flow_inventory`，列出主体原文全部 BID/关键子桥段、必保动作顺序、物件/空间/身份换主、场末状态变化和不可合并/不可删理由；再建立 `outline_bridge_flow_parity`，逐桥绑定到目标细纲小节和细纲原句证据。每个原文 BID 必须是 `matched` 或有明确迁移边界的 `adapted`；`missing / weakened / merged_unclear / only_function_mapped` 一律阻断正文。禁止用“正文写完再看像不像原文”“后期审计再补桥段”替代细纲阶段流程设计。
+78. **细纲不是只写本书顺序，还要证明原书顺序如何迁移**：顺序契约只能证明设定、大纲、正文内部不自相矛盾；它不能证明《幼薇》这类原书的子情节流程已被完整迁移。细纲验收必须额外回答：原文每个 BID 的 `先发生什么 -> 谁施压 -> 谁失手/被迫接招 -> 哪个现实权力换主 -> 哪个信息延迟 -> 场末状态如何变` 在新稿中对应哪一节、哪几句、是否缩水。若答不出来，必须先重写细纲，不得进入正文。
+79. **主体 BID 全集不能由回执填写者自行缩减**：`validate_outline_performance_contract.py init` 必须从每本原文同目录拆书资产中的 `写作资产/桥段施工卡.md` 自动提取 BID。第一本选中原文固定为 `primary`，其 `required_bridge_ids` 必须等于桥段施工卡全部 BID，库存和细纲对齐缺任一条都阻断；后续原文固定为 `auxiliary`，必须显式填写本稿实际选用的 `selected_bridge_ids`，所选子桥同样必须进入库存和细纲对齐。禁止通过不填写某条主体 BID、缩短 required 列表或只写“参考功能”绕过主情节迁移。
+80. **正文放行不得信任规则台账自报 passed**：`validate_write_release_gate.py` 在台账 `gate_status=passed` 时仍必须重新调用 `validate_rule_execution_ledger.py` 的真实验证逻辑。skill 规则源、拆书资产、设定、细纲或已绑定正文任一 SHA 变化，旧证据原句失效，或执行汇总不一致，都必须阻断正文；禁止出现“台账单独验证失败但正文放行通过”。
+81. **强情绪稿必须先过关系可懂性硬闸**：追妻、婚恋清算、白月光、替身、背叛等关系稿，细纲每节必须用不含职业术语的一句话写清 `谁和谁是什么关系 / 谁偏向谁 / 谁因此失去什么`。陌生读者需要先理解 `联排 / 吊台 / 联锁 / 权限 / 版本` 才能感到受伤，直接阻断正文。
+82. **职业外壳只能承担后果，不能承担情绪**：细纲每节必须填写 `professional_shell_translation`，证明删除专业名词后，关系冲突仍成立；叙事顺序必须是 `关系伤害先被读懂 -> 职业动作把伤害做实 -> 现实后果落地`。只写“恢复版本、撤销权限、提交复核”而无法翻译成丈夫如何偏心、羞辱或放弃妻子，视为题材漂移。
+83. **仿写必须迁移原文情绪流程与同级烈度**：完全参照、融合仿写或同桥仿写时，不仅迁移 BID、动作和物件，还必须逐节绑定原文真实片段，列出原文与目标稿的 `情绪进入点 -> 受辱/刺痛 -> 短暂希望或反抗 -> 反刀 -> 场末余痛`。每一拍都要写清 `具体触发 / 关系位置变化 / 读者感受 / 1-10 烈度 / 原文或细纲证据`；目标拍数、拍序、反刀拍和峰值拍必须与原文一致，强情绪稿任何一拍的目标烈度都不得低于原文。只保留功能、只保证总分、把公开抛弃降成职业分歧，直接阻断。
+84. **细纲表演回执禁止模板化假通过**：连续三节及以上复用相同 `original_scene_granularity`、相同人工判断或泛化的“先施压、再接招、控制权换主”视为未真正对照原文。必须逐节写明具体原文场面、具体情绪伤害、目标等价表演和为何达到同级读者体感；验证器必须自动拦截重复模板。
+85. **原文情绪不得只抽样迁移**：主体原文每个必选 BID、辅助原文每个已选 BID 都必须在 `outline_bridge_flow_parity` 中同时完成桥段流程和情绪流程对齐；逐桥记录原文/目标情绪拍、反刀拍、峰值拍、场末余痛和读者体感裁决。只挑一两个“最虐片段”对齐、其余桥段仍按功能节点平推，视为情绪资产未全量消费，禁止写正文。
 
 ---
 
@@ -247,10 +266,11 @@ metadata:
 
 1. 运行 `validate_rule_execution_ledger.py init`
 2. 运行 `export-model-review`，由当前写作模型逐族阅读全部 `cases`，写出统一 `canonical_rule_text`
-3. 模型用 `apply-model-groups` 把执行动作相同的条目压成“一条规则 + 多案例”，并确认规则角色、修复目标和适用性
-4. 确认由 `script / human / hybrid` 哪一类执行，并填写目标阶段和目标场景
-5. 写作过程中执行一项标记一项，并持续补脚本产物或人工原句证据
-6. 最终绑定设定、大纲、正文 SHA，再运行 `validate_rule_execution_ledger.py validate`
+3. 模型用 `apply-model-groups` 把执行动作相同的条目压成“一条规则 + 多案例”，并在同一个 group 内完成 canonical 规则裁决：`applicability / status=completed / outcome / decision_reason` 必填；适用规则还必须填写 `target_stage / result` 和按执行方式要求的脚本产物、人工原句证据或范围复核
+4. `apply-model-groups` 不得只做归并；任一 canonical 仍是 `pending`，视为台账阶段未完成，禁止写设定、大纲或正文
+5. 确认由 `script / human / hybrid` 哪一类执行，并填写目标阶段和目标场景
+6. 写作过程中执行一项标记一项，并持续补脚本产物或人工原句证据
+7. 最终绑定设定、大纲、正文 SHA，再运行 `validate_rule_execution_ledger.py validate`
 
 进入任一写作阶段前，还必须运行写作放行闸：
 
@@ -272,6 +292,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
   --ledger 写作资产/规则执行台账.json \
   --sequence-receipt 写作资产/顺序契约回执.json \
   --opening-contract 写作资产/开头承重契约回执.json \
+  --outline-contract 写作资产/细纲表演验收回执.json \
   --profile profiles/{项目名}.project.profile.json
 ```
 
@@ -305,9 +326,27 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
 
 大纲写完后，必须重新初始化完整顺序契约，人工核对设定与大纲的 canonical 顺序后，才允许写正文；正文节点和 `offset` 必须在正文生成后补齐并重新校验。不得把“设定顺序回执已通过”当成正文顺序已通过。
 
+大纲通过完整顺序契约和开头承重契约后，还必须通过细纲表演验收。该闸门逐节检查原文机制是否真正落成场戏设计，且细纲与选中原文任一 SHA 变化都必须重新验收：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" init \
+  --project "{项目名}" \
+  --outline "{项目目录}/小节大纲.md" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-original "拆文库/{辅助书}/原文/{辅助书}.txt" \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
+
+# 当前模型人工回填后：
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" validate \
+  --outline "{项目目录}/小节大纲.md" \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
+```
+
+输出不是 `outline_performance_contract: passed` 时，禁止写正文；完整口径见 [细纲表演验收硬闸](references/governance/outline-performance-contract-gate.md)。
+
 固定分工：
 
-- 脚本：SHA、格式、字数、频率、禁词、固定模式、字段与文件完整性
+- 脚本：SHA、格式、字数、频率、禁词、固定模式、字段与文件完整性；所有正文/回执/审计中的字数统一由 `count_words.py` 计算
 - 人工：人物偏手、失控说话、注意力漂移、认知局限、作者代判、对白生活性
 - 混合：长窗节奏、对白效率、桥段相似度、profile 覆盖
 
@@ -353,7 +392,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate ...
 ```
 
-必须由当前模型读取主体 `可直接仿写_导语拆解表.md` 和目标前 `120` 字，逐项填写原句证据。任一检查失败就改大纲或开头；不允许用“第一节最终有冲突”“本轮只改中后段”或规则台账已通过替代本闸门。
+必须由当前模型读取主体 `可直接仿写_导语拆解表.md`、所有选中主体/辅助拆文的 `原文/` 开头样本和目标前 `120` 字，逐项填写原句证据。任一检查失败就改大纲或开头；不允许用“第一节最终有冲突”“本轮只改中后段”“已读 profile”或规则台账已通过替代本闸门。开头回炉后还必须人工确认不是分镜清单或规则施工单。
 
 完整字段与命令见：
 
@@ -403,18 +442,20 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 12. 通过大纲写作放行闸，再写细纲
 13. 建立并通过设定—大纲完整顺序契约
 14. 对大纲执行开头承重契约硬闸
-15. 通过正文写作放行闸，再写正文并逐项更新台账
-16. 知乎 / 盐言正文运行纯数字分节格式校验
-17. 补正文顺序节点证据并重新通过完整顺序契约
-18. 对正文执行开头承重契约硬闸
-19. 按通用规则和拆书资产定向回修
-20. 通过窗口前回修闸，再做人工模型切窗和正式审计
-21. 生成回修任务单
-22. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
-23. 重新审计
-24. 绑定最终写作产物并通过 `rule_execution_gate`
-25. 全文人工语义复扫并通过 `post_write_human_review_gate`
-26. 高风险任务再过第二闸门
+15. 对大纲执行细纲表演验收硬闸；主流程仿写必须先在回执中完成 `source_bridge_flow_inventory` 和 `outline_bridge_flow_parity`
+16. 逐项确认原文 BID/关键子桥段在细纲中均为 `matched/adapted`，缺失、弱化或只做功能映射时先重写细纲
+17. 通过正文写作放行闸，再写正文并逐项更新台账
+18. 知乎 / 盐言正文运行纯数字分节格式校验
+19. 补正文顺序节点证据并重新通过完整顺序契约
+20. 对正文执行开头承重契约硬闸
+21. 按通用规则和拆书资产定向回修
+22. 通过窗口前回修闸，再做人工模型切窗、逐窗流程硬化/证据清单感人工复核和正式审计
+23. 生成包含人工窗口病灶汇总的回修任务单
+24. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
+25. 重新审计
+26. 绑定最终写作产物并通过 `rule_execution_gate`
+27. 全文人工语义复扫并通过 `post_write_human_review_gate`
+28. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -424,24 +465,43 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 ### 回修优先级
 
-回修顺序固定为：
+回修顺序固定为，不得把后面规则反向覆盖前面规则：
 
-1. 题面是否成立
-2. 主桥和后果链是否成立
-3. 开头和高潮是否过闸
-4. `global_risk_shape` 是整篇、粗块还是局部热点
-5. 人物关系和情绪是否在走
-6. 最后才修句子
+1. 成文真实感：任何规则都不能把正文修成规则施工稿、验收单、提示词执行结果。
+2. 题面 / 题材承诺 / 主卖点：追妻、婚恋清算、强情绪关系文不得被修成职业流程文或冷处理说明文。
+3. 主桥和后果链：顺序、代价、失位、求回、女主边界必须先成立。
+4. 冲突载体：每场先确认在争夺什么现实权力、位置或后果，再修句面。
+5. 人物交流：一方施压后，另一方的动作、站位、物件控制权、回答范围、身份或后果必须发生可见变化。
+6. 灵动感和现场毛边：补冲突、补交流、补证据时必须保留临场偏差、错答、回避、手忙脚乱或生活毛边，不能变随机废话。
+7. 流程硬化 / 分镜施工稿：这是负向校验，不是删内容指令；应把白板、钥匙、确认框、回执等冲突载体写进人物反应和现场阻力里。
+8. `global_risk_shape` 是整篇、粗块还是局部热点。
+9. 最后才处理句壳、短段节奏和显性候选词。
+
+每轮回修前必须声明：
+
+- `primary_revision_rule`：本轮主修规则，例如 `procedural_stiffness_review`、`interaction_exchange_review`。
+- `protected_rules`：本轮不得破坏的旧规则，至少覆盖题材承诺、冲突载体、人物交流、灵动感、全文分镜/施工稿。
+- `risk_of_rule_collision`：说明本轮可能把哪些旧修改修坏。
+
+每轮回修后必须人工复核：
+
+- 主修规则是否真的改善。
+- 保护规则是否被破坏。
+- 如果新修改让旧规则失败，本轮不能标 passed；必须先回滚冲突句，或做二次修复并重新复核。
+- 报告中必须列出 `主修规则 / 保护规则 / 冲突裁决 / 保留或二次修复理由`，不能只写“已检查”。
 
 禁止：
 
 - 只因全文均分下降就停
 - 只因轻审计命中变少就停
 - 跳过桥段承重件和顺序，直接润句
+- 用一个规则的检测结果机械覆盖另一个更高优先级规则
+- 为了去流程硬化删掉冲突载体、人物交流或追妻情绪
+- 为了补交流/补冲突堆动作，导致全文变成分镜清单或规则施工稿
 
 ### 脚本入口
 
-常用入口只保留下面 9 个：
+常用入口只保留下面 10 个：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" ...
@@ -449,6 +509,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" --text "{项目目录}/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
@@ -491,7 +552,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 #### 开头硬闸
 
-通用最低要求是前 60 到 100 字至少完成 `关系定位 / 冲突起事 / 后果预期` 中的两项；存在主体拆书时，还必须通过开头承重契约，主体资产明确规定的顺序不得用通用最低要求覆盖。
+通用最低要求是前 60 到 100 字至少完成 `关系定位 / 冲突起事 / 后果预期` 中的两项；存在主体拆书时，还必须通过开头承重契约，主体资产明确规定的顺序不得用通用最低要求覆盖。开头不是越短越好，压缩后若变成“一行一个镜头 / 一行一个证据 / 一行一个反应”的分镜稿，仍视为失败，必须改成连续现场叙述。
 
 #### 高潮硬闸
 
@@ -602,6 +663,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - 情绪升级点
 - 钩子
 - 伏笔回查
+- 每节同时绑定拆书资料里的功能机制和原文对应桥段的场面颗粒度
+- 每节写成连续表演型场面，不把验收回执字段复制进细纲正文
 
 如果是仿写 / 融合，先读基础资产，再写新纲。最低准入和读取顺序见：
 
@@ -669,6 +732,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
+最终绑定后必须人工核对台账是否仍含旧产物证据：
+
+- 全文搜索台账里的 `quote` 是否仍指向旧正文、旧设定或旧大纲句子。
+- 递归检查 canonical 规则及其合并成员，不能只改顶层 `asset_rules` 或一条代表规则。
+- 对每条带关键来源 `source_refs` 的规则，按实际 `source_refs` 重建 `source_contract_reviews`；不得保留上一轮无关来源，也不得缺少主体 / 辅助来源。
+- `source_contract_reviews.target_evidence` 必须引用当前最终产物原句；源文件证据用 `source_quote`，目标产物证据用 `target_evidence`，两者不能混填。
+- 发现旧 SHA 或旧句子时，当前轮只能报告“规则台账未闭环”，禁止宣称流程完成。
+
 同时重新校验正文开头承重契约；正文或主体导语资产 SHA 变化后旧回执无效：
 
 ```bash
@@ -693,7 +764,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/audit_local_stiffness.py" 
   --output "{项目目录}/写作资产/局部生硬候选报告.json"
 ```
 
-报告中的 `script` 项可由脚本定位，`mixed` 项只能由当前模型结合上下文裁决。无命中不等于通过，仍须人工复扫 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾 / 克制解释过度 / 高价值场景摘要化` 七类问题。
+报告中的 `script` 项可由脚本定位，`mixed` 项只能由当前模型结合上下文裁决。无命中不等于通过，仍须人工复扫 `直白心理 / 情绪后总结 / 结果汇报链 / 论点型对白 / 机械章尾 / 克制解释过度 / 高价值场景摘要化 / 全文分镜清单或规则施工稿` 八类问题。
 
 再过人工语义硬闸：
 

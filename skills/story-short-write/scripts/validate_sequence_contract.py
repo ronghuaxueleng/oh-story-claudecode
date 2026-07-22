@@ -5,9 +5,24 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+
+try:
+    from count_words import count_fanqie
+except ModuleNotFoundError:
+    _count_words_path = Path(__file__).with_name("count_words.py")
+    _count_words_spec = importlib.util.spec_from_file_location(
+        "story_short_write_count_words",
+        _count_words_path,
+    )
+    if not _count_words_spec or not _count_words_spec.loader:
+        raise
+    _count_words_module = importlib.util.module_from_spec(_count_words_spec)
+    _count_words_spec.loader.exec_module(_count_words_module)
+    count_fanqie = _count_words_module.count_fanqie
 
 
 def sha256(path: Path) -> str:
@@ -265,10 +280,13 @@ def init_receipt(project: str, setting: Path, outline: Path, draft: Path | None,
     for key, path in (("setting", setting), ("outline", outline), ("draft", draft)):
         if path is None:
             continue
+        text = path.read_text(encoding="utf-8")
         artifacts[key] = {
             "path": str(path.resolve()),
             "sha256": sha256(path.resolve()),
-            "char_count": len(path.read_text(encoding="utf-8")),
+            "char_count": len(text),
+            "word_count": count_fanqie(text),
+            "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
         }
     payload = {
         "version": "1.0",
@@ -291,6 +309,7 @@ def init_receipt(project: str, setting: Path, outline: Path, draft: Path | None,
 
 def init_setting_receipt(project: str, setting: Path, output: Path) -> None:
     path = setting.resolve()
+    text = path.read_text(encoding="utf-8")
     payload = {
         "version": "1.0",
         "project": project,
@@ -302,7 +321,9 @@ def init_setting_receipt(project: str, setting: Path, output: Path) -> None:
             "setting": {
                 "path": str(path),
                 "sha256": sha256(path),
-                "char_count": len(path.read_text(encoding="utf-8")),
+                "char_count": len(text),
+                "word_count": count_fanqie(text),
+                "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
             }
         },
         "conflict_review": {

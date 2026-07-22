@@ -20,6 +20,8 @@ REQUIRED_CHECKS = (
     "reader_question_established",
     "task_exposition_does_not_precede_hook",
     "source_sequence_preserved_at_function_level",
+    "original_opening_samples_compared_before_revision",
+    "opening_not_storyboard_or_construction_list",
 )
 
 
@@ -95,6 +97,19 @@ def create_receipt(
             "forbidden_precedence": [],
             "transferable_requirements": [],
         },
+        "original_opening_comparison": {
+            "all_selected_sources_reviewed": False,
+            "samples": [],
+            "common_patterns": [],
+            "target_opening_application": [],
+            "exposition_removed_or_deferred": [],
+        },
+        "opening_flow_review": {
+            "storyboard_or_construction_list": None,
+            "symptoms_checked": [],
+            "narrative_flow_evidence": [],
+            "revision_method": [],
+        },
         "source_evidence": [],
         "checks": {check_id: None for check_id in REQUIRED_CHECKS},
         "target_evidence": [],
@@ -117,6 +132,87 @@ def evidence_map(value: Any) -> dict[str, dict[str, Any]]:
         for item in value
         if isinstance(item, dict) and str(item.get("check_id") or "")
     }
+
+
+def validate_original_opening_comparison(
+    data: dict[str, Any],
+    errors: list[str],
+) -> None:
+    comparison = data.get("original_opening_comparison")
+    if not isinstance(comparison, dict):
+        errors.append("original_opening_comparison 必须是对象")
+        return
+
+    if comparison.get("all_selected_sources_reviewed") is not True:
+        errors.append("必须确认已读取所有选中主体/辅助拆文原文开头")
+
+    samples = comparison.get("samples")
+    valid_samples = 0
+    if not isinstance(samples, list):
+        errors.append("original_opening_comparison.samples 必须是列表")
+    else:
+        for index, item in enumerate(samples, start=1):
+            if not isinstance(item, dict):
+                errors.append(f"原文开口样本格式错误: [{index}]")
+                continue
+            path_text = str(item.get("path") or "").strip()
+            quote = str(item.get("opening_quote") or "").strip()
+            pattern = str(item.get("opening_pattern") or "").strip()
+            recorded_sha = str(item.get("sha256") or "").strip()
+            if not path_text:
+                errors.append(f"原文开口样本缺少 path: [{index}]")
+                continue
+            sample_path = Path(path_text).expanduser().resolve()
+            if not sample_path.is_file():
+                errors.append(f"原文开口样本不存在: [{index}] {sample_path}")
+                continue
+            if recorded_sha != sha256(sample_path):
+                errors.append(f"原文开口样本 SHA 不一致: [{index}] {sample_path}")
+            sample_text = read_text(sample_path)
+            sample_opening = canonical_body(sample_text)[:1000]
+            normalized_quote = re.sub(r"\s+", "", quote)
+            if not normalized_quote or normalized_quote not in sample_opening:
+                errors.append(f"原文开口样本 quote 不在原文前 1000 字: [{index}]")
+            if not pattern:
+                errors.append(f"原文开口样本缺少开口机制判断: [{index}]")
+            if normalized_quote and normalized_quote in sample_opening and pattern:
+                valid_samples += 1
+
+    if valid_samples < 1:
+        errors.append("至少需要一条可核验的原文真实开口样本")
+    if len(nonempty_strings(comparison.get("common_patterns"))) < 2:
+        errors.append("必须归纳至少两条原文开口共性")
+    if len(nonempty_strings(comparison.get("target_opening_application"))) < 2:
+        errors.append("必须说明至少两条目标开头应用方式")
+    if data.get("artifact_kind") == "draft" and not nonempty_strings(
+        comparison.get("exposition_removed_or_deferred")
+    ):
+        errors.append("正文开头回炉必须记录删除或后移的说明/背景/流程内容")
+
+
+def validate_opening_flow_review(data: dict[str, Any], errors: list[str]) -> None:
+    review = data.get("opening_flow_review")
+    if not isinstance(review, dict):
+        errors.append("opening_flow_review 必须是对象")
+        return
+
+    if review.get("storyboard_or_construction_list") is not False:
+        errors.append("必须人工确认开头不是分镜清单或规则施工单")
+
+    symptoms = nonempty_strings(review.get("symptoms_checked"))
+    if len(symptoms) < 2:
+        errors.append("必须检查至少两类分镜/施工单症状")
+    symptom_text = " / ".join(symptoms)
+    required_symptom_terms = ("一句一个动作", "一句一个证据", "一句一个反应", "规则施工")
+    if not any(term in symptom_text for term in required_symptom_terms):
+        errors.append("分镜/施工单症状必须覆盖动作、证据、反应或规则施工")
+
+    if len(nonempty_strings(review.get("narrative_flow_evidence"))) < 2:
+        errors.append("必须提供至少两条叙述流证据")
+    if data.get("artifact_kind") == "draft" and len(
+        nonempty_strings(review.get("revision_method"))
+    ) < 2:
+        errors.append("正文开头回炉必须记录至少两条去分镜/去施工单改法")
 
 
 def validate_receipt(
@@ -166,6 +262,8 @@ def validate_receipt(
         errors.append("必须由当前执行 skill 的模型人工完成开头裁决")
     if data.get("artifact_kind") not in {"outline", "draft"}:
         errors.append("artifact_kind 必须为 outline 或 draft")
+    validate_original_opening_comparison(data, errors)
+    validate_opening_flow_review(data, errors)
 
     contract = data.get("source_contract")
     if not isinstance(contract, dict):

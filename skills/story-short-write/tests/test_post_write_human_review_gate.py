@@ -63,6 +63,15 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
                 }
             ]
             item["conclusion"] = "已人工复核全文。"
+            if item["id"] == GATE.FULL_TEXT_FLOW_CHECK:
+                item["scan_scope"] = "full_text"
+                item["remaining_storyboard_or_construction_list"] = False
+                item["symptoms_checked"] = [
+                    "已检查是否一句一个动作。",
+                    "已检查是否一句一个证据。",
+                    "已检查是否一句一个反应或规则施工。",
+                ]
+                item["allowed_in_story_artifacts"] = []
         receipt["genre_formula_review"] = {
             "status": "completed",
             "selected_genre": "现代都市追妻",
@@ -146,6 +155,8 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         self.assertIn("conflict_carrier_distribution", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("physical_object_space_consequence", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("irreversible_violence_genre_alignment", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("rule_evidence_stiffness_and_liveliness", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("full_text_storyboard_construction_list_review", GATE.REQUIRED_HUMAN_CHECKS)
 
         receipt = self._write_completed_receipt()
         receipt["human_checks"] = [
@@ -211,6 +222,34 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         errors, _ = GATE.validate_receipt(self.receipt, self.text)
         self.assertTrue(any("正文已变化" in error for error in errors))
         self.assertTrue(any("改写句缺少人工复核" in error for error in errors))
+
+    def test_full_text_storyboard_construction_list_is_blocking(self) -> None:
+        receipt = self._write_completed_receipt()
+        for item in receipt["human_checks"]:
+            if item["id"] == GATE.FULL_TEXT_FLOW_CHECK:
+                item["remaining_storyboard_or_construction_list"] = True
+                break
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.text)
+        self.assertTrue(any("全文仍存在分镜清单或规则施工稿" in error for error in errors))
+
+    def test_in_story_artifact_exception_must_quote_text(self) -> None:
+        receipt = self._write_completed_receipt()
+        for item in receipt["human_checks"]:
+            if item["id"] == GATE.FULL_TEXT_FLOW_CHECK:
+                item["allowed_in_story_artifacts"] = [
+                    {"quote": "不存在的报告", "reason": "情节中真实出现的报告文本。"}
+                ]
+                break
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.text)
+        self.assertTrue(any("情节内清单/报告例外原句不在正文中" in error for error in errors))
 
     def test_author_summary_cannot_pass_as_current_text(self) -> None:
         receipt = self._write_completed_receipt()

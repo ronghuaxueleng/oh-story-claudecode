@@ -100,6 +100,33 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             "global_judgment": "已完整复核全文承重交流场。",
         }
 
+    @staticmethod
+    def _fill_procedural_stiffness_review(receipt: dict, text: str) -> None:
+        quote = next(
+            line.strip()
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        )
+        receipt["procedural_stiffness_review"] = {
+            "status": "completed",
+            "reviewed_full_text": True,
+            "window_reviews": [
+                {
+                    "window_index": 1,
+                    "paragraph_range": [1, 1],
+                    "quote": quote,
+                    "problem_type": "none_found",
+                    "status": "passed",
+                    "why_ai_like": "该窗口是测试正文，不存在流程日志、证据清单或三连回执病灶。",
+                    "fix_direction": "",
+                    "priority": "none",
+                    "must_revise": False,
+                }
+            ],
+            "summary": "已逐窗复核，测试正文未发现流程硬化/证据清单感问题。",
+            "must_revise_count": 0,
+        }
+
     def test_tight_markdown_lines_are_real_paragraphs(self) -> None:
         text = "# 标题\n## 1\n第一段。\n第二段。\n## 2\n第三段。\n"
         paragraphs = AUDIT.build_paragraph_entries(text)
@@ -305,6 +332,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
 
             encoded = json.loads(json.dumps(receipt, ensure_ascii=False))
             boundaries = AUDIT.validate_manual_model_segmentation_receipt(
@@ -324,6 +352,41 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self.assertIn("冲突载体人工复核", receipt["prompt"])
             self.assertIn("固定词只算候选", receipt["prompt"])
             self.assertIn("人物交流人工复核", receipt["prompt"])
+            self.assertIn("流程硬化/证据清单感人工复核", receipt["prompt"])
+
+    def test_suspicious_ai_window_requires_procedural_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                "# 测试\n## 1\n" + ("流程记录。证据上传。回执完成。" * 80) + "\n",
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["boundaries"] = []
+            receipt["boundary_evidence"] = []
+            receipt["manual_judgment"] = "当前模型已完整读取正文并人工确定边界。"
+            receipt["segment_scores"] = [
+                {
+                    "start": 0,
+                    "end": len(text),
+                    "aigc_estimate": 0.55,
+                    "label": "疑似AI",
+                }
+            ]
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            receipt["procedural_stiffness_review"] = {
+                "status": "completed",
+                "reviewed_full_text": True,
+                "window_reviews": [],
+                "summary": "错误夹具：没有逐窗病灶。",
+                "must_revise_count": 0,
+            }
+
+            with self.assertRaisesRegex(RuntimeError, "疑似 AI 窗口缺少流程硬化病灶逐窗复核"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
 
     def test_formal_segmentation_requires_sequence_review_when_context_is_bound(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -358,6 +421,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
             with self.assertRaisesRegex(RuntimeError, "顺序契约结构复核"):
                 AUDIT.validate_manual_model_segmentation_receipt(
                     receipt,
@@ -402,6 +466,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
 
             with self.assertRaisesRegex(RuntimeError, "每段不得少于200字"):
                 AUDIT.validate_manual_model_segmentation_receipt(
@@ -435,6 +500,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, original)
             self._fill_conflict_review(receipt, original)
             self._fill_exchange_review(receipt, original)
+            self._fill_procedural_stiffness_review(receipt, original)
 
             with self.assertRaisesRegex(RuntimeError, "正文 SHA 已变化"):
                 AUDIT.validate_manual_model_segmentation_receipt(
@@ -484,6 +550,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
             receipt["conflict_carrier_review"]["dialogue_only_conflict"] = True
 
             with self.assertRaisesRegex(RuntimeError, "强冲突仍可能只靠对白"):
@@ -522,6 +589,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
             receipt["interaction_exchange_review"]["scene_reviews"][0]["real_exchange"] = False
 
             with self.assertRaisesRegex(RuntimeError, "未形成真实压力交换"):
@@ -542,6 +610,7 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self._fill_segment_scores(receipt, text)
             self._fill_conflict_review(receipt, text)
             self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
             receipt["interaction_exchange_review"]["scene_reviews"][0]["author_substitution"] = True
 
             with self.assertRaisesRegex(RuntimeError, "作者解释抢位"):

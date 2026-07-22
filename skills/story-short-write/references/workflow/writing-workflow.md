@@ -89,6 +89,11 @@
 - 如果内部审计判成 `coarse_blocks`：
   - 先修前 1-2 个粗粒度大块
   - 每个大块里仍按 `起手 -> 顺序 -> 承重件 -> 句面` 的顺序回炉
+- 每轮回炉前必须先判 `revision_scope_decision`：
+  - `global_structure / coarse_block / full_scene`：必须整篇、整块或整场回炉，不能只补几句。
+  - `paragraph_cluster`：允许重写相邻段群，但必须保持场戏承重件和人物动作链。
+  - `sentence_hotspot / format_only`：只有确认问题只是重复词、冒号模板、错字、标点、单句解释过满或平台格式时才允许小改。
+  - 同一 P0/P1 连续两轮还在，下一轮必须升级回修幅度，不得继续原位置小补丁。
 
 ### 原文里反复出现、要写进方法的几条
 

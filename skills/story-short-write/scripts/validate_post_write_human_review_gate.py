@@ -54,6 +54,8 @@ REQUIRED_HUMAN_CHECKS = (
     "thesis_dialogue_concreteness",
     "chapter_end_hook_naturalness",
     "ending_action_completion",
+    "rule_evidence_stiffness_and_liveliness",
+    "full_text_storyboard_construction_list_review",
     "restraint_overexplained",
     "high_value_scene_summary_compression",
     "full_text_legacy_rescan",
@@ -67,6 +69,7 @@ CHASE_WIFE_REQUIRED_RULES = {
     "no_emotional_after_summary",
     "repair_failure_fact_based",
 }
+FULL_TEXT_FLOW_CHECK = "full_text_storyboard_construction_list_review"
 
 
 def read_text(path: Path) -> str:
@@ -195,13 +198,7 @@ def create_receipt(
             "summary": "",
         },
         "human_checks": [
-            {
-                "id": check_id,
-                "status": "pending",
-                "evidence": [],
-                "conclusion": "",
-            }
-            for check_id in REQUIRED_HUMAN_CHECKS
+            create_human_check_entry(check_id) for check_id in REQUIRED_HUMAN_CHECKS
         ],
         "genre_formula_review": {
             "status": "pending",
@@ -214,6 +211,25 @@ def create_receipt(
         if resolved_base
         else [],
     }
+
+
+def create_human_check_entry(check_id: str) -> dict[str, Any]:
+    entry = {
+        "id": check_id,
+        "status": "pending",
+        "evidence": [],
+        "conclusion": "",
+    }
+    if check_id == FULL_TEXT_FLOW_CHECK:
+        entry.update(
+            {
+                "scan_scope": "full_text",
+                "remaining_storyboard_or_construction_list": None,
+                "symptoms_checked": [],
+                "allowed_in_story_artifacts": [],
+            }
+        )
+    return entry
 
 
 def nonempty_strings(value: Any) -> list[str]:
@@ -342,6 +358,10 @@ def validate_receipt(
                 valid_evidence = False
         if not str(entry.get("conclusion") or "").strip():
             errors.append(f"人工检查项缺少结论: {check_id}")
+            valid_evidence = False
+        if check_id == FULL_TEXT_FLOW_CHECK and not validate_full_text_flow_check(
+            entry, current_text, errors
+        ):
             valid_evidence = False
         if valid_evidence:
             reviewed_human_checks += 1
@@ -502,6 +522,49 @@ def validate_receipt(
         "changed_sentence_count": len(expected_changed),
         "reviewed_changed_sentences": reviewed_changed_sentences,
     }
+
+
+def validate_full_text_flow_check(
+    entry: dict[str, Any],
+    current_text: str,
+    errors: list[str],
+) -> bool:
+    valid = True
+    if entry.get("scan_scope") != "full_text":
+        errors.append("全文分镜/施工单检查必须声明 scan_scope=full_text")
+        valid = False
+    if entry.get("remaining_storyboard_or_construction_list") is not False:
+        errors.append("全文仍存在分镜清单或规则施工稿时不得通过")
+        valid = False
+
+    symptoms = nonempty_strings(entry.get("symptoms_checked"))
+    if len(symptoms) < 3:
+        errors.append("全文分镜/施工单检查必须覆盖至少三类症状")
+        valid = False
+    symptom_text = " / ".join(symptoms)
+    required_terms = ("一句一个动作", "一句一个证据", "一句一个反应", "规则施工")
+    if not any(term in symptom_text for term in required_terms):
+        errors.append("全文分镜/施工单症状必须覆盖动作、证据、反应或规则施工")
+        valid = False
+
+    artifacts = entry.get("allowed_in_story_artifacts")
+    if not isinstance(artifacts, list):
+        errors.append("allowed_in_story_artifacts 必须是列表")
+        return False
+    for index, artifact in enumerate(artifacts, start=1):
+        if not isinstance(artifact, dict):
+            errors.append(f"情节内清单/报告例外格式错误: [{index}]")
+            valid = False
+            continue
+        quote = str(artifact.get("quote") or "").strip()
+        reason = str(artifact.get("reason") or "").strip()
+        if not quote or quote not in current_text:
+            errors.append(f"情节内清单/报告例外原句不在正文中: [{index}]")
+            valid = False
+        if not reason:
+            errors.append(f"情节内清单/报告例外缺少情节合理性说明: [{index}]")
+            valid = False
+    return valid
 
 
 def main() -> int:

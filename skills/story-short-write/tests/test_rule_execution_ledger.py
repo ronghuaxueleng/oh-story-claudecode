@@ -667,6 +667,10 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                             "remediation_target": "audit",
                             "execution_mode": "human",
                             "classification_notes": "模型逐条阅读后确认语义相同。",
+                            "applicability": "not_applicable",
+                            "status": "completed",
+                            "outcome": "not_applicable",
+                            "decision_reason": "该测试只验证语义归并结构，不绑定具体正文执行。",
                         }
                     ]
                 },
@@ -768,6 +772,10 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                             "remediation_target": "audit",
                             "execution_mode": "human",
                             "classification_notes": "模型确认归并。",
+                            "applicability": "not_applicable",
+                            "status": "completed",
+                            "outcome": "not_applicable",
+                            "decision_reason": "该测试只验证归并后代关系扁平化。",
                         }
                     ]
                 },

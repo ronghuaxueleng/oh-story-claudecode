@@ -42,6 +42,8 @@ class PreWindowRevisionGateTest(unittest.TestCase):
                 "path": str(self.text),
                 "sha256": GATE.sha256(self.text),
                 "char_count": len(self.text.read_text(encoding="utf-8")),
+                "word_count": GATE.count_fanqie(self.text.read_text(encoding="utf-8")),
+                "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
             },
             "prerequisites": {
                 key: {

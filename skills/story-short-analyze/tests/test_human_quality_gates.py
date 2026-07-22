@@ -965,6 +965,9 @@ class HumanQualityGateTest(unittest.TestCase):
             structure_tables["可直接仿写_导语拆解表.md"]["columns"],
             ["层级", "钩子内容", "第一句功能", "原文证据", "迁移提醒"],
         )
+        sequence_columns = structure_tables["可直接仿写_顺序事件表.md"]["columns"]
+        for field in ("读者情绪拍", "情绪烈度", "是否反刀或峰值", "场末余痛"):
+            self.assertIn(field, sequence_columns)
         self.assertEqual(structure_tables["可直接仿写_动作表.md"]["min_rows"], 5)
         self.assertEqual(dialogue_tables["可直接仿写_公开炸场表.md"]["min_rows"], 4)
         self.assertEqual(
@@ -1012,6 +1015,14 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertEqual(tables["可直接仿写_动作表.md"]["min_rows"], 4)
         self.assertEqual(tables["可直接仿写_导语拆解表.md"]["min_rows"], 2)
         self.assertEqual(contracts["source_details"]["min_cards_per_file"], 3)
+
+    def test_sequence_event_semantic_contract_requires_emotion_parity_fields(self) -> None:
+        semantic_groups = VALIDATOR.DIRECT_SEMANTIC_HEADER_GROUPS[
+            "可直接仿写_顺序事件表.md"
+        ]
+        flattened = {alias for group in semantic_groups for alias in group}
+        for field in ("读者情绪拍", "情绪烈度", "是否反刀或峰值", "场末余痛"):
+            self.assertIn(field, flattened)
 
     def test_long_parallel_plan_reuses_three_agent_sessions(self) -> None:
         path = self.root / "_parallel_plan.json"

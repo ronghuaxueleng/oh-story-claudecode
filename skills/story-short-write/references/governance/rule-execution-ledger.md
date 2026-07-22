@@ -58,6 +58,33 @@
 - 文件级关键资产也执行同一套 `source_contract_reviews`，不能因为没有展开子规则而绕过契约复核。
 - 规则级资产父节点由子规则自动派生。`refresh-summary / apply-plan / apply-model-groups` 会同步 `applicability / status / outcome / result`；手填结果与子规则不一致时直接阻断。
 
+## 最终产物变更后必须递归重绑证据
+
+设定、大纲或正文任一文件重新绑定后，旧台账不能只改 `artifacts.sha256`，也不能只改一条代表规则。必须递归检查并重绑：
+
+- `skill_rules / source_assets / asset_rules` 里的所有规则卡。
+- canonical 规则和所有由 canonical 合并出来的成员来源。
+- `text_evidence / structural_claim_reviews / source_contract_reviews.target_evidence / scope_reviews` 中的每一条目标产物证据。
+- 每条带关键来源 `source_refs` 的规则都必须按当前实际 `source_refs` 重建 `source_contract_reviews`。
+
+硬失败口径：
+
+- `quote` 不存在于当前设定、大纲或正文。
+- `target_evidence` 还引用旧正文句子、旧大纲句子或旧设定句子。
+- `source_contract_reviews` 缺少当前 `source_refs` 中的关键来源。
+- `source_contract_reviews` 残留上一轮无关来源。
+- 用一条公共 target evidence 代替逐来源契约判断。
+- 把源文件证据写进 `target_evidence`，或把目标产物证据写进 `source_quote`。
+- 台账 `validate` 未 passed 时，用“人工已看过”“整体已执行”口头替代。
+
+正确顺序：
+
+1. 运行 `bind-artifacts` 绑定最终设定、大纲、正文。
+2. 递归重建全部目标产物证据和 `source_contract_reviews`。
+3. 运行 `refresh-summary`，再人工确认汇总。
+4. 运行 `validate`。
+5. 只有输出 `rule_execution_gate: passed` 才能进入写后人工语义复核或宣称流程闭环。
+
 ## 结构结论必须逐目标举证
 
 `setting_constraint / outline_constraint` 的 `target_scene` 如果写了多个目标，例如：
@@ -159,7 +186,21 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
       "rule_role": "draft_constraint",
       "remediation_target": "draft",
       "execution_mode": "human",
-      "classification_notes": "这些条目执行动作相同，只是案例和来源不同。"
+      "classification_notes": "这些条目执行动作相同，只是案例和来源不同。",
+      "applicability": "applicable",
+      "status": "completed",
+      "outcome": "passed",
+      "decision_reason": "本规则适用于当前正文，已由当前模型人工核对并完成。",
+      "target_stage": "draft",
+      "result": "正文已满足该规则。",
+      "human_judgment": "人工判断正文已落实该规则，未发现待改项。",
+      "text_evidence": [
+        {
+          "artifact": "正文",
+          "quote": "必须引用当前最终正文中真实存在的原句",
+          "judgment": "说明这句如何证明规则已执行"
+        }
+      ]
     }
   ]
 }
@@ -173,6 +214,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
   --plan "{项目目录}/写作资产/规则模型归并计划.json"
 ```
 
+`apply-model-groups` 不只是归并工具，也是 canonical 规则裁决入口。每个 group 必须同时完成：
+
+- `applicability`：只能是 `applicable / rejected / not_applicable`，不得留空或写 `merged`。
+- `status`：必须是 `completed`，归并计划不得留下 `pending`。
+- `outcome`：适用规则必须是 `passed / failed`；跳过规则必须是 `not_applicable`。
+- `decision_reason`：必须写具体裁决原因。
+- 适用规则必须补 `target_stage`、`result`，并按 `execution_mode` 补 `script_artifacts`、`text_evidence` 或 `human_scope_reviews`。
+- 带关键 `source_refs` 的 canonical 必须补 `source_contract_reviews`；不能只靠成员被合并来绕过来源契约。
+
 ## 执行与标记
 
 - `applicable`：必须真正执行并标记 `status: completed`。
@@ -184,7 +234,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 - `hybrid`：同时满足脚本和人工要求。
 - 承重资产的文件级状态和其中每条展开规则都必须完成。
 
-正文或大纲发生变化后，重新绑定最终产物；原句证据消失时台账会阻断。
+正文或大纲发生变化后，重新绑定最终产物；原句证据消失时台账会阻断。阻断后不能机械把所有旧证据替换成同一句正文开头，必须按规则实际目标重绑到设定、大纲、正文或人工复核证据；否则虽然可能消除“原句不存在”，但仍属于伪执行。
 
 逐项状态更新后刷新汇总：
 

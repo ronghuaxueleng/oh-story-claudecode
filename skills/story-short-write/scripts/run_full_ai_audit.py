@@ -22,6 +22,20 @@ import importlib.util
 from pathlib import Path
 
 try:
+    from count_words import count_fanqie
+except ModuleNotFoundError:
+    _count_words_path = Path(__file__).with_name("count_words.py")
+    _count_words_spec = importlib.util.spec_from_file_location(
+        "story_short_write_count_words",
+        _count_words_path,
+    )
+    if not _count_words_spec or not _count_words_spec.loader:
+        raise
+    _count_words_module = importlib.util.module_from_spec(_count_words_spec)
+    _count_words_spec.loader.exec_module(_count_words_module)
+    count_fanqie = _count_words_module.count_fanqie
+
+try:
     from validate_pre_window_revision_gate import (
         validate as validate_pre_window_revision,
     )
@@ -647,6 +661,19 @@ EXCHANGE_CHANGED_TARGETS = {
     "answer_scope",
     "identity",
     "consequence",
+}
+
+
+PROCEDURAL_STIFFNESS_PROBLEM_TYPES = {
+    "workflow_log_feel",
+    "evidence_inventory_feel",
+    "triple_status_receipt",
+    "procedure_too_smooth",
+    "multi_task_sentence",
+    "character_reaction_replaced_by_process",
+    "insufficient_scene_resistance",
+    "storyboard_or_construction_list",
+    "none_found",
 }
 
 
@@ -1877,6 +1904,20 @@ _SEGMENT_PROMPT_TMPL = """\
 23. real_exchange 只有在压力实际落到另一个人物并改变其现场反应时才能标 true；孤立台词、答题对白和作者解释不能冒充交流。
 24. author_substitution 若为 true，或任一承重场 real_exchange=false，必须先修改正文；正式回执不得标 completed。
 
+流程硬化/证据清单感人工复核（必须逐窗输出并汇总，不能只给分）：
+25. 完成 segment_scores 后，必须填写 procedural_stiffness_review，逐个最终窗口判断是否存在以下病灶：
+   - workflow_log_feel：像流程日志、状态记录、会议纪要，而不是人物在现场受阻；
+   - evidence_inventory_feel：证据、物件、文件一件件上桌，像作者摆道具；
+   - triple_status_receipt：三连回执、三连状态、三项条件或三套预案过于工整；
+   - procedure_too_smooth：手续推进过顺，出去打电话、回来资料齐，缺阻力和扯皮；
+   - multi_task_sentence：一句话完成导出、交接、发送、签字、归档等多个任务；
+   - character_reaction_replaced_by_process：人物情绪和反应被流程、回执、权限变化替代；
+   - insufficient_scene_resistance：缺临场打断、误读、手忙脚乱、旁人插话、物件摩擦；
+   - storyboard_or_construction_list：一句一个动作/证据/反应，或规则 A 执行、证据 B 展示、边界 C 落地。
+26. 每个 label 为“疑似AI”或“AI特征”的窗口，window_reviews 中必须至少有一条 status=needs_revision 的具体病灶，除非明确填写 problem_type=none_found 并用原文证明该窗口其实是人物现场反应，不是流程清单。
+27. 每条病灶必须写 quote、paragraph_range、why_ai_like、fix_direction、priority、must_revise。quote 必须来自正文原句；fix_direction 必须能直接指导改文，例如“把三连回执拆成手机卡顿、旁人打断、男主误读屏幕”，不能写“增强人味”。
+28. procedural_stiffness_review.summary 必须汇总高优先级段落，回答：最像外部检测器会抓的 3-8 处在哪里、为什么抓、先改哪几处。若有 must_revise=true，不得把正式审计说成已通过。
+
 判断顺序：
 ① 先扫描全文，对每个段落标注 AIGC 信号密度（高/低）
 ② 标记四类规则在全文的局部变化点和跨窗重复风险
@@ -1887,6 +1928,7 @@ _SEGMENT_PROMPT_TMPL = """\
 正文路径：{source_path}
 正文 SHA256：{text_sha256}
 正文字符数：{total_chars}
+统一字数：{total_words}
 章节分布：{chapter_map}
 """
 
@@ -1909,6 +1951,7 @@ def build_manual_model_segmentation_task(
         source_path=str(source_path.resolve()),
         text_sha256=text_sha256(text),
         total_chars=len(text),
+        total_words=count_fanqie(text),
         chapter_map=chapter_map or "无章节标记",
     )
     sequence_context = sequence_context or []
@@ -1934,6 +1977,8 @@ def build_manual_model_segmentation_task(
             "path": str(source_path.resolve()),
             "sha256": text_sha256(text),
             "char_count": len(text),
+            "word_count": count_fanqie(text),
+            "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
         },
         "prompt": prompt,
         "paragraph_anchors": [
@@ -1974,6 +2019,13 @@ def build_manual_model_segmentation_task(
             "scene_reviews": [],
             "global_judgment": "",
         },
+        "procedural_stiffness_review": {
+            "status": "pending",
+            "reviewed_full_text": False,
+            "window_reviews": [],
+            "summary": "",
+            "must_revise_count": 0,
+        },
         "manual_judgment": "",
     }
 
@@ -1996,6 +2048,8 @@ def validate_manual_model_segmentation_receipt(
         errors.append("正文 SHA 已变化，必须重新执行人工模型分段")
     if source.get("char_count") != len(text):
         errors.append("人工模型分段回执记录的正文字符数不一致")
+    if source.get("word_count") != count_fanqie(text):
+        errors.append("人工模型分段回执记录的统一字数不一致")
 
     raw_boundaries = receipt.get("boundaries")
     boundaries = raw_boundaries if isinstance(raw_boundaries, list) else []
@@ -2243,6 +2297,87 @@ def validate_manual_model_segmentation_receipt(
                             )
                 if not str(item.get("judgment") or "").strip():
                     errors.append(f"人物交流场景缺少总判断[{index}]")
+
+    procedural_review = receipt.get("procedural_stiffness_review")
+    if not isinstance(procedural_review, dict):
+        errors.append("人工模型分段回执缺少流程硬化/证据清单感人工复核")
+    else:
+        if procedural_review.get("status") != "completed":
+            errors.append("流程硬化/证据清单感人工复核 status 必须为 completed")
+        if procedural_review.get("reviewed_full_text") is not True:
+            errors.append("流程硬化/证据清单感人工复核必须确认已完整阅读正文")
+        if not str(procedural_review.get("summary") or "").strip():
+            errors.append("流程硬化/证据清单感人工复核缺少 summary 汇总")
+        window_reviews = procedural_review.get("window_reviews")
+        if not isinstance(window_reviews, list):
+            errors.append("流程硬化/证据清单感人工复核 window_reviews 必须是列表")
+            window_reviews = []
+        review_by_window: dict[int, list[dict]] = {}
+        must_revise_count = 0
+        for index, item in enumerate(window_reviews, 1):
+            if not isinstance(item, dict):
+                errors.append(f"流程硬化病灶条目格式错误[{index}]")
+                continue
+            window_index = item.get("window_index")
+            if not isinstance(window_index, int) or not 1 <= window_index <= expected_seg_count:
+                errors.append(f"流程硬化病灶 window_index 无效[{index}]")
+            else:
+                review_by_window.setdefault(window_index, []).append(item)
+            problem_type = item.get("problem_type")
+            if problem_type not in PROCEDURAL_STIFFNESS_PROBLEM_TYPES:
+                errors.append(f"流程硬化病灶 problem_type 无效[{index}]: {problem_type!r}")
+            status = item.get("status")
+            if status not in {"needs_revision", "passed", "not_applicable"}:
+                errors.append(f"流程硬化病灶 status 无效[{index}]: {status!r}")
+            priority = item.get("priority")
+            if priority not in {"P0", "P1", "P2", "none"}:
+                errors.append(f"流程硬化病灶 priority 无效[{index}]: {priority!r}")
+            if item.get("must_revise") is True:
+                must_revise_count += 1
+                if status != "needs_revision":
+                    errors.append(f"must_revise=true 必须对应 needs_revision[{index}]")
+                if priority not in {"P0", "P1", "P2"}:
+                    errors.append(f"must_revise=true 必须填写 P0/P1/P2[{index}]")
+            quote = str(item.get("quote") or "").strip()
+            if not quote or quote not in text:
+                errors.append(f"流程硬化病灶 quote 不在正文[{index}]")
+            paragraph_range = item.get("paragraph_range")
+            if (
+                not isinstance(paragraph_range, list)
+                or len(paragraph_range) != 2
+                or any(not isinstance(value, int) for value in paragraph_range)
+            ):
+                errors.append(f"流程硬化病灶 paragraph_range 必须是两个整数[{index}]")
+            if not str(item.get("why_ai_like") or "").strip():
+                errors.append(f"流程硬化病灶缺少 why_ai_like[{index}]")
+            fix_direction = str(item.get("fix_direction") or "").strip()
+            if problem_type != "none_found" and not fix_direction:
+                errors.append(f"流程硬化病灶缺少可执行 fix_direction[{index}]")
+        declared_count = procedural_review.get("must_revise_count")
+        if isinstance(declared_count, int) and declared_count != must_revise_count:
+            errors.append(
+                "流程硬化/证据清单感问题 must_revise_count 与逐条记录不一致"
+            )
+        for i, score_item in enumerate(segment_scores if isinstance(segment_scores, list) else [], 1):
+            if not isinstance(score_item, dict):
+                continue
+            label = score_item.get("label")
+            if label not in {"疑似AI", "AI特征"}:
+                continue
+            reviews = review_by_window.get(i, [])
+            if not reviews:
+                errors.append(f"疑似 AI 窗口缺少流程硬化病灶逐窗复核: window {i}")
+                continue
+            has_revision = any(
+                item.get("status") == "needs_revision"
+                and item.get("problem_type") != "none_found"
+                for item in reviews
+            )
+            has_none_found = any(item.get("problem_type") == "none_found" for item in reviews)
+            if not has_revision and not has_none_found:
+                errors.append(
+                    f"疑似 AI 窗口必须给出具体病灶或 none_found 反证: window {i}"
+                )
 
     if sequence_context:
         sequence_review = receipt.get("sequence_review")
@@ -4848,6 +4983,38 @@ def block_label(item: dict) -> str:
     return f"原始段{item.get('paragraph_start')}-{item.get('paragraph_end')}"
 
 
+def procedural_stiffness_priority_tuple(item: dict) -> tuple[int, int, int]:
+    priority_order = {"P0": 3, "P1": 2, "P2": 1, "none": 0}
+    return (
+        1 if item.get("must_revise") else 0,
+        priority_order.get(str(item.get("priority") or "none"), 0),
+        -int(item.get("window_index") or 0),
+    )
+
+
+def extract_procedural_stiffness_review(receipt: dict | None) -> dict:
+    """Extract current-model procedural AI-like findings for reporting."""
+    if not isinstance(receipt, dict):
+        return {}
+    review = receipt.get("procedural_stiffness_review")
+    if not isinstance(review, dict):
+        return {}
+    items = [
+        item
+        for item in review.get("window_reviews", [])
+        if isinstance(item, dict)
+        and item.get("problem_type") != "none_found"
+        and item.get("status") == "needs_revision"
+    ]
+    items = sorted(items, key=procedural_stiffness_priority_tuple, reverse=True)
+    return {
+        "status": review.get("status"),
+        "summary": review.get("summary", ""),
+        "must_revise_count": sum(1 for item in items if item.get("must_revise") is True),
+        "findings": items,
+    }
+
+
 def markdown_report(file_path: Path, light: dict, heavy: dict, recommendations: list[str], combined: dict | None = None) -> str:
     light_summary = summarize_light(light)
     heavy_summary = summarize_heavy(heavy)
@@ -4949,6 +5116,30 @@ def markdown_report(file_path: Path, light: dict, heavy: dict, recommendations: 
                 f"自问自答 `{item.get('self_qa_pair_count')}` 对白占比 `{item.get('dialogue_line_ratio')}` "
                 f"例句 `{examples}`"
             )
+        lines.append("")
+    procedural_stiffness = combined.get("procedural_stiffness_review", {})
+    if procedural_stiffness:
+        lines.append("## 人工窗口流程硬化问题汇总")
+        lines.append("")
+        lines.append(f"- 状态: `{procedural_stiffness.get('status')}`")
+        lines.append(f"- 必改数量: `{procedural_stiffness.get('must_revise_count', 0)}`")
+        if procedural_stiffness.get("summary"):
+            lines.append(f"- 人工汇总: {procedural_stiffness.get('summary')}")
+        for item in procedural_stiffness.get("findings", [])[:12]:
+            para_range = item.get("paragraph_range") or []
+            para_text = (
+                f"{para_range[0]}-{para_range[1]}"
+                if isinstance(para_range, list) and len(para_range) == 2
+                else "?"
+            )
+            lines.append(
+                f"- 窗口{item.get('window_index')} / 原始段 `{para_text}` / "
+                f"`{item.get('problem_type')}` / `{item.get('priority')}` / "
+                f"必改 `{item.get('must_revise')}`"
+            )
+            lines.append(f"  - 原句: {item.get('quote', '')}")
+            lines.append(f"  - 为什么像 AI: {item.get('why_ai_like', '')}")
+            lines.append(f"  - 改法: {item.get('fix_direction', '')}")
         lines.append("")
     if segment_scores:
         block_segments, scatter_segments, point_paragraphs = build_segment_views(segment_scores, paragraph_scores)
@@ -5139,6 +5330,9 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
     lines.append("- 先改 `P0`，再改 `P1`。")
     lines.append("- 先改桥段表达秩序，再改句子。")
     lines.append("- 一条改法只解决一类病，不要顺手全文润色。")
+    lines.append("- 先判回修幅度：`global_structure / coarse_block / full_scene / paragraph_cluster / sentence_hotspot / format_only`。")
+    lines.append("- 大块病、场戏病、人物机制病必须整块或整场回炉；只有确认是重复词、冒号模板、错字、标点、单句解释过满时才小改。")
+    lines.append("- 同一 P0/P1 连续两轮仍在，下一轮必须升级回修幅度，不能继续原位置小补丁。")
     if combined.get("sample_grading_guidance"):
         for item in combined["sample_grading_guidance"].get("hard_stops", [])[:4]:
             lines.append(f"- {item}")
@@ -5155,6 +5349,27 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
     lines.append("")
     lines.append("## 当前最影响内部过稿判定的部分")
     lines.append("")
+    procedural_stiffness = combined.get("procedural_stiffness_review", {})
+    if procedural_stiffness and procedural_stiffness.get("findings"):
+        lines.append("### 人工窗口必改项：流程硬化/证据清单感问题")
+        lines.append("")
+        if procedural_stiffness.get("summary"):
+            lines.append(f"- 人工汇总: {procedural_stiffness.get('summary')}")
+        for item in procedural_stiffness.get("findings", [])[:10]:
+            para_range = item.get("paragraph_range") or []
+            para_text = (
+                f"{para_range[0]}-{para_range[1]}"
+                if isinstance(para_range, list) and len(para_range) == 2
+                else "?"
+            )
+            lines.append(
+                f"- 窗口{item.get('window_index')} / 原始段 {para_text} / "
+                f"{item.get('priority')} / `{item.get('problem_type')}`"
+            )
+            lines.append(f"  - 原句: {item.get('quote', '')}")
+            lines.append(f"  - 为什么会被外部检测抓: {item.get('why_ai_like', '')}")
+            lines.append(f"  - 建议改法: {item.get('fix_direction', '')}")
+        lines.append("")
     asset_coverage = combined.get("asset_coverage", {})
     if asset_coverage:
         lines.append("### 上游资产命中情况")
@@ -5273,13 +5488,13 @@ def markdown_revision_plan(file_path: Path, combined: dict) -> str:
                 for ev in subcause.get("evidence", [])[:3]:
                     lines.append(f"    - 证据: {ev}")
                 if subcause.get("fix"):
-                    lines.append(f"    - 最小改法: {subcause['fix']}")
+                    lines.append(f"    - 建议改法: {subcause['fix']}")
         if detailed_evidence:
             lines.append("- 本稿证据:")
             for ev in detailed_evidence[:6]:
                 lines.append(f"  - {ev}")
         if minimal_fixes:
-            lines.append("- 一条失败对应一条改法:")
+            lines.append("- 一条失败对应一条建议改法:")
             for method in minimal_fixes[:5]:
                 lines.append(f"  - {method}")
         elif item.get("fix_methods"):
@@ -5558,6 +5773,9 @@ def main() -> int:
         apply_sample_grading_item_bias(item, sample_grading_guidance)
         for item in build_rhythm_impact_items(rhythm_distribution_audit)
     ]
+    procedural_stiffness_review = extract_procedural_stiffness_review(
+        model_segmentation_receipt_data
+    )
     if rhythm_distribution_audit.get("low_pulse_window_count"):
         recommendations.append(
             "按长窗复核叙述者气口分布；只在确有匀速问题的位置补现场反应、错位或打断，不按数量机械加短句。"
@@ -5617,6 +5835,7 @@ def main() -> int:
         "global_risk_shape": global_risk_shape,
         "rhythm_distribution_audit": rhythm_distribution_audit,
         "rhythm_impact_items": rhythm_impact_items,
+        "procedural_stiffness_review": procedural_stiffness_review,
     }
     if internal_standard:
         combined["internal_proxy_summary"] = build_internal_proxy_summary(

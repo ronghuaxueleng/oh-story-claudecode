@@ -13,6 +13,7 @@
 | 回执字段、证据原句是否存在、正文修改后回执是否过期 | 是否重复解释读者已经看懂的信息 |
 | 可量化的句长、对白比例、热点和风险块 | 动作是否已经足够，新增判断是否卸力 |
 | 任务单和审计产物是否生成 | 对白是否太会推进、配角是否只服务主线 |
+| 分段、短句和显式清单模式 | 是否把全文写成分镜清单或规则施工稿 |
 
 自动报告中的“零命中”只能表示脚本没有抓到显式模式，不得写成“人工语义检查已通过”。
 
@@ -28,11 +29,21 @@
 6. `dialogue_efficiency`：局部对白是否句句正答、过度服务推进。
 7. `long_window_dialogue_efficiency`：按长窗看，对话是否连续高效推进，缺打断、错位和生活闲枝。
 8. `cross_block_rhythm_contrast`：各长窗的句长、情绪密度和用力程度是否过于一致。
-9. `full_text_legacy_rescan`：不能只审本轮 diff，必须复扫母稿遗留问题。
+9. `full_text_storyboard_construction_list_review`：全文是否存在“一句一个动作 / 一句一个证据 / 一句一个反应”的分镜清单，或“规则 A 执行、证据 B 展示、边界 C 落地”的施工稿。
+10. `full_text_legacy_rescan`：不能只审本轮 diff，必须复扫母稿遗留问题。
 
 每项必须引用当前正文原句，填写语义判断和 `keep / revise / delete` 动作。
 
-其中后三项宏观检查必须结合 `run_full_ai_audit.py` 的
+其中 `full_text_storyboard_construction_list_review` 必须额外填写：
+
+- `scan_scope`：必须为 `full_text`
+- `remaining_storyboard_or_construction_list`：必须为 `false`
+- `symptoms_checked`：至少覆盖三类症状，包括 `一句一个动作 / 一句一个证据 / 一句一个反应 / 规则施工`
+- `allowed_in_story_artifacts`：只记录情节内真实出现的清单、报告、日志、合同、群公告、流程单等文本；每条必须引用正文原句并说明情节功能
+
+如果这类清单感出现在叙述正文、关系场、冲突场、追妻低位、揭示或结尾里，不能标例外，必须先回修为连续现场叙述。
+
+其中宏观检查必须结合 `run_full_ai_audit.py` 的
 `rhythm_distribution_audit` 查看全文长窗，不得只凭新增句清单放行。
 
 ## 局部与专项回炉
@@ -60,7 +71,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
 
 ## 全新正文
 
-全新正文没有母稿时，不传 `--base-text`，但九项全文人工检查仍必须完成。不得用抽样审查代替全文复扫。
+全新正文没有母稿时，不传 `--base-text`，但全部全文人工检查仍必须完成。不得用抽样审查代替全文复扫。
 
 ## 最终校验
 

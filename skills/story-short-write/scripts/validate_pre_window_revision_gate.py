@@ -5,9 +5,24 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+
+try:
+    from count_words import count_fanqie
+except ModuleNotFoundError:
+    _count_words_path = Path(__file__).with_name("count_words.py")
+    _count_words_spec = importlib.util.spec_from_file_location(
+        "story_short_write_count_words",
+        _count_words_path,
+    )
+    if not _count_words_spec or not _count_words_spec.loader:
+        raise
+    _count_words_module = importlib.util.module_from_spec(_count_words_spec)
+    _count_words_spec.loader.exec_module(_count_words_module)
+    count_fanqie = _count_words_module.count_fanqie
 
 
 VALID_MODES = {"script", "human", "hybrid"}
@@ -42,6 +57,8 @@ def create_receipt(project: str, text_path: Path, output: Path) -> None:
             "path": str(text_path),
             "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
             "char_count": len(text),
+            "word_count": count_fanqie(text),
+            "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
         },
         "prerequisites": {
             "writing_rule_receipt": None,
@@ -81,6 +98,8 @@ def validate(receipt_path: Path, text_path: Path) -> list[str]:
         errors.append("正文 SHA 已变化，必须重新执行窗口前规则/资产定向回修")
     if binding.get("char_count") != len(text):
         errors.append("正文字符数已变化，必须重新执行窗口前规则/资产定向回修")
+    if binding.get("word_count") != count_fanqie(text):
+        errors.append("正文统一字数已变化，必须重新执行窗口前规则/资产定向回修")
 
     prereqs = data.get("prerequisites")
     if not isinstance(prereqs, dict):

@@ -40,6 +40,7 @@
 - `run_revision_cycle.py`
 - `validate_gate_receipts.py`
 - `compare_with_external_block_audit.py`
+- `count_words.py`
 - `audit_ai_flavor.py`
 - `precheck_rewrite_gate.py`
 - `apply_humanizer.py`
@@ -102,6 +103,10 @@
 - `compare_with_external_block_audit.py`
   - 只用于题材首次校准
   - 生成内部打分标准，不是日常必跑项
+- `count_words.py`
+  - 统一正文、回执和审计中的字数统计口径
+  - 番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符
+  - 禁止用编辑器估算、人工估算或临时脚本结果替代
 - `precheck_rewrite_gate.py`
   - 高风险回修前后的第二道预检闸门
   - 检查解释句、提前判断、功能对白、整齐收口等结构风险

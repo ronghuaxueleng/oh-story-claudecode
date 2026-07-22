@@ -12,6 +12,7 @@
 8. 自动预扫和人工语义复核怎么分工
 9. skill 规则和拆书规则怎么逐项执行并留证
 10. 主体拆书的开头功能顺序怎么做成阻断式契约
+11. 细纲如何先通过原文表演机制验收，才允许写正文
 
 ---
 
@@ -91,28 +92,31 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 通过 `validate_write_release_gate.py draft --sequence-receipt ...`，再写正文
-20. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
-21. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
-22. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
-23. 通过 `validate_pre_window_revision_gate.py`
-24. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
-25. 跑正式全量审计并回填脚本产物
-26. 逐窗人工判断剩余问题，生成回修任务单
-27. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执和正式审计全部失效
-28. 回到第 22 步，重新做规则/资产定向回修，再重新切窗和重审
-29. 无正文变化后，绑定最终写作产物并通过 `rule_execution_gate`
-30. 重新校验正文 `opening_contract_gate` 和完整顺序契约
-31. 生成人工语义复核回执并人工复扫全文
-32. 通过 `post_write_human_review_gate`
-33. 高风险任务再过第二闸门
+19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据
+20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`，再写正文
+21. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
+22. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
+23. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
+24. 通过 `validate_pre_window_revision_gate.py`
+25. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
+26. 跑正式全量审计并回填脚本产物
+27. 逐窗人工判断剩余问题，生成回修任务单
+28. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执和正式审计全部失效
+29. 回到第 23 步，重新做规则/资产定向回修，再重新切窗和重审
+30. 无正文变化后，绑定最终写作产物；递归重绑规则台账中所有目标产物证据和 `source_contract_reviews`，再通过 `rule_execution_gate`
+31. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
+32. 生成人工语义复核回执并人工复扫全文
+33. 通过 `post_write_human_review_gate`
+34. 高风险任务再过第二闸门
 
 关键原则：
 
 - 规则只用于约束，不替代正文生成
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
+- 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
 - 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`
+- 最终设定、大纲或正文 SHA 变化后，规则台账不能只更新 artifacts；所有 canonical 合并规则、成员来源、`text_evidence`、`structural_claim_reviews`、`source_contract_reviews.target_evidence` 和 `scope_reviews` 都必须递归重绑到当前产物真实原句
 - 普通素材候选可以不选；主体治理资产及顺序、后果、外部秩序、公开场后果不能用“未调用、保留原稿”跳过
 - 文件级关键契约也必须逐来源复核；规则级文件父节点由子规则自动派生，不能手填假完成
 - 设定/大纲 canonical 同时覆盖多个目标时，每个目标都要有 `structural_claim_reviews` 原句证据，不能跨范围代证
@@ -120,11 +124,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 写作放行必须独立运行 `validate_write_release_gate.py`；任一前置门禁不是 `passed` 时禁止生成或修改当前阶段产物，不能先写后补
 - 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
 - 正文完成判定必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
+- 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执、人工分段和审计里记录的字符数/字数不得使用估算或其他脚本口径
 - 人工窗口不是首轮通用规则执行器。正文首稿完成后，必须先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
 - `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
 - 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
+- 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；没有汇总输出不算正式人工窗口审计闭环
 - 窗口人工判断还必须逐节点确认主桥顺序、节点窗口归属和跨窗风险；窗口切分本身不是顺序契约，缺少该复核不得宣称窗口审计完成
 - 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
+- 台账证据不是可复用模板；旧正文证据、旧 SHA、缺来源、残留无关来源或公共证据替代逐来源契约，均视为规则台账未闭环
 - 完全重复规则族自动合并，近义规则族由模型归一；canonical 执行一次并保留全部来源和族内变体
 - 脚本只执行可计算规则，人物、叙述、认知和生活性规则必须人工逐项裁决
 - 只有失败的适用正文约束才能进入正文修改单，拆书候选未采用不算漏用
@@ -141,18 +148,84 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 
 ## 三、回修优先级
 
-默认顺序：
+默认顺序，不得把低位规则反向覆盖高位规则：
 
-1. 题面是否还成立
-2. 主桥起手和顺序是否成立
-3. 重大证据前隔开的到底是现实后果还是纯时间空档
-4. 后果链是否过顺、过满、过成熟
-5. 尾声入口有没有被次线抢走
-6. 开头与高潮是否过闸
-7. 人物口气、权限、动作、节拍是不是又写回同一张脸
-8. `global_risk_shape` 是整篇、粗块还是局部热点
-9. 人物口气、关系漏出、情绪落点是否在走
-10. 最后才处理句壳和短段节奏
+1. 成文真实感是否还成立：不能像规则施工稿、验收单、提示词执行结果。
+2. 题面 / 题材承诺 / 主卖点是否还成立：追妻、婚恋清算、强情绪关系文不得被修成职业流程文。
+3. 主桥起手和顺序是否成立。
+4. 重大证据前隔开的到底是现实后果还是纯时间空档。
+5. 后果链是否过顺、过满、过成熟。
+6. 尾声入口有没有被次线抢走。
+7. 开头与高潮是否过闸。
+8. 冲突载体是否成立：每场到底在争夺什么现实权力、位置或后果。
+9. 人物交流是否成立：一方施压后，另一方是否出现动作、站位、物件控制权、回答范围、身份或后果的可见变化。
+10. 灵动感是否成立：现场毛边是否服务人物真实，而不是随机动作词。
+11. 流程硬化 / 分镜施工稿是否被消化：白板、钥匙、确认框、回执等应进入人物反应和现场阻力，不能变成清单。
+12. 人物口气、权限、动作、节拍是不是又写回同一张脸。
+13. `global_risk_shape` 是整篇、粗块还是局部热点。
+14. 人物口气、关系漏出、情绪落点是否在走。
+15. 最后才处理句壳和短段节奏。
+
+### 回修粒度硬闸
+
+每轮正文回修前，必须先输出并执行 `revision_scope_decision`。
+
+可选粒度只能是：
+
+- `global_structure`：整篇题材承诺、主桥顺序、结局归属或全局成文形状有问题。
+- `coarse_block`：连续 1000 字以上的大块语言形状、流程硬化、证据清单感或场面功能同构有问题。
+- `full_scene`：一整场戏的冲突载体、人物交流、动作链、物件控制权或追妻低位没有立住。
+- `paragraph_cluster`：相邻数段存在同一病灶，但场戏骨架成立。
+- `sentence_hotspot`：单句/少数句的直白心理、冒号模板、术语残留、重复词或标点问题。
+- `format_only`：只涉及知乎/盐言小节格式、错别字、空行、文件路径等非正文叙事问题。
+
+硬口径：
+
+- 命中 `global_structure / coarse_block / full_scene` 时，必须按整篇重构、粗块回炉或整场重写处理；不允许用“补一个眼神、加一句动作、换几个词”冒充完成。
+- 命中 `人物偏手 / 人物交流 / 冲突载体 / 流程硬化 / 分镜施工稿 / 开头成品感 / 追妻低位` 时，默认至少是 `full_scene`，除非能引用正文证明只剩单句残留。
+- 连续两轮正式审计仍命中同一 P0/P1 时，必须自动升级回修粒度：`sentence_hotspot -> paragraph_cluster -> full_scene -> coarse_block`。
+- `sentence_hotspot` 小改只允许用于重复词、冒号模板、单个术语、错别字、局部标点、单句解释过满；不得用于修补场戏功能、人物关系或题材承诺。
+- 回修后人工复核必须说明：本轮是否按判定粒度执行；如果小改，为什么没有触发大段/整场回炉。
+
+### 规则互斥保护
+
+任何正文回修都必须先写本轮规则保护卡：
+
+```json
+{
+  "primary_revision_rule": "本轮主修规则",
+  "revision_scope_decision": {
+    "scope": "global_structure | coarse_block | full_scene | paragraph_cluster | sentence_hotspot | format_only",
+    "reason": "为什么是这个粒度",
+    "rewrite_range": "要整篇、整块、整场、段群还是单句",
+    "why_not_smaller_patch": "如果不是小改，说明为什么小补丁无效；如果是小改，说明为什么没有触发大改"
+  },
+  "protected_rules": [
+    "premise_genre_promise_alignment",
+    "core_selling_point_payoff",
+    "conflict_carrier_review",
+    "interaction_exchange_review",
+    "rule_evidence_stiffness_and_liveliness",
+    "full_text_storyboard_construction_list_review"
+  ],
+  "risk_of_rule_collision": "本轮可能把哪些旧修改修坏",
+  "rollback_or_second_pass_plan": "若保护规则失败，回滚哪些句子或如何二次修复"
+}
+```
+
+回修后必须逐项裁决：
+
+- `primary_rule_result`：主修规则是否改善，必须引用正文原句。
+- `protected_rule_results`：每条保护规则是否仍成立，必须引用正文原句或说明无影响。
+- `collision_found`：是否出现“用 A 规则修完，又被 B 规则修坏”的情况。
+- `resolution`：`keep / second_pass_fixed / rollback_required` 三选一。
+
+硬口径：
+
+- `procedural_stiffness_review` 只能负责消化流程硬化，不能直接删掉冲突载体、人物交流或追妻情绪。
+- `interaction_exchange_review` 和 `conflict_carrier_review` 不能靠堆视线、手部动作、物件动作过关；若补完后像分镜清单，必须二次修复。
+- `full_text_storyboard_construction_list_review` 是全篇保护闸，不只限开头；它不能否定情节内真实清单、报告、日志、合同、群公告，但必须要求说明其情节功能。
+- 脚本预扫和固定词命中只能定位候选，不能覆盖当前模型的人工规则冲突裁决。
 
 禁止：
 
@@ -162,6 +235,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 为了压味把现场改成概述和总结
 - 为了过审计把人物改得更懂事、更会认错、更会总结
 - 把“局部句子更顺”误判成“整块更像真人成文”
+- 用一个规则的检测结果机械覆盖另一个更高优先级规则
+- 为了去流程硬化删掉冲突载体、人物交流或追妻情绪
+- 为了补交流/补冲突堆动作，导致全文变成分镜清单或规则施工稿
 
 ---
 
@@ -231,6 +307,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 ---
 
 ## 六、常用脚本入口
+
+统一字数统计：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "项目目录/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" --json "项目目录/正文.md"
+```
 
 ### 1. 生成并校验写作规则读取回执
 
@@ -403,7 +486,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   --model-segmentation-receipt 写作资产/人工模型分段回执.json
 ```
 
-正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断；任何 `out_of_order / missing / ambiguous` 都阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
+正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断，并逐窗完成 `procedural_stiffness_review`。任何 `out_of_order / missing / ambiguous` 都阻断；任何疑似 AI 窗口缺少具体病灶或 `none_found` 反证，也阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
 
 ### 8. 生成回修任务单
 

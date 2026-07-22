@@ -1087,7 +1087,12 @@ def export_model_review(
             "execution_mode",
             "mode_confirmed=true",
             "applicability",
+            "status=completed",
+            "outcome",
             "decision_reason",
+            "result",
+            "text_evidence / human_scope_reviews / script_artifacts（按 execution_mode 必填）",
+            "source_contract_reviews（带关键 source_refs 时必填）",
         ],
         "batches": batches,
     }
@@ -1299,6 +1304,10 @@ def apply_model_group_plan(
         "remediation_target",
         "execution_mode",
         "classification_notes",
+        "applicability",
+        "status",
+        "outcome",
+        "decision_reason",
     }
     for index, group in enumerate(groups, start=1):
         if not isinstance(group, dict):
@@ -1327,6 +1336,10 @@ def apply_model_group_plan(
         rule_role = str(group["rule_role"])
         remediation_target = str(group["remediation_target"])
         execution_mode = str(group["execution_mode"])
+        applicability = str(group["applicability"])
+        status = str(group["status"])
+        outcome = str(group["outcome"])
+        decision_reason = str(group["decision_reason"]).strip()
         if rule_role not in VALID_RULE_ROLES:
             errors.append(f"group[{index}] rule_role 无效: {rule_role}")
             continue
@@ -1336,21 +1349,71 @@ def apply_model_group_plan(
         if execution_mode not in VALID_EXECUTION_MODES:
             errors.append(f"group[{index}] execution_mode 无效: {execution_mode}")
             continue
+        if applicability not in VALID_APPLICABILITY - {"merged"}:
+            errors.append(f"group[{index}] applicability 必须为 applicable / rejected / not_applicable，不能为空或 merged")
+            continue
+        if status != "completed":
+            errors.append(f"group[{index}] status 必须为 completed，归并计划不能留下 pending")
+            continue
+        if outcome not in VALID_OUTCOMES - {"pending"}:
+            errors.append(f"group[{index}] outcome 必须为 passed / failed / not_applicable，不能为 pending")
+            continue
+        if applicability in {"rejected", "not_applicable"} and outcome != "not_applicable":
+            errors.append(f"group[{index}] rejected / not_applicable 的 outcome 必须为 not_applicable")
+            continue
+        if applicability == "applicable" and outcome not in {"passed", "failed"}:
+            errors.append(f"group[{index}] applicable 的 outcome 必须为 passed 或 failed")
+            continue
+        if not decision_reason:
+            errors.append(f"group[{index}] decision_reason 不能为空")
+            continue
+        if applicability == "applicable":
+            if not str(group.get("target_stage") or "").strip():
+                errors.append(f"group[{index}] applicable 规则缺少 target_stage")
+                continue
+            if not str(group.get("result") or "").strip():
+                errors.append(f"group[{index}] applicable 规则缺少 result")
+                continue
+            if execution_mode in {"script", "hybrid"} and not group.get("script_artifacts"):
+                errors.append(f"group[{index}] execution_mode={execution_mode} 时缺少 script_artifacts")
+                continue
+            if execution_mode in {"human", "hybrid"} and not (
+                group.get("text_evidence") or group.get("human_scope_reviews")
+            ):
+                errors.append(f"group[{index}] execution_mode={execution_mode} 时缺少 text_evidence 或 human_scope_reviews")
+                continue
 
         canonical = entries[canonical_id]
-        canonical.update(
-            {
-                "canonical_rule_id": canonical_id,
-                "canonical_rule_text": str(group["canonical_rule_text"]).strip(),
-                "rule_role": rule_role,
-                "classification_confirmed": True,
-                "classification_method": "model_semantic_review",
-                "classification_notes": str(group["classification_notes"]).strip(),
-                "remediation_target": remediation_target,
-                "execution_mode": execution_mode,
-                "mode_confirmed": True,
-            }
-        )
+        canonical_updates = {
+            "canonical_rule_id": canonical_id,
+            "canonical_rule_text": str(group["canonical_rule_text"]).strip(),
+            "rule_role": rule_role,
+            "classification_confirmed": True,
+            "classification_method": "model_semantic_review",
+            "classification_notes": str(group["classification_notes"]).strip(),
+            "remediation_target": remediation_target,
+            "execution_mode": execution_mode,
+            "mode_confirmed": True,
+            "applicability": applicability,
+            "status": status,
+            "decision_reason": decision_reason,
+            "outcome": outcome,
+        }
+        for optional_field in (
+            "target_stage",
+            "target_scene",
+            "requires_text_change",
+            "script_artifacts",
+            "human_judgment",
+            "text_evidence",
+            "human_scope_reviews",
+            "source_contract_reviews",
+            "structural_claim_reviews",
+            "result",
+        ):
+            if optional_field in group:
+                canonical_updates[optional_field] = group[optional_field]
+        canonical.update(canonical_updates)
         for member_id in member_ids:
             claimed.add(member_id)
             if member_id == canonical_id:
@@ -1836,8 +1899,8 @@ def validate_execution_entry(
 def validate_ledger(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
     errors: list[str] = []
     data = json.loads(ledger_path.read_text(encoding="utf-8"))
-    if data.get("gate_status") != "passed":
-        errors.append("gate_status 必须为 passed")
+    if data.get("gate_status") not in {"pending", "passed"}:
+        errors.append("gate_status 必须为 pending 或 passed")
 
     receipts = data.get("receipts") if isinstance(data.get("receipts"), dict) else {}
     validate_receipt_binding(
@@ -2213,6 +2276,12 @@ def main() -> int:
         for error in errors:
             print(f"- {error}")
         return 2
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    data["gate_status"] = "passed"
+    ledger_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print("rule_execution_gate: passed")
     return 0
 
