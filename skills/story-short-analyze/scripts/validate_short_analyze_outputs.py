@@ -346,6 +346,10 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-write/scripts/generate_story_profile.py",
+    "skills/story-short-analyze/references/pipeline/output-contract.md",
+    "skills/story-short-analyze/references/pipeline/output-templates.md",
+    "skills/story-short-analyze/references/pipeline/quality-checklist.md",
     "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
     "skills/story-short-analyze/references/pipeline/auto-full-output-task.md",
     "skills/story-short-analyze/references/pipeline/session-manual-execution-protocol.md",
@@ -514,6 +518,28 @@ REQUIRED_CONSEQUENCE_GUARDRAIL_KEYS = (
     "tail_entry_exclusion_reason",
 )
 
+BRIDGE_EMOTION_LABELS = (
+    "情绪进入点",
+    "刺痛/受辱拍",
+    "短暂希望或反抗",
+    "反刀拍",
+    "峰值拍",
+    "场末余痛",
+)
+
+UPGRADE_REVIEW_SCOPES = (
+    "process_plan_refresh",
+    "content_contract_review",
+    "profile_regeneration",
+)
+
+PROCESS_MARKDOWN_FILES = {
+    "_execution_prompt.md",
+    "_progress.md",
+    "_source_reading_plan.md",
+    "_upgrade_plan.md",
+}
+
 REQUIRED_MIGRATION_ASSET_KEYS = (
     "object_substitutes",
     "scene_substitutes",
@@ -648,6 +674,106 @@ def read_text(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n")
+
+
+def formal_markdown_sha1s(root: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for path in sorted(root.rglob("*.md")):
+        if not path.is_file() or path.name in PROCESS_MARKDOWN_FILES:
+            continue
+        rel = str(path.relative_to(root))
+        hashes[rel] = hashlib.sha1(path.read_bytes()).hexdigest()
+    return hashes
+
+
+def build_human_review_items(root: Path, notes: list[str]) -> list[dict[str, str]]:
+    review_items: list[dict[str, str]] = []
+    root_text = str(root)
+    for note in notes:
+        if not note.startswith(("模型复核提示：", "非阻断复核：")):
+            continue
+        normalized = note.replace(root_text, ".")
+        item_id = "HR-" + hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12].upper()
+        review_items.append(
+            {
+                "id": item_id,
+                "category": "model_review",
+                "message": normalized,
+            }
+        )
+    return review_items
+
+
+def check_human_review_receipt(
+    root: Path,
+    notes: list[str],
+    meta_data: dict,
+    errors: list[str],
+) -> None:
+    review_items = build_human_review_items(root, notes)
+    upgrade_required = isinstance(meta_data.get("upgrade_existing"), dict)
+    if not review_items and not upgrade_required:
+        return
+
+    path = root / "_finalize_human_review.json"
+    if not path.is_file():
+        errors.append(
+            f"{path} 缺失；必须先根据 validator 的 `human_review_items` 逐条完成人工裁决"
+        )
+        return
+    try:
+        receipt = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        errors.append(f"{path} 不是合法 JSON：{exc}")
+        return
+    if not isinstance(receipt, dict):
+        errors.append(f"{path} 顶层不是对象")
+        return
+    if receipt.get("skill_fingerprint") != compute_skill_fingerprint():
+        errors.append(f"{path} skill_fingerprint 不是当前版本，人工复核回执已过期")
+
+    expected_hashes = formal_markdown_sha1s(root)
+    if receipt.get("formal_markdown_sha1s") != expected_hashes:
+        errors.append(
+            f"{path} 记录的正式 Markdown SHA 与当前文件不一致；"
+            "正文或拆书资产变化后必须重新人工复核"
+        )
+
+    if upgrade_required:
+        if receipt.get("upgrade_status") != "completed":
+            errors.append(f"{path} upgrade_status 仍未完成：必须为 `completed`")
+        reviews = receipt.get("upgrade_reviews")
+        review_map = {
+            item.get("scope"): item
+            for item in reviews
+            if isinstance(item, dict)
+        } if isinstance(reviews, list) else {}
+        for scope in UPGRADE_REVIEW_SCOPES:
+            item = review_map.get(scope, {})
+            if item.get("status") not in {"resolved", "not_applicable"}:
+                errors.append(f"{path} 增量复核项未闭环：{scope}")
+            if len(normalize_text(str(item.get("judgement", "")))) < 8:
+                errors.append(f"{path} 增量复核项缺少具体人工判断：{scope}")
+            evidence = item.get("evidence")
+            if not isinstance(evidence, list) or not any(str(value).strip() for value in evidence):
+                errors.append(f"{path} 增量复核项缺少证据：{scope}")
+
+    receipt_items = receipt.get("review_items")
+    receipt_map = {
+        item.get("id"): item
+        for item in receipt_items
+        if isinstance(item, dict)
+    } if isinstance(receipt_items, list) else {}
+    for expected in review_items:
+        item = receipt_map.get(expected["id"], {})
+        if item.get("status") not in {"resolved", "not_applicable"}:
+            errors.append(f"{path} 模型复核提示未闭环：{expected['id']}")
+            continue
+        if len(normalize_text(str(item.get("judgement", "")))) < 8:
+            errors.append(f"{path} 模型复核提示缺少具体人工判断：{expected['id']}")
+        evidence = item.get("evidence")
+        if not isinstance(evidence, list) or not any(str(value).strip() for value in evidence):
+            errors.append(f"{path} 模型复核提示缺少证据：{expected['id']}")
 
 
 def sha1_file(path: Path) -> str:
@@ -2675,6 +2801,35 @@ def check_book_profile_quality(
             must_keep = item.get("must_keep", [])
             if not isinstance(must_keep, list) or not any(str(x).strip() for x in must_keep):
                 errors.append(f"{path} bridge_rules[{idx}].must_keep 为空：桥段承重件未成功结构化")
+            emotion_sequence = item.get("emotion_sequence")
+            if not isinstance(emotion_sequence, list):
+                errors.append(f"{path} bridge_rules[{idx}].emotion_sequence 缺失或不是数组")
+                continue
+            beats = {
+                str(beat.get("beat", "")).strip(): beat
+                for beat in emotion_sequence
+                if isinstance(beat, dict)
+            }
+            for label in BRIDGE_EMOTION_LABELS:
+                beat = beats.get(label)
+                if not beat:
+                    errors.append(
+                        f"{path} bridge_rules[{idx}].emotion_sequence 缺少 `{label}`"
+                    )
+                    continue
+                if not str(beat.get("content", "")).strip():
+                    errors.append(
+                        f"{path} bridge_rules[{idx}] `{label}` 缺少情绪动作/处境内容"
+                    )
+                intensity = beat.get("intensity")
+                if not isinstance(intensity, int) or not 1 <= intensity <= 10:
+                    errors.append(
+                        f"{path} bridge_rules[{idx}] `{label}` 烈度必须是 1-10 的整数"
+                    )
+                if not str(beat.get("source_evidence", "")).strip():
+                    errors.append(
+                        f"{path} bridge_rules[{idx}] `{label}` 缺少原文证据"
+                    )
 
 
 def check_profile_source_quality(
@@ -2727,7 +2882,15 @@ def check_profile_source_quality(
     for bridge in re.finditer(r"^- 桥段：.*?(?=^- 桥段：|\Z)", text, flags=re.M | re.S):
         block = bridge.group(0)
         missing = []
-        for label in ("桥段角色", "原文怎么起手", "不能丢的顺序", "为什么这个顺序不能乱", "最容易写假的点", "原文为什么能过"):
+        for label in (
+            "桥段角色",
+            "原文怎么起手",
+            "不能丢的顺序",
+            "为什么这个顺序不能乱",
+            "最容易写假的点",
+            "原文为什么能过",
+            *BRIDGE_EMOTION_LABELS,
+        ):
             if f"- {label}：" not in block and f"  - {label}：" not in block:
                 missing.append(label)
         if missing:
@@ -2767,6 +2930,7 @@ def check_bridge_workcards_quality(
         "不能丢的顺序",
         "为什么这个顺序不能乱",
         "后续调用方式",
+        *BRIDGE_EMOTION_LABELS,
     )
     for title, block in cards:
         missing = [label for label in required_labels if f"- {label}：" not in block]
@@ -2819,6 +2983,7 @@ def check_high_risk_asset_quality(path: Path, word_count: int, errors: list[str]
             "高敏点": ("高敏点", "高敏原因", "高敏原因1", "主要高敏层"),
             "可学层": ("可学层", "可学层1"),
             "禁学层": ("禁学层", "禁学层1"),
+            **{label: (label,) for label in BRIDGE_EMOTION_LABELS},
         }
         missing = [
             name for name, labels in required_groups.items()
@@ -2937,8 +3102,9 @@ def check_skill_fingerprint(meta_path: Path, meta_data: dict, errors: list[str])
     if actual != expected:
         errors.append(
             f"{meta_path} skill_fingerprint 与当前正式 skill 不一致；"
-            "说明该目录产物不是基于当前 skill 从零产出。请重新执行 "
-            "`prepare_short_analyze_job.py <source> --force` 后全流程重跑"
+            "历史拆书目录必须执行 "
+            "`prepare_short_analyze_job.py --upgrade-existing 拆文库/{书名}`，"
+            "刷新过程计划后逐项完成内容合同复核；禁止用 `--force` 冒充增量升级"
         )
 
 
@@ -3151,6 +3317,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
                 f"同一句式仅替换资产名后重复 {count} 次 -> {scaffold[:120]}"
             )
 
+    check_human_review_receipt(root, notes, meta_data, errors)
     if not errors:
         notes.append("所有定义文件均已自动落盘，且核心骨架齐全。")
     return errors, notes
@@ -3180,6 +3347,7 @@ def main() -> int:
         "error_count": len(errors),
         "errors": errors,
         "notes": notes,
+        "human_review_items": build_human_review_items(root, notes),
     }
 
     if args.json:

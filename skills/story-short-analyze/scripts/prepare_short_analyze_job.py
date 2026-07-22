@@ -89,6 +89,10 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-write/scripts/generate_story_profile.py",
+    "skills/story-short-analyze/references/pipeline/output-contract.md",
+    "skills/story-short-analyze/references/pipeline/output-templates.md",
+    "skills/story-short-analyze/references/pipeline/quality-checklist.md",
     "skills/story-short-analyze/references/pipeline/staged-execution-index.md",
     "skills/story-short-analyze/references/pipeline/auto-full-output-task.md",
     "skills/story-short-analyze/references/pipeline/session-manual-execution-protocol.md",
@@ -441,7 +445,19 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
     },
     "写作资产/高敏桥段识别.md": {
         "card_start": "- 桥段名：",
-        "required_card_labels": ["桥段角色", "原文证据", "高敏点", "可学层", "禁学层"],
+        "required_card_labels": [
+            "桥段角色",
+            "原文证据",
+            "高敏点",
+            "可学层",
+            "禁学层",
+            "情绪进入点",
+            "刺痛/受辱拍",
+            "短暂希望或反抗",
+            "反刀拍",
+            "峰值拍",
+            "场末余痛",
+        ],
     },
     "写作资产/桥段施工卡.md": {
         "card_heading": "## BID-xx 独一桥段名",
@@ -458,9 +474,30 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "不能丢的顺序",
             "为什么这个顺序不能乱",
             "后续调用方式",
+            "情绪进入点",
+            "刺痛/受辱拍",
+            "短暂希望或反抗",
+            "反刀拍",
+            "峰值拍",
+            "场末余痛",
         ],
     },
 }
+
+BRIDGE_EMOTION_LABELS = (
+    "情绪进入点",
+    "刺痛/受辱拍",
+    "短暂希望或反抗",
+    "反刀拍",
+    "峰值拍",
+    "场末余痛",
+)
+
+UPGRADE_REVIEW_SCOPES = (
+    "process_plan_refresh",
+    "content_contract_review",
+    "profile_regeneration",
+)
 
 ASSET_LANE_PREFERRED_READS = {
     "tables_structure_action": [
@@ -752,6 +789,7 @@ def refresh_upgrade_meta(path: Path, book_name: str, missing_files: list[str]) -
     previous_fingerprint = payload.get("skill_fingerprint")
     payload["skill_fingerprint"] = compute_skill_fingerprint()
     payload["upgraded_existing_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    payload["upgrade_status"] = "pending_content_review"
     payload["upgrade_existing"] = {
         "previous_skill_fingerprint": previous_fingerprint,
         "missing_files_at_scan": missing_files,
@@ -790,10 +828,20 @@ def read_existing_source_path(out_dir: Path) -> Path:
     manifest_path = out_dir / "_source_manifest.json"
     if manifest_path.exists():
         data = json.loads(read_text(manifest_path))
+        fallback_candidates: list[Path] = []
         for key in ("source_file", "copied_to"):
             value = data.get(key)
             if value:
-                return Path(value)
+                candidate = Path(value)
+                if candidate.is_file():
+                    return candidate
+                fallback_candidates.append(candidate)
+        if fallback_candidates:
+            fallback = fallback_candidates[-1]
+        else:
+            fallback = None
+    else:
+        fallback = None
 
     source_dir = out_dir / "原文"
     if source_dir.exists():
@@ -801,7 +849,7 @@ def read_existing_source_path(out_dir: Path) -> Path:
             if candidate.is_file():
                 return candidate
 
-    return out_dir / "原文" / "__MISSING_SOURCE__"
+    return fallback or out_dir / "原文" / "__MISSING_SOURCE__"
 
 
 def write_upgrade_plan(
@@ -810,6 +858,7 @@ def write_upgrade_plan(
     out_dir: Path,
     missing_dirs: list[str],
     missing_files: list[str],
+    refreshed_process_files: list[str],
 ) -> None:
     lines = [
         f"# {book_name} 历史拆书目录增量升级计划",
@@ -820,6 +869,7 @@ def write_upgrade_plan(
         "- 已有拆书成果禁止删除、覆盖或用空模板替换。",
         "- 缺失正式产物必须由模型重新读取原文、样本与对应模板后人工补写。",
         "- 文件缺失清单不等于升级完成；还必须运行 finalize，把内容级缺项和新版门禁缺项全部补完。",
+        "- 过程文件刷新不等于正式资产已升级；必须逐项完成内容合同复核。",
         "- 回填完成后必须运行 `run_short_analyze_finalize.py`，没通过不算 ready-for-write。",
         "",
         "## 本次扫描结果",
@@ -828,9 +878,28 @@ def write_upgrade_plan(
         f"- 缺失目录数：{len(missing_dirs)}",
         f"- 缺失正式产物数：{len(missing_files)}",
         "",
-        "## 缺失目录",
+        "## 过程文件已刷新",
         "",
     ]
+    lines.extend(f"- [x] `{name}`" for name in refreshed_process_files)
+    lines.extend(
+        [
+            "",
+            "## 内容合同逐项复核",
+            "",
+            "- [ ] 逐 BID 核对六拍情绪序列、烈度和原文证据是否贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
+            "- [ ] 逐文件核对当前 first-write contract 新字段，不能只检查文件是否存在。",
+            "- [ ] 逐条处理 validator 输出的 `human_review_items`，并写入 `_finalize_human_review.json`。",
+            "",
+            "## profile 重新生成",
+            "",
+            "- [ ] 内容复核完成后重新生成 `book.profile.json`。",
+            "- [ ] 核对 `bridge_rules[*].emotion_sequence`、整句角色偏手和完整后果链没有碎裂。",
+            "",
+            "## 缺失目录",
+            "",
+        ]
+    )
     if missing_dirs:
         lines.extend(f"- [ ] `{name}/`" for name in missing_dirs)
     else:
@@ -852,8 +921,9 @@ def write_upgrade_plan(
             "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
             "5. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
-            "6. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
-            "7. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
+            "6. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
+            "7. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
+            "8. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
             "",
             "## 最终验收命令",
             "",
@@ -862,6 +932,50 @@ def write_upgrade_plan(
         ]
     )
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def write_upgrade_review_receipt(path: Path) -> None:
+    payload = {
+        "version": 1,
+        "skill_fingerprint": compute_skill_fingerprint(),
+        "upgrade_status": "pending_content_review",
+        "upgrade_reviews": [
+            {
+                "scope": scope,
+                "status": "pending",
+                "judgement": "",
+                "evidence": [],
+            }
+            for scope in UPGRADE_REVIEW_SCOPES
+        ],
+        "formal_markdown_sha1s": [],
+        "review_items": [],
+    }
+    dump_json(path, payload)
+
+
+def reset_upgrade_progress(path: Path, book_name: str, layout: ContractLayout) -> None:
+    if not path.exists():
+        write_progress(path, book_name, layout)
+        return
+    text = read_text(path)
+    lines: list[str] = []
+    for line in text.splitlines():
+        if "模型人工复核" in line or "run_short_analyze_finalize.py" in line:
+            line = re.sub(r"^- \[[xX]\]", "- [ ]", line)
+        lines.append(line)
+    if "## 增量升级复核" not in text:
+        lines.extend(
+            [
+                "",
+                "## 增量升级复核",
+                "- [ ] 已按当前 `_parallel_plan.json` 复核全部 first-write contract",
+                "- [ ] 已完成逐 BID 情绪序列贯通",
+                "- [ ] 已重新生成 profile 并核对整句资产",
+                "- [ ] 已闭环 `_finalize_human_review.json`",
+            ]
+        )
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def write_source_manifest(path: Path, source_path: Path, copied_path: Path, text: str) -> None:
@@ -1344,9 +1458,11 @@ def write_execution_prompt(
         "- `原文资产候选池.md` 如果某类资产原文确实没有，必须显式写“已扫，原文未发现”，不能空着",
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
+        "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：结构/章尾、主角不规则性、专业细节功能性、全文对白模式；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",
+        "- validator/finalize 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`，补具体判断、证据和当前正式 Markdown SHA；漏项或 SHA 过期不得完成",
         "",
         "## 详细规则去哪里看",
         "- 入口与抽样：`stage-00-intake-and-sampling.md`",
@@ -1453,11 +1569,51 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
 
     missing_files = [rel for rel in required_output_paths(layout) if not (out_dir / rel).exists()]
 
-    progress_existed = (out_dir / "_progress.md").exists()
+    source_text = read_text(source_path) if source_path.is_file() else ""
+    if source_text:
+        word_count = count_source_units(source_text)
+    else:
+        try:
+            existing_meta = json.loads(read_text(out_dir / "_meta.json"))
+        except (FileNotFoundError, json.JSONDecodeError):
+            existing_meta = {}
+        word_count = existing_meta.get("word_count", 0)
+        if not isinstance(word_count, int):
+            word_count = 0
+
     write_required_manifest(out_dir / "_required_outputs.json", book_name, source_path, layout)
-    if not progress_existed:
-        write_progress(out_dir / "_progress.md", book_name, layout)
-    write_upgrade_plan(out_dir / "_upgrade_plan.md", book_name, out_dir, missing_dirs, missing_files)
+    write_parallel_plan(out_dir / "_parallel_plan.json", source_path, word_count)
+    reset_upgrade_progress(out_dir / "_progress.md", book_name, layout)
+    refreshed_process_files = [
+        "_required_outputs.json",
+        "_parallel_plan.json",
+        "_progress.md",
+        "_finalize_human_review.json",
+    ]
+    write_source_reading_plan(
+        out_dir / "_source_reading_plan.md",
+        source_path,
+        source_text,
+    )
+    write_execution_prompt(
+        out_dir / "_execution_prompt.md",
+        book_name,
+        source_path,
+        out_dir,
+        source_text,
+    )
+    refreshed_process_files.extend(
+        ["_source_reading_plan.md", "_execution_prompt.md"]
+    )
+    write_upgrade_review_receipt(out_dir / "_finalize_human_review.json")
+    write_upgrade_plan(
+        out_dir / "_upgrade_plan.md",
+        book_name,
+        out_dir,
+        missing_dirs,
+        missing_files,
+        refreshed_process_files,
+    )
     meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
 
     return {
@@ -1469,9 +1625,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "missing_dirs": missing_dirs,
         "missing_files": missing_files,
         "meta_refreshed": meta_refreshed,
-        "written_files": ["_required_outputs.json", "_upgrade_plan.md"]
-        + ([] if progress_existed else ["_progress.md"])
-        + ["_meta.json"],
+        "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
             "then": "按 _upgrade_plan.md 人工回填缺失正式产物；脚本不会自动补写 Markdown 正式内容",
             "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",

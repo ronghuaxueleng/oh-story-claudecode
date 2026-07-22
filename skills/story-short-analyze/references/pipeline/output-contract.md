@@ -319,9 +319,11 @@ python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrad
 硬规则：
 
 - `--upgrade-existing` 不删除、不覆盖已有正式产物。
-- 脚本只刷新 `_required_outputs.json`、创建缺失目录、生成 `_upgrade_plan.md`。
+- 脚本刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _source_reading_plan.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；不覆盖正式 Markdown。
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
 - 模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后人工回填。
+- `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
+- 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。
 
 ---
@@ -418,13 +420,14 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 如果实际落盘标题顺序和固定骨架不一致，默认按未通过处理，不接受“意思差不多”的自由发挥
 - `写作资产/profile_source.md` 里如果只有几条抽象标签，没有字段化原始材料，视为未通过
 - `写作资产/profile_source.md` 里如果 `桥段承重件` 缺 `原文怎么起手 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过` 里的任意 2 类，视为未通过
+- `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 的每个 BID 都必须包含 `情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`；每拍带 `烈度 1-10 + 原文证据`
 - `写作资产/profile_source.md` 的 `- 开头信号：` 少于 3 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 的 `- 为什么假：` 少于 2 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 里如果缺 `## 7. 禁句 / 禁写法 / ## 8. 场面资产 / ## 9. 后果链 / ## 10. 作者站位高危句` 里的任意一节，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain / 感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点 / 容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型` 里的任意关键字段，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `## 12. 迁移替换资产` 或 5 类迁移标签，视为未通过
 - `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 如果真实核心桥漏记，或同一桥的功能标签不一致，视为未通过
-- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式` 里的任意 2 项，视为未通过
+- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 六拍情绪序列` 里的任意 2 项，视为未通过
 - `写作资产/桥段施工卡.md` 里如果没有至少 1 张中段承重桥，视为未通过
 - 这 5 份里任意 1 份缺“正面可学项 + 负面禁写项”双侧信息，默认仍是 `blocked-on-assets`
 
@@ -459,8 +462,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 - `must_keep`
 - `fake_signals`
 - `recommended_sequence`
+- `emotion_sequence`：固定六拍，每拍含 `beat / content / intensity / source_evidence`
 
 如果桥段只有 `must_keep / must_avoid`，默认仍没拆到可直接支撑同桥段仿写与去 AI 味回修的层级。
+
+validator/finalize 输出的所有 `human_review_items` 必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable` 并附具体判断和证据。回执缺失、漏项或正式 Markdown SHA 变化时，状态固定为 `blocked-on-assets`。
 
 ### 7.7 通过
 

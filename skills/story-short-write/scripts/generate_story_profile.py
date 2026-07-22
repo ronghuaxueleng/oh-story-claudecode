@@ -7,6 +7,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 
 def read_text(path: Path) -> str:
@@ -502,7 +503,7 @@ def clean_scene_asset_terms(items: list[str]) -> list[str]:
     cleaned: list[str] = []
     for item in items:
         stripped = strip_asset_wrappers(item).strip("。！？；; ")
-        fragments = re.split(r"\s*/\s*|、|；|;", stripped)
+        fragments = re.split(r"\s*/\s*|；|;", stripped)
         if not fragments:
             fragments = [stripped]
         for fragment in fragments:
@@ -607,13 +608,54 @@ def collect_bridge_reason_terms(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
+BRIDGE_EMOTION_LABELS = (
+    "情绪进入点",
+    "刺痛/受辱拍",
+    "短暂希望或反抗",
+    "反刀拍",
+    "峰值拍",
+    "场末余痛",
+)
+
+
+def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
+    text = clean_bridge_line(value)
+    if not text:
+        return None
+    intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
+    evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
+    content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
+    result: dict[str, object] = {
+        "beat": beat,
+        "content": content,
+        "source_evidence": evidence_match.group(1).strip() if evidence_match else "",
+    }
+    if intensity_match:
+        result["intensity"] = int(intensity_match.group(1))
+    return result
+
+
+def collect_bridge_emotion_sequence(
+    collect_aliases: Callable[..., list[str]],
+) -> list[dict[str, object]]:
+    sequence: list[dict[str, object]] = []
+    for label in BRIDGE_EMOTION_LABELS:
+        values = collect_aliases(label)
+        if not values:
+            continue
+        item = parse_bridge_emotion_beat(label, values[0])
+        if item:
+            sequence.append(item)
+    return sequence
+
+
 def collect_profile_source_style_fragments(
     values: list[str],
     preserve_commas: bool = False,
 ) -> list[str]:
     cleaned: list[str] = []
     for value in values:
-        pattern = r"[；;]| -> |\+|、" if preserve_commas else r"[；;]| -> |\+|、|，"
+        pattern = r"[；;]| -> |\+" if preserve_commas else r"[；;]| -> |\+|、|，"
         fragments = re.split(pattern, value)
         for fragment in fragments:
             frag = strip_asset_wrappers(fragment)
@@ -1005,6 +1047,7 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         why_passes = collect_bridge_reason_terms(
             collect_aliases("原文为什么能过", "原文为什么过检", "为什么能过")
         )
+        emotion_sequence = collect_bridge_emotion_sequence(collect_aliases)
         rule = {
             "bridge": f"桥段{bridge_index}：{title_body}" if title_body else f"桥段{bridge_index}",
             "opening_pattern": normalize_items(opening),
@@ -1014,6 +1057,7 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
             "recommended_sequence": normalize_items(order),
             "why_order_matters": normalize_items(order_why),
             "why_original_passes": normalize_items(why_passes),
+            "emotion_sequence": emotion_sequence,
         }
         if bid:
             rule["id"] = bid
@@ -1294,7 +1338,8 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
             migration_pairs.get("dialogue_substitutes", [])
         ),
         "role_bias_variants": collect_profile_source_style_fragments(
-            migration_pairs.get("role_bias_variants", [])
+            migration_pairs.get("role_bias_variants", []),
+            preserve_commas=True,
         ),
     }
     result["migration_assets"] = {
@@ -2206,6 +2251,7 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 key = normalize_bridge_key(bridge)
             normalized_item = {
                 "bridge": bridge.strip(),
+                "id": str(item.get("id", "")).strip().upper(),
                 "opening_pattern": normalize_items(item.get("opening_pattern", [])),
                 "must_keep": normalize_items(item.get("must_keep", [])),
                 "must_avoid": normalize_items(item.get("must_avoid", [])),
@@ -2213,6 +2259,11 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 "recommended_sequence": normalize_items(item.get("recommended_sequence", [])),
                 "why_order_matters": normalize_items(item.get("why_order_matters", [])),
                 "why_original_passes": normalize_items(item.get("why_original_passes", [])),
+                "emotion_sequence": [
+                    beat
+                    for beat in item.get("emotion_sequence", [])
+                    if isinstance(beat, dict) and str(beat.get("beat", "")).strip()
+                ],
             }
             existing_index = index_by_key.get(key)
             if existing_index is None:
@@ -2220,6 +2271,8 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 merged.append(normalized_item)
                 continue
             existing = merged[existing_index]
+            if not existing.get("id") and normalized_item.get("id"):
+                existing["id"] = normalized_item["id"]
             existing["opening_pattern"] = normalize_items(existing.get("opening_pattern", []) + normalized_item["opening_pattern"])
             existing["must_keep"] = normalize_items(existing.get("must_keep", []) + normalized_item["must_keep"])
             existing["must_avoid"] = normalize_items(existing.get("must_avoid", []) + normalized_item["must_avoid"])
@@ -2233,6 +2286,18 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
             existing["why_original_passes"] = normalize_items(
                 existing.get("why_original_passes", []) + normalized_item["why_original_passes"]
             )
+            emotion_by_beat = {
+                str(beat.get("beat", "")).strip(): beat
+                for beat in existing.get("emotion_sequence", [])
+                if isinstance(beat, dict)
+            }
+            for beat in normalized_item["emotion_sequence"]:
+                emotion_by_beat.setdefault(str(beat.get("beat", "")).strip(), beat)
+            existing["emotion_sequence"] = [
+                emotion_by_beat[label]
+                for label in BRIDGE_EMOTION_LABELS
+                if label in emotion_by_beat
+            ]
     return merged
 
 
@@ -2277,6 +2342,7 @@ def build_bridge_rules(text: str) -> list[dict]:
         recommended_sequence: list[str] = []
         why_order_matters: list[str] = []
         fake_signals: list[str] = []
+        emotion_sequence: list[dict[str, object]] = []
         current = None
         for line in lines[1:]:
             stripped = line.lstrip()
@@ -2295,7 +2361,11 @@ def build_bridge_rules(text: str) -> list[dict]:
                 if item.endswith(("：", ":")) and inline_key:
                     current = inline_key
                     continue
-                if current and any(k in current for k in ("原文怎么起手", "原文起手件", "原文起手")):
+                if inline_key in BRIDGE_EMOTION_LABELS:
+                    beat = parse_bridge_emotion_beat(inline_key, inline_val)
+                    if beat:
+                        emotion_sequence.append(beat)
+                elif current and any(k in current for k in ("原文怎么起手", "原文起手件", "原文起手")):
                     opening_pattern.extend(split_inline_assets(item))
                 elif inline_key in {"原文怎么起手", "原文起手件", "原文起手"}:
                     opening_pattern.extend(split_inline_assets(inline_val))
@@ -2341,6 +2411,7 @@ def build_bridge_rules(text: str) -> list[dict]:
                 "recommended_sequence": collect_bridge_step_terms(recommended_sequence),
                 "why_order_matters": collect_bridge_reason_terms(why_order_matters),
                 "why_original_passes": collect_bridge_reason_terms(why),
+                "emotion_sequence": emotion_sequence,
             }
         )
     return rules

@@ -315,6 +315,8 @@
 - [ ] `高敏桥段识别.md` 只保留了一套有效卡片，没有空占位标题、半成品壳、重复卡片
 - [ ] `高敏桥段识别.md` 不是只写两三句总评，而是每桥都写成完整识别卡
 - [ ] `profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 每张卡都标了本书动态归纳的 `桥段角色`
+- [ ] 每个 BID 在上述三份文件中都有六拍情绪序列：`情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`
+- [ ] 六拍每拍都有 `烈度 1-10 + 原文证据`，不是抽象情绪标签
 - [ ] `写作手法.md` 不是只写“用了倒叙/插叙/留白”，而是写清为什么这里必须这样断、这样插、这样收
 - [ ] `写作手法.md` 已补 `章法失效测试`，知道一旦顺写、播全、收满会假在哪里
 - [ ] `写作资产/profile_source.md` 不只服务 json 抽取，还保留了人类可读解释层
@@ -332,6 +334,10 @@
 - [ ] `scene_assets.public_explosion / external_order / consequence_chain` 达到当前字数档的 `4/4/6`、`3/3/4` 或 `2/2/3`
 - [ ] `public_explosion / external_order` 每类至少 2 条是动作或后果型事件资产，不是纯地点、道具、机构名
 - [ ] `book.profile.json.bridge_rules[*].must_keep` 不为空，不是只有 `must_avoid / fake_signals`
+- [ ] `book.profile.json.bridge_rules[*].emotion_sequence` 六拍齐全，且每拍含 `content / intensity / source_evidence`
+- [ ] `role_bias_variants` 和 `scene_assets.consequence_chain` 保持完整语义句，没有被逗号、顿号切成碎词
+- [ ] validator 输出的全部 `human_review_items` 已写入 `_finalize_human_review.json` 并逐条闭环
+- [ ] `_finalize_human_review.json.formal_markdown_sha1s` 与当前正式 Markdown 完全一致
 
 判定口径：
 

@@ -43,6 +43,7 @@ def build_payload(root: Path, profile_generated: bool, validator_payload: dict, 
         "error_count": validator_payload.get("error_count", 0),
         "errors": validator_payload.get("errors", []),
         "notes": notes + validator_payload.get("notes", []),
+        "human_review_items": validator_payload.get("human_review_items", []),
     }
 
 
@@ -83,6 +84,9 @@ def update_completion_state(root: Path) -> list[str]:
             changed = True
         if meta.get("last_stage_in_progress") is not None:
             meta["last_stage_in_progress"] = None
+            changed = True
+        if isinstance(meta.get("upgrade_existing"), dict) and meta.get("upgrade_status") != "completed":
+            meta["upgrade_status"] = "completed"
             changed = True
         if changed:
             meta_path.write_text(

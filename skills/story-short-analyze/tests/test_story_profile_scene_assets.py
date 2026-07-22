@@ -81,6 +81,15 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             assets,
         )
 
+    def test_event_assets_do_not_split_complete_chinese_enumeration(self) -> None:
+        assets = GENERATOR.clean_scene_asset_terms(
+            ["记者、警方、司法依次接管公开场后的后果链"]
+        )
+        self.assertEqual(
+            ["记者、警方、司法依次接管公开场后的后果链"],
+            assets,
+        )
+
     def test_guardrail_merge_prefers_early_canonical_items_and_caps_lists(self) -> None:
         canonical = {
             "character_face_split": {
@@ -165,6 +174,49 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             ["骚乱，就是从这一刻开始的"],
             parsed["style_assets"]["dialogue_bridges"],
         )
+
+    def test_role_bias_variants_preserve_complete_role_sentences(self) -> None:
+        parsed = GENERATOR.parse_profile_source(
+            "## 12. 迁移替换资产\n"
+            "- role_bias_variants：高位者用短命令和资源调度护短，侵占者用道歉、感谢和示弱调用第三人\n"
+        )
+        self.assertEqual(
+            ["高位者用短命令和资源调度护短，侵占者用道歉、感谢和示弱调用第三人"],
+            parsed["migration_assets"]["role_bias_variants"],
+        )
+
+    def test_profile_source_bridge_keeps_bid_emotion_sequence(self) -> None:
+        parsed = GENERATOR.parse_profile_source(
+            "## 6. 桥段承重件\n"
+            "- 桥段：BID-01 一号候诊单被撤回\n"
+            "  - 原文怎么起手：先把候诊单递到她手里\n"
+            "  - 承重件：候诊单、窗口\n"
+            "  - 不能丢的顺序：拿到号 -> 被撤号 -> 白跑\n"
+            "  - 为什么这个顺序不能乱：先给希望，撤回才会疼\n"
+            "  - 最容易写假的点：直接宣布她被抛弃\n"
+            "  - 原文为什么能过：纸面权利先到手再被拿走\n"
+            "  - 情绪进入点：她拿到候诊单 | 烈度：4 | 原文证据：L2 候诊单落进掌心\n"
+            "  - 刺痛/受辱拍：窗口当众叫停 | 烈度：7 | 原文证据：L3 先别给她办\n"
+            "  - 短暂希望或反抗：她把单子递回去追问 | 烈度：6 | 原文证据：L4 为什么\n"
+            "  - 反刀拍：工作人员收走单子 | 烈度：8 | 原文证据：L5 单子被抽走\n"
+            "  - 峰值拍：她看见号码给了第三人 | 烈度：9 | 原文证据：L6 号码改到别人名下\n"
+            "  - 场末余痛：她空手走出医院 | 烈度：7 | 原文证据：L7 手里只剩折痕\n"
+        )
+        bridge = parsed["bridge_rules"][0]
+        self.assertEqual("BID-01", bridge["id"])
+        self.assertEqual(
+            [
+                "情绪进入点",
+                "刺痛/受辱拍",
+                "短暂希望或反抗",
+                "反刀拍",
+                "峰值拍",
+                "场末余痛",
+            ],
+            [item["beat"] for item in bridge["emotion_sequence"]],
+        )
+        self.assertEqual(9, bridge["emotion_sequence"][4]["intensity"])
+        self.assertIn("号码改到别人名下", bridge["emotion_sequence"][4]["source_evidence"])
 
     def test_clause_style_cleaner_does_not_split_on_comma(self) -> None:
         self.assertEqual(

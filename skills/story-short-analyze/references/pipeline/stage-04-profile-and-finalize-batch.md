@@ -26,7 +26,7 @@
 额外硬目标：
 
 - `book.profile.json` 不能只做到“有键可过 schema”
-- 至少要让 `bridge_rules` 保住 3 类信息：起手、承重件、顺序/假点原因
+- 至少要让 `bridge_rules` 保住 4 类信息：起手、承重件、顺序/假点原因、逐 BID 六拍情绪序列
 - 如果生成出的 `book.profile.json` 比同书 `bak` 明显更空，默认本批未完成；但 `bak` 只用于对比厚度和找漏项，不能参与回填或直接回灌正式产物
 
 ## profile_source 必补章节
@@ -61,7 +61,8 @@
 2. `scene_assets` 被压成一条长串
 3. `story_guardrails` 上游标签不全
 4. `style_assets` 混入换壳词
-5. `bridge_rules` 只剩 `must_keep` 壳，没有 `must_avoid / fake_signals / why_order_matters / why_original_passes`
+5. `bridge_rules` 只剩 `must_keep` 壳，没有 `must_avoid / fake_signals / why_order_matters / why_original_passes / emotion_sequence`
+6. `role_bias_variants` 或 `scene_assets.consequence_chain` 被中文逗号、顿号切成失去语义的碎词
 
 这些都要在 finalize 前修。
 
@@ -75,16 +76,17 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 理解口径：
 
-- `validator 通过` 只表示机械合规
+- validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
+- 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
 - finalize 只允许生成 `book.profile.json` 和读取正式产物，不允许修改 Markdown
-- 仍要人工复核是否出现明显压缩化
+- 人工复核回执未闭环时，finalize 必须保持阻断
 - 如果主报告厚、但个别资产文件明显薄，不要在同一长上下文里补丁式连修很多轮
 - 优先冷启动回到对应阶段文档，重做那一批
 - 冷启动只负责验证这次修改是否真的修好；确认有效后，必须把修复落到正式 skill，再回到正式目录重跑，不允许把冷启动目录当正式产物来源
 
 ## finalize 后仍要看什么
 
-下面这些如果出现提示，即使不阻断，也要当作 skill 还可继续优化的证据：
+下面这些如果出现提示，必须进入 `human_review_items` 并闭环：
 
 - `scene_assets.public_explosion / external_order` 数量偏少
 - `profile_source.md` 的 `为什么假` 偏少
@@ -92,4 +94,4 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - `情节节点.md` 中段承重桥保留不足
 - `book.profile.json.bridge_rules` 只有 1-2 条，或字段明显薄于 `profile_source.md`
 
-这些不是现在就必须阻断的硬错，但它们通常对应“厚度开始退化”。
+这些提示可以经人工裁决为 `not_applicable`，但不能只看见提示、不留判断就结束。

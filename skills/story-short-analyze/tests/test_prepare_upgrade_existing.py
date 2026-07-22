@@ -28,6 +28,12 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             (root / "原文").mkdir(parents=True)
             (root / "原文" / "旧书.txt").write_text("第一行\n第二行", encoding="utf-8")
             (root / "拆文报告.md").write_text("已有厚拆报告，不允许覆盖", encoding="utf-8")
+            (root / "_progress.md").write_text(
+                "# 旧书拆书进度\n"
+                "- [x] 模型人工复核：finalize前已读取脚本结果并完成最后语义纠偏\n"
+                "- [x] 已运行 `run_short_analyze_finalize.py` 并通过\n",
+                encoding="utf-8",
+            )
             (root / "_meta.json").write_text(
                 json.dumps(
                     {
@@ -74,6 +80,9 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("finalize 返回 `ok=true`", plan)
             self.assertIn("写作资产/交流承压拆解.md", plan)
             self.assertIn("写作资产/冲突载体清单.md", plan)
+            self.assertIn("过程文件已刷新", plan)
+            self.assertIn("内容合同逐项复核", plan)
+            self.assertIn("profile 重新生成", plan)
 
             manifest = json.loads((root / "_required_outputs.json").read_text(encoding="utf-8"))
             self.assertIn("交流承压拆解.md", manifest["required"]["asset_files"])
@@ -83,6 +92,37 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertNotEqual("old-fingerprint", meta["skill_fingerprint"])
             self.assertEqual("old-fingerprint", meta["upgrade_existing"]["previous_skill_fingerprint"])
             self.assertIn("写作资产/交流承压拆解.md", meta["upgrade_existing"]["missing_files_at_scan"])
+            self.assertEqual("pending_content_review", meta["upgrade_status"])
+
+            parallel_plan = json.loads((root / "_parallel_plan.json").read_text(encoding="utf-8"))
+            self.assertIn(
+                "写作资产/交流承压拆解.md",
+                [
+                    rel
+                    for lane in parallel_plan["asset_lanes"]
+                    for rel in lane["write_files"]
+                ],
+            )
+            self.assertTrue(
+                all("first_write_contract" in lane for lane in parallel_plan["asset_lanes"])
+            )
+
+            progress = (root / "_progress.md").read_text(encoding="utf-8")
+            self.assertIn(
+                "- [ ] 模型人工复核：finalize前已读取脚本结果并完成最后语义纠偏",
+                progress,
+            )
+            self.assertIn(
+                "- [ ] 已运行 `run_short_analyze_finalize.py` 并通过",
+                progress,
+            )
+
+            receipt = json.loads(
+                (root / "_finalize_human_review.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("pending_content_review", receipt["upgrade_status"])
+            self.assertEqual([], receipt["formal_markdown_sha1s"])
+            self.assertEqual(3, len(receipt["upgrade_reviews"]))
 
 
 if __name__ == "__main__":

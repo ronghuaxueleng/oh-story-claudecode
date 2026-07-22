@@ -148,6 +148,7 @@ class HumanQualityGateTest(unittest.TestCase):
             any("与当前正式 skill 不一致" in error for error in errors),
             errors,
         )
+        self.assertTrue(any("--upgrade-existing" in error for error in errors), errors)
 
     def test_skill_fingerprint_accepts_current_skill(self) -> None:
         fingerprint = VALIDATOR.compute_skill_fingerprint()
@@ -1023,6 +1024,51 @@ class HumanQualityGateTest(unittest.TestCase):
         flattened = {alias for group in semantic_groups for alias in group}
         for field in ("读者情绪拍", "情绪烈度", "是否反刀或峰值", "场末余痛"):
             self.assertIn(field, flattened)
+
+    def test_sensitive_contract_requires_bid_emotion_sequence(self) -> None:
+        for rel in ("写作资产/高敏桥段识别.md", "写作资产/桥段施工卡.md"):
+            labels = PREPARER.SENSITIVE_ASSET_FIRST_WRITE_CONTRACT[rel][
+                "required_card_labels"
+            ]
+            for label in PREPARER.BRIDGE_EMOTION_LABELS:
+                self.assertIn(label, labels)
+
+    def test_human_review_receipt_must_match_current_notes_and_markdown_hashes(self) -> None:
+        self._write("拆文报告.md", "第一版\n")
+        notes = [
+            f"模型复核提示：{self.root / '拆文报告.md'} 需要人工判断是否压缩化"
+        ]
+        review_items = VALIDATOR.build_human_review_items(self.root, notes)
+        receipt_path = self.root / "_finalize_human_review.json"
+        receipt_path.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "skill_fingerprint": VALIDATOR.compute_skill_fingerprint(),
+                    "upgrade_status": "not_applicable",
+                    "upgrade_reviews": [],
+                    "formal_markdown_sha1s": VALIDATOR.formal_markdown_sha1s(self.root),
+                    "review_items": [
+                        {
+                            "id": review_items[0]["id"],
+                            "status": "resolved",
+                            "judgement": "已回看全文，当前段落不是模板壳。",
+                            "evidence": ["拆文报告.md"],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_human_review_receipt(self.root, notes, {}, errors)
+        self.assertEqual([], errors)
+
+        self._write("拆文报告.md", "第二版\n")
+        stale_errors: list[str] = []
+        VALIDATOR.check_human_review_receipt(self.root, notes, {}, stale_errors)
+        self.assertTrue(any("Markdown SHA" in error for error in stale_errors))
 
     def test_long_parallel_plan_reuses_three_agent_sessions(self) -> None:
         path = self.root / "_parallel_plan.json"
