@@ -476,6 +476,37 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertTrue(any("分层样本" in error for error in errors))
         self.assertTrue(any("反面规则层" in error for error in errors))
 
+    def test_sample_grading_global_shape_h2_keeps_nested_cases(self) -> None:
+        path = self._write(
+            "样本分级与可学层.md",
+            "- structure_grade：A\n"
+            "- performance_grade：A\n"
+            "- sentence_grade：A\n"
+            "- terminal_consequence_grade：A\n"
+            "- 正向DNA层：动作权限和物件权限\n"
+            "- 仅骨架层：公开场结构\n"
+            "- 反面规则层：高识别组合\n"
+            "## 4.4 全局成文形状审计\n"
+            "- 全局结构形状：L1-L9 先给误判，L53-L66 再公开掉位。\n"
+            "- 章尾收束模式：L66 丢下了我，L269 今天是我预约手术的日子。\n"
+            "- 主角不规则性：L94-L95 删信息，L229-L234 砸杯扇人。\n"
+            "- 专业细节功能性：L78 夫妻代言，L424-L429 改成全程直播。\n"
+            "- 全文对白模式：L58-L60 轮得到你来管我。\n"
+            "### 全局结构形状\n"
+            "案例：L53-L66 先给公开体面，再用抱走和留下完成掉位。\n"
+            "### 章尾收束模式\n"
+            "案例：L262-L269 用电话离场和手术短信完成现实落锤。\n"
+            "### 主角不规则性\n"
+            "案例：L229-L234 砸杯撕领说明主角不是单面受虐。\n"
+            "### 专业细节功能性\n"
+            "案例：L78 夫妻代言让私事产生公开补台责任。\n"
+            "### 全文对白模式\n"
+            "案例：L100-L106 称谓争夺后立刻进入戒指见血。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_sample_grading_quality(path, errors, require_global_shape=True)
+        self.assertEqual([], errors)
+
     def test_report_agency_requires_three_distinct_layers(self) -> None:
         path = self._write(
             "拆文报告.md",

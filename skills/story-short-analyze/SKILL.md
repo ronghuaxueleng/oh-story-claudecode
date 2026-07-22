@@ -118,6 +118,10 @@ description: |
 - 禁止为了平均铺满所有文件，把主报告层压薄
 - 禁止任何兜底生成、自动补写、自动扩写、默认事件代填或跨书内容借位；依据不足时直接阻断
 - finalize 只允许生成 `book.profile.json` 和执行验证，不允许修改任何 Markdown 正式产物
+- 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
+- `--upgrade-existing` 只刷新 `_required_outputs.json`、创建缺失目录、生成 `_upgrade_plan.md`；缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件
+- 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 的文件缺失，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成
+- finalize 返回的 `errors[]` 必须逐条补齐，包括全局成文形状审计、profile_source 资产不足、book.profile 派生不足等新版门禁；只有 `ok=true / status=ready-for-write / error_count=0` 才能汇报完成
 
 ---
 
@@ -202,6 +206,8 @@ description: |
 - `写作资产/第二层冲突清单.md`
 - `写作资产/角色口气模板.md`
 - `写作资产/关系重组方式.md`
+- `写作资产/交流承压拆解.md`
+- `写作资产/冲突载体清单.md`
 - `写作资产/公开场_关键硬牌_后果.md`
 - `写作资产/平台适配提醒.md`
 - `写作资产/情绪母线.md`

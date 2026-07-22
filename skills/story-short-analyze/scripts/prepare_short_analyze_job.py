@@ -63,6 +63,8 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "第二层冲突清单.md",
         "角色口气模板.md",
         "关系重组方式.md",
+        "交流承压拆解.md",
+        "冲突载体清单.md",
         "公开场_关键硬牌_后果.md",
         "平台适配提醒.md",
         "情绪母线.md",
@@ -297,6 +299,8 @@ ASSET_LANES = {
         "写作资产/第二层冲突清单.md",
         "写作资产/角色口气模板.md",
         "写作资产/关系重组方式.md",
+        "写作资产/交流承压拆解.md",
+        "写作资产/冲突载体清单.md",
         "写作资产/公开场_关键硬牌_后果.md",
         "写作资产/平台适配提醒.md",
         "写作资产/情绪母线.md",
@@ -399,6 +403,8 @@ REGULAR_ASSET_EVIDENCE_FILES = [
     "写作资产/主冲突_副升级器.md",
     "写作资产/角色口气模板.md",
     "写作资产/关系重组方式.md",
+    "写作资产/交流承压拆解.md",
+    "写作资产/冲突载体清单.md",
     "写作资产/平台适配提醒.md",
     "写作资产/情绪母线.md",
     "写作资产/第二层冲突清单.md",
@@ -705,6 +711,44 @@ def write_meta(path: Path, word_count: int, book_name: str, source_text: str) ->
     dump_json(path, payload)
 
 
+def refresh_upgrade_meta(path: Path, book_name: str, missing_files: list[str]) -> bool:
+    if path.exists():
+        try:
+            payload = json.loads(read_text(path))
+            if not isinstance(payload, dict):
+                payload = {}
+        except json.JSONDecodeError:
+            payload = {}
+    else:
+        payload = {
+            "version": "2.0",
+            "word_count": 0,
+            "source_label": book_name,
+            "title_status": "unverified-upgrade-existing",
+            "genre_detected": "通用",
+            "stages_completed": [],
+            "last_stage_in_progress": None,
+            "structure_counts": {
+                "beats": 0,
+                "hooks": 0,
+                "setup_clues": 0,
+                "character_archetypes": 0,
+                "reusable_structures": 0,
+                "reversal_type": "",
+            },
+        }
+
+    previous_fingerprint = payload.get("skill_fingerprint")
+    payload["skill_fingerprint"] = compute_skill_fingerprint()
+    payload["upgraded_existing_at"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    payload["upgrade_existing"] = {
+        "previous_skill_fingerprint": previous_fingerprint,
+        "missing_files_at_scan": missing_files,
+    }
+    dump_json(path, payload)
+    return previous_fingerprint != payload["skill_fingerprint"]
+
+
 def write_required_manifest(path: Path, book_name: str, source_path: Path, layout: ContractLayout) -> None:
     payload = {
         "book_name": book_name,
@@ -721,6 +765,92 @@ def write_required_manifest(path: Path, book_name: str, source_path: Path, layou
         },
     }
     dump_json(path, payload)
+
+
+def required_output_paths(layout: ContractLayout) -> list[str]:
+    paths: list[str] = []
+    paths.extend(layout.root_files)
+    paths.extend(f"原文细节库/{name}" for name in layout.detail_files)
+    paths.extend(f"写作资产/{name}" for name in layout.asset_files)
+    return paths
+
+
+def read_existing_source_path(out_dir: Path) -> Path:
+    manifest_path = out_dir / "_source_manifest.json"
+    if manifest_path.exists():
+        data = json.loads(read_text(manifest_path))
+        for key in ("source_file", "copied_to"):
+            value = data.get(key)
+            if value:
+                return Path(value)
+
+    source_dir = out_dir / "原文"
+    if source_dir.exists():
+        for candidate in sorted(source_dir.iterdir()):
+            if candidate.is_file():
+                return candidate
+
+    return out_dir / "原文" / "__MISSING_SOURCE__"
+
+
+def write_upgrade_plan(
+    path: Path,
+    book_name: str,
+    out_dir: Path,
+    missing_dirs: list[str],
+    missing_files: list[str],
+) -> None:
+    lines = [
+        f"# {book_name} 历史拆书目录增量升级计划",
+        "",
+        "## 升级原则",
+        "",
+        "- 本文件只登记缺失项，不自动生成任何正式 Markdown 内容。",
+        "- 已有拆书成果禁止删除、覆盖或用空模板替换。",
+        "- 缺失正式产物必须由模型重新读取原文、样本与对应模板后人工补写。",
+        "- 文件缺失清单不等于升级完成；还必须运行 finalize，把内容级缺项和新版门禁缺项全部补完。",
+        "- 回填完成后必须运行 `run_short_analyze_finalize.py`，没通过不算 ready-for-write。",
+        "",
+        "## 本次扫描结果",
+        "",
+        f"- 输出目录：`{out_dir}`",
+        f"- 缺失目录数：{len(missing_dirs)}",
+        f"- 缺失正式产物数：{len(missing_files)}",
+        "",
+        "## 缺失目录",
+        "",
+    ]
+    if missing_dirs:
+        lines.extend(f"- [ ] `{name}/`" for name in missing_dirs)
+    else:
+        lines.append("- 无")
+
+    lines.extend(["", "## 缺失正式产物", ""])
+    if missing_files:
+        lines.extend(f"- [ ] `{name}`" for name in missing_files)
+    else:
+        lines.append("- 无")
+
+    lines.extend(
+        [
+            "",
+            "## 回填执行顺序",
+            "",
+            "1. 先读 `skills/story-short-analyze/SKILL.md` 和 `references/pipeline/output-contract.md`。",
+            "2. 对每个缺失文件，只读取 `output-templates.md` 中对应模板区段，不整份吞模板。",
+            "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
+            "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
+            "5. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
+            "6. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
+            "7. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
+            "",
+            "## 最终验收命令",
+            "",
+            f"```bash\npython3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json\n```",
+            "",
+        ]
+    )
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def write_source_manifest(path: Path, source_path: Path, copied_path: Path, text: str) -> None:
@@ -1290,17 +1420,74 @@ def prepare(args: argparse.Namespace) -> dict:
     return created
 
 
+def upgrade_existing(args: argparse.Namespace) -> dict:
+    out_dir = Path(args.upgrade_existing).resolve()
+    if not out_dir.exists() or not out_dir.is_dir():
+        raise FileNotFoundError(f"待升级拆文目录不存在：{out_dir}")
+
+    layout = parse_output_contract()
+    book_name = args.name or out_dir.name
+    source_path = Path(args.source).resolve() if args.source else read_existing_source_path(out_dir)
+
+    missing_dirs: list[str] = []
+    created_dirs: list[str] = []
+    for dirname in layout.root_dirs:
+        directory = out_dir / dirname
+        if not directory.exists():
+            missing_dirs.append(dirname)
+            directory.mkdir(parents=True, exist_ok=True)
+            created_dirs.append(dirname)
+        elif not directory.is_dir():
+            raise NotADirectoryError(f"必产目录位置已被文件占用：{directory}")
+
+    missing_files = [rel for rel in required_output_paths(layout) if not (out_dir / rel).exists()]
+
+    progress_existed = (out_dir / "_progress.md").exists()
+    write_required_manifest(out_dir / "_required_outputs.json", book_name, source_path, layout)
+    if not progress_existed:
+        write_progress(out_dir / "_progress.md", book_name, layout)
+    write_upgrade_plan(out_dir / "_upgrade_plan.md", book_name, out_dir, missing_dirs, missing_files)
+    meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
+
+    return {
+        "mode": "upgrade-existing",
+        "book_name": book_name,
+        "root": str(out_dir),
+        "source_file": str(source_path),
+        "created_dirs": created_dirs,
+        "missing_dirs": missing_dirs,
+        "missing_files": missing_files,
+        "meta_refreshed": meta_refreshed,
+        "written_files": ["_required_outputs.json", "_upgrade_plan.md"]
+        + ([] if progress_existed else ["_progress.md"])
+        + ["_meta.json"],
+        "next_step": {
+            "then": "按 _upgrade_plan.md 人工回填缺失正式产物；脚本不会自动补写 Markdown 正式内容",
+            "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
+        },
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="短篇拆书入口初始化：建立标准目录、复制原文、写入必产清单")
-    parser.add_argument("source", help="原始 TXT / Markdown / 文本文件路径")
+    parser.add_argument("source", nargs="?", help="原始 TXT / Markdown / 文本文件路径")
     parser.add_argument("--name", help="书名；默认取源文件名（去后缀）")
     parser.add_argument("--output-root", help="拆文库目录；默认使用源文件同级 `拆文库/`")
     parser.add_argument("--force", action="store_true", help="若输出目录已存在，则先删除再重建")
+    parser.add_argument(
+        "--upgrade-existing",
+        help="升级历史拆文目录：不删除已有成果，只刷新清单并生成缺失回填计划",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
     try:
-        payload = prepare(args)
+        if args.upgrade_existing:
+            payload = upgrade_existing(args)
+        elif args.source:
+            payload = prepare(args)
+        else:
+            raise ValueError("缺少 source；如升级历史目录请使用 --upgrade-existing 拆文库/{书名}")
     except Exception as exc:  # noqa: BLE001
         error_payload = {"ok": False, "error": str(exc)}
         if args.json:
@@ -1326,6 +1513,10 @@ def main() -> int:
         print("created_dirs:")
         for item in payload["created_dirs"]:
             print(f"- {item}")
+        if payload.get("mode") == "upgrade-existing":
+            print("missing_files:")
+            for item in payload["missing_files"]:
+                print(f"- {item}")
         print("next_step:")
         if isinstance(payload["next_step"], dict):
             print("  read_order:")
@@ -1333,6 +1524,7 @@ def main() -> int:
                 print(f"  - {item}")
             print(f"  then: {payload['next_step'].get('then', '')}")
             print(f"  finalize_after_all_files: {payload['next_step'].get('finalize_after_all_files', '')}")
+            print(f"  finalize_after_backfill: {payload['next_step'].get('finalize_after_backfill', '')}")
         else:
             print(f"  {payload['next_step']}")
     return 0

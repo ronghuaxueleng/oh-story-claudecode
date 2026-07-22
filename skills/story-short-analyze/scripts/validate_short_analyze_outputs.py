@@ -76,6 +76,8 @@ WRITING_ASSET_FILES = [
     "第二层冲突清单.md",
     "角色口气模板.md",
     "关系重组方式.md",
+    "交流承压拆解.md",
+    "冲突载体清单.md",
     "公开场_关键硬牌_后果.md",
     "平台适配提醒.md",
     "情绪母线.md",
@@ -627,6 +629,8 @@ CORE_WRITING_ASSET_FILES = (
     "主冲突_副升级器.md",
     "角色口气模板.md",
     "关系重组方式.md",
+    "交流承压拆解.md",
+    "冲突载体清单.md",
     "平台适配提醒.md",
     "情绪母线.md",
     "第二层冲突清单.md",
@@ -889,6 +893,12 @@ def extract_section_text(text: str, heading: str) -> str:
 def extract_any_section_text(text: str, heading_variants: tuple[str, ...]) -> str:
     escaped = "|".join(re.escape(item) for item in heading_variants)
     pattern = rf"^(?:{escaped})\s*$([\s\S]*?)(?=^## |^### |^#### |\Z)"
+    match = re.search(pattern, text, flags=re.M)
+    return match.group(1).strip() if match else ""
+
+
+def extract_h2_section_text(text: str, heading: str) -> str:
+    pattern = rf"^{re.escape(heading)}\s*$([\s\S]*?)(?=^## |\Z)"
     match = re.search(pattern, text, flags=re.M)
     return match.group(1).strip() if match else ""
 
@@ -2311,7 +2321,7 @@ def check_sample_grading_quality(
             value = extract_labeled_value(text, label)
             if len(normalize_text(value)) < 8:
                 errors.append(f"{path} 缺少全局成文形状字段 `{label}`")
-        audit_evidence = extract_any_section_text(text, ("## 4.4 全局成文形状审计",))
+        audit_evidence = extract_h2_section_text(text, "## 4.4 全局成文形状审计")
         if not audit_evidence:
             errors.append(f"{path} 缺少 `## 4.4 全局成文形状审计` 证据区")
         else:
