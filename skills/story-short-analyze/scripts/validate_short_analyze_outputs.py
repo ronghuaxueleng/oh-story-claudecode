@@ -892,7 +892,12 @@ def extract_section_text(text: str, heading: str) -> str:
 
 def extract_any_section_text(text: str, heading_variants: tuple[str, ...]) -> str:
     escaped = "|".join(re.escape(item) for item in heading_variants)
-    pattern = rf"^(?:{escaped})\s*$([\s\S]*?)(?=^## |^### |^#### |\Z)"
+    min_level = min(
+        (len(match.group(1)) for item in heading_variants if (match := re.match(r"^(#+)\s+", item))),
+        default=2,
+    )
+    stop_levels = "|".join(re.escape("#" * level + " ") for level in range(1, min_level + 1))
+    pattern = rf"^(?:{escaped})\s*$([\s\S]*?)(?=^(?:{stop_levels})|\Z)"
     match = re.search(pattern, text, flags=re.M)
     return match.group(1).strip() if match else ""
 

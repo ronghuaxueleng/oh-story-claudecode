@@ -122,6 +122,10 @@ description: |
 - `--upgrade-existing` 只刷新 `_required_outputs.json`、创建缺失目录、生成 `_upgrade_plan.md`；缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 的文件缺失，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成
 - finalize 返回的 `errors[]` 必须逐条补齐，包括全局成文形状审计、profile_source 资产不足、book.profile 派生不足等新版门禁；只有 `ok=true / status=ready-for-write / error_count=0` 才能汇报完成
+- `run_short_analyze_finalize.py` 通过后，仍必须人工处理所有“模型复核提示”里的第 3、4 类提醒后才能算真正收口：
+  - 第 3 类：资产完整性提醒。凡提示“某张表可能漏掉终局证据载体 / 公开身份场 / 关系硬牌 / 物件回流载体”，必须回到对应正式产物补拆或显式记录“已人工复核，无需补”的判断，不能因为不阻断就直接结束。
+  - 第 4 类：人物 / 关系拆解密度提醒。凡提示“未命中人物口气词 / 关系起点词 / 旧案标签 / 关系根部”等，必须回到 `写作手法.md`、`原文细节库/关系细节库.md` 等正式产物补出显性拆法，不允许只留脚本提示。
+  - 这两类属于“通过后仍需回看”的强制收尾项，不是可选优化项；后续要把处理结果写进正式产物，而不是只停留在对话说明里。
 
 ---
 
