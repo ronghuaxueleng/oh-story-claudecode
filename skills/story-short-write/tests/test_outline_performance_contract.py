@@ -56,6 +56,52 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.catalog = self.book_root / "写作资产" / "桥段施工卡.md"
         self.catalog.parent.mkdir(parents=True)
         self.catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+        self.subflows = [
+            {
+                "subflow_id": "SF-01",
+                "source_book": "测试书",
+                "parent_bridge_id": "BID-01",
+                "name": "先抢位置再逼出让位",
+                "source_range": "L1-L1",
+                "function_tags": ["公开失位"],
+                "entry_state": "妻子仍被默认拥有现场决定权。",
+                "required_sequence": ["第三者先抢入口", "丈夫随后要求妻子让位"],
+                "scene_granularity": "第三者先伸手拿钥匙，妻子按住，丈夫开口后她才松手。",
+                "information_delay": "本场只漏出偏护，删名责任压到后场。",
+                "control_changes": ["钥匙控制权从妻子转给第三者"],
+                "emotion_sequence": ["警觉", "受辱", "反刀"],
+                "end_state": "妻子失去默认进入权。",
+                "embeddable_after": [],
+                "incompatible_with": [],
+                "source_evidence": ["原文场面", "原文"],
+            },
+            {
+                "subflow_id": "SF-02",
+                "source_book": "测试书",
+                "parent_bridge_id": "BID-01",
+                "name": "旁观者改口确认掉位",
+                "source_range": "L1-L1",
+                "function_tags": ["外部秩序"],
+                "entry_state": "现场仍等待妻子决定。",
+                "required_sequence": ["旁观者先看向妻子", "丈夫表态后旁观者改口"],
+                "scene_granularity": "旁观者先等妻子点头，丈夫越过她答应后，众人才转向丈夫。",
+                "information_delay": "不解释婚姻全貌，只让外部秩序先完成站队。",
+                "control_changes": ["现场决定权从妻子转给丈夫"],
+                "emotion_sequence": ["短暂期待", "被越过", "余痛"],
+                "end_state": "妻子不再是现场默认主位。",
+                "embeddable_after": ["SF-01"],
+                "incompatible_with": [],
+                "source_evidence": ["原文场面", "原文"],
+            },
+        ]
+        self.subflow_catalog = self.book_root / "写作资产" / "子流程索引.jsonl"
+        self.subflow_catalog.write_text(
+            "".join(
+                json.dumps(entry, ensure_ascii=False) + "\n"
+                for entry in self.subflows
+            ),
+            encoding="utf-8",
+        )
         self.receipt = self.root / "细纲表演验收回执.json"
         data = GATE.create_receipt("测试", self.outline, [self.source])
         source_path = str(self.source.resolve())
@@ -185,6 +231,15 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "parity_status": "adapted_equal_intensity",
                 "adaptation_boundary": "只迁移情绪顺序和烈度，不复制人物与原句。",
             }
+            section["scene_granularity_failure_guard"] = {
+                "not_function_summary": True,
+                "not_evidence_list": True,
+                "not_result_broadcast_chain": True,
+                "not_process_log": True,
+                "scene_resistance": "钥匙卡住入口，旁观者改口前先出现阻拦。",
+                "external_order_or_bystander_pressure": "旁观者停止等待乙的决定，现场秩序改变。",
+                "manual_judgment": "本节有抢位置、阻拦失败和旁观者改口，不是结果播报。",
+            }
         data["reviewed_by_current_model"] = True
         data["gate_status"] = "passed"
         data["global_review"] = {
@@ -204,6 +259,49 @@ class OutlinePerformanceContractTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
+
+    def granularity_data(self) -> dict:
+        old = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source],
+            source_mode="granularity_only",
+        )
+        data["global_review"] = old["global_review"]
+        data["global_review"]["granularity_transfer_contract_reviewed"] = True
+        data["sections"] = old["sections"]
+        data["reviewed_by_current_model"] = True
+        data["gate_status"] = "passed"
+        source_path = str(self.source.resolve())
+        source_sha = GATE.sha256(self.source)
+        data["granularity_transfer_contract"] = [
+            {
+                "source_subflow_id": entry["subflow_id"],
+                "parent_bridge_id": entry["parent_bridge_id"],
+                "source_path": source_path,
+                "source_sha256": source_sha,
+                "source_required_sequence": entry["required_sequence"],
+                "source_scene_granularity": entry["scene_granularity"],
+                "source_information_delay": entry["information_delay"],
+                "source_control_changes": entry["control_changes"],
+                "source_end_state": entry["end_state"],
+                "child_flow_mode": "original_constructed",
+                "target_scene": f"原创场景{index}",
+                "target_scene_causal_chain": "目标人物为保住关系位置先争夺入口，再因错误站队失去决定权。",
+                "target_child_flow": [f"目标动作{index}A", f"目标反应{index}B"],
+                "anti_functionalization_guard": "动作先由人物欲望触发，不按证据、边界、后果逐项报到。",
+                "artificial_friction_guard": "不为过检额外添加均匀卡顿、掉落或误触。",
+                "adaptation_boundary": "保留主颗粒完整顺序，不复制原人物、职业、物件和原句。",
+                "result_broadcast_chain_guard": "信息分次漏出，人物先争夺控制权，不由众人问答播报结果。",
+                "rejected_surface_elements": ["原人物", "原职业", "原物件"],
+                "target_outline_sections": [str(index)],
+                "target_outline_evidence": ["动作一" if index == 1 else "动作三"],
+                "manual_judgment": "目标情节自由构造，但主书颗粒未删步、未合并、未改序。",
+            }
+            for index, entry in enumerate(self.subflows, start=1)
+        ]
+        return data
 
     def test_complete_contract_passes(self) -> None:
         self.assertEqual([], GATE.validate_receipt(self.receipt, self.outline))
@@ -334,6 +432,80 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("辅助来源桥段库存缺失" in error for error in errors))
+
+    def test_granularity_only_allows_original_child_flow_with_full_primary_particles(self) -> None:
+        data = self.granularity_data()
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertEqual([], errors)
+
+    def test_granularity_only_missing_primary_subflow_blocks(self) -> None:
+        data = self.granularity_data()
+        data["granularity_transfer_contract"].pop()
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("主书 SF 缺失" in error for error in errors))
+
+    def test_granularity_only_rejects_summarized_primary_sequence(self) -> None:
+        data = self.granularity_data()
+        data["granularity_transfer_contract"][0]["source_required_sequence"] = [
+            "完成一次公开失位"
+        ]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不得概括、合并或改序" in error for error in errors))
+
+    def test_library_selected_rejects_truncated_auxiliary_subflow(self) -> None:
+        auxiliary_root = self.root / "拆文库" / "辅助书"
+        auxiliary = auxiliary_root / "原文" / "辅助书.txt"
+        auxiliary.parent.mkdir(parents=True)
+        auxiliary.write_text("辅助原文场面", encoding="utf-8")
+        auxiliary_asset_dir = auxiliary_root / "写作资产"
+        auxiliary_asset_dir.mkdir(parents=True)
+        (auxiliary_asset_dir / "桥段施工卡.md").write_text(
+            "## BID-01 辅助桥\n",
+            encoding="utf-8",
+        )
+        auxiliary_subflow = {
+            **self.subflows[0],
+            "source_book": "辅助书",
+            "required_sequence": ["先封住出口", "再由第三人改口", "最后留下未结清后果"],
+            "scene_granularity": "第三人先挡门，关系人抢话失败，旁观者最后改口。",
+            "information_delay": "先暴露站队，完整原因留后。",
+            "control_changes": ["出口控制权换主", "解释权再次换主"],
+            "end_state": "主角带着未结清后果离场。",
+        }
+        (auxiliary_asset_dir / "子流程索引.jsonl").write_text(
+            json.dumps(auxiliary_subflow, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
+        old = self.granularity_data()
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source, auxiliary],
+            source_mode="granularity_only",
+        )
+        data["global_review"] = old["global_review"]
+        data["sections"] = old["sections"]
+        data["reviewed_by_current_model"] = True
+        data["gate_status"] = "passed"
+        data["selected_source_originals"][1]["selected_subflow_ids"] = ["SF-01"]
+        data["granularity_transfer_contract"] = old["granularity_transfer_contract"]
+        first = data["granularity_transfer_contract"][0]
+        first["child_flow_mode"] = "library_selected"
+        first["auxiliary_source_path"] = str(auxiliary.resolve())
+        first["auxiliary_subflow_id"] = "SF-01"
+        first["auxiliary_required_sequence"] = ["先封住出口"]
+        first["auxiliary_scene_granularity"] = auxiliary_subflow["scene_granularity"]
+        first["auxiliary_information_delay"] = auxiliary_subflow["information_delay"]
+        first["auxiliary_control_changes"] = auxiliary_subflow["control_changes"]
+        first["auxiliary_end_state"] = auxiliary_subflow["end_state"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("禁止抽取零件混拼" in error for error in errors))
 
 
 if __name__ == "__main__":

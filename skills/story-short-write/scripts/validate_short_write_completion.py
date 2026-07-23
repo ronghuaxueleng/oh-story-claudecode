@@ -19,6 +19,7 @@ REQUIRED_CHECK_LABELS = {
     "pre_window_revision",
     "model_segmentation",
     "formal_audit",
+    "final_artifact_bindings",
     "post_write_human_review",
     "anti_false_pass_review",
 }

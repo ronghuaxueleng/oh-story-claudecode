@@ -16,6 +16,27 @@ sync-source: skills/story-long-write/references/cross-book-recall.md
 2. 角色/剧情/设定模块可从所有副对标召回，但必须按「同题材 > 弱相关 > 参考」排序，并受每本/总量预算约束
 3. narrative-writer 正文 prompt 只吃主对标文风/原文锚点 + 预算筛选后的 `副对标召回摘要`；不读取、不传入副对标 `文风.md` 或副书原文
 
+## 短篇子流程文库
+
+短篇 `granularity_only` 不使用摘要条目拼情节，固定走：
+
+```text
+主书全部 SF（主流程与全部颗粒）
+→ 定位当前主 SF 内部需要展开的目标子流程
+→ 查询 资料库/子流程总索引.jsonl
+→ 选择一条完整辅助 SF，或在当前主 SF 内原创
+→ 写入 granularity_transfer_contract
+→ validator 验收主 SF 零遗漏、辅助 SF 未截断
+```
+
+硬规则：
+
+- 主书全部 `SF-*` 是主体，不参与预算裁剪。
+- 辅助召回单位只能是一整条 `global_subflow_id={书名}::SF-xx`，不能召回动作、物件、对白等零件。
+- 辅助条目必须保留 `source_dir / source_index_path / source_index_sha256`，来源边界不能抹掉。
+- `library_selected` 必须完整继承辅助 SF 的 `required_sequence / scene_granularity / information_delay / control_changes / end_state`。
+- 辅助 SF 只服务当前主 SF 内部展开，不能取代、合并或重排主书 SF。
+
 ## 跨题材判断
 读每本副对标 `设定/题材定位.md`「题材类型」与「引用强度」：
 - 同题材 + 引用强度=辅：全阶段可召回，按每本上限取条目

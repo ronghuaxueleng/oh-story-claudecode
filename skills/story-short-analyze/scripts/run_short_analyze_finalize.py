@@ -134,6 +134,7 @@ def main() -> int:
     profile_output = root / "book.profile.json"
     generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
     validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
+    subflow_builder = repo_root / "skills" / "story-short-analyze" / "scripts" / "build_subflow_library.py"
 
     markdown_before = markdown_sha1s(root)
 
@@ -215,6 +216,29 @@ def main() -> int:
         validator_payload["ok"] = False
         validator_payload["status"] = "blocked-on-assets"
         validator_payload["error_count"] = len(validator_payload["errors"])
+    if validator_payload.get("ok"):
+        if root.parent.name == "拆文库":
+            library_output = root.parent.parent / "资料库" / "子流程总索引.jsonl"
+            library_result = run_command(
+                [
+                    sys.executable,
+                    str(subflow_builder),
+                    str(root.parent),
+                    "--output",
+                    str(library_output),
+                ]
+            )
+            if library_result.returncode != 0:
+                validator_payload.setdefault("errors", []).append(
+                    library_result.stderr.strip()
+                    or library_result.stdout.strip()
+                    or "跨书子流程总索引重建失败"
+                )
+                validator_payload["ok"] = False
+                validator_payload["status"] = "blocked-on-assets"
+                validator_payload["error_count"] = len(validator_payload["errors"])
+            else:
+                notes.append(f"跨书子流程总索引已重建：{library_output}")
     if validator_payload.get("ok"):
         notes.extend(update_completion_state(root))
     payload = build_payload(root, profile_generated, validator_payload, notes)

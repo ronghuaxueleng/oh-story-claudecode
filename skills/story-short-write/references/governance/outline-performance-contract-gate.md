@@ -69,18 +69,57 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 --source-mode granularity_only
 ```
 
-该模式不要求复制主体原文 BID 身份，也不要求 `source_bridge_flow_inventory` 与 `outline_bridge_flow_parity` 覆盖原书全部桥段。它改为强制填写 `granularity_transfer_contract`，且必须覆盖目标细纲全部小节：
+该模式不复制主体原文的人物、职业、物件和具体情节身份，但仍必须使用主书的全部颗粒，不能把主书概括成拍数、密度、换主次数或几项表演参数。
 
-- `source_scene / source_evidence`：绑定原文真实场面，不得只写拆文摘要。
-- `source_granularity`：说明原文一场内有多少有效动作拍、控制权如何换主、信息在哪里压后。
-- `target_scene / target_outline_sections / target_outline_evidence`：绑定原创场景和当前细纲原句。
-- `transferred_beat_density`：说明迁移的事件拍密度，不复制原事件身份。
-- `transferred_information_delay`：说明哪些事实只漏一角、哪些压到后场。
-- `transferred_control_right_changes`：说明动作、物件、空间、身份或外部秩序如何换主。
-- `rejected_surface_elements`：至少三项，明确拒绝原人物、职业、核心物件、完整关系壳、原句或结局入口。
-- `manual_judgment`：解释为什么这是颗粒度迁移而不是换皮复刻。
+初始化时固定读取每本来源的 `写作资产/子流程索引.jsonl`：
 
-逐节 `original_scene_granularity`、`source_mechanism`、`source_emotion_parity`、关系可懂性和强情绪烈度仍是硬闸。也就是说，该模式只解除“原书发生什么必须照搬”，不解除“原书如何把一场写实写满”的参照责任。
+- 第一本来源固定为 `primary`。
+- 主书 `required_subflow_ids / selected_subflow_ids` 必须与索引中全部 `SF-*` 完全一致，并保留索引原顺序。
+- `granularity_transfer_contract` 必须对每条主书 SF 有且只有一条记录。
+- 缺一条、重复一条、交换顺序、合并两条或用同一句概括多条，均阻断正文。
+
+每条契约必须完整复制主书 SF 的以下字段，validator 与索引逐字段比对：
+
+- `source_subflow_id`
+- `parent_bridge_id`
+- `source_required_sequence`
+- `source_scene_granularity`
+- `source_information_delay`
+- `source_control_changes`
+- `source_end_state`
+
+这些字段定义主颗粒的完整边界，不得概括、删步或改序。目标人物和事件可以改变，但主书颗粒不能缩水。
+
+主书每条 SF 内部再用 `child_flow_mode` 选择：
+
+1. `original_constructed`
+   - 填写 `target_scene_causal_chain / target_child_flow / anti_functionalization_guard / artificial_friction_guard`。
+   - 具体人物、职业、物件和动作可由目标情节自由构造。
+   - 自由构造发生在当前主 SF 内部，不能用“原创”名义跳过、合并或压缩该 SF。
+2. `library_selected`
+   - 先从辅助书 `子流程索引.jsonl` 或 `资料库/子流程总索引.jsonl` 选择一条完整 `SF-*`。
+   - 辅助 SF 必须进入对应辅助来源 `selected_subflow_ids`。
+   - 完整填写并逐字段继承 `auxiliary_required_sequence / auxiliary_scene_granularity / auxiliary_information_delay / auxiliary_control_changes / auxiliary_end_state`。
+   - 禁止只抽辅助 SF 的动作、物件、对白或单个反转零件，更禁止从多本书混拼零件。
+
+通用字段还包括：
+
+- `target_scene / target_outline_sections / target_outline_evidence`
+- `target_child_flow`：目标稿在当前主颗粒内部实际展开的连续流程，至少两步
+- `adaptation_boundary`
+- `result_broadcast_chain_guard`
+- `rejected_surface_elements`
+- `manual_judgment`
+
+逐节 `source_mechanism`、`source_emotion_parity`、关系可懂性和强情绪烈度仍是硬闸。`granularity_only` 的“only”只排除原情节身份复制，不排除主书任何颗粒。
+
+### 拆书提取情节的颗粒度继承
+
+从拆书资产提取情节时，不允许只继承“功能机制”或“桥段名”。必须继承该情节自己的颗粒度：
+
+- 若资产来自 `桥段施工卡.md`、`顺序事件表.md`、`公开炸场表.md`、`后果链表.md`、`外部秩序表.md`，回执必须绑定该资产原句，并说明该情节的动作拍、信息延迟、控制权变化和场末状态变化。
+- 若资产只提供功能摘要，当前模型必须回到对应原文段落补足颗粒度；补不出时，该情节只能作为功能候选，不能作为已通过的正文前设计。
+- 拆书提取情节可以改人物、职业和物件，但不能把原资产里的现场阻力、错答、打断、外部秩序和余波压缩成一句“完成公开反噬/完成行动验收”。
 
 ## 原文桥段流程对齐
 
@@ -149,6 +188,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 14. `emotion_intensity`：填写烈度、具体刺痛、情绪翻面及相对前场升级；强情绪稿低于 7 分不得放行。
 15. `professional_shell_translation`：用一句白话翻译职业冲突，并证明去掉术语后感情冲突仍成立。
 16. `source_emotion_parity`：引用真实原文片段，逐拍列出原文与目标情绪流程。每拍都必须填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`；另填两边反刀拍、峰值拍、场末余痛等价、读者体感等价、人工判断及迁移边界。
+17. `scene_granularity_failure_guard`：逐节反证本节没有缩水成 `功能说明 / 证据清单 / 结果播报链 / 手续流程日志 / 公开场标准问答`。公开清算、复核、直播、审判、会议、签字类小节必须额外说明现场阻力和外部秩序如何介入。
 
 ## 全局必填
 

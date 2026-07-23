@@ -102,6 +102,61 @@ class FullAiAuditRhythmTest(unittest.TestCase):
 
     @staticmethod
     def _fill_procedural_stiffness_review(receipt: dict, text: str) -> None:
+        boundaries = receipt.get("boundaries", [])
+        cuts = [0, *boundaries, len(text)]
+        for item in receipt.get("boundary_evidence", []):
+            offset = item["offset"]
+            before_quote = text[max(0, offset - 24):offset].strip()
+            after_quote = str(item.get("quote") or "").strip()
+            item.update(
+                {
+                    "before_content_state": "边界前保持原场景任务和叙述方式。",
+                    "after_content_state": "边界后切换为新的场景任务和对白模式。",
+                    "changed_dimensions": ["scene_task", "dialogue_pattern"],
+                    "persistence_evidence": {
+                        "before_quote": before_quote,
+                        "after_quote": after_quote,
+                    },
+                    "candidate_comparison": {
+                        "considered_nearby_positions": True,
+                        "selected_for_stable_transition": True,
+                        "length_proximity_ignored": True,
+                        "judgment": "相邻位置只是短波动，此处才进入稳定的新内容状态。",
+                    },
+                    "chapter_or_section_boundary_only": False,
+                    "length_balancing_used": False,
+                }
+            )
+        receipt["content_driven_segmentation_review"] = {
+            "status": "completed",
+            "full_text_mapped_before_cutting": True,
+            "length_or_section_driven": False,
+            "zero_boundary_considered": True,
+            "homogeneous_full_text": not boundaries,
+            "content_regions": [
+                {
+                    "start": start,
+                    "end": end,
+                    "dominant_scene_task": f"测试内容区 {index} 的场景任务。",
+                    "narrative_mode": "连续现场叙述。",
+                    "information_function": "推进当前测试信息。",
+                    "dialogue_pattern": "非机械问答。",
+                    "procedural_density": "低。",
+                    "character_control_state": "人物控制状态保持稳定。",
+                    "judgment": "该区内容状态连续，边界来自状态切换而非长度。",
+                }
+                for index, (start, end) in enumerate(
+                    zip(cuts[:-1], cuts[1:]),
+                    start=1,
+                )
+            ],
+            "zero_boundary_reason": (
+                "全文内容状态一致，没有可证明的持续跃变。"
+                if not boundaries
+                else ""
+            ),
+            "manual_judgment": "已先建立全文内容地图，再确定人工边界。",
+        }
         quote = next(
             line.strip()
             for line in text.splitlines()
@@ -124,6 +179,31 @@ class FullAiAuditRhythmTest(unittest.TestCase):
                 }
             ],
             "summary": "已逐窗复核，测试正文未发现流程硬化/证据清单感问题。",
+            "must_revise_count": 0,
+        }
+        section_ids = AUDIT.re.findall(r"(?m)^\s*(\d+)\.\s*$", text)
+        adjacent_reviews = [
+            {
+                "before_section": before,
+                "after_section": after,
+                "boundary_quote": f"{after}.",
+                "combined_progression_shape": "两节合看未形成过度完整的推进链。",
+                "object_functionality": "物件没有全部只服务主线。",
+                "dialogue_on_topic": "对白存在变化，不是连续答题。",
+                "control_pattern_isomorphism": "相邻场景未重复同一控制权模板。",
+                "classification": "source_like",
+                "revision_scope": "keep",
+                "decision": "keep",
+                "must_revise": False,
+                "judgment": "测试正文可保留。",
+            }
+            for before, after in zip(section_ids[:-1], section_ids[1:])
+        ]
+        receipt["cross_section_block_shape_review"] = {
+            "status": "completed",
+            "reviewed_full_text": True,
+            "adjacent_section_reviews": adjacent_reviews,
+            "summary": "已逐个复核相邻小节合并后的成文形状。",
             "must_revise_count": 0,
         }
 
@@ -353,6 +433,166 @@ class FullAiAuditRhythmTest(unittest.TestCase):
             self.assertIn("固定词只算候选", receipt["prompt"])
             self.assertIn("人物交流人工复核", receipt["prompt"])
             self.assertIn("流程硬化/证据清单感人工复核", receipt["prompt"])
+            self.assertIn("跨节连续形状复核", receipt["prompt"])
+            self.assertIn("先完成 content_driven_segmentation_review", receipt["prompt"])
+            self.assertIn("禁止先定段数、先看长度或先按章节切窗", receipt["prompt"])
+
+    def test_content_driven_review_is_required(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text("测试正文。" * 240, encoding="utf-8")
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["boundaries"] = []
+            receipt["boundary_evidence"] = []
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            del receipt["content_driven_segmentation_review"]
+
+            with self.assertRaisesRegex(RuntimeError, "缺少内容驱动切分复核"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
+
+    def test_length_driven_segmentation_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text("测试正文。" * 240, encoding="utf-8")
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["boundaries"] = []
+            receipt["boundary_evidence"] = []
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            receipt["content_driven_segmentation_review"][
+                "length_or_section_driven"
+            ] = True
+
+            with self.assertRaisesRegex(RuntimeError, "不得由长度、段数或章节边界驱动"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
+
+    def test_boundary_requires_persistent_multi_dimension_change(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                ("边界前内容。" * 100) + "\n" + ("边界后内容。" * 100),
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            boundary = receipt["paragraph_anchors"][1]["start_char"]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [boundary]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": boundary,
+                    "quote": receipt["paragraph_anchors"][1]["text"],
+                    "reason": "测试边界。",
+                }
+            ]
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            receipt["boundary_evidence"][0]["changed_dimensions"] = [
+                "emotional_texture",
+                "emotional_texture",
+            ]
+
+            with self.assertRaisesRegex(RuntimeError, "不得重复凑数|不能只靠情绪纹理"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
+
+    def test_chapter_only_boundary_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                ("边界前内容。" * 100) + "\n" + ("边界后内容。" * 100),
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            boundary = receipt["paragraph_anchors"][1]["start_char"]
+            receipt["status"] = "completed"
+            receipt["boundaries"] = [boundary]
+            receipt["boundary_evidence"] = [
+                {
+                    "offset": boundary,
+                    "quote": receipt["paragraph_anchors"][1]["text"],
+                    "reason": "测试边界。",
+                }
+            ]
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            receipt["boundary_evidence"][0][
+                "chapter_or_section_boundary_only"
+            ] = True
+
+            with self.assertRaisesRegex(RuntimeError, "不得仅由章节或小节边界成立"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
+
+    def test_zero_boundary_requires_homogeneous_map_and_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text("测试正文。" * 240, encoding="utf-8")
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["boundaries"] = []
+            receipt["boundary_evidence"] = []
+            receipt["manual_judgment"] = "已人工完成。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            receipt["content_driven_segmentation_review"][
+                "zero_boundary_reason"
+            ] = ""
+
+            with self.assertRaisesRegex(RuntimeError, "必须填写 zero_boundary_reason"):
+                AUDIT.validate_manual_model_segmentation_receipt(receipt, source, text)
+
+    def test_cross_section_review_requires_every_adjacent_section_pair(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "正文.md"
+            source.write_text(
+                "1.\n"
+                + ("第一节现场内容。" * 80)
+                + "\n2.\n"
+                + ("第二节现场内容。" * 80)
+                + "\n3.\n"
+                + ("第三节现场内容。" * 80),
+                encoding="utf-8",
+            )
+            text = source.read_text(encoding="utf-8")
+            receipt = AUDIT.build_manual_model_segmentation_task(source, text)
+            receipt["status"] = "completed"
+            receipt["boundaries"] = []
+            receipt["boundary_evidence"] = []
+            receipt["manual_judgment"] = "已按内容变化完成人工分段。"
+            self._fill_segment_scores(receipt, text)
+            self._fill_conflict_review(receipt, text)
+            self._fill_exchange_review(receipt, text)
+            self._fill_procedural_stiffness_review(receipt, text)
+            receipt["cross_section_block_shape_review"][
+                "adjacent_section_reviews"
+            ].pop()
+
+            with self.assertRaisesRegex(RuntimeError, "缺少相邻小节: 2->3"):
+                AUDIT.validate_manual_model_segmentation_receipt(
+                    receipt,
+                    source,
+                    text,
+                )
 
     def test_suspicious_ai_window_requires_procedural_finding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

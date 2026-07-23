@@ -72,6 +72,40 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
                     "已检查是否一句一个反应或规则施工。",
                 ]
                 item["allowed_in_story_artifacts"] = []
+            if item["id"] == GATE.SOURCE_GRANULARITY_CHECK:
+                item["scan_scope"] = "full_text"
+                item["remaining_result_broadcast_chain"] = False
+                item["remaining_granularity_shrinkage"] = False
+                item["source_scenes_checked"] = [
+                    {
+                        "target_scene": "测试场",
+                        "target_quote": "他没说话。",
+                        "source_granularity": "原文先用沉默承压，再让物件或站位变化承接关系后果。",
+                        "target_granularity": "当前正文以人物沉默承接现场，不用总结句替代。",
+                        "scene_resistance": "对话没有立刻正答，先停在沉默。",
+                        "control_right_change": "话语权从解释转为现场停顿。",
+                        "information_delay": "人物动机不在本句解释。",
+                        "external_order_or_bystander_pressure": "测试正文无公开场，但已按全文范围确认没有播报链。",
+                        "result_broadcast_chain_judgment": "没有证据出现、众人发问、责任人承认、主角总结离场的链条。",
+                        "decision": "keep",
+                    }
+                ]
+            if item["id"] == GATE.SECTION_FOUR_AXIS_CHECK:
+                item["scan_scope"] = "all_sections"
+                item["all_sections_reviewed"] = True
+                item["section_reviews"] = [
+                    {
+                        "section_id": "1",
+                        "section_role": "opening",
+                        "representative_quote": "原句一。",
+                        "source_granularity_preservation": "已检查原文颗粒度，没有结果播报链。",
+                        "genre_promise_alignment": "测试文本保持追妻关系承诺。",
+                        "process_evidence_smoothness": "无证据流程顺滑问题。",
+                        "interaction_exchange_and_conflict_carrier": "人物沉默承接压力。",
+                        "revision_scope_decision": "keep",
+                        "decision": "keep",
+                    }
+                ]
         receipt["genre_formula_review"] = {
             "status": "completed",
             "selected_genre": "现代都市追妻",
@@ -156,6 +190,8 @@ class PostWriteHumanReviewGateTest(unittest.TestCase):
         self.assertIn("physical_object_space_consequence", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("irreversible_violence_genre_alignment", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("rule_evidence_stiffness_and_liveliness", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("source_granularity_preservation", GATE.REQUIRED_HUMAN_CHECKS)
+        self.assertIn("section_four_axis_review", GATE.REQUIRED_HUMAN_CHECKS)
         self.assertIn("full_text_storyboard_construction_list_review", GATE.REQUIRED_HUMAN_CHECKS)
 
         receipt = self._write_completed_receipt()

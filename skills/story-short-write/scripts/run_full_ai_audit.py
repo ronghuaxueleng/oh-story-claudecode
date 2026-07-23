@@ -677,6 +677,22 @@ PROCEDURAL_STIFFNESS_PROBLEM_TYPES = {
 }
 
 
+CONTENT_SEGMENTATION_DIMENSIONS = {
+    "scene_task",
+    "narrative_mode",
+    "information_function",
+    "dialogue_pattern",
+    "procedural_density",
+    "character_control_state",
+    "emotional_texture",
+}
+
+
+CONTENT_SEGMENTATION_CORE_DIMENSIONS = (
+    CONTENT_SEGMENTATION_DIMENSIONS - {"emotional_texture"}
+)
+
+
 EXCHANGE_AUTHOR_SUBSTITUTE_CUES = [
     "谁都该自己接上",
     "这口气我太熟了",
@@ -887,16 +903,16 @@ def build_subcauses(item: dict, combined: dict) -> list[dict]:
 
     if item_title_matches(item, "流程件和证据件摆放过整齐"):
         add(
-            "证据像案卷一样连续宣读",
-            "时间线、证据链、程序节点排得太工整，会有答辩稿味。",
+            "证据被一次性讲完",
+            "时间线、责任和结论由正文一次性补齐，会有答辩稿味。",
             [item.get("why_it_hits_audit", "")] + item.get("evidence", [])[:3],
-            "让证据分两次以上漏出，中间插入翻找、打断、质疑和迟滞。",
+            "先删掉一层解释或完整认责，让剩余信息由人物自保、误判或争夺控制权时自然漏出；禁止为拆链额外添加卡顿、误触、掉落和无关打断。",
         )
         add(
-            "手续流不卡壳",
-            "流程只负责推进，不负责制造阻力，场面就会被看成整理后的说明件。",
+            "流程替人物完成冲突",
+            "程序动作直接把真相、责任和后果送到位，人物欲望没有真正改变过程。",
             find_related_paragraph_evidence(item, combined, 2),
-            "把程序动作改成有人拦、有人催、有人插话，别一路顺着宣读完。",
+            "保留现实中本来就顺畅的手续，只把承重冲突移回人物的自保、护短、抢定义权或拒绝交出控制权；没有场景因果支撑时，不得硬补旁人插话或设备故障。",
         )
 
     if item_title_matches(item, "人物偏手没有立住"):
@@ -1860,17 +1876,17 @@ _SEGMENT_PROMPT_TMPL = """\
 - 低 AIGC 信号区（高困惑度）：心理流动与感知碎片、不对称句式、叙述者内在独白、情绪漂移、细节感知（气味/声音/触感）→ 语言不可预测性强
 
 切分规则：
-1. 在 AIGC 信号密度发生显著跃变的段落边界处切分；不在章节边界或叙事场景切换处切分（除非同时伴随语言可预测性的显著变化）
-2. 最小段长约束：每段字符数不得少于 200 字；若某边界会产生 < 200 字的段，延后至下一个满足约束的段落锚点
-3. 同质区合并：连续多章若 AIGC 信号密度相近（均为低密度叙述），归为一段，不因章节边界拆开
-3.5. 短高密度尖峰（micro-spike）：若文中出现一段 200-500 字的集中程序化场景（如急诊挂号流程、填表签字、手续办理），其前后 AIGC 信号与相邻内容有显著落差（≥0.15 差值），必须单独切出，不得与前后低密度段合并
-4. 目标段数与正文 AIGC 分布一致，通常为 1-13 段，即返回 0-12 个边界；若全文信号高度一致（整体高 AIGC 或整体低 AIGC），可返回 0 个边界（一整段）
-5. 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置
-6. 必须读取完整正文，不能只看开头、摘要或章节标题
-7. 不调用外部 API、Claude CLI 或其他模型；由当前执行 skill 的模型人工完成
-8. 回填 receipt 中的 boundaries、boundary_evidence、manual_judgment、status
-9. 每个 boundary_evidence 必须写明 offset、该段开头原句（quote）和为什么在这里切（reason）
-10. 禁止将边界仅对齐章节标题（## N）：若某候选边界落在章节起始 5 字内，但该章节边界前后 AIGC 信号密度无显著变化，必须放弃该边界，重新选择段落内的密度跃变点
+1. 先完成 content_driven_segmentation_review.content_regions，按全文顺序标注每个连续内容区的 scene_task、narrative_mode、information_function、dialogue_pattern、procedural_density、character_control_state；禁止先定段数、先看长度或先按章节切窗，再倒填内容理由
+2. 只有以下维度中至少两项同时发生且在边界前后持续成立，才允许切分：scene_task、narrative_mode、information_function、dialogue_pattern、procedural_density、character_control_state、emotional_texture；其中至少一项必须来自 emotional_texture 之外的结构/语言功能维度
+3. 单纯章节换号、地点变化、人物进出、一个术语、一个短句、一个情绪词或字符数达到某值都不构成边界；无法明确回答“切前是什么、切后是什么、变化为何持续”时不得切
+4. 禁止为了窗口长度接近、段数好看、覆盖均匀或模拟外部检测器分块而切分；0-12 个边界只是输出安全上限，不是目标段数
+5. 同质区必须合并：连续多章若内容状态与 AIGC 信号密度相近，归为一段，不因章节边界拆开；全文高度同质时必须认真考虑 0 个边界，并写明零边界裁决
+6. 短高密度尖峰（micro-spike）只能由集中程序化语言与前后内容状态的持续落差证明，不能由“约 200-500 字”本身证明；单句尖峰或短暂波动不得切窗
+7. 多个候选位置相近时，选择内容状态真正稳定切换的位置，不选最接近目标字数或章节起点的位置；boundary_evidence.candidate_comparison 必须说明相邻候选取舍
+8. 边界必须从 task 中的 paragraph_anchors.start_char 选择，不得估算字符位置；最终窗口仍不得少于 200 字，但该限制只能用于放弃不稳定短波动，不能把真实边界平移到接近目标长度的位置
+9. 必须读取完整正文，不能只看开头、摘要或章节标题；不调用外部 API、Claude CLI 或其他模型，由当前执行 skill 的模型人工完成
+10. 回填 receipt 中的 content_driven_segmentation_review、boundaries、boundary_evidence、manual_judgment、status
+10.1. 每个 boundary_evidence 必须填写 offset、quote、before_content_state、after_content_state、changed_dimensions、persistence_evidence、candidate_comparison、chapter_or_section_boundary_only=false、length_balancing_used=false、reason
 10.5. 每个最终窗口必须估算 AIGC 值并回填至 segment_scores，格式：{{start, end, aigc_estimate, label}}
     - aigc_estimate：0.00-1.00 的浮点数，根据窗口语言特征判断
       · 高程序化场景（挂号/填表/手续/格式化动作序列）→ 0.60-0.85
@@ -1909,21 +1925,28 @@ _SEGMENT_PROMPT_TMPL = """\
    - workflow_log_feel：像流程日志、状态记录、会议纪要，而不是人物在现场受阻；
    - evidence_inventory_feel：证据、物件、文件一件件上桌，像作者摆道具；
    - triple_status_receipt：三连回执、三连状态、三项条件或三套预案过于工整；
-   - procedure_too_smooth：手续推进过顺，出去打电话、回来资料齐，缺阻力和扯皮；
+   - procedure_too_smooth：手续直接替人物完成真相、责任和后果，人物欲望没有改变流程；现实中本来顺畅的手续不得仅因“没卡壳”判错；
    - multi_task_sentence：一句话完成导出、交接、发送、签字、归档等多个任务；
    - character_reaction_replaced_by_process：人物情绪和反应被流程、回执、权限变化替代；
-   - insufficient_scene_resistance：缺临场打断、误读、手忙脚乱、旁人插话、物件摩擦；
+   - insufficient_scene_resistance：承重冲突缺少由人物欲望、误判、能力边界、权限冲突或物件物理属性自然产生的阻力；禁止用卡顿、误触、掉落、写错、摔倒或无关插话机械补毛边；
    - storyboard_or_construction_list：一句一个动作/证据/反应，或规则 A 执行、证据 B 展示、边界 C 落地。
 26. 每个 label 为“疑似AI”或“AI特征”的窗口，window_reviews 中必须至少有一条 status=needs_revision 的具体病灶，除非明确填写 problem_type=none_found 并用原文证明该窗口其实是人物现场反应，不是流程清单。
-27. 每条病灶必须写 quote、paragraph_range、why_ai_like、fix_direction、priority、must_revise。quote 必须来自正文原句；fix_direction 必须能直接指导改文，例如“把三连回执拆成手机卡顿、旁人打断、男主误读屏幕”，不能写“增强人味”。
+27. 每条病灶必须写 quote、paragraph_range、why_ai_like、fix_direction、priority、must_revise。quote 必须来自正文原句；fix_direction 必须能直接指导改文，例如“删掉男主完整认责，让他先护项目时被第三人一句话反咬”，不能写“增强人味”。fix_direction 不得把手机卡顿、设备故障、误触、掉落、摔倒或旁人插话当成通用去 AI 手段。
 28. procedural_stiffness_review.summary 必须汇总高优先级段落，回答：最像外部检测器会抓的 3-8 处在哪里、为什么抓、先改哪几处。若有 must_revise=true，不得把正式审计说成已通过。
 
+跨节连续形状复核（必须独立执行，不能被人工分段替代）：
+29. 填写 cross_section_block_shape_review。人工分段继续按真实 AIGC 信号跃变切分，不按固定字数硬切；本复核改为逐个检查相邻小节边界前后合并后的成文形状。
+30. 每一对相邻小节都必须说明：两节合看是否连续完成过多主线功能、物件是否全功能化、对白是否连续对题、控制权换主模板是否同构；不能因为两节各自通过就默认合并后通过。
+31. 逐项分类只能是 source_like / craft_tradeoff / draft_extra_ai_shell。只有 draft_extra_ai_shell 可以进入修改单；但若相邻场连续重复“文件/证据出现 -> 男主失位 -> 女主落边界 -> 现实后果”，不得用 source_like 直接放行。
+32. 任何 adjacent_section_review.decision=revise 或 must_revise=true 时，cross_section_block_shape_review.status 不得标 completed，正式审计必须停止并先回正文。
+
 判断顺序：
-① 先扫描全文，对每个段落标注 AIGC 信号密度（高/低）
-② 标记四类规则在全文的局部变化点和跨窗重复风险
-③ 找出同时满足信号跃变、规则变化和段落可读性的候选边界
-④ 合并相邻同质段，检查最小段长约束（< 200 字则延后；200-500 字的 micro-spike 高密度段不合并，保留）
-⑤ 从满足约束的 paragraph_anchors.start_char 中选出最终边界，并回填边界的规则证据
+① 完整读取全文，先建立覆盖 0 到正文末尾的 content_regions 内容地图
+② 在内容地图上标记四类规则的局部变化点和跨窗重复风险，不预设段数和长度
+③ 只保留至少两项内容维度同步变化、且前后都有持续证据的候选边界
+④ 比较相邻候选，剔除章节换号、单句波动、长度均衡和不持续变化造成的伪边界
+⑤ 合并相邻同质区；全文同质时保留零边界，不得为了“需要分段”强切
+⑥ 最后才检查 200 字安全下限，从 paragraph_anchors.start_char 选最终边界，并完整回填内容驱动证据
 
 正文路径：{source_path}
 正文 SHA256：{text_sha256}
@@ -1935,6 +1958,20 @@ _SEGMENT_PROMPT_TMPL = """\
 
 def text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def build_text_binding(source_path: Path, text: str) -> dict:
+    return {
+        "path": str(source_path.resolve()),
+        "sha256": file_sha256(source_path),
+        "char_count": len(text),
+        "word_count": count_fanqie(text),
+        "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
+    }
 
 
 def build_manual_model_segmentation_task(
@@ -1992,6 +2029,16 @@ def build_manual_model_segmentation_task(
         ],
         "boundaries": [],
         "boundary_evidence": [],
+        "content_driven_segmentation_review": {
+            "status": "pending",
+            "full_text_mapped_before_cutting": False,
+            "length_or_section_driven": None,
+            "zero_boundary_considered": False,
+            "homogeneous_full_text": None,
+            "content_regions": [],
+            "zero_boundary_reason": "",
+            "manual_judgment": "",
+        },
         "segment_scores": [],
         "sequence_review": {
             "status": "pending",
@@ -2023,6 +2070,13 @@ def build_manual_model_segmentation_task(
             "status": "pending",
             "reviewed_full_text": False,
             "window_reviews": [],
+            "summary": "",
+            "must_revise_count": 0,
+        },
+        "cross_section_block_shape_review": {
+            "status": "pending",
+            "reviewed_full_text": False,
+            "adjacent_section_reviews": [],
             "summary": "",
             "must_revise_count": 0,
         },
@@ -2081,6 +2135,84 @@ def validate_manual_model_segmentation_receipt(
         if value not in anchor_map:
             errors.append(f"人工模型分段边界未对齐段落起点: {value}")
 
+    content_review = receipt.get("content_driven_segmentation_review")
+    content_region_boundaries: set[int] = set()
+    if not isinstance(content_review, dict):
+        errors.append("人工模型分段回执缺少内容驱动切分复核")
+    else:
+        if content_review.get("status") != "completed":
+            errors.append("内容驱动切分复核 status 必须为 completed")
+        if content_review.get("full_text_mapped_before_cutting") is not True:
+            errors.append("内容驱动切分必须先完成全文内容地图")
+        if content_review.get("length_or_section_driven") is not False:
+            errors.append("人工窗口不得由长度、段数或章节边界驱动")
+        if content_review.get("zero_boundary_considered") is not True:
+            errors.append("内容驱动切分必须明确考虑零边界方案")
+        if not str(content_review.get("manual_judgment") or "").strip():
+            errors.append("内容驱动切分复核缺少整体人工判断")
+
+        content_regions = content_review.get("content_regions")
+        if not isinstance(content_regions, list) or not content_regions:
+            errors.append("内容驱动切分复核缺少 content_regions 全文内容地图")
+            content_regions = []
+        expected_region_start = 0
+        required_region_fields = (
+            "dominant_scene_task",
+            "narrative_mode",
+            "information_function",
+            "dialogue_pattern",
+            "procedural_density",
+            "character_control_state",
+            "judgment",
+        )
+        for index, region in enumerate(content_regions, 1):
+            if not isinstance(region, dict):
+                errors.append(f"内容地图区域格式错误[{index}]")
+                continue
+            start = region.get("start")
+            end = region.get("end")
+            if (
+                not isinstance(start, int)
+                or isinstance(start, bool)
+                or not isinstance(end, int)
+                or isinstance(end, bool)
+                or start != expected_region_start
+                or end <= start
+                or end > len(text)
+            ):
+                errors.append(f"内容地图必须连续覆盖全文且区间合法[{index}]")
+                continue
+            if start > 0:
+                content_region_boundaries.add(start)
+            expected_region_start = end
+            for field in required_region_fields:
+                if not str(region.get(field) or "").strip():
+                    errors.append(f"内容地图区域缺少 {field}[{index}]")
+        if content_regions and expected_region_start != len(text):
+            errors.append("内容地图必须从 0 连续覆盖到正文末尾")
+
+        homogeneous = content_review.get("homogeneous_full_text")
+        zero_reason = str(content_review.get("zero_boundary_reason") or "").strip()
+        if normalized:
+            if homogeneous is not False:
+                errors.append("存在人工边界时 homogeneous_full_text 必须为 false")
+        else:
+            if homogeneous is not True:
+                errors.append("零边界时必须确认 homogeneous_full_text=true")
+            if len(content_regions) != 1:
+                errors.append("零边界时全文内容地图必须合并为一个同质区域")
+            if not zero_reason:
+                errors.append("零边界时必须填写 zero_boundary_reason")
+
+        missing_map_boundaries = [
+            value for value in normalized if value not in content_region_boundaries
+        ]
+        if missing_map_boundaries:
+            errors.append(
+                "人工边界必须来自内容地图的稳定状态切换: "
+                + " / ".join(str(value) for value in missing_map_boundaries)
+            )
+
     evidence = receipt.get("boundary_evidence")
     if not isinstance(evidence, list) or len(evidence) != len(normalized):
         errors.append("boundary_evidence 必须与 boundaries 一一对应")
@@ -2102,6 +2234,59 @@ def validate_manual_model_segmentation_receipt(
                 errors.append(f"边界证据原句与段落起点不一致: {value}")
             if not reason:
                 errors.append(f"边界证据缺少人工判断: {value}")
+            if not str(item.get("before_content_state") or "").strip():
+                errors.append(f"边界证据缺少切分前内容状态: {value}")
+            if not str(item.get("after_content_state") or "").strip():
+                errors.append(f"边界证据缺少切分后内容状态: {value}")
+
+            changed_dimensions = item.get("changed_dimensions")
+            if not isinstance(changed_dimensions, list) or len(changed_dimensions) < 2:
+                errors.append(f"边界至少需要两项持续变化维度: {value}")
+                changed_dimensions = []
+            invalid_dimensions = [
+                str(dimension)
+                for dimension in changed_dimensions
+                if dimension not in CONTENT_SEGMENTATION_DIMENSIONS
+            ]
+            if invalid_dimensions:
+                errors.append(
+                    f"边界包含无效内容变化维度 {value}: "
+                    + " / ".join(invalid_dimensions)
+                )
+            if len(changed_dimensions) != len(set(changed_dimensions)):
+                errors.append(f"边界变化维度不得重复凑数: {value}")
+            if not CONTENT_SEGMENTATION_CORE_DIMENSIONS.intersection(
+                changed_dimensions
+            ):
+                errors.append(f"边界不能只靠情绪纹理变化切分: {value}")
+
+            persistence = item.get("persistence_evidence")
+            if not isinstance(persistence, dict):
+                errors.append(f"边界证据缺少前后持续性证明: {value}")
+            else:
+                before_quote = str(persistence.get("before_quote") or "").strip()
+                after_quote = str(persistence.get("after_quote") or "").strip()
+                if not before_quote or text.rfind(before_quote, 0, value) < 0:
+                    errors.append(f"边界前持续性原句不在边界之前: {value}")
+                if not after_quote or text.find(after_quote, value) < 0:
+                    errors.append(f"边界后持续性原句不在边界之后: {value}")
+
+            comparison = item.get("candidate_comparison")
+            if not isinstance(comparison, dict):
+                errors.append(f"边界证据缺少相邻候选取舍: {value}")
+            else:
+                if comparison.get("considered_nearby_positions") is not True:
+                    errors.append(f"边界未确认已比较相邻候选: {value}")
+                if comparison.get("selected_for_stable_transition") is not True:
+                    errors.append(f"边界未证明选择了稳定内容切换点: {value}")
+                if comparison.get("length_proximity_ignored") is not True:
+                    errors.append(f"边界未证明已排除长度接近因素: {value}")
+                if not str(comparison.get("judgment") or "").strip():
+                    errors.append(f"边界相邻候选取舍缺少人工判断: {value}")
+            if item.get("chapter_or_section_boundary_only") is not False:
+                errors.append(f"边界不得仅由章节或小节边界成立: {value}")
+            if item.get("length_balancing_used") is not False:
+                errors.append(f"边界不得用于平衡窗口长度: {value}")
 
     if not str(receipt.get("manual_judgment") or "").strip():
         errors.append("人工模型分段回执缺少整体判断")
@@ -2378,6 +2563,93 @@ def validate_manual_model_segmentation_receipt(
                 errors.append(
                     f"疑似 AI 窗口必须给出具体病灶或 none_found 反证: window {i}"
                 )
+
+    cross_section_review = receipt.get("cross_section_block_shape_review")
+    if not isinstance(cross_section_review, dict):
+        errors.append("人工模型分段回执缺少跨节外部分块形状复核")
+    else:
+        if cross_section_review.get("status") != "completed":
+            errors.append("跨节外部分块形状复核 status 必须为 completed")
+        if cross_section_review.get("reviewed_full_text") is not True:
+            errors.append("跨节外部分块形状复核必须确认已完整阅读正文")
+        if not str(cross_section_review.get("summary") or "").strip():
+            errors.append("跨节外部分块形状复核缺少 summary")
+
+        section_ids = re.findall(r"(?m)^\s*(\d+)\.\s*$", text)
+        expected_pairs = list(zip(section_ids[:-1], section_ids[1:]))
+        adjacent_reviews = cross_section_review.get("adjacent_section_reviews")
+        if not isinstance(adjacent_reviews, list):
+            errors.append("跨节连续形状复核 adjacent_section_reviews 必须是列表")
+            adjacent_reviews = []
+        valid_classifications = {
+            "source_like",
+            "craft_tradeoff",
+            "draft_extra_ai_shell",
+        }
+        valid_scopes = {
+            "keep",
+            "sentence_hotspot",
+            "paragraph_cluster",
+            "full_scene",
+            "coarse_block",
+            "global_structure",
+        }
+        reviewed_pairs: set[tuple[str, str]] = set()
+        must_revise_count = 0
+        for index, item in enumerate(adjacent_reviews, start=1):
+            if not isinstance(item, dict):
+                errors.append(f"跨节连续形状复核格式错误[{index}]")
+                continue
+            before_section = str(item.get("before_section") or "").strip()
+            after_section = str(item.get("after_section") or "").strip()
+            reviewed_pairs.add((before_section, after_section))
+            boundary_quote = str(item.get("boundary_quote") or "").strip()
+            if not boundary_quote or boundary_quote not in text:
+                errors.append(f"跨节连续形状复核 boundary_quote 不在正文[{index}]")
+            for field in (
+                "combined_progression_shape",
+                "object_functionality",
+                "dialogue_on_topic",
+                "control_pattern_isomorphism",
+                "judgment",
+            ):
+                if not str(item.get(field) or "").strip():
+                    errors.append(f"跨节连续形状复核缺少 {field}[{index}]")
+            if item.get("classification") not in valid_classifications:
+                errors.append(f"跨节连续形状复核 classification 无效[{index}]")
+            if item.get("revision_scope") not in valid_scopes:
+                errors.append(f"跨节连续形状复核 revision_scope 无效[{index}]")
+            decision = item.get("decision")
+            if decision not in {"keep", "revise"}:
+                errors.append(f"跨节连续形状复核 decision 无效[{index}]")
+            must_revise = item.get("must_revise")
+            if not isinstance(must_revise, bool):
+                errors.append(f"跨节连续形状复核 must_revise 必须是布尔值[{index}]")
+            elif must_revise:
+                must_revise_count += 1
+                if decision != "revise":
+                    errors.append(
+                        f"跨节连续形状 must_revise=true 必须对应 revise[{index}]"
+                    )
+            if decision == "revise" and item.get("classification") != "draft_extra_ai_shell":
+                errors.append(
+                    f"跨节连续形状只有 draft_extra_ai_shell 可进入修改单[{index}]"
+                )
+
+        missing_pairs = [
+            f"{before}->{after}"
+            for before, after in expected_pairs
+            if (before, after) not in reviewed_pairs
+        ]
+        if missing_pairs:
+            errors.append(
+                "跨节连续形状复核缺少相邻小节: " + " / ".join(missing_pairs)
+            )
+        declared_count = cross_section_review.get("must_revise_count")
+        if declared_count != must_revise_count:
+            errors.append("跨节连续形状 must_revise_count 与逐条记录不一致")
+        if must_revise_count:
+            errors.append("跨节连续形状仍有 must_revise 项，必须先回正文修改")
 
     if sequence_context:
         sequence_review = receipt.get("sequence_review")
@@ -5790,7 +6062,9 @@ def main() -> int:
     )
 
     combined = {
+        "version": "1.1",
         "file": str(file_path),
+        "text": build_text_binding(file_path, source_text),
         "model_segmentation_receipt": (
             str(model_segmentation_receipt_path)
             if model_segmentation_receipt_path

@@ -510,6 +510,9 @@
 - `book.profile.json.migration_assets` 是否完整含有 `object_substitutes / scene_substitutes / action_substitutes / dialogue_substitutes / role_bias_variants`，且每类按字数档达到 `4 / 3 / 2`
 - `profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 是否都写了基于本书归纳的 `桥段角色`
 - 每张桥段施工卡是否有 `一句人话抓手`，且不是“权限/秩序/现实后果/承重结构”一类抽象术语拼接
+- `子流程施工卡.md / 子流程索引.jsonl` 是否已把每个 BID 下钻成完整 `SF-*`
+- 每个 `SF-*` 是否保留进场状态、连续动作/反应顺序、信息延迟、控制权变化和场末状态，而不是只有功能名
+- `子流程索引.jsonl` 是否逐条回指同名施工卡、父 BID 和至少两条真实原文证据
 - `story_guardrails.character_face_split` 是否完整含有非空的 `different_face_evidence / reaction_order_split / action_authority_split`
 - `story_guardrails.consequence_structure` 是否完整含有非空的 `pre_evidence_reality_consequences / consequence_rebound_modes / tail_entry_owner / tail_entry_exclusion_reason`
 

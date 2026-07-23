@@ -79,6 +79,8 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "本书动态信号字典.json",
         "profile_source.md",
         "桥段施工卡.md",
+        "子流程施工卡.md",
+        "子流程索引.jsonl",
     ],
 )
 
@@ -318,6 +320,8 @@ ASSET_LANES = {
         "写作资产/仿写约束_禁写清单.md",
         "写作资产/同桥段过检规则.md",
         "写作资产/桥段施工卡.md",
+        "写作资产/子流程施工卡.md",
+        "写作资产/子流程索引.jsonl",
     ],
 }
 
@@ -480,6 +484,52 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "反刀拍",
             "峰值拍",
             "场末余痛",
+        ],
+    },
+    "写作资产/子流程施工卡.md": {
+        "card_heading": "## SF-xx 独一子流程名",
+        "required_card_labels": [
+            "父桥段",
+            "原文位置",
+            "进场状态",
+            "必须保留的连续顺序",
+            "场面颗粒",
+            "信息延迟",
+            "控制权变化",
+            "情绪顺序",
+            "场末状态",
+            "可嵌入位置",
+            "不兼容条件",
+            "原文证据",
+        ],
+        "rules": [
+            "每个 BID 至少下钻出一个完整 SF",
+            "SF 是连续子流程，不是动作、物件或对白零件",
+        ],
+    },
+    "写作资产/子流程索引.jsonl": {
+        "format": "每行一个 JSON 对象",
+        "required_fields": [
+            "subflow_id",
+            "source_book",
+            "parent_bridge_id",
+            "name",
+            "source_range",
+            "function_tags",
+            "entry_state",
+            "required_sequence",
+            "scene_granularity",
+            "information_delay",
+            "control_changes",
+            "emotion_sequence",
+            "end_state",
+            "embeddable_after",
+            "incompatible_with",
+            "source_evidence",
+        ],
+        "rules": [
+            "JSONL 与同名施工卡一一对应",
+            "required_sequence 至少两步，source_evidence 至少两条",
         ],
     },
 }
@@ -1459,6 +1509,7 @@ def write_execution_prompt(
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
         "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
+        "- 每个 BID 必须继续下钻成一个或多个完整 `SF-*`；`子流程施工卡.md / 子流程索引.jsonl` 保留进场状态、连续顺序、信息延迟、控制权变化和场末状态，禁止拆成零件池",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：结构/章尾、主角不规则性、专业细节功能性、全文对白模式；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",

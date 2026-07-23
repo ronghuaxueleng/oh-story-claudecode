@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.8.1
+  version: 1.8.2
 ---
 
 # story-short-write：短篇网文写作
@@ -63,6 +63,7 @@ metadata:
 - `validate_sequence_contract.py`
 - `validate_outline_performance_contract.py`
 - `validate_post_write_human_review_gate.py`
+- `validate_final_artifact_bindings.py`
 - `validate_zhihu_section_format.py`
 - `count_words.py`
 - `generate_story_profile.py`
@@ -153,7 +154,7 @@ metadata:
 42. **算法窗口永远不能代替人工窗口**：未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束写作任务。
 43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。其中正文字符数必须统一使用 `count_words.py` 的番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符；禁止用估算、编辑器统计或其他临时脚本替代。
 44. **人工窗口前必须先做通用规则/拆书资产定向回修**：正文初稿或上一轮正文完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
-45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。人工窗口还必须逐窗填写 `procedural_stiffness_review`，把 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 汇总成正式审计和施工单里的可改问题；只给 AIGC 分数、不列具体原句和改法，视为人工窗口未完成。
+45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。人工窗口还必须逐窗填写 `procedural_stiffness_review`，把 `流程日志感 / 证据清单感 / 三连状态回执 / 手续替人物完成冲突 / 一句完成多任务 / 人物反应被流程替代 / 因果阻力缺失 / 人工毛边反检 / 分镜或施工稿` 汇总成正式审计和施工单里的可改问题。现实中本来顺畅的手续不得仅因“没卡壳”判错；只给 AIGC 分数、不列具体原句和改法，视为人工窗口未完成。
 46. **窗口前回修后必须重新绑定正文**：正文 SHA、字符数或任何正文句子变化都会使窗口前回修回执和人工分段回执同时失效；必须先重新执行窗口前规则/资产回修，再重新导出并人工切窗。
 47. **全局成文形状必须单独审查**：局部窗口通过不能替代全文检查；必须检查章节弧线同构、章尾收束重复、主角连续正确、专业细节功能性和全文对白模式变化。
 48. **四项全局审查缺一不可**：`global_structure_and_chapter_endings`、`protagonist_irregularity_and_agency`、`technical_detail_function`、`dialogue_pattern_variation` 必须进入写后人工复核回执；缺项、空证据或未裁决都阻断。
@@ -199,7 +200,13 @@ metadata:
 88. **原文颗粒度高于审计清零**：仿写稿完成条件是主体 BID 全集、情绪拍序、信息延迟、物件/空间/身份换主与原文同级成立，再清掉基础语句类 AI 痕迹。若一轮修改让轻审计更干净，但把公开掉位、最后期待、旧物侵占、公开反噬、现实结清等原文颗粒写弱，视为失败。
 89. **基线差值必须按规则 ID 人工裁决**：`compare_source_baseline_audit.py` 的总分差只能诊断，不得单独输出正文回炉结论；必须同时查看 `heavy_rule_comparison.shared_baseline_rules` 与 `draft_extra_rules`。原文和新稿共同命中的重审计规则属于基线噪声，不得因总分差机械降分；只对新增轻审计类型或新增重审计规则按整场/段落簇检查“人物有没有偏手、对白有没有真实接招、冲突载体有没有换主、手续有没有阻力”。只有确认是新稿新增机械壳，才进入正文回修。
 90. **审计回执必须区分保留项和返修项**：正式审计或回炉计划中必须把问题标为 `source_like / craft_tradeoff / draft_extra_ai_shell` 之一。`source_like` 和 `craft_tradeoff` 可以保留但要说明情节功能；`draft_extra_ai_shell` 才能进修改单。禁止把所有脚本命中统一写成“AI 味待删”。
-91. **只迁移颗粒度必须使用独立模式**：用户明确要求“借原文颗粒度、自造情节”时，细纲表演验收必须使用 `source_mode: granularity_only`。该模式不要求迁移主体 BID 身份或完整桥段流程，但仍须逐节绑定原文真实场面，迁移同级事件拍密度、信息延迟、动作/物件/空间控制权变化和情绪烈度，并在 `granularity_transfer_contract` 中列出目标原创场景及明确拒绝的原文人物、职业、物件、关系和结局表层元素。禁止为了通过旧的逐桥对齐闸，把原创实验偷写成换皮复刻。
+91. **`granularity_only` 仍必须迁移主书全部颗粒**：该模式只表示“不复制主书人物、职业、物件和具体情节身份”，不表示可以把主书概括成五拍、密度、换主次数或表演参数。初始化必须读取主书 `写作资产/子流程索引.jsonl`，将全部 `SF-*` 按原顺序写入 `required_subflow_ids`；`granularity_transfer_contract` 必须逐条覆盖，完整保留每条 SF 的 `required_sequence / scene_granularity / information_delay / control_changes / end_state`。缺一条、合并两条、改变顺序或用同一句概括多条，均阻断正文。
+92. **每个主书颗粒内部再选择子流程来源**：`child_flow_mode=original_constructed` 时，目标人物、职业、物件和具体动作可以自由构造，但必须在当前主书 SF 的完整边界内展开，不能跳过或压缩主颗粒；填写 `target_scene_causal_chain / target_child_flow / anti_functionalization_guard / artificial_friction_guard`。`child_flow_mode=library_selected` 时，只能从选中辅助书或 `资料库/子流程总索引.jsonl` 绑定一条完整辅助 `SF-*`，并完整继承其顺序、场面颗粒、信息延迟、控制权变化和场末状态。禁止从多书抽动作、物件、对白等零件混拼成场景。
+93. **结果播报链必须按原文颗粒度反证**：公开清算、复核、审判、直播、会议、婚礼、调查、签字、声明等高价值场，不得用 `证据出现 -> 众人发问 -> 责任人承认 -> 主角离场/总结` 这种完整结果播报链收束。写后人工复核必须逐场检查是否有同级现场阻力：谁抢话、谁卡住手续、哪个物件/屏幕/话筒/门/证物袋换主，旁观者或外部秩序如何压人，人物是否先错答或迟疑，信息是否分两次以上漏出。若只能概括为“真相公开了、现场混乱了、他说对了”，视为原文颗粒度缩水和 AI 壳新增，不得放行。
+94. **写后必须逐段四轴复查，禁止只按单一标签修文**：正文写完或任一局部回炉后，当前模型必须按正文小节逐段输出 `section_four_axis_review`，每节同时检查四件事：`source_granularity_preservation` 原文/拆书颗粒度是否缩水；`genre_promise_alignment` 强情绪追妻承诺是否跑成职业流程或冷处理说明；`process_evidence_smoothness` 报告、权限、复核、签字、声明、证据是否太顺太像案卷；`interaction_exchange_and_conflict_carrier` 人物是否真实接招、现场控制权是否变化。开头不只检查成品感，还必须查承重顺序、关系锚、起事速度、物件功能、对白对题和作者盖章；尾部不只检查说明句，还必须查追妻低位、女主边界动作、结尾完成感、复合入口误开和男主是否只剩功能性补偿。任一节四轴中有 `revise`，必须先判回修粒度，再改正文；不得用“本节脚本未命中”代替人工复核。
+95. **最终产物必须通过统一 SHA 清单，禁止同路径旧报告冒充当前结果**：`run_full_ai_audit.py` 产出的 `full_audit.json` 必须显式写入 `text.path / text.sha256`；`compare_source_baseline_audit.py` 必须同时绑定主体原文审计、目标正文审计及两篇文本 SHA，旧结构审计或正文变化后一律阻断。正文冻结后必须运行 `validate_final_artifact_bindings.py`，统一核对开头契约、顺序契约、规则台账、窗口前回执、人工分段、局部扫描、正式审计、仿写基线和写后人工回执是否全部绑定同一最终正文 SHA。`rebuild_order` 非空或清单 `gate_status != passed` 时，只能按清单顺序重建，禁止继续完成态；文件名和路径相同不能证明产物是当前版本。
+96. **外部检测器可能跨小节合并，必须做相邻小节连续形状复核**：人工分段仍按真实 AIGC 信号跃变确定边界，禁止为了模拟外部检测器按固定字数硬切。写后必须执行 `cross_section_block_shape_review`，逐对检查相邻小节合并后的完整推进链、物件全功能化、对白连续对题和控制权换主同构；逐节四轴通过不能替代跨节检查。若多个场连续重复 `文件/证据出现 -> 男主失位 -> 女主落边界 -> 现实后果`，即使单场有卡顿和生活毛边，也必须按 `coarse_block` 判断是否属于 `draft_extra_ai_shell`。最终 SHA 清单除了路径和哈希，还必须核对规则台账、人工分段、写后人工复核等关键产物自身状态，`pending / blocked / 缺状态字段` 一律不得标 `passed`。
+97. **人工窗口必须先做全文内容地图，禁止按长度切完再倒填理由**：执行人工分段时，先在 `content_driven_segmentation_review.content_regions` 中连续覆盖全文，逐区标注场景主任务、叙述方式、信息功能、对白模式、流程密度和人物控制状态，再决定是否存在边界。只有至少两项内容维度同步且持续变化，并且至少一项属于情节/语言功能而非单纯情绪纹理时，才能切窗；章节换号、地点变化、人物进出、单句尖峰、目标字数、窗口等长和段数好看都不能单独成立。每个 `boundary_evidence` 必须证明切前状态、切后状态、前后持续原句、相邻候选取舍，并明确 `chapter_or_section_boundary_only=false`、`length_balancing_used=false`。全文同质时允许且应优先保留零边界；旧回执缺内容地图或无法证明稳定跃变时直接阻断。
 
 ---
 
@@ -464,7 +471,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 25. 重新审计
 26. 绑定最终写作产物并通过 `rule_execution_gate`
 27. 全文人工语义复扫并通过 `post_write_human_review_gate`
-28. 高风险任务再过第二闸门
+28. 运行最终产物 SHA 清单并通过 `final_artifact_bindings`
+29. 高风险任务再过第二闸门
 
 这部分展开口径见：
 
@@ -783,6 +791,21 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
   --text "{项目目录}/正文.md" \
   --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"
 ```
+
+最后生成并校验统一 SHA 清单。仿写、融合、同桥或颗粒度迁移任务必须带
+`--imitation`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_final_artifact_bindings.py" \
+  --project "{项目目录}" \
+  --text "{项目目录}/正文.md" \
+  --manifest "{项目目录}/写作资产/最终产物SHA清单.json" \
+  --imitation
+```
+
+该命令输出的 `rebuild_order` 是唯一允许的重建顺序。任何条目缺失、缺
+`text.sha256` 或与最终正文 SHA 不一致，都必须先重建对应产物；不得再用修改时间、
+同名文件或“刚刚运行过”作为当前版本证明。
 
 人工回填 `写后人工语义复核回执.json` 时，除通用 `human_checks` 外必须完成 `genre_formula_review`：
 

@@ -31,8 +31,10 @@
 
 - `validate_writing_rule_gate.py`
 - `validate_source_read_gate.py`
+- `validate_outline_performance_contract.py`
 - `validate_rule_execution_ledger.py`
 - `validate_post_write_human_review_gate.py`
+- `validate_final_artifact_bindings.py`
 - `generate_story_profile.py`
 - `audit_novel_ai_flavor.py`
 - `run_full_ai_audit.py`
@@ -58,6 +60,10 @@
   - 校验主报告、16 表、8 库、写作资产和动态字典是否齐全
   - 校验证据词、读取结论、写作用途、文件哈希和回执时序
   - 未通过时阻断细纲和正文，不允许只读摘要或 profile 开稿
+- `validate_outline_performance_contract.py`
+  - `granularity_only` 自动绑定主书 `子流程索引.jsonl`，强制全部 SF 按原顺序迁移
+  - 每条主 SF 内允许原创完整子流程，或绑定一条完整辅助 SF
+  - 阻断主书颗粒概括/漏项/改序、辅助流程截断和跨书零件混拼
 - `validate_rule_execution_ledger.py`
   - 从写作规则回执和拆文读取回执生成统一逐项执行列表
   - 每个拆书文件都做适用性判断，16 表和承重资产逐规则展开
@@ -76,6 +82,11 @@
   - 校验最终正文 SHA、自动预扫产物、九项人工检查和逐条改写句判断
   - 只校验回执完整性与证据真实性，不替人工判断作者代判、叙述站位或多余解释
   - 局部/专项回炉未绑定母稿、正文修改后沿用旧回执时阻断放行
+- `validate_final_artifact_bindings.py`
+  - 在正文冻结后生成统一的最终产物 SHA 清单
+  - 固定核对开头、顺序、规则台账、窗口前回修、人工分段、局部扫描、正式审计和写后人工回执
+  - 仿写模式额外核对原文基线对照是否绑定当前正文
+  - 任何旧 SHA、缺失产物或旧结构审计都写入 `rebuild_order` 并阻断完成态
 - `generate_story_profile.py`
   - 从拆书资产生成单书 `book.profile.json`
   - 或合成融合 `project.profile.json`
@@ -85,6 +96,7 @@
   - 先导出带正文 SHA 和段落起点的人工模型分段回执，再由当前执行 skill 的模型完整读文并回填边界
   - 不调用外部模型 API 或 Claude CLI；无人工回执时仅使用算法滑窗预扫
   - 短高波动段标为 `high-pulse`，短而无可计算信号的段标为 `short-window-review`
+  - 正式审计 JSON 显式写入正文路径、SHA、字符数和统一字数，禁止同路径旧报告冒充当前结果
 - `audit_novel_ai_flavor.py`
   - 正文级 AI 味审计
   - 输出结构化热点和风险分
@@ -108,6 +120,7 @@
   - 用于同桥仿写、主干仿写、融合仿写的原文基线对照
   - 输入主体原文全量审计 JSON 与当前稿全量审计 JSON，输出分数差、共同命中、额外命中和建议动作
   - 防止把原文有效短句、高密对白、强钩子误判成新稿必须删除的问题
+  - 强制校验两份审计的正文 SHA 和审计文件 SHA；旧审计结构或正文变化后直接阻断
 - `count_words.py`
   - 统一正文、回执和审计中的字数统计口径
   - 番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符
@@ -260,8 +273,9 @@
 13. 最终正文完成后，先通过 `validate_rule_execution_ledger.py`
 14. 重新校验正文 `opening_contract_gate`
 15. 再通过 `validate_post_write_human_review_gate.py`
-16. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
-17. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
+16. 运行 `validate_final_artifact_bindings.py`，统一确认所有最终产物绑定同一正文 SHA
+17. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
+18. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
 
 也就是说：
 

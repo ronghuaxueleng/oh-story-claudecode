@@ -112,14 +112,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 33. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
 34. 生成人工语义复核回执并人工复扫全文
 35. 通过 `post_write_human_review_gate`
-36. 高风险任务再过第二闸门
+36. 运行 `validate_final_artifact_bindings.py` 生成统一 SHA 清单；仿写任务带 `--imitation`
+37. 只有清单 `gate_status=passed` 且 `rebuild_order=[]` 时，才进入高风险第二闸门或完成态
 
 关键原则：
 
 - 规则只用于约束，不替代正文生成
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
 - 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
-- 用户要求“借颗粒度、自造情节”时，细纲表演验收使用 `source_mode: granularity_only`：不强迫主体 BID 全集迁移，但必须用 `granularity_transfer_contract` 覆盖全部目标小节，并逐场证明事件拍密度、信息延迟、控制权变化与原文同级，同时列明拒绝复制的表层元素
+- 用户要求“借颗粒度、自造情节”时使用 `source_mode: granularity_only`，但主书 `子流程索引.jsonl` 中全部 `SF-*` 仍必须按原顺序逐条迁移；不能降成信息延迟、反刀位置、拍数或换主次数等参数概括。
+- 每条主书 SF 内部用 `child_flow_mode` 选择 `original_constructed` 或 `library_selected`。原创允许自由构造目标情节，但不能跳过或压缩主 SF；调用文库时必须绑定一条完整辅助 SF，禁止跨书抽动作、物件、对白零件混拼。
 - 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`
 - 最终设定、大纲或正文 SHA 变化后，规则台账不能只更新 artifacts；所有 canonical 合并规则、成员来源、`text_evidence`、`structural_claim_reviews`、`source_contract_reviews.target_evidence` 和 `scope_reviews` 都必须递归重绑到当前产物真实原句
@@ -134,7 +136,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 人工窗口不是首轮通用规则执行器。正文首稿完成后，必须先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
 - `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
 - 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
-- 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；没有汇总输出不算正式人工窗口审计闭环
+- 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续替人物完成冲突 / 一句完成多任务 / 人物反应被流程替代 / 因果阻力缺失 / 人工毛边反检 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；现实中本来顺畅的手续不得仅因“没卡壳”判错，禁止把卡顿、误触、掉落、摔倒和无关插话当成通用改法；没有汇总输出不算正式人工窗口审计闭环
+- 写后人工语义复核必须填写 `source_granularity_preservation`。公开清算、复核、直播、会议、签字、声明、调查等高价值场必须逐场反证没有缩水成 `证据出现 -> 众人发问 -> 责任人承认 -> 主角总结/离场` 的结果播报链；必须引用正文原句说明现场阻力、控制权变化、信息延迟和外部秩序压力。
 - 窗口人工判断还必须逐节点确认主桥顺序、节点窗口归属和跨窗风险；窗口切分本身不是顺序契约，缺少该复核不得宣称窗口审计完成
 - 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
 - 台账证据不是可复用模板；旧正文证据、旧 SHA、缺来源、残留无关来源或公共证据替代逐来源契约，均视为规则台账未闭环
@@ -499,6 +502,24 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
 ```
 
 正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断，并逐窗完成 `procedural_stiffness_review`。任何 `out_of_order / missing / ambiguous` 都阻断；任何疑似 AI 窗口缺少具体病灶或 `none_found` 反证，也阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
+
+正式审计 JSON 必须包含 `text.path / text.sha256 / text.char_count /
+text.word_count`。同一路径下已有旧报告时，修改时间和文件名都不能证明它绑定当前
+正文；缺少 `text` 绑定的旧审计必须重跑，不做兼容放行。
+
+全文人工复核完成后统一收口：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_final_artifact_bindings.py" \
+  --project 当前短篇目录 \
+  --text 当前短篇目录/正文.md \
+  --manifest 当前短篇目录/写作资产/最终产物SHA清单.json \
+  --imitation
+```
+
+非仿写任务省略 `--imitation`。清单会按固定依赖顺序检查开头契约、顺序契约、
+规则台账、窗口前回执、人工分段、局部扫描、正式审计、原文基线和写后人工回执。
+任一旧 SHA 都写入 `rebuild_order` 并阻断完成态，禁止等到最后一个门禁才零散发现。
 
 ### 8. 生成回修任务单
 

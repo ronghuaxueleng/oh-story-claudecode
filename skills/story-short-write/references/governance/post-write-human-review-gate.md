@@ -30,7 +30,9 @@
 7. `long_window_dialogue_efficiency`：按长窗看，对话是否连续高效推进，缺打断、错位和生活闲枝。
 8. `cross_block_rhythm_contrast`：各长窗的句长、情绪密度和用力程度是否过于一致。
 9. `full_text_storyboard_construction_list_review`：全文是否存在“一句一个动作 / 一句一个证据 / 一句一个反应”的分镜清单，或“规则 A 执行、证据 B 展示、边界 C 落地”的施工稿。
-10. `full_text_legacy_rescan`：不能只审本轮 diff，必须复扫母稿遗留问题。
+10. `source_granularity_preservation`：正文是否保持选中原文或拆书情节的场面颗粒度，不能把公开清算、复核、直播、会议、签字、调查等高价值场写成结果播报链。
+11. `section_four_axis_review`：逐小节同时复查原文颗粒度、强情绪追妻承诺、流程/证据顺滑度、人物交流与冲突载体，不允许只用“开头成品感”“尾部说明句”等单一标签代替。
+12. `full_text_legacy_rescan`：不能只审本轮 diff，必须复扫母稿遗留问题。
 
 每项必须引用当前正文原句，填写语义判断和 `keep / revise / delete` 动作。
 
@@ -42,6 +44,50 @@
 - `allowed_in_story_artifacts`：只记录情节内真实出现的清单、报告、日志、合同、群公告、流程单等文本；每条必须引用正文原句并说明情节功能
 
 如果这类清单感出现在叙述正文、关系场、冲突场、追妻低位、揭示或结尾里，不能标例外，必须先回修为连续现场叙述。
+
+其中 `source_granularity_preservation` 必须额外填写：
+
+- `scan_scope`：必须为 `full_text`
+- `remaining_result_broadcast_chain`：必须为 `false`
+- `remaining_granularity_shrinkage`：必须为 `false`
+- `source_scenes_checked`：逐场列出所有承重场，尤其是公开清算、复核、直播、会议、签字、声明、调查、追妻低位和尾声入口
+
+`source_scenes_checked` 每项必须填写：
+
+- `target_scene`：目标正文场景名
+- `target_quote`：当前正文原句
+- `source_granularity`：选中原文或拆书情节自己的颗粒度，不得只写“同级”
+- `target_granularity`：目标正文实际颗粒度
+- `scene_resistance`：现场阻力，例如抢话、卡顿、手续被拦、物件不顺、人物错答
+- `control_right_change`：动作、物件、空间、身份或外部秩序如何换主
+- `information_delay`：信息如何分次漏出，不能一口气把证据、责任和结论全报完
+- `external_order_or_bystander_pressure`：旁观者、制度、平台、复核人、主持人、门口、话筒、证物袋等如何改变现场
+- `result_broadcast_chain_judgment`：明确反证没有写成 `证据出现 -> 众人发问 -> 责任人承认 -> 主角总结/离场`
+- `decision`：只能是 `keep` 才能放行；若为 `revise/delete`，先改正文再重建回执
+
+如果某场只能概括为“真相公开了、现场混乱了、责任人承认了、主角不需要他发声了”，说明该场没有通过原文颗粒度保持检查。
+
+其中 `section_four_axis_review` 必须额外填写：
+
+- `scan_scope`：必须为 `all_sections`
+- `all_sections_reviewed`：必须为 `true`
+- `section_reviews`：每个正文小节必须有一条记录，正文有 10 节就必须有 10 条
+
+`section_reviews` 每项必须填写：
+
+- `section_id`：正文小节编号
+- `section_role`：本节功能，例如 `opening / midpoint / public_reckoning / aftermath / ending`
+- `representative_quote`：当前正文原句
+- `source_granularity_preservation`：原文/拆书颗粒度是否缩水，必须给判断和证据
+- `genre_promise_alignment`：追妻、婚恋清算、强情绪关系文的题材承诺是否仍成立
+- `process_evidence_smoothness`：流程、证据、权限、复核、签字、声明是否太顺太像案卷
+- `interaction_exchange_and_conflict_carrier`：人物是否真实接招，现场争夺的权力/物件/空间/身份是否发生变化
+- `revision_scope_decision`：`keep / sentence_hotspot / paragraph_cluster / full_scene / coarse_block / global_structure`
+- `decision`：只能是 `keep` 才能通过；若为 `revise`，必须先改正文再重建回执
+
+开头节必须额外在判断中覆盖：承重顺序、关系锚、起事速度、物件是否全服务主线、对白是否太快对题、作者是否提前盖章。
+
+尾声节必须额外在判断中覆盖：追妻低位是否持续、女主边界是否行动化、结尾是否落在完成动作上、是否误开复合入口、男主是否只剩功能性补偿。
 
 其中宏观检查必须结合 `run_full_ai_audit.py` 的
 `rhythm_distribution_audit` 查看全文长窗，不得只凭新增句清单放行。

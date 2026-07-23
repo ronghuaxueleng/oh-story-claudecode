@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,41 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"JSON root must be an object: {path}")
     return data
+
+
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def validate_audit_binding(
+    audit: dict[str, Any],
+    audit_path: Path,
+    label: str,
+) -> dict[str, Any]:
+    text = audit.get("text")
+    if not isinstance(text, dict):
+        raise ValueError(
+            f"{label}缺少 text 正文绑定；这是旧审计，必须重新运行 run_full_ai_audit.py"
+        )
+    raw_text_path = str(text.get("path") or "").strip()
+    recorded_sha = str(text.get("sha256") or "").strip()
+    if not raw_text_path or not recorded_sha:
+        raise ValueError(f"{label}的 text.path/text.sha256 不完整，必须重新审计")
+    text_path = Path(raw_text_path).resolve()
+    if not text_path.is_file():
+        raise ValueError(f"{label}绑定的正文不存在: {text_path}")
+    current_sha = sha256(text_path)
+    if recorded_sha != current_sha:
+        raise ValueError(
+            f"{label}绑定正文已变化: recorded={recorded_sha}, current={current_sha}"
+        )
+    resolved_audit = audit_path.resolve()
+    return {
+        "path": str(resolved_audit),
+        "sha256": sha256(resolved_audit),
+        "text_path": str(text_path),
+        "text_sha256": current_sha,
+    }
 
 
 def total_light_hits(audit: dict[str, Any]) -> int:
@@ -85,7 +121,13 @@ def risk_band(score: float) -> str:
     return "clean"
 
 
-def compare(source: dict[str, Any], draft: dict[str, Any], tolerance: float) -> dict[str, Any]:
+def compare(
+    source: dict[str, Any],
+    draft: dict[str, Any],
+    tolerance: float,
+    source_binding: dict[str, Any],
+    draft_binding: dict[str, Any],
+) -> dict[str, Any]:
     source_heavy = heavy_summary(source)
     draft_heavy = heavy_summary(draft)
     source_score = float(source_heavy.get("score") or 0)
@@ -138,18 +180,28 @@ def compare(source: dict[str, Any], draft: dict[str, Any], tolerance: float) -> 
         )
 
     return {
-        "version": "1.0",
+        "version": "1.1",
         "comparison_mode": "source_baseline_for_imitation",
         "tolerance": tolerance,
         "source": {
-            "file": source.get("file"),
+            "file": source_binding["text_path"],
+            "text_sha256": source_binding["text_sha256"],
+            "audit": {
+                "path": source_binding["path"],
+                "sha256": source_binding["sha256"],
+            },
             "light_hits": total_light_hits(source),
             "heavy_score": source_score,
             "heavy_status": source_heavy.get("status") or risk_band(source_score),
             "line_hit_types": source_types,
         },
         "draft": {
-            "file": draft.get("file"),
+            "file": draft_binding["text_path"],
+            "text_sha256": draft_binding["text_sha256"],
+            "audit": {
+                "path": draft_binding["path"],
+                "sha256": draft_binding["sha256"],
+            },
             "light_hits": total_light_hits(draft),
             "heavy_score": draft_score,
             "heavy_status": draft_heavy.get("status") or risk_band(draft_score),
@@ -192,11 +244,22 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    result = compare(
-        load_json(Path(args.source_audit)),
-        load_json(Path(args.draft_audit)),
-        args.tolerance,
-    )
+    source_audit_path = Path(args.source_audit).resolve()
+    draft_audit_path = Path(args.draft_audit).resolve()
+    try:
+        source_audit = load_json(source_audit_path)
+        draft_audit = load_json(draft_audit_path)
+        result = compare(
+            source_audit,
+            draft_audit,
+            args.tolerance,
+            validate_audit_binding(source_audit, source_audit_path, "主体原文审计"),
+            validate_audit_binding(draft_audit, draft_audit_path, "目标正文审计"),
+        )
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print("source_baseline_audit: blocked")
+        print(f"- {exc}")
+        return 2
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
