@@ -161,7 +161,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 --skill-rule-file "/absolute/path/to/extra-rule.md"
 ```
 
-初始化完成后，先逐项确认规则角色、修复目标、适用性、执行方式、目标阶段和目标场景，再写设定、大纲或正文。可合并项先归一，避免同义规则重复执行；不得写完后统一伪造执行记录。
+初始化完成后，先逐项确认规则角色、修复目标、适用性、执行方式、目标阶段和目标场景，再写设定、大纲或正文。可合并项先归一，避免同义规则重复执行；不得写完后统一伪造执行记录。分类完成后必须先运行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate-prewrite \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+```
+
+写前的 `applicable` 规则允许保持 `status=pending + outcome=pending`，因为最终正文证据尚不存在；但 `canonical_rule_text`、适用性、执行方式、目标阶段、目标场景和具体裁决理由必须已经齐全。写作放行闸会重新调用该校验，不能绕过。
 
 先导出模型复核批次：
 
@@ -214,7 +221,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
   --plan "{项目目录}/写作资产/规则模型归并计划.json"
 ```
 
-`apply-model-groups` 不只是归并工具，也是 canonical 规则裁决入口。每个 group 必须同时完成：
+`apply-model-groups` 不只是归并工具，也是 canonical 规则裁决入口。写前可先提交 `applicable + status=pending + outcome=pending` 的分类计划；最终绑定后再把同一规则补为 `completed + passed` 并填写证据。每个 group 必须同时完成：
 
 - `applicability`：只能是 `applicable / rejected / not_applicable`，不得留空或写 `merged`。
 - `status`：必须是 `completed`，归并计划不得留下 `pending`。
@@ -244,6 +251,17 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 ```
 
 刷新会把 `gate_status` 重置为 `pending`。人工核对汇总无误后再改为 `passed`，不能手填与逐项状态不一致的数量。
+
+## Skill 或来源更新后的增量同步
+
+不要在 skill 规则、专项规则或拆书资产更新后继续使用旧 SHA，也不要为了一个无关小节变动重做整本台账。先运行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" sync-sources \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+```
+
+同步按规则卡的 `rule_text + cases` 判断实质变化：未变化卡保留已有分类、执行记录和正文证据，并刷新来源 SHA；新增或案例文本变化的卡会回到待分类状态。同步后重新过 `validate-prewrite`；若正文已绑定且新增卡尚未补最终证据，最终 `validate` 必须继续阻断。
 
 ## 绑定最终产物
 

@@ -39,7 +39,11 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.files = {}
         self.original_validate_ledger = GATE._RULE_LEDGER_MODULE.validate_ledger
+        self.original_validate_prewrite_ledger = (
+            GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger
+        )
         GATE._RULE_LEDGER_MODULE.validate_ledger = lambda _path: ([], {})
+        GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = lambda _path: []
         self.setting = self.root / "设定.md"
         self.outline = self.root / "大纲.md"
         self.setting.write_text("设定", encoding="utf-8")
@@ -70,8 +74,42 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "outline": self.binding(self.outline),
                 }
             elif name == "setting_sequence":
-                payload["scope"] = "setting"
-                payload["artifacts"] = {"setting": self.binding(self.setting)}
+                payload = {
+                    "gate_status": "passed",
+                    "scope": "setting",
+                    "status": "completed",
+                    "execution_mode": "current_model_manual",
+                    "artifacts": {"setting": self.binding(self.setting)},
+                    "canonical_sequence": [
+                        {
+                            "id": "S1",
+                            "label": "设定起点",
+                            "setting_evidence": [
+                                {
+                                    "quote": "设定",
+                                    "offset": 0,
+                                    "judgment": "设定先给出基础关系。",
+                                }
+                            ],
+                        },
+                        {
+                            "id": "S2",
+                            "label": "设定结果",
+                            "setting_evidence": [
+                                {
+                                    "quote": "设定",
+                                    "offset": 0,
+                                    "judgment": "测试夹具用同一原句承载第二个抽象节点。",
+                                }
+                            ],
+                        },
+                    ],
+                    "conflict_review": {
+                        "setting_internal_status": "passed",
+                        "findings": [],
+                    },
+                    "manual_judgment": "设定内部顺序已由当前模型复核。",
+                }
             elif name == "outline_contract":
                 payload = self.outline_contract_payload()
             path.write_text(
@@ -238,6 +276,9 @@ class WriteReleaseGateTest(unittest.TestCase):
 
     def tearDown(self) -> None:
         GATE._RULE_LEDGER_MODULE.validate_ledger = self.original_validate_ledger
+        GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = (
+            self.original_validate_prewrite_ledger
+        )
         self.temp_dir.cleanup()
 
     def test_blocked_ledger_blocks_draft(self) -> None:
@@ -274,6 +315,23 @@ class WriteReleaseGateTest(unittest.TestCase):
         )
         self.assertTrue(any("重新校验失败" in item for item in errors))
         self.assertTrue(any("skill 规则源已变化" in item for item in errors))
+
+    def test_prewrite_ledger_validation_blocks_draft(self) -> None:
+        GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = lambda _path: [
+            "规则 SKILL-test 缺少 canonical_rule_text"
+        ]
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+        )
+        self.assertTrue(any("未完成写前分类与执行计划" in item for item in errors))
+        self.assertTrue(any("缺少 canonical_rule_text" in item for item in errors))
 
     def test_draft_requires_opening_contract_and_profile(self) -> None:
         errors = GATE.validate_release(

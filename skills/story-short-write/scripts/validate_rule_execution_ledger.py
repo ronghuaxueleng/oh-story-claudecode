@@ -1034,6 +1034,131 @@ def refresh_summary(ledger_path: Path) -> None:
     )
 
 
+def entry_source_signature(entry: dict[str, Any]) -> str:
+    """Compare a rule card's actual source cases, not the source file SHA."""
+    payload = {
+        "rule_text": entry.get("rule_text"),
+        "cases": [
+            {
+                "source_path": item.get("source_path"),
+                "text": item.get("text"),
+            }
+            for item in entry.get("cases", [])
+            if isinstance(item, dict)
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def entry_state_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    source_fields = {
+        "id",
+        "source_path",
+        "source_sha256",
+        "rule_text",
+        "cases",
+        "source_refs",
+    }
+    return {
+        key: value
+        for key, value in entry.items()
+        if key not in source_fields
+    }
+
+
+def refresh_embedded_source_hashes(entry: dict[str, Any]) -> bool:
+    """Refresh unchanged source bindings; fail closed when a quoted source changed."""
+    source_hashes = {
+        str(Path(str(ref.get("source_path") or "")).resolve()): str(
+            ref.get("source_sha256") or ""
+        )
+        for ref in entry.get("source_refs", [])
+        if isinstance(ref, dict) and ref.get("source_path")
+    }
+    for review in entry.get("source_contract_reviews", []):
+        if not isinstance(review, dict):
+            return False
+        path = Path(str(review.get("source_path") or "")).resolve()
+        path_key = str(path)
+        if path_key not in source_hashes or not path.is_file():
+            return False
+        quote = str(review.get("source_quote") or "").strip()
+        if quote and quote not in read_text(path):
+            return False
+        review["source_sha256"] = source_hashes[path_key]
+    return True
+
+
+def sync_sources(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
+    """Rebuild inventory while retaining cards whose source cases did not change."""
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    receipts = data.get("receipts") if isinstance(data.get("receipts"), dict) else {}
+    writing = receipts.get("writing_rule_receipt") or {}
+    source = receipts.get("source_read_receipt") or {}
+    old_paths = [
+        Path(str(item.get("path") or "")).resolve()
+        for item in data.get("skill_rule_files", [])
+        if isinstance(item, dict) and item.get("path")
+    ]
+    skill_root = next(
+        (
+            path.parent
+            for path in old_paths
+            if path.name == "SKILL.md"
+        ),
+        SKILL_ROOT,
+    )
+    core_paths = {(skill_root / relative).resolve() for relative in CORE_SKILL_RULE_FILES}
+    extra_paths = [path for path in old_paths if path not in core_paths]
+    rebuilt, errors = create_ledger(
+        str(data.get("project") or ""),
+        Path(str(writing.get("path") or "")),
+        Path(str(source.get("path") or "")),
+        skill_root=skill_root,
+        extra_skill_rule_files=extra_paths,
+    )
+    if errors:
+        return errors, {}
+
+    old_entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    preserved = 0
+    reset = 0
+    created = 0
+    for entry in iter_execution_entries(rebuilt):
+        old = old_entries.get(str(entry.get("id") or ""))
+        if old is None:
+            created += 1
+            continue
+        if entry_source_signature(old) != entry_source_signature(entry):
+            reset += 1
+            continue
+        candidate = dict(entry)
+        candidate.update(entry_state_fields(old))
+        if not refresh_embedded_source_hashes(candidate):
+            reset += 1
+            continue
+        entry.clear()
+        entry.update(candidate)
+        preserved += 1
+
+    rebuilt["version"] = "1.2"
+    rebuilt["created_at"] = data.get("created_at") or rebuilt["created_at"]
+    rebuilt["synced_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    rebuilt["artifacts"] = data.get("artifacts", [])
+    sync_rule_level_parent_statuses(rebuilt)
+    rebuilt["execution_summary"] = calculate_execution_summary(rebuilt)
+    rebuilt["gate_status"] = "pending"
+    ledger_path.write_text(
+        json.dumps(rebuilt, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return [], {"preserved": preserved, "reset": reset, "created": created}
+
+
 def export_model_review(
     ledger_path: Path,
     output_path: Path,
@@ -1087,12 +1212,11 @@ def export_model_review(
             "execution_mode",
             "mode_confirmed=true",
             "applicability",
-            "status=completed",
-            "outcome",
+            "写前 applicable: status=pending + outcome=pending；最终绑定后再补 completed + passed",
             "decision_reason",
-            "result",
-            "text_evidence / human_scope_reviews / script_artifacts（按 execution_mode 必填）",
-            "source_contract_reviews（带关键 source_refs 时必填）",
+            "target_stage / target_scene",
+            "最终完成时再补 result、text_evidence / human_scope_reviews / script_artifacts",
+            "最终完成时带关键 source_refs 的规则补 source_contract_reviews",
         ],
         "batches": batches,
     }
@@ -1352,16 +1476,25 @@ def apply_model_group_plan(
         if applicability not in VALID_APPLICABILITY - {"merged"}:
             errors.append(f"group[{index}] applicability 必须为 applicable / rejected / not_applicable，不能为空或 merged")
             continue
-        if status != "completed":
+        if status not in VALID_STATUSES:
             errors.append(f"group[{index}] status 必须为 completed，归并计划不能留下 pending")
             continue
-        if outcome not in VALID_OUTCOMES - {"pending"}:
+        if status == "pending" and outcome != "pending":
+            errors.append(f"group[{index}] pending 规则的 outcome 必须为 pending")
+            continue
+        if status == "completed" and outcome == "pending":
+            errors.append(f"group[{index}] completed 规则不能保留 pending outcome")
+            continue
+        if outcome not in VALID_OUTCOMES:
             errors.append(f"group[{index}] outcome 必须为 passed / failed / not_applicable，不能为 pending")
             continue
         if applicability in {"rejected", "not_applicable"} and outcome != "not_applicable":
             errors.append(f"group[{index}] rejected / not_applicable 的 outcome 必须为 not_applicable")
             continue
-        if applicability == "applicable" and outcome not in {"passed", "failed"}:
+        if (
+            applicability == "applicable"
+            and outcome not in {"pending", "passed", "failed"}
+        ):
             errors.append(f"group[{index}] applicable 的 outcome 必须为 passed 或 failed")
             continue
         if not decision_reason:
@@ -1371,14 +1504,26 @@ def apply_model_group_plan(
             if not str(group.get("target_stage") or "").strip():
                 errors.append(f"group[{index}] applicable 规则缺少 target_stage")
                 continue
-            if not str(group.get("result") or "").strip():
+            if (
+                rule_role in {"setting_constraint", "outline_constraint", "draft_constraint"}
+                and not str(group.get("target_scene") or "").strip()
+            ):
+                errors.append(f"group[{index}] 写作约束缺少 target_scene")
+                continue
+            if status == "completed" and not str(group.get("result") or "").strip():
                 errors.append(f"group[{index}] applicable 规则缺少 result")
                 continue
-            if execution_mode in {"script", "hybrid"} and not group.get("script_artifacts"):
+            if (
+                status == "completed"
+                and execution_mode in {"script", "hybrid"}
+                and not group.get("script_artifacts")
+            ):
                 errors.append(f"group[{index}] execution_mode={execution_mode} 时缺少 script_artifacts")
                 continue
-            if execution_mode in {"human", "hybrid"} and not (
-                group.get("text_evidence") or group.get("human_scope_reviews")
+            if (
+                status == "completed"
+                and execution_mode in {"human", "hybrid"}
+                and not (group.get("text_evidence") or group.get("human_scope_reviews"))
             ):
                 errors.append(f"group[{index}] execution_mode={execution_mode} 时缺少 text_evidence 或 human_scope_reviews")
                 continue
@@ -1772,6 +1917,82 @@ def validate_merge_graph(
             cursor = next_entry
 
 
+def validate_prewrite_ledger(ledger_path: Path) -> list[str]:
+    """Require semantic classification and execution planning before writing."""
+    errors: list[str] = []
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    if data.get("gate_status") not in {"pending", "passed"}:
+        errors.append("gate_status 必须为 pending 或 passed")
+    receipts = data.get("receipts") if isinstance(data.get("receipts"), dict) else {}
+    validate_receipt_binding(receipts.get("writing_rule_receipt"), "写作规则读取回执", errors)
+    validate_receipt_binding(receipts.get("source_read_receipt"), "拆文读取回执", errors)
+
+    for item in data.get("skill_rule_files", []):
+        if not isinstance(item, dict):
+            continue
+        path = Path(str(item.get("path") or "")).resolve()
+        if not path.is_file() or item.get("sha256") != sha256(path):
+            errors.append(f"skill 规则源已变化，先运行 sync-sources: {path}")
+    for asset in data.get("source_assets", []):
+        if not isinstance(asset, dict):
+            continue
+        path = Path(str(asset.get("asset_path") or "")).resolve()
+        if not path.is_file() or asset.get("sha256") != sha256(path):
+            errors.append(f"拆书资产已变化，先运行 sync-sources: {path}")
+
+    entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if isinstance(entry, dict) and entry.get("id")
+    }
+    if not entries:
+        return ["规则执行台账缺少规则条目"]
+    for rule_id, entry in entries.items():
+        label = f"规则 {rule_id}"
+        applicability = entry.get("applicability")
+        if applicability == "merged":
+            merged_into = str(entry.get("merged_into") or "").strip()
+            if not merged_into or merged_into not in entries or merged_into == rule_id:
+                errors.append(f"{label}合并关系无效")
+            continue
+        if entry.get("classification_confirmed") is not True:
+            errors.append(f"{label}尚未完成模型语义分类")
+        if entry.get("classification_method") not in {"model_semantic_review", "exact_duplicate"}:
+            errors.append(f"{label}分类方法不合格")
+        if not str(entry.get("classification_notes") or "").strip():
+            errors.append(f"{label}缺少分类说明")
+        if not str(entry.get("canonical_rule_text") or "").strip():
+            errors.append(f"{label}缺少 canonical_rule_text")
+        role = entry.get("rule_role")
+        if role not in VALID_RULE_ROLES:
+            errors.append(f"{label}缺少有效 rule_role")
+            continue
+        if entry.get("remediation_target") not in ROLE_REMEDIATION_TARGETS[role]:
+            errors.append(f"{label}修复目标与规则角色不匹配")
+        if entry.get("execution_mode") not in VALID_EXECUTION_MODES or entry.get("mode_confirmed") is not True:
+            errors.append(f"{label}尚未确认执行方式")
+        if applicability not in {"applicable", "rejected", "not_applicable"}:
+            errors.append(f"{label}尚未完成适用性判断")
+            continue
+        if not str(entry.get("decision_reason") or "").strip():
+            errors.append(f"{label}缺少适用性裁决理由")
+        if applicability == "applicable":
+            if not str(entry.get("target_stage") or "").strip():
+                errors.append(f"{label}缺少目标阶段")
+            if (
+                role in {"setting_constraint", "outline_constraint", "draft_constraint"}
+                and not str(entry.get("target_scene") or "").strip()
+            ):
+                errors.append(f"{label}缺少目标场景")
+            if entry.get("status") not in VALID_STATUSES:
+                errors.append(f"{label}status 无效")
+            if entry.get("status") == "pending" and entry.get("outcome") != "pending":
+                errors.append(f"{label}写前计划必须保持 pending outcome")
+        elif entry.get("status") != "completed" or entry.get("outcome") != "not_applicable":
+            errors.append(f"{label}不适用规则必须完成并标记 not_applicable")
+    return errors
+
+
 def validate_execution_entry(
     entry: dict[str, Any],
     label: str,
@@ -2146,6 +2367,18 @@ def main() -> int:
     refresh_parser = subparsers.add_parser("refresh-summary", help="按逐项状态刷新执行汇总")
     refresh_parser.add_argument("--ledger", required=True)
 
+    sync_parser = subparsers.add_parser(
+        "sync-sources",
+        help="增量同步规则与拆书来源；仅重置实质变动的规则卡",
+    )
+    sync_parser.add_argument("--ledger", required=True)
+
+    prewrite_parser = subparsers.add_parser(
+        "validate-prewrite",
+        help="校验写前规则分类、适用性和执行计划",
+    )
+    prewrite_parser.add_argument("--ledger", required=True)
+
     plan_parser = subparsers.add_parser("apply-plan", help="按可审计选择器批量回填逐项决策")
     plan_parser.add_argument("--ledger", required=True)
     plan_parser.add_argument("--plan", required=True)
@@ -2217,6 +2450,28 @@ def main() -> int:
     if args.command == "refresh-summary":
         refresh_summary(ledger_path)
         print("rule_execution_gate: summary_refreshed")
+        print(f"ledger: {ledger_path}")
+        return 0
+    if args.command == "sync-sources":
+        errors, summary = sync_sources(ledger_path)
+        if errors:
+            print("rule_execution_gate: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("rule_execution_gate: sources_synced")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print(f"ledger: {ledger_path}")
+        return 0
+    if args.command == "validate-prewrite":
+        errors = validate_prewrite_ledger(ledger_path)
+        if errors:
+            print("rule_execution_gate: prewrite_blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("rule_execution_gate: prewrite_ready")
         print(f"ledger: {ledger_path}")
         return 0
     if args.command == "apply-plan":

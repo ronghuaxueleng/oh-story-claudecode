@@ -647,6 +647,41 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertEqual(summary["entries"], sum(len(b["items"]) for b in payload["batches"]))
         self.assertTrue(payload["batches"][0]["items"][0]["cases"])
 
+    def test_empty_ledger_is_not_prewrite_ready(self) -> None:
+        ledger = self._create_ledger()
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors = GATE.validate_prewrite_ledger(self.ledger_path)
+        self.assertTrue(any("尚未完成模型语义分类" in error for error in errors))
+
+    def test_sync_sources_preserves_unchanged_completed_cards(self) -> None:
+        ledger = self._write_completed_ledger()
+        original = ledger["skill_rules"][0]
+        original_id = original["id"]
+        original_evidence = list(original["text_evidence"])
+        skill_file = self.skill_root / "SKILL.md"
+        skill_file.write_text(
+            skill_file.read_text(encoding="utf-8") + "\n## 新规则族\n\n- 新增规则必须留痕。\n",
+            encoding="utf-8",
+        )
+        errors, summary = GATE.sync_sources(self.ledger_path)
+        self.assertEqual([], errors)
+        self.assertGreater(summary["preserved"], 0)
+        updated = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+        unchanged = next(
+            item for item in updated["skill_rules"] if item["id"] == original_id
+        )
+        self.assertEqual("completed", unchanged["status"])
+        self.assertEqual(original_evidence, unchanged["text_evidence"])
+        self.assertTrue(
+            any(
+                item["id"] != original_id and item["status"] == "pending"
+                for item in updated["skill_rules"]
+            )
+        )
+
     def test_model_group_plan_builds_one_rule_with_multiple_cases(self) -> None:
         ledger = self._create_ledger()
         candidates = ledger["skill_rules"][:2]

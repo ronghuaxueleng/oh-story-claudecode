@@ -40,6 +40,9 @@ def total_light_hits(audit: dict[str, Any]) -> int:
 
 
 def heavy_summary(audit: dict[str, Any]) -> dict[str, Any]:
+    direct = audit.get("heavy_summary")
+    if isinstance(direct, dict):
+        return direct
     heavy = audit.get("heavy_report")
     if isinstance(heavy, dict) and isinstance(heavy.get("summary"), dict):
         return heavy["summary"]
@@ -53,6 +56,23 @@ def line_hit_types(audit: dict[str, Any]) -> dict[str, int]:
     if isinstance(raw, dict):
         return {str(k): int(v) for k, v in raw.items() if isinstance(v, int)}
     return {}
+
+
+def heavy_rule_counts(audit: dict[str, Any]) -> dict[str, int]:
+    summary = heavy_summary(audit)
+    counts: dict[str, int] = {}
+    for key in ("high_findings", "medium_findings", "low_findings"):
+        findings = summary.get(key)
+        if not isinstance(findings, list):
+            continue
+        for item in findings:
+            if not isinstance(item, dict):
+                continue
+            rule_id = str(item.get("rule_id") or item.get("label") or "").strip()
+            count = item.get("count")
+            if rule_id and isinstance(count, int):
+                counts[rule_id] = counts.get(rule_id, 0) + count
+    return counts
 
 
 def risk_band(score: float) -> str:
@@ -85,16 +105,37 @@ def compare(source: dict[str, Any], draft: dict[str, Any], tolerance: float) -> 
         for key in shared_types
         if draft_types[key] <= source_types.get(key, 0)
     }
+    source_heavy_rules = heavy_rule_counts(source)
+    draft_heavy_rules = heavy_rule_counts(draft)
+    shared_heavy_rules = {
+        key: {
+            "source_count": source_heavy_rules[key],
+            "draft_count": draft_heavy_rules[key],
+        }
+        for key in sorted(set(source_heavy_rules) & set(draft_heavy_rules))
+        if draft_heavy_rules[key] <= source_heavy_rules[key]
+    }
+    draft_extra_heavy_rules = {
+        key: {
+            "source_count": source_heavy_rules.get(key, 0),
+            "draft_count": count,
+            "delta": count - source_heavy_rules.get(key, 0),
+        }
+        for key, count in draft_heavy_rules.items()
+        if count > source_heavy_rules.get(key, 0)
+    }
 
-    if delta <= tolerance:
+    # A shared heavy-rule hit can dominate the total score in both texts.
+    # Never treat score delta alone as proof that a granularity imitation is over-regularized.
+    if not draft_extra_types and not draft_extra_heavy_rules:
         verdict = "baseline_aligned"
-        action = "只清理明确语句类 AI 或人工判定的额外机械壳，不因分数本身回炉。"
-    elif delta <= tolerance + 10:
-        verdict = "watch_extra_stiffness"
-        action = "优先人工检查新稿新增的流程硬化、证据清单和人物交流弱化，不先磨平原文式短句。"
+        action = "重审计总分差仅作诊断；没有新增规则或轻审计类型时，不因分数本身回炉。"
     else:
-        verdict = "draft_over_regularized"
-        action = "新稿显著高于原文基线，按场面/段落簇查找比原文更规整、更像施工稿的位置。"
+        verdict = "manual_extra_shell_review"
+        action = (
+            "仅人工裁决新增的轻审计类型和新增重审计规则。"
+            "共同重审计规则、原文同级短句和高密对白不得仅因总分差进入回炉。"
+        )
 
     return {
         "version": "1.0",
@@ -120,6 +161,13 @@ def compare(source: dict[str, Any], draft: dict[str, Any], tolerance: float) -> 
         },
         "source_like_line_hit_types": source_like_types,
         "draft_extra_line_hit_types": draft_extra_types,
+        "heavy_rule_comparison": {
+            "source_rule_counts": source_heavy_rules,
+            "draft_rule_counts": draft_heavy_rules,
+            "shared_baseline_rules": shared_heavy_rules,
+            "draft_extra_rules": draft_extra_heavy_rules,
+            "score_delta_is_diagnostic_only": True,
+        },
         "verdict": verdict,
         "recommended_action": action,
         "manual_review_required": [

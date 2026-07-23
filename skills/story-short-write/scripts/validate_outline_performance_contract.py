@@ -108,6 +108,7 @@ def create_receipt(
     project: str,
     outline_path: Path,
     source_paths: list[Path],
+    source_mode: str = "full_bridge",
 ) -> dict[str, Any]:
     outline = outline_path.resolve()
     if not outline.is_file():
@@ -134,19 +135,28 @@ def create_receipt(
                     "sha256": sha256(catalog),
                 },
                 "available_bridge_ids": available_bridge_ids,
-                "required_bridge_ids": available_bridge_ids if role == "primary" else [],
-                "selected_bridge_ids": [] if role == "auxiliary" else available_bridge_ids,
+                "required_bridge_ids": (
+                    available_bridge_ids
+                    if role == "primary" and source_mode == "full_bridge"
+                    else []
+                ),
+                "selected_bridge_ids": (
+                    available_bridge_ids
+                    if role == "primary" and source_mode == "full_bridge"
+                    else []
+                ),
             }
         )
 
     sections = outline_sections(read_text(outline))
     first_source = sources[0]
     return {
-        "version": "1.1",
+        "version": "1.2",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
         "execution_mode": "current_model_manual",
+        "source_mode": source_mode,
         "reviewed_by_current_model": False,
         "outline": {"path": str(outline), "sha256": sha256(outline)},
         "selected_source_originals": sources,
@@ -158,11 +168,13 @@ def create_receipt(
             "relationship_legibility_reviewed_before_draft": False,
             "professional_shell_translation_reviewed_before_draft": False,
             "source_emotion_flow_parity_reviewed_before_draft": False,
+            "granularity_transfer_contract_reviewed": False,
             "strong_emotion_required": False,
             "mechanism_transfer_boundary": "",
             "global_storyboard_or_process_list": None,
             "manual_judgment": "",
         },
+        "granularity_transfer_contract": [],
         "source_bridge_flow_inventory": [
             {
                 "source_path": first_source["path"],
@@ -795,6 +807,77 @@ def validate_bridge_parity(
         )
 
 
+def validate_granularity_transfer_contract(
+    value: Any,
+    source_paths: set[str],
+    source_texts: dict[str, str],
+    section_ids: list[str],
+    outline_text: str,
+    errors: list[str],
+) -> None:
+    """Validate source granularity transfer without requiring source plot identity."""
+    if not isinstance(value, list) or not value:
+        errors.append("granularity_only 模式必须填写 granularity_transfer_contract")
+        return
+
+    covered_sections: set[str] = set()
+    for index, entry in enumerate(value, start=1):
+        label = f"颗粒度迁移契约[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        source_path = Path(str(entry.get("source_path") or "")).expanduser().resolve()
+        source_key = str(source_path)
+        if source_key not in source_paths:
+            errors.append(f"{label}.source_path 必须绑定选中的原文")
+        elif entry.get("source_sha256") != sha256(source_path):
+            errors.append(f"{label}.source_sha256 与原文不一致")
+        for field in (
+            "source_scene",
+            "source_granularity",
+            "target_scene",
+            "transferred_beat_density",
+            "transferred_information_delay",
+            "transferred_control_right_changes",
+            "manual_judgment",
+        ):
+            if not nonempty_text(entry.get(field)):
+                errors.append(f"{label}.{field} 不能为空")
+        if not nonempty_list(entry.get("rejected_surface_elements"), minimum=3):
+            errors.append(f"{label}.rejected_surface_elements 至少三项")
+        target_sections = [
+            str(item).strip()
+            for item in entry.get("target_outline_sections") or []
+            if str(item).strip()
+        ]
+        if not target_sections:
+            errors.append(f"{label}.target_outline_sections 不能为空")
+        for section_id in target_sections:
+            if section_id not in section_ids:
+                errors.append(f"{label} 引用了不存在的小节: {section_id}")
+            else:
+                covered_sections.add(section_id)
+        evidence = entry.get("source_evidence")
+        if not nonempty_list(evidence):
+            errors.append(f"{label}.source_evidence 至少引用一条原文证据")
+        else:
+            source_text = source_texts.get(source_key, "")
+            for quote in evidence:
+                if str(quote).strip() not in source_text:
+                    errors.append(f"{label}.source_evidence 不在原文中: {quote!r}")
+        target_evidence = entry.get("target_outline_evidence")
+        if not nonempty_list(target_evidence):
+            errors.append(f"{label}.target_outline_evidence 至少引用一条细纲原句")
+        else:
+            for quote in target_evidence:
+                if str(quote).strip() not in outline_text:
+                    errors.append(f"{label}.target_outline_evidence 不在细纲中: {quote!r}")
+
+    missing = sorted(set(section_ids) - covered_sections)
+    if missing:
+        errors.append("颗粒度迁移契约未覆盖细纲小节: " + ", ".join(missing))
+
+
 def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
     errors: list[str] = []
     if not receipt_path.is_file():
@@ -843,14 +926,15 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         errors.append(
                             f"选中原文[{index}].available_bridge_ids 与桥段施工卡不一致"
                         )
-                if expected_role == "primary":
+                source_mode = str(data.get("source_mode") or "full_bridge").strip()
+                if expected_role == "primary" and source_mode == "full_bridge":
                     if source.get("required_bridge_ids") != source.get(
                         "available_bridge_ids"
                     ):
                         errors.append(
                             "主体来源 required_bridge_ids 必须覆盖桥段施工卡全部 BID"
                         )
-                elif not nonempty_list(source.get("selected_bridge_ids")):
+                elif expected_role == "auxiliary" and source_mode == "full_bridge" and not nonempty_list(source.get("selected_bridge_ids")):
                     errors.append("辅助来源 selected_bridge_ids 至少选择一个 BID")
 
     global_review = data.get("global_review")
@@ -861,16 +945,21 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须人工确认已完整阅读选中原文的表演机制")
         if global_review.get("dual_track_function_and_scene_granularity_reviewed") is not True:
             errors.append("必须人工确认已同时核对拆书功能机制和原文场面颗粒度，不能只做功能映射")
-        if global_review.get("source_bridge_flow_inventory_completed") is not True:
-            errors.append("必须先完成人工原文 BID/关键子桥段流程全集，不得边写正文边补")
-        if global_review.get("outline_bridge_flow_parity_reviewed_before_draft") is not True:
-            errors.append("必须在正文前完成人工逐桥流程对齐验收，不能写完正文后才发现流程错位")
+        source_mode = str(data.get("source_mode") or "full_bridge").strip()
+        if source_mode == "full_bridge":
+            if global_review.get("source_bridge_flow_inventory_completed") is not True:
+                errors.append("必须先完成人工原文 BID/关键子桥段流程全集，不得边写正文边补")
+            if global_review.get("outline_bridge_flow_parity_reviewed_before_draft") is not True:
+                errors.append("必须在正文前完成人工逐桥流程对齐验收，不能写完正文后才发现流程错位")
         if global_review.get("relationship_legibility_reviewed_before_draft") is not True:
             errors.append("必须在正文前确认陌生读者无需职业知识即可看懂人物关系与伤害")
         if global_review.get("professional_shell_translation_reviewed_before_draft") is not True:
             errors.append("必须在正文前完成职业外壳白话翻译，禁止术语承担情绪")
         if global_review.get("source_emotion_flow_parity_reviewed_before_draft") is not True:
             errors.append("必须在正文前逐节核对原文情绪流程、反刀时机和烈度")
+        if str(data.get("source_mode") or "full_bridge") == "granularity_only":
+            if global_review.get("granularity_transfer_contract_reviewed") is not True:
+                errors.append("granularity_only 模式必须人工确认颗粒度迁移契约")
         if not nonempty_text(global_review.get("mechanism_transfer_boundary")):
             errors.append("必须写明机制迁移边界，禁止复制原人物、原职业、原句和完整桥壳")
         if global_review.get("global_storyboard_or_process_list") is not False:
@@ -883,24 +972,39 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         errors.append("细纲中未找到 `## 1.` 形式的小节")
         return errors
     outline_text = read_text(resolved_outline)
-    bridge_ids = validate_bridge_inventory(
-        data.get("source_bridge_flow_inventory"),
-        source_metadata,
-        errors,
-    )
+    source_mode = str(data.get("source_mode") or "full_bridge").strip()
+    if source_mode not in {"full_bridge", "granularity_only"}:
+        errors.append(f"source_mode 无效: {source_mode!r}")
+    if source_mode == "granularity_only":
+        validate_granularity_transfer_contract(
+            data.get("granularity_transfer_contract"),
+            source_paths,
+            source_texts,
+            section_ids,
+            outline_text,
+            errors,
+        )
+        bridge_ids: set[str] = set()
+    else:
+        bridge_ids = validate_bridge_inventory(
+            data.get("source_bridge_flow_inventory"),
+            source_metadata,
+            errors,
+        )
     strong_emotion_required = bool(
         isinstance(global_review, dict)
         and global_review.get("strong_emotion_required") is True
     )
-    validate_bridge_parity(
-        data.get("outline_bridge_flow_parity"),
-        bridge_ids,
-        source_texts,
-        section_ids,
-        outline_text,
-        errors,
-        strong_emotion_required=strong_emotion_required,
-    )
+    if source_mode == "full_bridge":
+        validate_bridge_parity(
+            data.get("outline_bridge_flow_parity"),
+            bridge_ids,
+            source_texts,
+            section_ids,
+            outline_text,
+            errors,
+            strong_emotion_required=strong_emotion_required,
+        )
     section_entries = data.get("sections")
     if not isinstance(section_entries, list):
         errors.append("sections 必须是列表")
@@ -1042,6 +1146,11 @@ def main() -> int:
     init.add_argument("--project", required=True)
     init.add_argument("--outline", required=True)
     init.add_argument("--source-original", action="append", required=True)
+    init.add_argument(
+        "--source-mode",
+        choices=("full_bridge", "granularity_only"),
+        default="full_bridge",
+    )
     init.add_argument("--receipt", required=True)
     validate = subparsers.add_parser("validate")
     validate.add_argument("--receipt", required=True)
@@ -1054,6 +1163,7 @@ def main() -> int:
                 args.project,
                 Path(args.outline),
                 [Path(value) for value in args.source_original],
+                source_mode=args.source_mode,
             )
         except (FileNotFoundError, ValueError) as exc:
             print("outline_performance_contract: blocked")

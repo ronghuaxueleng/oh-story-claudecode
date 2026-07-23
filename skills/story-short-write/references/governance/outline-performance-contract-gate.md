@@ -61,6 +61,27 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 
 输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲或任一选中原文 SHA 变化后，旧回执立即失效。
 
+### 颗粒度原创模式
+
+用户明确要求“使用一本原文的颗粒度，但自行创造情节”时，初始化命令增加：
+
+```bash
+--source-mode granularity_only
+```
+
+该模式不要求复制主体原文 BID 身份，也不要求 `source_bridge_flow_inventory` 与 `outline_bridge_flow_parity` 覆盖原书全部桥段。它改为强制填写 `granularity_transfer_contract`，且必须覆盖目标细纲全部小节：
+
+- `source_scene / source_evidence`：绑定原文真实场面，不得只写拆文摘要。
+- `source_granularity`：说明原文一场内有多少有效动作拍、控制权如何换主、信息在哪里压后。
+- `target_scene / target_outline_sections / target_outline_evidence`：绑定原创场景和当前细纲原句。
+- `transferred_beat_density`：说明迁移的事件拍密度，不复制原事件身份。
+- `transferred_information_delay`：说明哪些事实只漏一角、哪些压到后场。
+- `transferred_control_right_changes`：说明动作、物件、空间、身份或外部秩序如何换主。
+- `rejected_surface_elements`：至少三项，明确拒绝原人物、职业、核心物件、完整关系壳、原句或结局入口。
+- `manual_judgment`：解释为什么这是颗粒度迁移而不是换皮复刻。
+
+逐节 `original_scene_granularity`、`source_mechanism`、`source_emotion_parity`、关系可懂性和强情绪烈度仍是硬闸。也就是说，该模式只解除“原书发生什么必须照搬”，不解除“原书如何把一场写实写满”的参照责任。
+
 ## 原文桥段流程对齐
 
 主流程仿写、融合仿写、同桥仿写，或用户明确要求“完全参照原文”时，正文前必须先完成两张人工表。它们属于细纲硬闸，不是写后审计项。

@@ -81,6 +81,11 @@ def require_ledger_prewrite_ready(
 ) -> None:
     if data is None:
         return
+    prewrite_errors = _RULE_LEDGER_MODULE.validate_prewrite_ledger(ledger_path)
+    if prewrite_errors:
+        errors.append("规则执行台账未完成写前分类与执行计划")
+        errors.extend(prewrite_errors)
+        return
     status = data.get("gate_status")
     if status == "passed":
         ledger_errors, _ = _RULE_LEDGER_MODULE.validate_ledger(ledger_path)
