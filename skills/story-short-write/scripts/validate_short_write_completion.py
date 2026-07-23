@@ -22,6 +22,9 @@ REQUIRED_CHECK_LABELS = {
     "post_write_human_review",
     "anti_false_pass_review",
 }
+IMITATION_REQUIRED_CHECK_LABELS = {
+    "source_baseline_audit",
+}
 VALID_STATUSES = {"active", "complete", "paused", "blocked"}
 
 
@@ -99,7 +102,10 @@ def validate_state(path: Path) -> tuple[dict[str, Any], list[str]]:
         checks = []
         errors.append("checks 必须是数组")
     labels = [str(item.get("label") or "") for item in checks if isinstance(item, dict)]
-    missing = sorted(REQUIRED_CHECK_LABELS - set(labels))
+    required_labels = set(REQUIRED_CHECK_LABELS)
+    if data.get("imitation_mode") is True:
+        required_labels.update(IMITATION_REQUIRED_CHECK_LABELS)
+    missing = sorted(required_labels - set(labels))
     duplicate = sorted({label for label in labels if label and labels.count(label) > 1})
     if missing:
         errors.append(f"缺少完成检查: {' / '.join(missing)}")
@@ -154,6 +160,7 @@ def init_state(path: Path, project: Path, force: bool) -> int:
             "workflow": "story-short-write",
             "project_path": str(project.resolve()),
             "status": "active",
+            "imitation_mode": False,
             "started_at": now_iso(),
             "checks": checks,
             "next_action": "填写全部检查路径并继续执行当前未完成门禁。",

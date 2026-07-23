@@ -40,6 +40,7 @@
 - `run_revision_cycle.py`
 - `validate_gate_receipts.py`
 - `compare_with_external_block_audit.py`
+- `compare_source_baseline_audit.py`
 - `count_words.py`
 - `audit_ai_flavor.py`
 - `precheck_rewrite_gate.py`
@@ -103,6 +104,10 @@
 - `compare_with_external_block_audit.py`
   - 只用于题材首次校准
   - 生成内部打分标准，不是日常必跑项
+- `compare_source_baseline_audit.py`
+  - 用于同桥仿写、主干仿写、融合仿写的原文基线对照
+  - 输入主体原文全量审计 JSON 与当前稿全量审计 JSON，输出分数差、共同命中、额外命中和建议动作
+  - 防止把原文有效短句、高密对白、强钩子误判成新稿必须删除的问题
 - `count_words.py`
   - 统一正文、回执和审计中的字数统计口径
   - 番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符

@@ -45,6 +45,43 @@ def receipt_ref(path: Path, gate_key: str) -> dict[str, Any]:
     }
 
 
+def ledger_pre_window_ready(data: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    status = data.get("gate_status")
+    if status == "passed":
+        return errors
+    if status != "pending":
+        return [f"规则执行台账状态不允许进入窗口前回修: gate_status={status!r}"]
+
+    entries: list[dict[str, Any]] = []
+    for entry in data.get("skill_rules", []):
+        if isinstance(entry, dict):
+            entries.append(entry)
+    for asset in data.get("source_assets", []):
+        if isinstance(asset, dict):
+            entries.append(asset)
+            for rule in asset.get("rules", []):
+                if isinstance(rule, dict):
+                    entries.append(rule)
+
+    unconfirmed: list[str] = []
+    for entry in entries:
+        if entry.get("applicability") == "merged":
+            continue
+        if not str(entry.get("rule_text") or "").strip():
+            continue
+        if entry.get("classification_confirmed") is not True:
+            unconfirmed.append(str(entry.get("id") or "<unknown>"))
+            continue
+        if entry.get("mode_confirmed") is not True:
+            unconfirmed.append(str(entry.get("id") or "<unknown>"))
+    if unconfirmed:
+        preview = " / ".join(unconfirmed[:20])
+        suffix = " ..." if len(unconfirmed) > 20 else ""
+        errors.append(f"规则执行台账尚未完成写前分类确认: {preview}{suffix}")
+    return errors
+
+
 def create_receipt(project: str, text_path: Path, output: Path) -> None:
     text = text_path.read_text(encoding="utf-8")
     data = {
@@ -125,7 +162,9 @@ def validate(receipt_path: Path, text_path: Path) -> list[str]:
         except json.JSONDecodeError:
             errors.append(f"前置回执不是有效 JSON: {path}")
             continue
-        if source.get(gate_key) != "passed":
+        if key == "rule_execution_ledger":
+            errors.extend(ledger_pre_window_ready(source))
+        elif source.get(gate_key) != "passed":
             errors.append(f"前置回执未通过: {path}")
 
     readings = data.get("required_readings")

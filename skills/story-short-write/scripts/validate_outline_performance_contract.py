@@ -601,6 +601,7 @@ def validate_bridge_inventory(
         errors.append("source_bridge_flow_inventory 必须列出主体原文 BID/关键子桥段全集")
         return set()
     bridge_ids: set[str] = set()
+    bridge_keys: set[tuple[str, str]] = set()
     for index, entry in enumerate(value, start=1):
         label = f"原文桥段库存[{index}]"
         if not isinstance(entry, dict):
@@ -615,10 +616,13 @@ def validate_bridge_inventory(
         bridge_id = str(entry.get("bridge_id") or "").strip()
         if not bridge_id:
             errors.append(f"{label}.bridge_id 不能为空")
-        elif bridge_id in bridge_ids:
-            errors.append(f"{label}.bridge_id 重复: {bridge_id}")
+        bridge_key = (str(source_path), bridge_id)
+        if bridge_id and bridge_key in bridge_keys:
+            errors.append(f"{label}.bridge_id 在同一来源中重复: {bridge_id}")
         else:
-            bridge_ids.add(bridge_id)
+            if bridge_id:
+                bridge_ids.add(bridge_id)
+                bridge_keys.add(bridge_key)
         for field in (
             "bridge_name",
             "source_scene_granularity",
@@ -690,7 +694,7 @@ def validate_bridge_parity(
     if not isinstance(value, list) or not value:
         errors.append("outline_bridge_flow_parity 必须逐桥证明原文流程已在细纲落成")
         return
-    parity_ids: set[str] = set()
+    parity_keys: set[tuple[str, str]] = set()
     valid_status = {"matched", "adapted"}
     for index, entry in enumerate(value, start=1):
         label = f"原文桥段对齐[{index}]"
@@ -701,14 +705,17 @@ def validate_bridge_parity(
             if field not in entry:
                 errors.append(f"{label}.{field} 缺失")
         bridge_id = str(entry.get("source_bridge_id") or "").strip()
+        source_path = Path(str(entry.get("source_path") or "")).expanduser().resolve()
+        source_key = str(source_path)
+        parity_key = (source_key, bridge_id)
         if not bridge_id:
             errors.append(f"{label}.source_bridge_id 不能为空")
         elif bridge_id not in bridge_ids:
             errors.append(f"{label}.source_bridge_id 不在原文桥段库存中: {bridge_id}")
-        elif bridge_id in parity_ids:
-            errors.append(f"{label}.source_bridge_id 重复: {bridge_id}")
+        elif parity_key in parity_keys:
+            errors.append(f"{label}.source_bridge_id 在同一来源中重复: {bridge_id}")
         else:
-            parity_ids.add(bridge_id)
+            parity_keys.add(parity_key)
         for field in (
             "source_bridge_name",
             "source_scene_granularity",
@@ -723,8 +730,6 @@ def validate_bridge_parity(
             errors.append(f"{label}.source_required_sequence 至少两步")
         if not nonempty_list(entry.get("source_must_keep_actions"), minimum=2):
             errors.append(f"{label}.source_must_keep_actions 至少两条")
-        source_path = Path(str(entry.get("source_path") or "")).expanduser().resolve()
-        source_key = str(source_path)
         if source_key not in source_texts:
             errors.append(f"{label}.source_path 必须绑定选中的原文")
             source_text = ""
@@ -774,9 +779,20 @@ def validate_bridge_parity(
             errors.append(
                 f"{label}.parity_status 必须是 matched/adapted；missing/weakened/merged_unclear 一律不得写正文"
             )
-    missing = sorted(bridge_ids - parity_ids)
+    inventory_keys = {
+        (
+            str(Path(str(entry.get("source_path") or "")).expanduser().resolve()),
+            str(entry.get("bridge_id") or "").strip(),
+        )
+        for entry in value
+        if isinstance(entry, dict) and str(entry.get("bridge_id") or "").strip()
+    }
+    missing = sorted(inventory_keys - parity_keys)
     if missing:
-        errors.append(f"原文桥段未完成细纲对齐: {', '.join(missing)}")
+        errors.append(
+            "原文桥段未完成细纲对齐: "
+            + ", ".join(f"{Path(source).name}:{bridge_id}" for source, bridge_id in missing)
+        )
 
 
 def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:

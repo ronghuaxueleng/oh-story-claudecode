@@ -74,10 +74,12 @@ metadata:
 - `precheck_rewrite_gate.py`
 - `validate_gate_receipts.py`
 - `compare_with_external_block_audit.py`
+- `compare_source_baseline_audit.py`
 
 工具链地图和规则接入说明见：
 
 - [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
+- [references/governance/source-baseline-imitation-audit.md](references/governance/source-baseline-imitation-audit.md)
 - [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
 - [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
 - [references/integration/rule-onboarding-checklist.md](references/integration/rule-onboarding-checklist.md)
@@ -192,6 +194,11 @@ metadata:
 83. **仿写必须迁移原文情绪流程与同级烈度**：完全参照、融合仿写或同桥仿写时，不仅迁移 BID、动作和物件，还必须逐节绑定原文真实片段，列出原文与目标稿的 `情绪进入点 -> 受辱/刺痛 -> 短暂希望或反抗 -> 反刀 -> 场末余痛`。每一拍都要写清 `具体触发 / 关系位置变化 / 读者感受 / 1-10 烈度 / 原文或细纲证据`；目标拍数、拍序、反刀拍和峰值拍必须与原文一致，强情绪稿任何一拍的目标烈度都不得低于原文。只保留功能、只保证总分、把公开抛弃降成职业分歧，直接阻断。
 84. **细纲表演回执禁止模板化假通过**：连续三节及以上复用相同 `original_scene_granularity`、相同人工判断或泛化的“先施压、再接招、控制权换主”视为未真正对照原文。必须逐节写明具体原文场面、具体情绪伤害、目标等价表演和为何达到同级读者体感；验证器必须自动拦截重复模板。
 85. **原文情绪不得只抽样迁移**：主体原文每个必选 BID、辅助原文每个已选 BID 都必须在 `outline_bridge_flow_parity` 中同时完成桥段流程和情绪流程对齐；逐桥记录原文/目标情绪拍、反刀拍、峰值拍、场末余痛和读者体感裁决。只挑一两个“最虐片段”对齐、其余桥段仍按功能节点平推，视为情绪资产未全量消费，禁止写正文。
+86. **仿写审计必须先建立原文基线**：同桥仿写、主干仿写、融合仿写或用户要求“按原文颗粒度/流程写”时，正式判断新稿 AI 风险前必须先对主体原文运行同一套轻审计和全量审计，并用 `compare_source_baseline_audit.py` 生成原文基线对照。不得只报新稿分数，也不得把原文自身同样存在的短句、高密对白、强钩子直接判为新稿失败。
+87. **仿写不追求比原文更干净**：如果原文轻审计或重审计本身为中风险，目标稿的中风险不能自动触发全文回炉；必须先判断命中是否属于原文有效爆款形状，还是新稿额外产生的流程日志、证据清单、作者总结、对白答题和安全施工稿。回修只处理 `draft_extra_ai_shell`，不得为了清零脚本命中削弱原文事件颗粒度、情绪烈度和场面短促感。
+88. **原文颗粒度高于审计清零**：仿写稿完成条件是主体 BID 全集、情绪拍序、信息延迟、物件/空间/身份换主与原文同级成立，再清掉基础语句类 AI 痕迹。若一轮修改让轻审计更干净，但把公开掉位、最后期待、旧物侵占、公开反噬、现实结清等原文颗粒写弱，视为失败。
+89. **基线差值必须人工裁决**：`compare_source_baseline_audit.py` 输出 `draft_over_regularized` 或新稿重审计高于原文容差时，不得机械降分；先按整场/段落簇检查“人物有没有偏手、对白有没有真实接招、冲突载体有没有换主、手续有没有阻力”。只有确认是新稿新增机械壳，才进入正文回修。
+90. **审计回执必须区分保留项和返修项**：正式审计或回炉计划中必须把问题标为 `source_like / craft_tradeoff / draft_extra_ai_shell` 之一。`source_like` 和 `craft_tradeoff` 可以保留但要说明情节功能；`draft_extra_ai_shell` 才能进修改单。禁止把所有脚本命中统一写成“AI 味待删”。
 
 ---
 
@@ -428,6 +435,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 默认顺序固定是：
 
+0. 如果任务是“全面重写已有短篇目录”，先完整备份当前目录，再把旧 `设定.md`、`小节大纲.md`、`正文.md` 移入 `写作资产/旧稿归档-{时间}/`；目标产物路径必须恢复为未生成状态后，才能初始化读取回执。禁止在旧三件套仍占用目标路径时强行回填回执，否则会被事后补填闸误判或绕闸。
 1. 生成写作规则读取回执
 2. 读取当前版三份必读规则并通过 `writing_rule_gate`
 3. 生成拆文逐文件读取清单

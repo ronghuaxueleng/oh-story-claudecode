@@ -195,6 +195,16 @@ def validate_release(
                     "设定内部顺序契约",
                     errors,
                 )
+                binding = setting_sequence_data.get("artifacts", {}).get("setting")
+                if isinstance(binding, dict):
+                    setting_path = Path(str(binding.get("path") or "")).resolve()
+                    if setting_path.is_file():
+                        errors.extend(
+                            _SEQUENCE_MODULE.validate_setting(
+                                setting_sequence_receipt,
+                                setting_path,
+                            )
+                        )
     if phase == "draft":
         if sequence_receipt is None:
             errors.append("正文写作放行必须提供设定—大纲—正文顺序契约回执")
