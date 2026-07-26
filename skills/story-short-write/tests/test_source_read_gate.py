@@ -35,6 +35,39 @@ class SourceReadGateTest(unittest.TestCase):
                 path.write_text('{"证据词": "资产证据"}', encoding="utf-8")
             else:
                 path.write_text(f"# {path.stem}\n\n资产证据\n", encoding="utf-8")
+        original = self.source / "原文" / "样本.txt"
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_text("资产证据：这是完整原文。", encoding="utf-8")
+        subflow_card = self.source / "写作资产" / "子流程施工卡.md"
+        subflow_card.write_text("# 子流程施工卡\n\nSF-01\n资产证据\n", encoding="utf-8")
+        subflow_index = self.source / "写作资产" / "子流程索引.jsonl"
+        subflow_index.write_text('{"subflow_id":"SF-01","evidence":"资产证据"}\n', encoding="utf-8")
+        covered = []
+        for path in sorted(self.source.rglob("*")):
+            if not path.is_file() or path.name == "book.profile.json":
+                continue
+            covered.append(
+                {
+                    "path": path.relative_to(self.source).as_posix(),
+                    "sha256": GATE.sha256(path),
+                }
+            )
+        (self.source / "book.profile.json").write_text(
+            json.dumps(
+                {
+                    "证据词": "资产证据",
+                    "source_asset_coverage": [
+                        {
+                            "root": str(self.source.resolve()),
+                            "file_count": len(covered),
+                            "files": covered,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     def _write_completed_receipt(self) -> dict:
         receipt, errors = GATE.create_receipt("测试项目", [self.source])
@@ -68,7 +101,87 @@ class SourceReadGateTest(unittest.TestCase):
         self._write_completed_receipt()
         validation_errors, summary = GATE.validate_receipt(self.receipt_path)
         self.assertEqual([], validation_errors)
-        self.assertEqual(len(GATE.REQUIRED_FILES), summary["read_count"])
+        self.assertEqual(len(GATE.MAIN_COMPILED_FILES) + 1, summary["read_count"])
+
+    def test_compiled_inventory_is_smaller_than_full_inventory(self) -> None:
+        compiled, compiled_errors = GATE.discover_inventory(self.source)
+        full, full_errors = GATE.discover_inventory(self.source, inventory_mode="full")
+        self.assertEqual([], compiled_errors)
+        self.assertEqual([], full_errors)
+        self.assertLess(len(compiled), len(full))
+
+    def test_auxiliary_compiled_receipt_requires_real_selected_subflow(self) -> None:
+        auxiliary = self.root / "拆文库" / "辅助"
+        import shutil
+
+        shutil.copytree(self.source, auxiliary)
+        profile_path = auxiliary / "book.profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile["source_asset_coverage"][0]["root"] = str(auxiliary.resolve())
+        profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+        receipt, errors = GATE.create_receipt("测试项目", [self.source, auxiliary])
+        self.assertEqual([], errors)
+        receipt["gate_status"] = "passed"
+        receipt["confirmed_before_outline"] = True
+        receipt["confirmed_before_draft"] = True
+        receipt["cross_source_decisions"] = ["主体全流程优先，辅助只采用 SF-01。"]
+        for source in receipt["sources"]:
+            for item in source["files"]:
+                item.update(
+                    {
+                        "status": "read",
+                        "evidence_terms": ["资产证据"],
+                        "takeaways": ["读取完整颗粒"],
+                        "used_for": ["细纲"],
+                    }
+                )
+        receipt["sources"][1]["selected_subflow_ids"] = ["SF-99"]
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path)
+        self.assertTrue(any("不在子流程索引" in error for error in validation_errors))
+
+    def test_auxiliary_selected_subflow_requires_read_evidence(self) -> None:
+        auxiliary = self.root / "拆文库" / "辅助"
+        import shutil
+
+        shutil.copytree(self.source, auxiliary)
+        profile_path = auxiliary / "book.profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        profile["source_asset_coverage"][0]["root"] = str(auxiliary.resolve())
+        profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+        receipt, errors = GATE.create_receipt("测试项目", [self.source, auxiliary])
+        self.assertEqual([], errors)
+        receipt["gate_status"] = "passed"
+        receipt["confirmed_before_outline"] = True
+        receipt["confirmed_before_draft"] = True
+        receipt["cross_source_decisions"] = ["主体全流程优先，辅助只采用 SF-01。"]
+        for source in receipt["sources"]:
+            for item in source["files"]:
+                item.update(
+                    {
+                        "status": "read",
+                        "evidence_terms": ["资产证据"],
+                        "takeaways": ["读取完整颗粒"],
+                        "used_for": ["细纲"],
+                    }
+                )
+        receipt["sources"][1]["selected_subflow_ids"] = ["SF-01"]
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
+
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path)
+        self.assertTrue(any("缺少读取证据" in error for error in validation_errors))
+
+        for item in receipt["sources"][1]["files"]:
+            if item["path"] in {
+                "写作资产/子流程施工卡.md",
+                "写作资产/子流程索引.jsonl",
+            }:
+                item["evidence_terms"].append("SF-01")
+        self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path)
+        self.assertEqual([], validation_errors)
 
     def test_missing_asset_requires_reanalysis(self) -> None:
         (self.source / GATE.TABLE_FILES[0]).unlink()
@@ -81,6 +194,11 @@ class SourceReadGateTest(unittest.TestCase):
         path.write_text(path.read_text(encoding="utf-8") + "新增内容", encoding="utf-8")
         validation_errors, _ = GATE.validate_receipt(self.receipt_path)
         self.assertTrue(any("文件已变化" in error for error in validation_errors))
+
+    def test_new_formal_asset_invalidates_profile_coverage(self) -> None:
+        (self.source / "新增正式资产.md").write_text("新增资产", encoding="utf-8")
+        _, errors = GATE.create_receipt("测试项目", [self.source])
+        self.assertTrue(any("覆盖清单缺少正式资产" in error for error in errors))
 
     def test_retroactive_receipt_is_blocked(self) -> None:
         output = self.root / "项目" / "正文.md"

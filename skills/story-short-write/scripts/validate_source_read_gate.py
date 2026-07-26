@@ -83,6 +83,37 @@ ASSET_FILES = tuple(
 
 REQUIRED_FILES = CORE_FILES + TABLE_FILES + DETAIL_FILES + ASSET_FILES
 
+MAIN_COMPILED_FILES = (
+    "book.profile.json",
+    "拆文报告.md",
+    "情节节点.md",
+    "事实与推断台账.md",
+    "写作手法.md",
+    "可直接仿写_导语拆解表.md",
+    "可直接仿写_顺序事件表.md",
+    "写作资产/profile_source.md",
+    "写作资产/样本分级与可学层.md",
+    "写作资产/作者DNA指纹.md",
+    "写作资产/仿写约束_禁写清单.md",
+    "写作资产/同桥段过检规则.md",
+    "写作资产/桥段施工卡.md",
+    "写作资产/子流程施工卡.md",
+    "写作资产/子流程索引.jsonl",
+    "写作资产/情绪母线.md",
+)
+
+AUXILIARY_COMPILED_FILES = (
+    "book.profile.json",
+    "写作资产/profile_source.md",
+    "写作资产/样本分级与可学层.md",
+    "写作资产/作者DNA指纹.md",
+    "写作资产/仿写约束_禁写清单.md",
+    "写作资产/同桥段过检规则.md",
+    "写作资产/桥段施工卡.md",
+    "写作资产/子流程施工卡.md",
+    "写作资产/子流程索引.jsonl",
+)
+
 
 def read_text(path: Path) -> str:
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
@@ -97,7 +128,7 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def discover_inventory(root: Path) -> tuple[list[Path], list[str]]:
+def discover_full_inventory(root: Path) -> tuple[list[Path], list[str]]:
     errors: list[str] = []
     if not root.is_dir():
         return [], [f"拆文目录不存在: {root}"]
@@ -107,30 +138,131 @@ def discover_inventory(root: Path) -> tuple[list[Path], list[str]]:
         if not path.is_file():
             errors.append(f"缺少拆文资产: {path}")
 
-    discovered: set[Path] = {path for path in required if path.is_file()}
-    asset_dir = root / "写作资产"
-    if asset_dir.is_dir():
-        discovered.update(
-            path
-            for path in asset_dir.rglob("*")
-            if path.is_file() and path.suffix.lower() in {".md", ".json"}
-        )
+    discovered = {
+        path
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.suffix.lower() in {".md", ".json", ".jsonl", ".txt"}
+        and "bak" not in path.parts
+        and "__pycache__" not in path.parts
+    }
 
     return sorted(discovered, key=lambda path: path.relative_to(root).as_posix()), errors
 
 
-def create_receipt(project: str, source_dirs: list[Path]) -> tuple[dict[str, Any], list[str]]:
+def source_originals(root: Path) -> list[Path]:
+    original_dir = root / "原文"
+    if not original_dir.is_dir():
+        return []
+    return sorted(path for path in original_dir.iterdir() if path.is_file())
+
+
+def available_subflow_ids(root: Path) -> set[str]:
+    path = root / "写作资产" / "子流程索引.jsonl"
+    if not path.is_file():
+        return set()
+    result: set[str] = set()
+    for raw in read_text(path).splitlines():
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict) and str(item.get("subflow_id") or "").strip():
+            result.add(str(item["subflow_id"]).strip())
+    return result
+
+
+def validate_profile_coverage(root: Path) -> list[str]:
+    errors: list[str] = []
+    profile_path = root / "book.profile.json"
+    if not profile_path.is_file():
+        return [f"缺少单书 profile: {profile_path}"]
+    try:
+        profile = json.loads(read_text(profile_path))
+    except json.JSONDecodeError as exc:
+        return [f"单书 profile 不是合法 JSON: {profile_path}: {exc}"]
+    coverage_sets = profile.get("source_asset_coverage", []) if isinstance(profile, dict) else []
+    matching = next(
+        (
+            item
+            for item in coverage_sets
+            if isinstance(item, dict)
+            and Path(str(item.get("root") or "")).resolve() == root.resolve()
+        ),
+        None,
+    )
+    if not isinstance(matching, dict):
+        return [f"{profile_path} 缺少当前拆书目录的 source_asset_coverage；请重新生成 profile"]
+    covered = {
+        str(item.get("path") or ""): str(item.get("sha256") or "")
+        for item in matching.get("files", [])
+        if isinstance(item, dict) and item.get("path")
+    }
+    inventory, inventory_errors = discover_full_inventory(root)
+    errors.extend(inventory_errors)
+    if matching.get("file_count") != len(covered):
+        errors.append(f"profile 覆盖清单 file_count 与 files 数量不一致: {profile_path}")
+    inventory_relatives = {
+        path.relative_to(root).as_posix()
+        for path in inventory
+        if path.name != "book.profile.json"
+    }
+    for path in inventory:
+        relative = path.relative_to(root).as_posix()
+        if relative == "book.profile.json":
+            continue
+        if relative not in covered:
+            errors.append(f"profile 覆盖清单缺少正式资产: {path}")
+        elif covered[relative] != sha256(path):
+            errors.append(f"profile 覆盖清单已过期: {path}")
+    for relative in sorted(set(covered) - inventory_relatives):
+        errors.append(f"profile 覆盖清单含已删除资产: {root / relative}")
+    return errors
+
+
+def discover_inventory(
+    root: Path,
+    *,
+    role: str = "main",
+    inventory_mode: str = "compiled",
+) -> tuple[list[Path], list[str]]:
+    if inventory_mode == "full":
+        return discover_full_inventory(root)
+    errors = validate_profile_coverage(root)
+    relative_paths = MAIN_COMPILED_FILES if role == "main" else AUXILIARY_COMPILED_FILES
+    required = [root / relative for relative in relative_paths]
+    originals = source_originals(root)
+    if len(originals) != 1:
+        errors.append(f"{root / '原文'} 必须且只能有一个原文文件")
+    for path in required:
+        if not path.is_file():
+            errors.append(f"缺少写作编译包关键资产: {path}")
+    inventory = [path for path in [*required, *originals] if path.is_file()]
+    return sorted(set(inventory), key=lambda path: path.relative_to(root).as_posix()), errors
+
+
+def create_receipt(
+    project: str,
+    source_dirs: list[Path],
+    inventory_mode: str = "compiled",
+) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     sources: list[dict[str, Any]] = []
     for index, root in enumerate(source_dirs):
         resolved = root.resolve()
-        inventory, source_errors = discover_inventory(resolved)
+        role = "main" if index == 0 else "auxiliary"
+        inventory, source_errors = discover_inventory(
+            resolved, role=role, inventory_mode=inventory_mode
+        )
         errors.extend(source_errors)
         sources.append(
             {
                 "name": resolved.name,
-                "role": "main" if index == 0 else "auxiliary",
+                "role": role,
                 "root": str(resolved),
+                "selected_subflow_ids": [],
                 "files": [
                     {
                         "path": path.relative_to(resolved).as_posix(),
@@ -146,7 +278,8 @@ def create_receipt(project: str, source_dirs: list[Path]) -> tuple[dict[str, Any
         )
 
     receipt = {
-        "version": "1.0",
+        "version": "1.1",
+        "inventory_mode": inventory_mode,
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -187,8 +320,26 @@ def validate_receipt(
     read_files = 0
     for source_index, source in enumerate(sources, start=1):
         root = Path(str(source.get("root") or "")).resolve()
-        inventory, inventory_errors = discover_inventory(root)
+        role = str(source.get("role") or ("main" if source_index == 1 else "auxiliary"))
+        inventory_mode = str(data.get("inventory_mode") or "full")
+        inventory, inventory_errors = discover_inventory(
+            root, role=role, inventory_mode=inventory_mode
+        )
         errors.extend(inventory_errors)
+        selected_subflows: set[str] = set()
+        if role == "auxiliary" and inventory_mode == "compiled":
+            selected_subflows = set(nonempty_strings(source.get("selected_subflow_ids")))
+            if not selected_subflows:
+                errors.append(
+                    f"sources[{source_index}] 辅助来源必须填写 selected_subflow_ids"
+                )
+            else:
+                unknown = sorted(selected_subflows - available_subflow_ids(root))
+                if unknown:
+                    errors.append(
+                        f"sources[{source_index}] selected_subflow_ids 不在子流程索引中: "
+                        + ", ".join(unknown)
+                    )
         expected = {path.relative_to(root).as_posix(): path for path in inventory}
         file_entries = source.get("files")
         if not isinstance(file_entries, list):
@@ -205,6 +356,20 @@ def validate_receipt(
             errors.append(f"读取回执缺少文件项: {root / relative}")
         for relative in extra_entries:
             errors.append(f"读取回执含过期文件项: {root / relative}")
+
+        if selected_subflows:
+            for relative in (
+                "写作资产/子流程施工卡.md",
+                "写作资产/子流程索引.jsonl",
+            ):
+                entry = actual.get(relative)
+                evidence_terms = set(nonempty_strings(entry.get("evidence_terms"))) if entry else set()
+                missing_evidence = sorted(selected_subflows - evidence_terms)
+                if missing_evidence:
+                    errors.append(
+                        f"辅助子流程缺少读取证据: {root / relative} -> "
+                        + ", ".join(missing_evidence)
+                    )
 
         for relative, path in expected.items():
             total_files += 1
@@ -254,6 +419,9 @@ def main() -> int:
     init_parser.add_argument("--project", required=True)
     init_parser.add_argument("--source-dir", action="append", required=True)
     init_parser.add_argument("--receipt", required=True)
+    init_parser.add_argument(
+        "--inventory-mode", choices=("compiled", "full"), default="compiled"
+    )
     init_parser.add_argument("--force", action="store_true")
 
     validate_parser = subparsers.add_parser("validate", help="校验读取回执")
@@ -274,6 +442,7 @@ def main() -> int:
         receipt, errors = create_receipt(
             args.project,
             [Path(raw) for raw in args.source_dir],
+            args.inventory_mode,
         )
         if errors:
             print("source_read_gate: blocked")

@@ -337,6 +337,100 @@ def init_setting_receipt(project: str, setting: Path, output: Path) -> None:
     output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def extend_setting_receipt(
+    setting_receipt: Path,
+    setting: Path,
+    outline: Path,
+    output: Path,
+) -> list[str]:
+    """Promote a passed setting contract without redoing its reviewed evidence."""
+    errors = validate_setting(setting_receipt, setting)
+    if errors:
+        return errors
+    data = load_json(setting_receipt, "设定内部顺序契约", errors)
+    if data is None:
+        return errors
+    outline_path = outline.resolve()
+    if not outline_path.is_file():
+        return [f"大纲不存在: {outline_path}"]
+    outline_text = outline_path.read_text(encoding="utf-8")
+    sequence = []
+    for node in data.get("canonical_sequence", []):
+        if isinstance(node, dict):
+            inherited = dict(node)
+            inherited["outline_evidence"] = []
+            inherited.pop("draft_evidence", None)
+            sequence.append(inherited)
+    payload = {
+        "version": "1.1",
+        "project": data.get("project"),
+        "scope": "full",
+        "status": "pending",
+        "gate_status": "pending",
+        "execution_mode": "current_model_manual",
+        "inherited_from_setting_receipt": {
+            "path": str(setting_receipt.resolve()),
+            "sha256": sha256(setting_receipt.resolve()),
+        },
+        "artifacts": {
+            "setting": data["artifacts"]["setting"],
+            "outline": {
+                "path": str(outline_path),
+                "sha256": sha256(outline_path),
+                "char_count": len(outline_text),
+                "word_count": count_fanqie(outline_text),
+                "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
+            },
+        },
+        "conflict_review": {"status": "pending", "findings": []},
+        "canonical_sequence": sequence,
+        "manual_judgment": "",
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return []
+
+
+def extend_draft_receipt(receipt: Path, draft: Path) -> list[str]:
+    """Attach a draft while preserving reviewed setting and outline evidence."""
+    errors: list[str] = []
+    data = load_json(receipt, "完整顺序契约", errors)
+    if data is None:
+        return errors
+    if data.get("scope") != "full":
+        return ["只有 scope=full 的顺序契约可以增量绑定正文"]
+    artifacts = data.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return ["完整顺序契约缺少 artifacts 绑定"]
+    try:
+        setting_path = Path(str(artifacts["setting"]["path"])).resolve()
+        outline_path = Path(str(artifacts["outline"]["path"])).resolve()
+    except (KeyError, TypeError):
+        return ["完整顺序契约缺少 setting/outline 绑定"]
+    errors = validate(receipt, setting_path, outline_path)
+    if errors:
+        return errors
+    draft_path = draft.resolve()
+    if not draft_path.is_file():
+        return [f"正文不存在: {draft_path}"]
+    draft_text = draft_path.read_text(encoding="utf-8")
+    data.setdefault("artifacts", {})["draft"] = {
+        "path": str(draft_path),
+        "sha256": sha256(draft_path),
+        "char_count": len(draft_text),
+        "word_count": count_fanqie(draft_text),
+        "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
+    }
+    for node in data.get("canonical_sequence", []):
+        if isinstance(node, dict):
+            node["draft_evidence"] = []
+    data["status"] = "pending"
+    data["gate_status"] = "pending"
+    data["manual_judgment"] = ""
+    receipt.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate setting/outline/draft order contract.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -347,6 +441,11 @@ def main() -> int:
     validate_setting_parser = sub.add_parser("validate-setting")
     validate_setting_parser.add_argument("--receipt", required=True)
     validate_setting_parser.add_argument("--setting", required=True)
+    extend_outline = sub.add_parser("extend-outline")
+    extend_outline.add_argument("--setting-receipt", required=True)
+    extend_outline.add_argument("--setting", required=True)
+    extend_outline.add_argument("--outline", required=True)
+    extend_outline.add_argument("--receipt", required=True)
     init = sub.add_parser("init")
     init.add_argument("--project", required=True)
     init.add_argument("--setting", required=True)
@@ -358,6 +457,9 @@ def main() -> int:
     check.add_argument("--setting", required=True)
     check.add_argument("--outline", required=True)
     check.add_argument("--draft")
+    extend_draft = sub.add_parser("extend-draft")
+    extend_draft.add_argument("--receipt", required=True)
+    extend_draft.add_argument("--draft", required=True)
     args = parser.parse_args()
     if args.command == "init-setting":
         init_setting_receipt(
@@ -379,6 +481,20 @@ def main() -> int:
             return 2
         print("setting_sequence_contract_gate: passed")
         return 0
+    if args.command == "extend-outline":
+        errors = extend_setting_receipt(
+            Path(args.setting_receipt).resolve(),
+            Path(args.setting).resolve(),
+            Path(args.outline).resolve(),
+            Path(args.receipt).resolve(),
+        )
+        if errors:
+            print("sequence_contract: outline_blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("sequence_contract: outline_extended")
+        return 0
     if args.command == "init":
         init_receipt(
             args.project,
@@ -388,6 +504,18 @@ def main() -> int:
             Path(args.receipt),
         )
         print("sequence_contract_gate: initialized")
+        return 0
+    if args.command == "extend-draft":
+        errors = extend_draft_receipt(
+            Path(args.receipt).resolve(),
+            Path(args.draft).resolve(),
+        )
+        if errors:
+            print("sequence_contract: draft_blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("sequence_contract: draft_extended")
         return 0
     errors = validate(
         Path(args.receipt).resolve(),

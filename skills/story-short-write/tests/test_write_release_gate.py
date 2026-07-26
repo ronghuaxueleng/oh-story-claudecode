@@ -42,8 +42,14 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.original_validate_prewrite_ledger = (
             GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger
         )
+        self.original_validate_writing_receipt = GATE._WRITING_RULE_MODULE.validate_receipt
+        self.original_validate_source_receipt = GATE._SOURCE_READ_MODULE.validate_receipt
+        self.original_validate_opening_receipt = GATE._OPENING_CONTRACT_MODULE.validate_receipt
         GATE._RULE_LEDGER_MODULE.validate_ledger = lambda _path: ([], {})
         GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = lambda _path: []
+        GATE._WRITING_RULE_MODULE.validate_receipt = lambda _path: ([], {})
+        GATE._SOURCE_READ_MODULE.validate_receipt = lambda _path: ([], {})
+        GATE._OPENING_CONTRACT_MODULE.validate_receipt = lambda *_args: ([], {})
         self.setting = self.root / "设定.md"
         self.outline = self.root / "大纲.md"
         self.setting.write_text("设定", encoding="utf-8")
@@ -119,6 +125,12 @@ class WriteReleaseGateTest(unittest.TestCase):
                 }
             elif name == "outline_contract":
                 payload = self.outline_contract_payload()
+            elif name == "opening":
+                payload = {
+                    "gate_status": "passed",
+                    "primary_source": {"path": str(self.source_original.resolve())},
+                    "target_text": {"path": str(self.outline.resolve())},
+                }
             path.write_text(
                 json.dumps(payload),
                 encoding="utf-8",
@@ -360,6 +372,9 @@ class WriteReleaseGateTest(unittest.TestCase):
         GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = (
             self.original_validate_prewrite_ledger
         )
+        GATE._WRITING_RULE_MODULE.validate_receipt = self.original_validate_writing_receipt
+        GATE._SOURCE_READ_MODULE.validate_receipt = self.original_validate_source_receipt
+        GATE._OPENING_CONTRACT_MODULE.validate_receipt = self.original_validate_opening_receipt
         self.temp_dir.cleanup()
 
     def test_blocked_ledger_blocks_draft(self) -> None:
@@ -413,6 +428,24 @@ class WriteReleaseGateTest(unittest.TestCase):
         )
         self.assertTrue(any("未完成写前分类与执行计划" in item for item in errors))
         self.assertTrue(any("缺少 canonical_rule_text" in item for item in errors))
+
+    def test_passed_source_receipt_is_revalidated(self) -> None:
+        GATE._SOURCE_READ_MODULE.validate_receipt = lambda _path: (
+            ["profile 覆盖清单已过期"],
+            {},
+        )
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+        )
+        self.assertTrue(any("拆文读取回执实时复验失败" in item for item in errors))
+        self.assertTrue(any("覆盖清单已过期" in item for item in errors))
 
     def test_draft_requires_opening_contract_and_profile(self) -> None:
         errors = GATE.validate_release(

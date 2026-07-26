@@ -118,7 +118,7 @@ metadata:
 7. 写前必须有规则包：单书读 `book.profile.json`，融合稿读 `project.profile.json`。
 8. 规则包来自拆书产物，不来自 skill 内硬编码题材默认值。
 9. 写设定、大纲或正文前必须通过 `validate_writing_rule_gate.py`；`format-and-structure.md`、当前版 `anti-ai-writing.md`、`craft/narrator-voice.md` 任一未读都阻断。
-10. 写大纲和正文前必须通过 `validate_source_read_gate.py`；只读设定、大纲、`profile_source.md` 或 profile 都不算读过拆文资料。
+10. 写大纲和正文前必须通过 `validate_source_read_gate.py`；默认读取经 `book.profile.json.source_asset_coverage` 对全部正式拆书资产完成 SHA 验收的无损关键编译包，不是只读二手摘要。主体必须包含完整原文、全部 BID/SF 及其事实/因果/情绪/表演资产；辅助必须显式选择真实 `SF-*` 并保留该子流程的全部颗粒。
 11. 桥段链高敏时，先回细纲换链，不许直接磨句子。
 12. 写前写后都要审计，不能只看送检结果倒推补丁。
 13. 审计分段只服务定位风险，不反向指导正文排版。
@@ -137,7 +137,7 @@ metadata:
 26. 正文写完或回炉后必须通过 `validate_post_write_human_review_gate.py`；局部或专项回炉必须绑定母稿并逐条复核全部新增/改写句。
 27. 写后必须查看 `rhythm_distribution_audit`；叙述者气口分布、跨长窗节奏落差和长窗对白效率任一未人工复核，不得放行。
 28. 通过两份读取门禁后，必须在写设定、大纲或正文前初始化 `规则执行台账.json`；缺台账直接阻断，不做兼容回退。
-29. skill 核心规则和拆书资产先由脚本按小节/资产文件压成规则卡；当前写作模型必须阅读全部 `cases`，归纳一条 `canonical_rule_text`，再区分 `workflow / format / setting / outline / draft / audit / source candidate / source prohibition`。写设定、大纲或正文前必须通过 `validate-prewrite`，确认适用性、执行方式、目标阶段/场景与裁决理由；关键词建议不能直接确认分类。
+29. skill 核心规则和编译包中选中的拆书资产先由脚本按小节/资产文件压成规则卡；当前写作模型必须阅读全部案例，归纳一条 `canonical_rule_text`，再区分 `workflow / format / setting / outline / draft / audit / source candidate / source prohibition`。`export-model-review` 把重复案例和来源收口到顶层 `case_registry / source_ref_registry`，规则项用 ID 引用；这只去重存储，不得少读任何案例或来源。写设定、大纲或正文前必须通过 `validate-prewrite`，确认适用性、执行方式、目标阶段/场景与裁决理由；关键词建议不能直接确认分类。
 30. 所有拆书文件必须逐文件判断，16 表及承重资产按同类型规则族执行；拆书候选未选中应标 `not_applicable`，禁用规则未命中用全文复核证明，不能把表格每行都膨胀成强制正文规则。
 31. 写作过程中执行一项标记一项；最终正文绑定后必须通过 `validate_rule_execution_ledger.py`，不得写完后批量伪造“已使用”记录。skill 或来源更新时先运行 `sync-sources`：只有案例文本确实变化的规则卡允许被重置，未变化卡必须保留已有分类与证据。
 32. 完全重复规则初始化时自动合并，语义近似规则人工归入 canonical；只有失败的适用 `draft_constraint` 可以设置 `requires_text_change: true` 并进入正文修改单。
@@ -267,17 +267,20 @@ metadata:
 
 写 `设定.md`、`小节大纲.md` 或 `正文.md` 前，必须先：
 
-1. 对每本选中的主体 / 辅助拆文运行 `validate_source_read_gate.py init`
-2. 实际逐文件读取回执列出的全部拆文资产
-3. 回填证据词、读取结论和写作用途
-4. 运行 `validate_source_read_gate.py validate`，显式传入设定、大纲和正文路径做时序检查
+1. 将主体拆文放在第一个 `--source-dir`，辅助拆文依次追加，运行 `validate_source_read_gate.py init`（默认 `--inventory-mode compiled`）
+2. 确认每本 `book.profile.json` 的 `source_asset_coverage` 已对全部正式资产和完整原文逐文件绑定 SHA，再实际读取回执列出的关键编译包
+3. 主体消费完整原文和全部 BID/SF；每个辅助来源在 `selected_subflow_ids` 中显式选择真实 `SF-*`，并消费其完整颗粒
+4. 回填证据词、读取结论和写作用途
+5. 运行 `validate_source_read_gate.py validate`，显式传入设定、大纲和正文路径做时序检查
 
 只有输出 `source_read_gate: passed` 才能继续。以下情况一律阻断：
 
 - 只读项目内二手摘要、设定或大纲
 - 只读 `profile_source.md`
 - 只读 `book.profile.json / project.profile.json`
-- 拆文目录缺主报告、16 表、8 库、写作资产或动态字典
+- `source_asset_coverage` 缺失、漏文件或任一正式资产 SHA 变化
+- 主体编译包缺完整原文、BID/SF 或关键事实/因果/情绪资产
+- 辅助来源未选 `SF-*`，或所选 SF 不在子流程索引中
 - 正文写完后再补读取回执
 
 缺资产必须重新执行 `story-short-analyze` 全量拆书，不做兼容回退。完整命令和回执字段见：
@@ -289,7 +292,7 @@ metadata:
 `writing_rule_gate` 和 `source_read_gate` 通过后、写设定或大纲前，必须：
 
 1. 运行 `validate_rule_execution_ledger.py init`
-2. 运行 `export-model-review`，由当前写作模型逐族阅读全部 `cases`，写出统一 `canonical_rule_text`
+2. 运行 `export-model-review`，由当前写作模型按 `case_ids / source_ref_ids` 解引用顶层注册表，逐族阅读全部案例与来源，写出统一 `canonical_rule_text`
 3. 模型用 `apply-model-groups` 把执行动作相同的条目压成“一条规则 + 多案例”，并在同一个 group 内完成 canonical 规则裁决：`applicability / status=completed / outcome / decision_reason` 必填；适用规则还必须填写 `target_stage / result` 和按执行方式要求的脚本产物、人工原句证据或范围复核
 4. `apply-model-groups` 不得只做归并；任一 canonical 仍是 `pending`，视为台账阶段未完成，禁止写设定、大纲或正文
 5. 确认由 `script / human / hybrid` 哪一类执行，并填写目标阶段和目标场景
@@ -320,6 +323,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
   --profile profiles/{项目名}.project.profile.json
 ```
 
+`draft` 命令是正文前联合放行入口：它必须在同一次运行中实时复验写作规则、拆文读取、规则台账、完整顺序、开头契约和细纲表演契约。同一 SHA 下不必在命令外再分别重跑这些子门禁；联合入口的任一实时复验失败都必须整体阻断。
+
 输出不是 `write_release_gate: passed` 时，当前模型必须停止，不能生成或修改目标产物。
 
 设定产出后、开始写大纲前，必须先建立并人工回填设定内部顺序契约：
@@ -348,7 +353,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
   --setting-sequence-receipt "写作资产/设定顺序契约回执.json"
 ```
 
-大纲写完后，必须重新初始化完整顺序契约，人工核对设定与大纲的 canonical 顺序后，才允许写正文；正文节点和 `offset` 必须在正文生成后补齐并重新校验。不得把“设定顺序回执已通过”当成正文顺序已通过。
+大纲写完后，用 `validate_sequence_contract.py extend-outline --setting-receipt ... --setting ... --outline ... --receipt ...` 把已通过的设定节点和证据增量继承到完整顺序契约；只新填大纲证据和设定/大纲冲突裁决，通过 `validate` 后才允许写正文。正文完成后用 `extend-draft --receipt ... --draft ...` 绑定正文，只新填正文节点和 `offset` 再校验。增量继承不代表跳过验收：上一层 SHA 或通过状态变化时必须阻断。
 
 大纲通过完整顺序契约和开头承重契约后，还必须通过细纲表演验收。该闸门逐节检查原文机制是否真正落成场戏设计，且细纲与选中原文任一 SHA 变化都必须重新验收：
 

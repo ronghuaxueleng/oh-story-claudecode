@@ -140,6 +140,70 @@ class SequenceContractTest(unittest.TestCase):
         errors = GATE.validate_setting(receipt, self.setting)
         self.assertTrue(any("设定内部顺序冲突审查未通过" in item for item in errors))
 
+    def test_passed_setting_receipt_extends_to_full_contract(self) -> None:
+        setting_receipt = self.root / "setting-sequence.json"
+        full_receipt = self.root / "sequence.json"
+        source = self.setting_receipt()
+        setting_receipt.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+
+        errors = GATE.extend_setting_receipt(
+            setting_receipt,
+            self.setting,
+            self.outline,
+            full_receipt,
+        )
+
+        self.assertEqual([], errors)
+        extended = json.loads(full_receipt.read_text(encoding="utf-8"))
+        self.assertEqual("full", extended["scope"])
+        self.assertEqual("pending", extended["gate_status"])
+        self.assertEqual(
+            source["canonical_sequence"][0]["setting_evidence"],
+            extended["canonical_sequence"][0]["setting_evidence"],
+        )
+        self.assertEqual([], extended["canonical_sequence"][0]["outline_evidence"])
+
+    def test_changed_setting_blocks_outline_extension(self) -> None:
+        setting_receipt = self.root / "setting-sequence.json"
+        setting_receipt.write_text(
+            json.dumps(self.setting_receipt(), ensure_ascii=False),
+            encoding="utf-8",
+        )
+        self.setting.write_text("已修改设定", encoding="utf-8")
+
+        errors = GATE.extend_setting_receipt(
+            setting_receipt,
+            self.setting,
+            self.outline,
+            self.root / "sequence.json",
+        )
+
+        self.assertTrue(any("SHA 已变化" in item for item in errors))
+
+    def test_extend_draft_preserves_reviewed_evidence(self) -> None:
+        data = self.receipt()
+        data["artifacts"].pop("draft")
+        for node in data["canonical_sequence"]:
+            node.pop("draft_evidence")
+        receipt = self.root / "sequence.json"
+        receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        before = json.loads(receipt.read_text(encoding="utf-8"))
+
+        errors = GATE.extend_draft_receipt(receipt, self.draft)
+
+        self.assertEqual([], errors)
+        extended = json.loads(receipt.read_text(encoding="utf-8"))
+        self.assertEqual(
+            before["canonical_sequence"][0]["setting_evidence"],
+            extended["canonical_sequence"][0]["setting_evidence"],
+        )
+        self.assertEqual(
+            before["canonical_sequence"][0]["outline_evidence"],
+            extended["canonical_sequence"][0]["outline_evidence"],
+        )
+        self.assertEqual([], extended["canonical_sequence"][0]["draft_evidence"])
+        self.assertEqual("pending", extended["gate_status"])
+
     def test_valid_sequence_passes(self) -> None:
         receipt = self.root / "sequence.json"
         receipt.write_text(json.dumps(self.receipt(), ensure_ascii=False), encoding="utf-8")

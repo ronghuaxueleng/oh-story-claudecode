@@ -43,6 +43,33 @@ assert _RULE_LEDGER_SPEC and _RULE_LEDGER_SPEC.loader
 _RULE_LEDGER_MODULE = importlib.util.module_from_spec(_RULE_LEDGER_SPEC)
 _RULE_LEDGER_SPEC.loader.exec_module(_RULE_LEDGER_MODULE)
 
+_WRITING_RULE_GATE_PATH = Path(__file__).with_name("validate_writing_rule_gate.py")
+_WRITING_RULE_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_writing_rule_gate",
+    _WRITING_RULE_GATE_PATH,
+)
+assert _WRITING_RULE_SPEC and _WRITING_RULE_SPEC.loader
+_WRITING_RULE_MODULE = importlib.util.module_from_spec(_WRITING_RULE_SPEC)
+_WRITING_RULE_SPEC.loader.exec_module(_WRITING_RULE_MODULE)
+
+_SOURCE_READ_GATE_PATH = Path(__file__).with_name("validate_source_read_gate.py")
+_SOURCE_READ_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_source_read_gate",
+    _SOURCE_READ_GATE_PATH,
+)
+assert _SOURCE_READ_SPEC and _SOURCE_READ_SPEC.loader
+_SOURCE_READ_MODULE = importlib.util.module_from_spec(_SOURCE_READ_SPEC)
+_SOURCE_READ_SPEC.loader.exec_module(_SOURCE_READ_MODULE)
+
+_OPENING_CONTRACT_GATE_PATH = Path(__file__).with_name("validate_opening_contract.py")
+_OPENING_CONTRACT_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_opening_contract",
+    _OPENING_CONTRACT_GATE_PATH,
+)
+assert _OPENING_CONTRACT_SPEC and _OPENING_CONTRACT_SPEC.loader
+_OPENING_CONTRACT_MODULE = importlib.util.module_from_spec(_OPENING_CONTRACT_SPEC)
+_OPENING_CONTRACT_SPEC.loader.exec_module(_OPENING_CONTRACT_MODULE)
+
 
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
     if not path.is_file():
@@ -159,16 +186,28 @@ def validate_release(
     setting_sequence_receipt: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
+    writing_data = load_json(writing_receipt, "写作规则读取回执", errors)
     require_passed(
-        load_json(writing_receipt, "写作规则读取回执", errors),
+        writing_data,
         "写作规则读取门禁",
         errors,
     )
+    if writing_data is not None:
+        writing_errors, _ = _WRITING_RULE_MODULE.validate_receipt(writing_receipt)
+        if writing_errors:
+            errors.append("写作规则读取回执实时复验失败")
+            errors.extend(writing_errors)
+    source_data = load_json(source_receipt, "拆文读取回执", errors)
     require_passed(
-        load_json(source_receipt, "拆文读取回执", errors),
+        source_data,
         "拆文读取门禁",
         errors,
     )
+    if source_data is not None:
+        source_errors, _ = _SOURCE_READ_MODULE.validate_receipt(source_receipt)
+        if source_errors:
+            errors.append("拆文读取回执实时复验失败")
+            errors.extend(source_errors)
     require_ledger_prewrite_ready(
         load_json(ledger, "规则执行台账", errors),
         ledger,
@@ -233,11 +272,28 @@ def validate_release(
         if opening_contract is None:
             errors.append("正文写作放行必须提供开头承重契约回执")
         else:
+            opening_data = load_json(opening_contract, "开头承重契约回执", errors)
             require_passed(
-                load_json(opening_contract, "开头承重契约回执", errors),
+                opening_data,
                 "开头承重契约门禁",
                 errors,
             )
+            if opening_data is not None:
+                source_binding = opening_data.get("primary_source")
+                target_binding = opening_data.get("target_text")
+                if not isinstance(source_binding, dict) or not isinstance(target_binding, dict):
+                    errors.append("开头承重契约缺少来源或目标绑定")
+                else:
+                    source_path = Path(str(source_binding.get("path") or "")).resolve()
+                    target_path = Path(str(target_binding.get("path") or "")).resolve()
+                    opening_errors, _ = _OPENING_CONTRACT_MODULE.validate_receipt(
+                        opening_contract,
+                        source_path,
+                        target_path,
+                    )
+                    if opening_errors:
+                        errors.append("开头承重契约实时复验失败")
+                        errors.extend(opening_errors)
         if outline_contract is None:
             errors.append("正文写作放行必须提供细纲表演验收回执")
         else:

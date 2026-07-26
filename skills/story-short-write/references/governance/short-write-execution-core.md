@@ -37,7 +37,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 
 `writing_rule_gate` 必须覆盖当前工作区的格式规则、`anti-ai-writing.md` 和 `narrator-voice.md`。任一规则文件变化后旧回执失效，禁止用旧对话上下文或旧摘要代替。
 
-回执必须覆盖每本选中的主体 / 辅助拆文的完整资产。只读 `profile_source.md`、profile、设定或大纲不算通过。缺资产直接回 `story-short-analyze` 全量重拆，不做兼容回退。
+默认回执读取经单书 profile 全量 SHA 验收的无损关键编译包，不是只读 `profile_source.md`或 profile。主体必须保留完整原文、全部 BID/SF 和事实/因果/情绪/表演资产；辅助必须选真实 SF 并消费其全颗粒。覆盖缺失或 SHA 变化直接回 `story-short-analyze` 全量重拆/重新生成 profile，不做兼容回退。
 
 详细口径见：
 
@@ -79,11 +79,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 
 1. 生成规则读取清单并逐文件回填
 2. 通过 `writing_rule_gate`
-3. 生成拆文逐文件读取清单
-4. 逐文件读取并回填读取回执
+3. 验证单书全量资产 SHA 覆盖，生成拆文关键编译包读取清单
+4. 逐文件读取编译包，主体确认全 BID/SF，辅助选定 SF 后回填读取回执
 5. 通过 `source_read_gate`
 6. 初始化 `规则执行台账.json`
-7. 导出模型复核批次，由当前写作模型逐族阅读 `cases` 并归纳 `canonical_rule_text`
+7. 导出模型复核批次，由当前写作模型按 `case_ids / source_ref_ids` 解引用共享注册表，逐族阅读全部案例与来源并归纳 `canonical_rule_text`
 8. 模型确认规则角色、修复目标、`script / human / hybrid`、适用性、目标阶段和目标场景，并先合并近义规则
 9. 读取 `profile_source.md`
 10. 读取 `book.profile.json / project.profile.json`
@@ -92,15 +92,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 13. 设定完成后，用 `validate_sequence_contract.py init-setting` 建立设定内部顺序契约
 14. 当前模型人工回填设定 canonical 顺序、原句 `offset`、冲突取舍和总判断，并通过 `validate_sequence_contract.py validate-setting`
 15. 用已通过的设定顺序回执运行 `validate_write_release_gate.py outline`，再写大纲
-16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
-17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
+16. 大纲完成后，用 `validate_sequence_contract.py extend-outline` 从已通过的设定回执增量建立完整契约，保留已审核设定证据
+17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger`，再逐节验证原文表演机制、场景因果前提、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `scene_logic_contract` 与 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
 20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`；每写一节前重读该节至少两处原文表演证据和生成契约，写完当场停检并处理电报文、情感压缩和句间断裂，再进入下一节
 21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，再绑定修改后的正文 SHA
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
 23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
-24. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
+24. 用 `validate_sequence_contract.py extend-draft` 绑定正文，保留已审核设定/大纲证据；只补正文节点证据并通过 `validate --draft ...`
 25. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
 26. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修；仿写稿先固定本轮母稿、重新实读每个待改区块对应原文切片，再逐项留下原文、母稿和改后正文证据
 27. 通过 `validate_pre_window_revision_gate.py`
@@ -132,6 +132,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 设定/大纲 canonical 同时覆盖多个目标时，每个目标都要有 `structural_claim_reviews` 原句证据，不能跨范围代证
 - 读取回执不能代替执行台账；执行一项标记一项，不能最后统一补“已使用”
 - 写作放行必须独立运行 `validate_write_release_gate.py`；任一前置门禁不是 `passed` 时禁止生成或修改当前阶段产物，不能先写后补
+- `validate_write_release_gate.py draft` 是正文前唯一联合放行入口：它会实时复验写作规则、拆文读取、规则台账、顺序、开头和细纲契约；同一 SHA 不再在外部重复跑各子门禁
 - 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
 - 正文完成判定必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
 - 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执、人工分段和审计里记录的字符数/字数不得使用估算或其他脚本口径
@@ -349,6 +350,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --project "{项目名}" \
   --source-dir "拆文库/{主体书}" \
   --source-dir "拆文库/{辅助书}" \
+  --inventory-mode compiled \
   --receipt "{项目目录}/写作资产/拆文读取回执.json"
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
@@ -357,6 +359,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --output "{项目目录}/小节大纲.md" \
   --output "{项目目录}/正文.md"
 ```
+
+初始化后，必须为每个 `role=auxiliary` 来源填写 `selected_subflow_ids`。若 profile 的全量覆盖清单与当前正式资产任一 SHA 不一致，默认编译模式必须阻断。
 
 ### 3. 初始化、绑定并校验规则执行台账
 

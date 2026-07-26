@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from collections import defaultdict
@@ -3194,6 +3195,33 @@ def collect_profiles_from_dirs(profile_dirs: list[Path], profile_name: str) -> l
     return collected
 
 
+def build_source_asset_coverage(sources: list[Path]) -> list[dict[str, object]]:
+    """Bind every formal Markdown/JSON source asset so writers can use a compact read set safely."""
+    coverage: list[dict[str, object]] = []
+    for root in sources:
+        resolved = root.resolve()
+        files = []
+        for path in sorted(resolved.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".md", ".json", ".jsonl", ".txt"}:
+                continue
+            if path.name == "book.profile.json" or "bak" in path.parts or "__pycache__" in path.parts:
+                continue
+            files.append(
+                {
+                    "path": path.relative_to(resolved).as_posix(),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+            )
+        coverage.append(
+            {
+                "root": str(resolved),
+                "file_count": len(files),
+                "files": files,
+            }
+        )
+    return coverage
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", action="append", help="拆书目录，可重复传入")
@@ -3219,6 +3247,7 @@ def main() -> int:
                     f"拆书结果缺少有效动态预检字典，请重新全量拆书: {path}"
                 )
         profile = generate_profile_from_sources(sources, args.name)
+        profile["source_asset_coverage"] = build_source_asset_coverage(sources)
     else:
         profile_paths: list[Path] = []
         if args.merge_profile:

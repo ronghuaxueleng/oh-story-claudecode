@@ -4,17 +4,18 @@
 
 ## 硬规则
 
-1. 每个被选中的主样本、辅助样本都必须实际读取完整拆文资产。
-2. `profile_source.md`、`book.profile.json`、`project.profile.json` 都是索引和规则包，不能替代拆文原始资产。
-3. 必读范围包括样本对比、主报告、情节节点、事实台账、写作手法、16 张仿写表、8 个原文细节库、完整写作资产和动态信号字典；其中 `交流承压拆解.md`、`冲突载体清单.md` 必须作为写作资产读取，不能只读动作表、对白表后自行推断。
-4. 缺任一必备资产，停止写作并重新执行 `story-short-analyze` 全量拆书；禁止猜测、兼容或临时补摘要。
-5. 每个文件必须在回执中填写：
+1. `story-short-analyze` 仍必须产出完整拆文资产；单书 `book.profile.json.source_asset_coverage` 必须对全部正式资产和完整原文逐文件记录 SHA。
+2. 写作端默认 `compiled` 模式：先验证全量 SHA 覆盖，再读无损关键编译包。这是“全量验收 + 关键读取”，不是把 profile 或摘要当原始资产的替代品。
+3. 主体编译包必须包含：完整原文、主报告、情节节点、事实台账、写作手法、导语/顺序表、profile 源、样本分级、作者 DNA、禁写/同桥过检、全部 BID/SF 施工卡和索引、情绪母线。这些资产必须足以恢复主体完整流程、事实/因果/情绪/表演颗粒和对应原文位置。
+4. 每个辅助来源必须在 `selected_subflow_ids` 中显式选择子流程索引真实存在的 `SF-*`；写作时使用该子流程的全部颗粒和对应原文，不得抽一两个功能点代替。
+5. 缺任一必备资产、覆盖清单漏项或 SHA 失配，停止写作并重新执行 `story-short-analyze` 全量拆书或重新生成单书 profile；禁止猜测、兼容或临时补摘要。
+6. 编译包中每个文件必须在回执中填写：
    - `status: read`
    - 至少 1 个确实存在于源文件的 `evidence_terms`
    - 至少 1 条 `takeaways`
    - 至少 1 个 `used_for`
-6. 融合写作还必须填写 `cross_source_decisions`，说明主体样本和辅助样本发生冲突时如何裁决。
-7. 读取回执必须在 `小节大纲.md` 和 `正文.md` 之前完成。事后补回执视为失败。
+7. 融合写作还必须填写 `cross_source_decisions`，说明主体样本和辅助样本发生冲突时如何裁决。
+8. 读取回执必须在 `小节大纲.md` 和 `正文.md` 之前完成。事后补回执视为失败。
 
 ## 标准流程
 
@@ -25,8 +26,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --project "项目名" \
   --source-dir "拆文库/主体书" \
   --source-dir "拆文库/辅助书" \
+  --inventory-mode compiled \
   --receipt "项目目录/写作资产/拆文读取回执.json"
 ```
+
+第一个 `--source-dir` 固定是主体，后续均为辅助。初始化后先为每个辅助来源填写 `selected_subflow_ids`。`--inventory-mode full` 只用于诊断旧资料或覆盖异常，不是默认写作路径。
+
+辅助来源的 `写作资产/子流程施工卡.md` 和 `写作资产/子流程索引.jsonl` 两个文件，`evidence_terms` 必须逐一包含已选 `SF-*`。只在 `selected_subflow_ids` 里填 ID，没有对应读取证据，门禁仍然阻断。
 
 模型逐文件读取并回填后，在写大纲前校验：
 

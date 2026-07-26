@@ -179,7 +179,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
   --batch-size 30
 ```
 
-当前写作模型必须逐批阅读 `cases`，把同一规则的多个案例压成一张规则卡，并生成可审计 `apply-plan`。不得写脚本把建议分类批量改成 `model_semantic_review`。
+当前写作模型必须逐批阅读所有案例，把同一规则的多个案例压成一张规则卡，并生成可审计 `apply-plan`。导出文件在顶层用 `case_registry / source_ref_registry` 共享存储案例与来源，规则项分别通过 `case_ids / source_ref_ids` 引用；必须按 ID 解引用并全量阅读，不得把存储去重误解为证据缩减。不得写脚本把建议分类批量改成 `model_semantic_review`。
 
 模型归并计划使用：
 

@@ -1170,10 +1170,34 @@ def export_model_review(
         for entry in iter_execution_entries(data)
         if not str(entry.get("merged_into") or "").strip()
     ]
+    case_registry: dict[str, dict[str, Any]] = {}
+    source_ref_registry: dict[str, dict[str, Any]] = {}
     batches: list[dict[str, Any]] = []
     for start in range(0, len(entries), batch_size):
         items = []
         for entry in entries[start : start + batch_size]:
+            case_ids: list[str] = []
+            for case in entry.get("cases", []):
+                if not isinstance(case, dict):
+                    continue
+                case_id = stable_id(
+                    "CASE",
+                    str(case.get("source_path") or ""),
+                    str(case.get("text") or ""),
+                )
+                case_registry.setdefault(case_id, case)
+                case_ids.append(case_id)
+            source_ref_ids: list[str] = []
+            for source_ref in entry.get("source_refs", []):
+                if not isinstance(source_ref, dict):
+                    continue
+                source_ref_id = stable_id(
+                    "SRC",
+                    str(source_ref.get("source_path") or ""),
+                    str(source_ref.get("id") or source_ref.get("source_sha256") or ""),
+                )
+                source_ref_registry.setdefault(source_ref_id, source_ref)
+                source_ref_ids.append(source_ref_id)
             items.append(
                 {
                     "id": entry.get("id"),
@@ -1182,8 +1206,8 @@ def export_model_review(
                     "suggested_rule_role": entry.get("rule_role"),
                     "suggested_execution_mode": entry.get("execution_mode"),
                     "suggested_remediation_target": entry.get("remediation_target"),
-                    "source_refs": entry.get("source_refs", []),
-                    "cases": entry.get("cases", []),
+                    "source_ref_ids": source_ref_ids,
+                    "case_ids": case_ids,
                 }
             )
         batches.append(
@@ -1193,10 +1217,12 @@ def export_model_review(
             }
         )
     payload = {
-        "version": "1.0",
+        "version": "1.1",
         "ledger": str(ledger_path),
+        "source_ref_registry": source_ref_registry,
+        "case_registry": case_registry,
         "instructions": [
-            "必须由当前写作模型逐族阅读 cases 后归纳 canonical_rule_text，脚本建议只能参考。",
+            "必须由当前写作模型按 case_ids/source_ref_ids 解引用共享注册表，逐族阅读全部案例与来源后归纳 canonical_rule_text，脚本建议只能参考。",
             "剔除导航、示例、说明性材料时标 not_applicable，并写具体原因。",
             "语义近似规则合并到唯一 canonical，保留 source_refs 和全部 cases。",
             "source_candidate 是候选资产，不等于必须写入正文。",
@@ -1225,7 +1251,12 @@ def export_model_review(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    return {"entries": len(entries), "batches": len(batches)}
+    return {
+        "entries": len(entries),
+        "batches": len(batches),
+        "cases": len(case_registry),
+        "source_refs": len(source_ref_registry),
+    }
 
 
 ALLOWED_PLAN_FIELDS = {

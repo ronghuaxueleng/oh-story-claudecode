@@ -645,7 +645,10 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         summary = GATE.export_model_review(self.ledger_path, output, batch_size=2)
         payload = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(summary["entries"], sum(len(b["items"]) for b in payload["batches"]))
-        self.assertTrue(payload["batches"][0]["items"][0]["cases"])
+        first = payload["batches"][0]["items"][0]
+        self.assertTrue(first["case_ids"])
+        self.assertIn(first["case_ids"][0], payload["case_registry"])
+        self.assertNotIn("cases", first)
 
     def test_empty_ledger_is_not_prewrite_ready(self) -> None:
         ledger = self._create_ledger()
