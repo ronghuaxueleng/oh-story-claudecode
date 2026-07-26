@@ -26,7 +26,7 @@
 - 连续小节复制同一套场面颗粒度或人工判断，批量制造假通过回执
 - 连续小节复制同一套原文情绪拍、触发和证据，只换目标桥段名称
 
-## 强情绪仿写四硬闸
+## 强情绪仿写五硬闸
 
 追妻、婚恋清算、白月光、替身、背叛等强情绪关系稿，正文前必须同时通过：
 
@@ -34,6 +34,7 @@
 2. `emotion_intensity`：逐节填写 1-10 分烈度、具体羞辱/刺痛、情绪翻面和相对上一节的升级；强情绪稿不得低于 7。
 3. `professional_shell_translation`：删除术语后冲突仍成立，且先让读者读懂关系伤害，再用职业动作把伤害做实。
 4. `source_emotion_parity`：绑定选中原文真实片段，逐拍对齐原文与目标稿的情绪流程；每拍必须包含触发、关系位置变化、读者感受、烈度和证据。目标拍数、拍序、反刀拍、峰值拍不得变化，任何一拍的目标烈度不得低于原文。
+5. `first_draft_generation_contract`：每节在动笔前绑定一段真实原文表演片段，预先写出情感中间拍、连续瞬间分组、真实断段理由、句间关系和虚词策略。它是正文生成输入，不是写后审计表。
 
 “和原文一样”指情绪功能、顺序、反刀时机、峰值位置、场末余痛和读者体感烈度对齐，不复制原句、人物、职业或完整情节壳。不能用“整节总分相同”掩盖中间某一拍被削弱。
 
@@ -51,7 +52,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
 
-当前模型完整读取选中原文及细纲后，逐节回填，再运行：
+当前模型完整读取选中原文及细纲后，逐节回填结构验收和首写生成契约，再运行：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" validate \
@@ -59,7 +60,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
 
-输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲或任一选中原文 SHA 变化后，旧回执立即失效。
+输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲或任一选中原文 SHA 变化后，旧回执立即失效。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文或概括后的细纲开写。
 
 ### 颗粒度原创模式
 
@@ -149,6 +150,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 14. `emotion_intensity`：填写烈度、具体刺痛、情绪翻面及相对前场升级；强情绪稿低于 7 分不得放行。
 15. `professional_shell_translation`：用一句白话翻译职业冲突，并证明去掉术语后感情冲突仍成立。
 16. `source_emotion_parity`：引用真实原文片段，逐拍列出原文与目标情绪流程。每拍都必须填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`；另填两边反刀拍、峰值拍、场末余痛等价、读者体感等价、人工判断及迁移边界。
+17. `first_draft_generation_contract`：必须在首写前填完，不得从正文反向补写。字段必须包含：
+   - `source_performance_excerpt`：任一选中原文中真实存在的表演片段。
+   - `emotion_process`：逐项写明入场情绪、非自主身体反应、记忆/联想/注意漂移、矛盾冲动、说错/回避和场末余痛。本场若无回忆，要写明由何种现场注意漂移代替，不得留空。
+   - `continuous_moment_groups`：至少两组，写明哪些动作、感知和反应属于同一瞬间，不能拆成电报式短段。
+   - `paragraph_break_reasons`：至少两条，只能是注意对象、说话人、时间状态或现实权力真正变化。
+   - `sentence_relation_plan`：至少三条，写明关键相邻句的时间、因果、转折、让步、递进或心理反冲，不指定固定连词。
+   - `function_word_strategy / telegraphic_risk / emotion_shorthand_to_avoid`：写明符合叙述者口气的虚词、本场最可能的电报文病灶，以及至少两个不能代替情感过程的动作标签。
+   - `no_fixed_short_sentence_ratio`：必须为 `true`，明确不设固定短句率、单句成段率或段长上限。
+   - `manual_judgment`：说明该节如何在第一稿就保留原文同级情感颗粒和连续气口。
 
 ## 全局必填
 
@@ -161,6 +171,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 已在正文前确认人物关系对陌生读者直接可懂；
 - 已完成职业外壳白话翻译，不让术语承担情绪；
 - 已逐节核对原文情绪流程、反刀时机和同级烈度；
+- 已在正文前逐节完成首写生成契约，不从正文反向补回执；
+- 已确认同一动作链、感知链和情绪反应链保持连续，断段有真实理由；
+- 已在首写前建立句间关系和虚词策略，不用事后批量补连词伪造流畅；
 - 迁移边界：完整参照结构、信息延迟、场内压力、物件/动作/关系推进机制，不复制原人物、职业、原句或完整情节壳；
 - 细纲不是流程清单、证据排队表或分镜施工稿；
 - 本书的场景分工如何避免同场结算全部问题。

@@ -95,8 +95,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据
-20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`，再写正文
+19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `first_draft_generation_contract`，绑定原文情感颗粒、连续瞬间、断段理由和句间关系
+20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`；每写一节前重读该节原文片段和生成契约，写完当场停检并处理电报文、情感压缩和句间断裂，再进入下一节
 21. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
 22. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
 23. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
@@ -119,6 +119,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 规则只用于约束，不替代正文生成
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
 - 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
+- `first_draft_generation_contract` 是正文生成输入，不是写后审计；必须在每节第一稿就完成原文同级情感过程、连续气口和句间关系，不得把它们推给后续去味或润色
 - 用户要求“借颗粒度、自造情节”时，细纲表演验收使用 `source_mode: granularity_only`：不强迫主体 BID 全集迁移，但必须用 `granularity_transfer_contract` 覆盖全部目标小节，并逐场证明事件拍密度、信息延迟、控制权变化与原文同级，同时列明拒绝复制的表层元素
 - 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`

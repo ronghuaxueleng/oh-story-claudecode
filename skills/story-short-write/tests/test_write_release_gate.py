@@ -135,6 +135,9 @@ class WriteReleaseGateTest(unittest.TestCase):
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "first_draft_generation_contract_reviewed": True,
+            "paragraph_breath_reviewed_before_draft": True,
+            "sentence_relation_and_function_word_strategy_reviewed_before_draft": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
             "global_storyboard_or_process_list": False,
@@ -255,6 +258,35 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "manual_judgment": "逐拍对齐且没有把公开抛弃降成职业分歧。",
                     "parity_status": "adapted_equal_intensity",
                     "adaptation_boundary": "只迁移情绪结构，不复制人物与原句。",
+                },
+                "first_draft_generation_contract": {
+                    "source_performance_excerpt": "原文场面",
+                    "emotion_process": {
+                        "entry_state": "她还在等丈夫给一个合理解释。",
+                        "involuntary_body_response": "他开口偏护时，她的手先松开了钥匙。",
+                        "memory_association_or_attention_drift": "她的注意落到两人共同挑的钥匙挂件上。",
+                        "contradictory_impulse": "她想追问，又不肯当众乞求。",
+                        "speech_misfire_or_avoidance": "她把质问改成了一句钥匙何时交。",
+                        "scene_afterpain": "钥匙换手后，她手心的压痕还没散。",
+                    },
+                    "continuous_moment_groups": [
+                        "听见偏护、松手、看见挂件是同一瞬间。",
+                        "想追问、改口、交钥匙是同一选择瞬间。",
+                    ],
+                    "paragraph_break_reasons": [
+                        "说话人与施压位置变化。",
+                        "钥匙换手导致进入权变化。",
+                    ],
+                    "sentence_relation_plan": [
+                        "因为听见偏护，她才松手。",
+                        "她原本想追问，却临时改口。",
+                        "钥匙虽交出，压痕却留在场末。",
+                    ],
+                    "function_word_strategy": "用原本、却、才和还组织自然口气。",
+                    "telegraphic_risk": "避免把松手、看挂件、改口和交钥匙切成四个短段。",
+                    "emotion_shorthand_to_avoid": ["手指发紧", "我没说话"],
+                    "no_fixed_short_sentence_ratio": True,
+                    "manual_judgment": "第一稿就保留期待、身体失控、自尊反冲、错答和余痛。",
                 },
                 "forbidden_items": ["不提前解释", "不连续报账"],
                 "outline_evidence": ["动作一", "动作二"],
@@ -388,6 +420,27 @@ class WriteReleaseGateTest(unittest.TestCase):
             sequence_receipt=self.files["sequence"],
         )
         self.assertTrue(any("matched/adapted" in item for item in errors))
+
+    def test_draft_blocks_invalid_first_draft_generation_contract(self) -> None:
+        payload = json.loads(self.files["outline_contract"].read_text(encoding="utf-8"))
+        contract = payload["sections"][0]["first_draft_generation_contract"]
+        contract["no_fixed_short_sentence_ratio"] = False
+        payload["gate_status"] = "passed"
+        self.files["outline_contract"].write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+        )
+        self.assertTrue(any("不得设置固定短句" in item for item in errors))
 
     def test_outline_requires_setting_sequence_contract(self) -> None:
         errors = GATE.validate_release(

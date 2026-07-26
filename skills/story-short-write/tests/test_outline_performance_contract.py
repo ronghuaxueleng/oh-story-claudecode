@@ -185,6 +185,35 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "parity_status": "adapted_equal_intensity",
                 "adaptation_boundary": "只迁移情绪顺序和烈度，不复制人物与原句。",
             }
+            section["first_draft_generation_contract"] = {
+                "source_performance_excerpt": "原文场面",
+                "emotion_process": {
+                    "entry_state": "她入场时还在期待丈夫会维护自己。",
+                    "involuntary_body_response": "听到丈夫改口后，她的手先松开钥匙。",
+                    "memory_association_or_attention_drift": "她没想起完整往事，只盯住钥匙上两人共同挑的挂件。",
+                    "contradictory_impulse": "她既想追问他为什么，又不愿当众求他选自己。",
+                    "speech_misfire_or_avoidance": "她本来要问关系，开口却只问钥匙要不要现在交。",
+                    "scene_afterpain": "钥匙换手后，她的手心还保留着金属压痕。",
+                },
+                "continuous_moment_groups": [
+                    "听到改口、手松钥匙、看见挂件属于同一反应瞬间。",
+                    "想追问、临时改口、交出钥匙属于同一选择瞬间。",
+                ],
+                "paragraph_break_reasons": [
+                    "丈夫开口后说话人与施压位置变化。",
+                    "钥匙真正换手后，现实进入权发生变化。",
+                ],
+                "sentence_relation_plan": [
+                    "她因为听到丈夫改口，才下意识松开钥匙。",
+                    "她原本想追问，却因为不愿乞求而改口。",
+                    "钥匙虽然交了出去，手心的压痕却把余痛留在场末。",
+                ],
+                "function_word_strategy": "使用‘原本、却、才、还’贴合第一人称口气，不批量撒书面连词。",
+                "telegraphic_risk": "最容易把松手、看挂件、改口、交钥匙切成四个动作短段。",
+                "emotion_shorthand_to_avoid": ["手指发紧", "我没说话"],
+                "no_fixed_short_sentence_ratio": True,
+                "manual_judgment": "首写要把期待、身体失控、自尊反冲、错答和余痛织进同一连续现场。",
+            }
         data["reviewed_by_current_model"] = True
         data["gate_status"] = "passed"
         data["global_review"] = {
@@ -195,6 +224,9 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "first_draft_generation_contract_reviewed": True,
+            "paragraph_breath_reviewed_before_draft": True,
+            "sentence_relation_and_function_word_strategy_reviewed_before_draft": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
             "global_storyboard_or_process_list": False,
@@ -243,6 +275,46 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("必须来自选中原文" in error for error in errors))
+
+    def test_first_draft_excerpt_must_be_real(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["first_draft_generation_contract"]
+        contract["source_performance_excerpt"] = "伪造的原文片段"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("source_performance_excerpt" in error for error in errors))
+
+    def test_first_draft_emotion_process_cannot_be_empty(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        process = data["sections"][0]["first_draft_generation_contract"]["emotion_process"]
+        process["contradictory_impulse"] = ""
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("contradictory_impulse" in error for error in errors))
+
+    def test_first_draft_requires_continuous_moment_groups(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["first_draft_generation_contract"]
+        contract["continuous_moment_groups"] = ["只写一组"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("至少两组连续瞬间" in error for error in errors))
+
+    def test_first_draft_requires_sentence_relation_plan(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["first_draft_generation_contract"]
+        contract["sentence_relation_plan"] = []
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("至少三条句间关系计划" in error for error in errors))
+
+    def test_first_draft_cannot_restore_fixed_short_sentence_ratio(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["first_draft_generation_contract"]
+        contract["no_fixed_short_sentence_ratio"] = False
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不得设置固定短句" in error for error in errors))
 
     def test_reversal_beat_must_match_source(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

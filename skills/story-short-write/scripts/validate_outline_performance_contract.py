@@ -28,6 +28,7 @@ REQUIRED_SECTION_FIELDS = (
     "emotion_intensity",
     "professional_shell_translation",
     "source_emotion_parity",
+    "first_draft_generation_contract",
     "forbidden_items",
     "outline_evidence",
     "manual_judgment",
@@ -64,6 +65,14 @@ EMOTION_BEAT_FIELDS = (
     "evidence",
 )
 STRONG_EMOTION_MIN_BEATS = 5
+EMOTION_PROCESS_FIELDS = (
+    "entry_state",
+    "involuntary_body_response",
+    "memory_association_or_attention_drift",
+    "contradictory_impulse",
+    "speech_misfire_or_avoidance",
+    "scene_afterpain",
+)
 
 
 def sha256(path: Path) -> str:
@@ -151,7 +160,7 @@ def create_receipt(
     sections = outline_sections(read_text(outline))
     first_source = sources[0]
     return {
-        "version": "1.2",
+        "version": "1.3",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -168,6 +177,9 @@ def create_receipt(
             "relationship_legibility_reviewed_before_draft": False,
             "professional_shell_translation_reviewed_before_draft": False,
             "source_emotion_flow_parity_reviewed_before_draft": False,
+            "first_draft_generation_contract_reviewed": False,
+            "paragraph_breath_reviewed_before_draft": False,
+            "sentence_relation_and_function_word_strategy_reviewed_before_draft": False,
             "granularity_transfer_contract_reviewed": False,
             "strong_emotion_required": False,
             "mechanism_transfer_boundary": "",
@@ -290,6 +302,25 @@ def create_receipt(
                     "manual_judgment": "",
                     "parity_status": "pending",
                     "adaptation_boundary": "",
+                },
+                "first_draft_generation_contract": {
+                    "source_performance_excerpt": "",
+                    "emotion_process": {
+                        "entry_state": "",
+                        "involuntary_body_response": "",
+                        "memory_association_or_attention_drift": "",
+                        "contradictory_impulse": "",
+                        "speech_misfire_or_avoidance": "",
+                        "scene_afterpain": "",
+                    },
+                    "continuous_moment_groups": [],
+                    "paragraph_break_reasons": [],
+                    "sentence_relation_plan": [],
+                    "function_word_strategy": "",
+                    "telegraphic_risk": "",
+                    "emotion_shorthand_to_avoid": [],
+                    "no_fixed_short_sentence_ratio": None,
+                    "manual_judgment": "",
                 },
                 "forbidden_items": [],
                 "outline_evidence": [],
@@ -602,6 +633,51 @@ def validate_source_emotion_parity(
         errors.append(f"{label} 必须人工确认读者体感与原文同级")
     if not nonempty_text(value.get("manual_judgment")):
         errors.append(f"{label} source_emotion_parity.manual_judgment 不能为空")
+
+
+def validate_first_draft_generation_contract(
+    value: Any,
+    source_texts: dict[str, str],
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} first_draft_generation_contract 必须是对象")
+        return
+
+    excerpt = str(value.get("source_performance_excerpt") or "").strip()
+    if not excerpt or not any(excerpt in text for text in source_texts.values()):
+        errors.append(
+            f"{label} first_draft_generation_contract.source_performance_excerpt "
+            "必须来自选中原文"
+        )
+
+    emotion_process = value.get("emotion_process")
+    if not isinstance(emotion_process, dict):
+        errors.append(f"{label} first_draft_generation_contract.emotion_process 必须是对象")
+    else:
+        for field in EMOTION_PROCESS_FIELDS:
+            if not nonempty_text(emotion_process.get(field)):
+                errors.append(
+                    f"{label} first_draft_generation_contract.emotion_process.{field} 不能为空"
+                )
+
+    for field, minimum, description in (
+        ("continuous_moment_groups", 2, "至少两组连续瞬间"),
+        ("paragraph_break_reasons", 2, "至少两条真实断段理由"),
+        ("sentence_relation_plan", 3, "至少三条句间关系计划"),
+        ("emotion_shorthand_to_avoid", 2, "至少两条情绪标签式写法"),
+    ):
+        if not nonempty_list(value.get(field), minimum=minimum):
+            errors.append(
+                f"{label} first_draft_generation_contract.{field} {description}"
+            )
+
+    for field in ("function_word_strategy", "telegraphic_risk", "manual_judgment"):
+        if not nonempty_text(value.get(field)):
+            errors.append(f"{label} first_draft_generation_contract.{field} 不能为空")
+    if value.get("no_fixed_short_sentence_ratio") is not True:
+        errors.append(f"{label} 首写不得设置固定短句、单句成段或段长比例")
 
 
 def validate_bridge_inventory(
@@ -957,6 +1033,12 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须在正文前完成职业外壳白话翻译，禁止术语承担情绪")
         if global_review.get("source_emotion_flow_parity_reviewed_before_draft") is not True:
             errors.append("必须在正文前逐节核对原文情绪流程、反刀时机和烈度")
+        if global_review.get("first_draft_generation_contract_reviewed") is not True:
+            errors.append("必须在正文前逐节完成首写生成契约，不得先写后补")
+        if global_review.get("paragraph_breath_reviewed_before_draft") is not True:
+            errors.append("必须在正文前确认连续气口与真实断段理由")
+        if global_review.get("sentence_relation_and_function_word_strategy_reviewed_before_draft") is not True:
+            errors.append("必须在正文前确认句间关系与虚词连词策略")
         if str(data.get("source_mode") or "full_bridge") == "granularity_only":
             if global_review.get("granularity_transfer_contract_reviewed") is not True:
                 errors.append("granularity_only 模式必须人工确认颗粒度迁移契约")
@@ -1065,6 +1147,12 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             label,
             errors,
             strong_emotion_required=strong_emotion_required,
+        )
+        validate_first_draft_generation_contract(
+            entry.get("first_draft_generation_contract"),
+            source_texts,
+            label,
+            errors,
         )
         if not nonempty_list(entry.get("forbidden_items"), minimum=2):
             errors.append(f"{label} forbidden_items 至少填写两条禁写项")
