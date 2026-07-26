@@ -92,7 +92,29 @@ WRITING_ASSET_FILES = [
     "本书动态信号字典.json",
     "profile_source.md",
     "桥段施工卡.md",
+    "子流程施工卡.md",
+    "子流程索引.jsonl",
 ]
+
+SUBFLOW_REQUIRED_FIELDS = (
+    "subflow_id",
+    "source_book",
+    "parent_bridge_id",
+    "name",
+    "source_range",
+    "function_tags",
+    "entry_state",
+    "required_sequence",
+    "scene_granularity",
+    "information_delay",
+    "control_changes",
+    "emotion_sequence",
+    "end_state",
+    "embeddable_after",
+    "incompatible_with",
+    "source_evidence",
+)
+SUBFLOW_ID_PATTERN = re.compile(r"^SF-\d{2,}$")
 
 ASSET_CANDIDATE_CATEGORY_TARGETS = {
     "导语": "可直接仿写_导语拆解表.md",
@@ -2950,6 +2972,106 @@ def check_bridge_workcards_quality(
             )
 
 
+def read_jsonl(path: Path, errors: list[str]) -> list[dict]:
+    entries: list[dict] = []
+    if not path.exists() or not path.is_file():
+        return entries
+    for line_number, raw in enumerate(read_text(path).splitlines(), start=1):
+        line = raw.strip()
+        if not line:
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError as exc:
+            errors.append(f"{path}:{line_number} 不是有效 JSON：{exc}")
+            continue
+        if not isinstance(value, dict):
+            errors.append(f"{path}:{line_number} 必须是 JSON 对象")
+            continue
+        entries.append(value)
+    return entries
+
+
+def check_subflow_assets(
+    root: Path,
+    original_text: str,
+    errors: list[str],
+) -> None:
+    asset_dir = root / "写作资产"
+    card_path = asset_dir / "子流程施工卡.md"
+    index_path = asset_dir / "子流程索引.jsonl"
+    if not card_path.is_file() or not index_path.is_file():
+        return
+
+    card_text = read_text(card_path)
+    entries = read_jsonl(index_path, errors)
+    if not entries:
+        errors.append(f"{index_path} 没有有效子流程")
+        return
+
+    bridge_ids = set(
+        re.findall(r"^##\s+\[?(BID-\d+)\]?", read_text(asset_dir / "桥段施工卡.md"), flags=re.M)
+    )
+    seen_ids: set[str] = set()
+    covered_bridges: set[str] = set()
+    for index, entry in enumerate(entries, start=1):
+        label = f"{index_path} 第 {index} 条"
+        missing = [field for field in SUBFLOW_REQUIRED_FIELDS if field not in entry]
+        if missing:
+            errors.append(f"{label} 缺少字段：{', '.join(missing)}")
+            continue
+        subflow_id = str(entry.get("subflow_id") or "").strip()
+        if not SUBFLOW_ID_PATTERN.fullmatch(subflow_id):
+            errors.append(f"{label}.subflow_id 必须使用 SF-01 形式")
+        elif subflow_id in seen_ids:
+            errors.append(f"{label}.subflow_id 重复：{subflow_id}")
+        else:
+            seen_ids.add(subflow_id)
+        if not re.search(rf"^##\s+\[?{re.escape(subflow_id)}\]?\b", card_text, flags=re.M):
+            errors.append(f"{label} 未在 {card_path.name} 找到同名施工卡")
+
+        parent_bridge_id = str(entry.get("parent_bridge_id") or "").strip()
+        if parent_bridge_id not in bridge_ids:
+            errors.append(f"{label}.parent_bridge_id 不在桥段施工卡中：{parent_bridge_id}")
+        else:
+            covered_bridges.add(parent_bridge_id)
+
+        for field in (
+            "source_book",
+            "name",
+            "source_range",
+            "entry_state",
+            "scene_granularity",
+            "information_delay",
+            "end_state",
+        ):
+            if not isinstance(entry.get(field), str) or not str(entry[field]).strip():
+                errors.append(f"{label}.{field} 不能为空")
+        for field, minimum in (
+            ("function_tags", 1),
+            ("required_sequence", 2),
+            ("control_changes", 1),
+            ("emotion_sequence", 3),
+            ("source_evidence", 2),
+        ):
+            value = entry.get(field)
+            if not isinstance(value, list) or len([item for item in value if str(item).strip()]) < minimum:
+                errors.append(f"{label}.{field} 至少 {minimum} 条")
+        for field in ("embeddable_after", "incompatible_with"):
+            if not isinstance(entry.get(field), list):
+                errors.append(f"{label}.{field} 必须是列表")
+        for quote in entry.get("source_evidence") or []:
+            text = str(quote).strip()
+            if text and text not in original_text:
+                errors.append(f"{label}.source_evidence 不在原文中：{text!r}")
+
+    missing_bridges = sorted(bridge_ids - covered_bridges)
+    if missing_bridges:
+        errors.append(
+            f"{index_path} 未覆盖全部父 BID：{', '.join(missing_bridges)}"
+        )
+
+
 def extract_high_risk_cards(text: str) -> list[tuple[str, str]]:
     matches = list(re.finditer(r"^\s*-\s*桥段名[：:]\s*(.+)$", text, flags=re.M))
     cards: list[tuple[str, str]] = []
@@ -3263,6 +3385,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     )
     check_sample_grading_quality(asset_dir / "profile_source.md", errors)
     check_bridge_workcards_quality(asset_dir / "桥段施工卡.md", word_count, errors, notes)
+    check_subflow_assets(root, original_text, errors)
     check_high_risk_asset_quality(asset_dir / "高敏桥段识别.md", word_count, errors)
     check_cross_asset_semantics(root, original_text, word_count, errors, notes)
     check_character_bias_role_coverage(root, word_count, errors, notes)
