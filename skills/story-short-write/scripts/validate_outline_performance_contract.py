@@ -19,6 +19,7 @@ REQUIRED_SECTION_FIELDS = (
     "controlling_object",
     "source_function_mechanism",
     "original_scene_granularity",
+    "scene_logic_contract",
     "source_mechanism",
     "information_delay",
     "character_missteps",
@@ -73,6 +74,15 @@ EMOTION_PROCESS_FIELDS = (
     "speech_misfire_or_avoidance",
     "scene_afterpain",
 )
+SCENE_LOGIC_LIST_FIELDS = (
+    "source_causal_preconditions",
+    "source_evidence",
+    "target_entry_causes",
+    "target_knowledge_state",
+    "key_object_lifecycle",
+    "obvious_alternative_blocker",
+    "target_outline_evidence",
+)
 
 
 def sha256(path: Path) -> str:
@@ -113,6 +123,23 @@ def bridge_ids_from_catalog(path: Path) -> list[str]:
     return list(dict.fromkeys(BRIDGE_HEADING_PATTERN.findall(read_text(path))))
 
 
+def causal_asset_ids_from_profile(path: Path) -> list[str]:
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(read_text(path))
+    except json.JSONDecodeError:
+        return []
+    assets = data.get("causal_precondition_assets", []) if isinstance(data, dict) else []
+    return list(
+        dict.fromkeys(
+            str(item.get("causal_asset_id") or "").strip()
+            for item in assets
+            if isinstance(item, dict) and str(item.get("causal_asset_id") or "").strip()
+        )
+    )
+
+
 def create_receipt(
     project: str,
     outline_path: Path,
@@ -133,6 +160,12 @@ def create_receipt(
         available_bridge_ids = bridge_ids_from_catalog(catalog)
         if not available_bridge_ids:
             raise ValueError(f"桥段施工卡未识别到 BID: {catalog}")
+        profile_path = source.parent.parent / "book.profile.json"
+        if not profile_path.is_file():
+            raise FileNotFoundError(f"单书 profile 不存在: {profile_path}")
+        available_causal_asset_ids = causal_asset_ids_from_profile(profile_path)
+        if not available_causal_asset_ids:
+            raise ValueError(f"单书 profile 未识别到场景因果资产 CPA: {profile_path}")
         role = "primary" if index == 0 else "auxiliary"
         sources.append(
             {
@@ -144,6 +177,11 @@ def create_receipt(
                     "sha256": sha256(catalog),
                 },
                 "available_bridge_ids": available_bridge_ids,
+                "causal_asset_profile": {
+                    "path": str(profile_path.resolve()),
+                    "sha256": sha256(profile_path),
+                },
+                "available_causal_asset_ids": available_causal_asset_ids,
                 "required_bridge_ids": (
                     available_bridge_ids
                     if role == "primary" and source_mode == "full_bridge"
@@ -160,7 +198,7 @@ def create_receipt(
     sections = outline_sections(read_text(outline))
     first_source = sources[0]
     return {
-        "version": "1.3",
+        "version": "1.4",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -172,6 +210,7 @@ def create_receipt(
         "global_review": {
             "full_source_mechanisms_reviewed": False,
             "dual_track_function_and_scene_granularity_reviewed": False,
+            "scene_causality_reviewed_before_draft": False,
             "source_bridge_flow_inventory_completed": False,
             "outline_bridge_flow_parity_reviewed_before_draft": False,
             "relationship_legibility_reviewed_before_draft": False,
@@ -186,6 +225,7 @@ def create_receipt(
             "global_storyboard_or_process_list": None,
             "manual_judgment": "",
         },
+        "story_fact_state_ledger": [],
         "granularity_transfer_contract": [],
         "source_bridge_flow_inventory": [
             {
@@ -247,6 +287,25 @@ def create_receipt(
                     "bystander_or_order_shift": "",
                     "scene_end_residue": "",
                 },
+                "scene_logic_contract": {
+                    "source_path": "",
+                    "source_sha256": "",
+                    "causal_asset_id": "",
+                    "source_causal_preconditions": [],
+                    "source_evidence": [],
+                    "target_entry_causes": [],
+                    "target_knowledge_state": [],
+                    "key_object_lifecycle": [],
+                    "external_rule_dependency": {
+                        "domain": "none",
+                        "verified": None,
+                        "authoritative_basis": "",
+                    },
+                    "obvious_alternative_blocker": [],
+                    "exit_cause": "",
+                    "target_outline_evidence": [],
+                    "manual_judgment": "",
+                },
                 "source_mechanism": {
                     "source_path": "",
                     "source_sha256": "",
@@ -305,6 +364,8 @@ def create_receipt(
                 },
                 "first_draft_generation_contract": {
                     "source_performance_excerpt": "",
+                    "source_performance_evidence": [],
+                    "source_excerpt_reuse_reason": "",
                     "emotion_process": {
                         "entry_state": "",
                         "involuntary_body_response": "",
@@ -319,6 +380,7 @@ def create_receipt(
                     "function_word_strategy": "",
                     "telegraphic_risk": "",
                     "emotion_shorthand_to_avoid": [],
+                    "target_emotion_landing_plan": [],
                     "no_fixed_short_sentence_ratio": None,
                     "manual_judgment": "",
                 },
@@ -407,6 +469,130 @@ def validate_original_scene_granularity(
     ):
         if not nonempty_text(value.get(field)):
             errors.append(f"{label} original_scene_granularity.{field} 不能为空")
+
+
+def validate_scene_logic_contract(
+    value: Any,
+    source_paths: set[str],
+    source_texts: dict[str, str],
+    source_metadata: dict[str, dict[str, Any]],
+    outline_text: str,
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} scene_logic_contract 必须是对象")
+        return
+    source_path = Path(str(value.get("source_path") or "")).expanduser().resolve()
+    source_key = str(source_path)
+    if source_key not in source_paths:
+        errors.append(f"{label} scene_logic_contract 必须绑定选中的原文来源")
+    elif value.get("source_sha256") != sha256(source_path):
+        errors.append(f"{label} scene_logic_contract 原文 SHA 不一致")
+    causal_asset_id = str(value.get("causal_asset_id") or "").strip()
+    if not causal_asset_id:
+        errors.append(f"{label} scene_logic_contract.causal_asset_id 不能为空")
+    elif causal_asset_id not in source_metadata.get(source_key, {}).get(
+        "available_causal_asset_ids", []
+    ):
+        errors.append(
+            f"{label} scene_logic_contract.causal_asset_id 不在所选原文 profile 中: "
+            f"{causal_asset_id}"
+        )
+    for field in SCENE_LOGIC_LIST_FIELDS:
+        minimum = 2 if field in {"source_evidence", "target_outline_evidence"} else 1
+        if not nonempty_list(value.get(field), minimum=minimum):
+            errors.append(f"{label} scene_logic_contract.{field} 至少 {minimum} 条")
+    for quote in value.get("source_evidence") or []:
+        if str(quote).strip() not in source_texts.get(source_key, ""):
+            errors.append(f"{label} scene_logic_contract.source_evidence 不在原文中: {quote!r}")
+    for quote in value.get("target_outline_evidence") or []:
+        if str(quote).strip() not in outline_text:
+            errors.append(
+                f"{label} scene_logic_contract.target_outline_evidence 不在细纲中: {quote!r}"
+            )
+    for field in ("exit_cause", "manual_judgment"):
+        if not nonempty_text(value.get(field)):
+            errors.append(f"{label} scene_logic_contract.{field} 不能为空")
+    dependency = value.get("external_rule_dependency")
+    if not isinstance(dependency, dict):
+        errors.append(f"{label} scene_logic_contract.external_rule_dependency 必须是对象")
+        return
+    domain = str(dependency.get("domain") or "").strip().lower()
+    if domain not in {"none", "medical", "legal", "financial", "administrative", "other"}:
+        errors.append(f"{label} external_rule_dependency.domain 无效: {domain!r}")
+    if dependency.get("verified") is not True:
+        errors.append(f"{label} external_rule_dependency 必须完成人工核实")
+    if not nonempty_text(dependency.get("authoritative_basis")):
+        errors.append(f"{label} external_rule_dependency.authoritative_basis 不能为空")
+    if domain != "none" and len(str(dependency.get("authoritative_basis") or "").strip()) < 8:
+        errors.append(
+            f"{label} 涉及医疗/法律/金融/行政制度时必须填写可核的可靠依据；"
+            "无法核实时应改成角色主动选择"
+        )
+
+
+def validate_story_fact_state_ledger(
+    value: Any,
+    section_ids: list[str],
+    outline_text: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, list) or not value:
+        errors.append("story_fact_state_ledger 必须至少包含一条关键事实状态链")
+        return
+    section_order = {section_id: index for index, section_id in enumerate(section_ids)}
+    seen_ids: set[str] = set()
+    for index, fact in enumerate(value, start=1):
+        label = f"story_fact_state_ledger 第 {index} 条"
+        if not isinstance(fact, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        fact_id = str(fact.get("fact_id") or "").strip()
+        if not fact_id:
+            errors.append(f"{label}.fact_id 不能为空")
+        elif fact_id in seen_ids:
+            errors.append(f"{label}.fact_id 重复: {fact_id}")
+        seen_ids.add(fact_id)
+        current_state = str(fact.get("initial_state") or "").strip()
+        if not current_state:
+            errors.append(f"{label}.initial_state 不能为空")
+        if not nonempty_list(fact.get("incompatible_states")):
+            errors.append(f"{label}.incompatible_states 至少一条")
+        transitions = fact.get("transitions")
+        if not isinstance(transitions, list) or not transitions:
+            errors.append(f"{label}.transitions 至少一条")
+            continue
+        previous_order = -1
+        for transition_index, transition in enumerate(transitions, start=1):
+            item_label = f"{label}.transitions[{transition_index}]"
+            if not isinstance(transition, dict):
+                errors.append(f"{item_label} 必须是对象")
+                continue
+            from_state = str(transition.get("from_state") or "").strip()
+            to_state = str(transition.get("to_state") or "").strip()
+            section_id = str(transition.get("section_id") or "").strip()
+            if from_state != current_state:
+                errors.append(
+                    f"{item_label} 状态迁移不连续：期望 from_state={current_state!r}，"
+                    f"实际为 {from_state!r}"
+                )
+            if not to_state:
+                errors.append(f"{item_label}.to_state 不能为空")
+            current_state = to_state
+            if section_id not in section_order:
+                errors.append(f"{item_label}.section_id 不在细纲中: {section_id}")
+            elif section_order[section_id] < previous_order:
+                errors.append(f"{item_label} 小节顺序倒退")
+            else:
+                previous_order = section_order[section_id]
+            evidence = transition.get("trigger_evidence")
+            if not nonempty_list(evidence):
+                errors.append(f"{item_label}.trigger_evidence 至少一条")
+            else:
+                for quote in evidence:
+                    if str(quote).strip() not in outline_text:
+                        errors.append(f"{item_label}.trigger_evidence 不在细纲中: {quote!r}")
 
 
 def validate_information_delay(value: Any, label: str, errors: list[str]) -> None:
@@ -597,6 +783,17 @@ def validate_source_emotion_parity(
         evidence_text="\n".join(source_texts.values()),
         strong_emotion_required=strong_emotion_required,
     )
+    if strong_emotion_required and source_beats:
+        distinct_evidence = {
+            str(beat.get("evidence") or "").strip()
+            for beat in source_beats
+            if isinstance(beat, dict) and str(beat.get("evidence") or "").strip()
+        }
+        if len(distinct_evidence) < 2:
+            errors.append(
+                f"{label} 强情绪节不能用同一句原文证据覆盖全部情绪拍，"
+                "至少绑定两处承担不同情绪功能的真实原文细节"
+            )
     target_beats = validate_emotion_sequence(
         value.get("target_emotion_sequence"),
         f"{label} 目标情绪流程",
@@ -640,6 +837,8 @@ def validate_first_draft_generation_contract(
     source_texts: dict[str, str],
     label: str,
     errors: list[str],
+    *,
+    strong_emotion_required: bool,
 ) -> None:
     if not isinstance(value, dict):
         errors.append(f"{label} first_draft_generation_contract 必须是对象")
@@ -651,6 +850,21 @@ def validate_first_draft_generation_contract(
             f"{label} first_draft_generation_contract.source_performance_excerpt "
             "必须来自选中原文"
         )
+
+    source_evidence = value.get("source_performance_evidence")
+    minimum_source_evidence = 2 if strong_emotion_required else 1
+    if not nonempty_list(source_evidence, minimum=minimum_source_evidence):
+        errors.append(
+            f"{label} first_draft_generation_contract.source_performance_evidence "
+            f"至少填写 {minimum_source_evidence} 处真实原文表演证据"
+        )
+    else:
+        distinct_source_evidence = {str(quote).strip() for quote in source_evidence}
+        if len(distinct_source_evidence) < minimum_source_evidence:
+            errors.append(f"{label} 原文表演证据不得用同一句重复充数")
+        for quote in distinct_source_evidence:
+            if not any(quote in text for text in source_texts.values()):
+                errors.append(f"{label} 原文表演证据不在选中原文中: {quote!r}")
 
     emotion_process = value.get("emotion_process")
     if not isinstance(emotion_process, dict):
@@ -667,6 +881,7 @@ def validate_first_draft_generation_contract(
         ("paragraph_break_reasons", 2, "至少两条真实断段理由"),
         ("sentence_relation_plan", 3, "至少三条句间关系计划"),
         ("emotion_shorthand_to_avoid", 2, "至少两条情绪标签式写法"),
+        ("target_emotion_landing_plan", 3, "至少三条目标正文情感落点计划"),
     ):
         if not nonempty_list(value.get(field), minimum=minimum):
             errors.append(
@@ -1002,6 +1217,17 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         errors.append(
                             f"选中原文[{index}].available_bridge_ids 与桥段施工卡不一致"
                         )
+                causal_profile_path = validate_binding(
+                    source.get("causal_asset_profile"),
+                    f"选中原文[{index}]场景因果 profile",
+                    errors,
+                )
+                if causal_profile_path is not None:
+                    actual_causal_ids = causal_asset_ids_from_profile(causal_profile_path)
+                    if source.get("available_causal_asset_ids") != actual_causal_ids:
+                        errors.append(
+                            f"选中原文[{index}].available_causal_asset_ids 与 book.profile.json 不一致"
+                        )
                 source_mode = str(data.get("source_mode") or "full_bridge").strip()
                 if expected_role == "primary" and source_mode == "full_bridge":
                     if source.get("required_bridge_ids") != source.get(
@@ -1021,6 +1247,8 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须人工确认已完整阅读选中原文的表演机制")
         if global_review.get("dual_track_function_and_scene_granularity_reviewed") is not True:
             errors.append("必须人工确认已同时核对拆书功能机制和原文场面颗粒度，不能只做功能映射")
+        if global_review.get("scene_causality_reviewed_before_draft") is not True:
+            errors.append("必须在正文前核对到场原因、知情边界、物件生命周期、制度约束和离场因果")
         source_mode = str(data.get("source_mode") or "full_bridge").strip()
         if source_mode == "full_bridge":
             if global_review.get("source_bridge_flow_inventory_completed") is not True:
@@ -1054,6 +1282,9 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         errors.append("细纲中未找到 `## 1.` 形式的小节")
         return errors
     outline_text = read_text(resolved_outline)
+    validate_story_fact_state_ledger(
+        data.get("story_fact_state_ledger"), section_ids, outline_text, errors
+    )
     source_mode = str(data.get("source_mode") or "full_bridge").strip()
     if source_mode not in {"full_bridge", "granularity_only"}:
         errors.append(f"source_mode 无效: {source_mode!r}")
@@ -1062,6 +1293,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             data.get("granularity_transfer_contract"),
             source_paths,
             source_texts,
+            source_metadata,
             section_ids,
             outline_text,
             errors,
@@ -1106,6 +1338,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
     repeated_scene_signatures: dict[tuple[str, ...], list[str]] = {}
     repeated_emotion_signatures: dict[tuple[str, ...], list[str]] = {}
     repeated_judgments: dict[str, list[str]] = {}
+    previous_generation_excerpt = ""
     for section_id in section_ids:
         entry = by_id.get(section_id)
         if not isinstance(entry, dict):
@@ -1121,6 +1354,15 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         )
         validate_original_scene_granularity(
             entry.get("original_scene_granularity"), source_paths, label, errors
+        )
+        validate_scene_logic_contract(
+            entry.get("scene_logic_contract"),
+            source_paths,
+            source_texts,
+            source_metadata,
+            outline_text,
+            label,
+            errors,
         )
         validate_source_mechanism(entry.get("source_mechanism"), source_paths, label, errors)
         validate_information_delay(entry.get("information_delay"), label, errors)
@@ -1153,7 +1395,20 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             source_texts,
             label,
             errors,
+            strong_emotion_required=strong_emotion_required,
         )
+        generation_contract = entry.get("first_draft_generation_contract")
+        if isinstance(generation_contract, dict):
+            generation_excerpt = str(
+                generation_contract.get("source_performance_excerpt") or ""
+            ).strip()
+            if generation_excerpt and generation_excerpt == previous_generation_excerpt:
+                if not nonempty_text(generation_contract.get("source_excerpt_reuse_reason")):
+                    errors.append(
+                        f"{label} 与相邻小节复用同一原文表演摘录时，"
+                        "必须填写 source_excerpt_reuse_reason 说明本节读取的不同情感功能"
+                    )
+            previous_generation_excerpt = generation_excerpt
         if not nonempty_list(entry.get("forbidden_items"), minimum=2):
             errors.append(f"{label} forbidden_items 至少填写两条禁写项")
         evidence = entry.get("outline_evidence")

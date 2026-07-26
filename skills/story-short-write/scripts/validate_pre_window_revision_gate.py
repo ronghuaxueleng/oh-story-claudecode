@@ -26,6 +26,15 @@ except ModuleNotFoundError:
 
 
 VALID_MODES = {"script", "human", "hybrid"}
+SOURCE_GRANULARITY_FIELDS = {
+    "sentence_rhythm",
+    "narrator_interjection",
+    "dialogue_action_ratio",
+    "information_release",
+    "explanation_density",
+    "scene_ending",
+    "manual_judgment",
+}
 
 
 def sha256(path: Path) -> str:
@@ -82,10 +91,25 @@ def ledger_pre_window_ready(data: dict[str, Any]) -> list[str]:
     return errors
 
 
-def create_receipt(project: str, text_path: Path, output: Path) -> None:
+def create_receipt(
+    project: str,
+    text_path: Path,
+    output: Path,
+    imitation_mode: bool = False,
+    source_paths: list[Path] | None = None,
+) -> None:
     text = text_path.read_text(encoding="utf-8")
+    sources = [path.resolve() for path in (source_paths or [])]
+    if imitation_mode and not sources:
+        raise ValueError("仿写模式必须至少传入一个 --source 原文")
+    missing = [str(path) for path in sources if not path.is_file()]
+    if missing:
+        raise ValueError("原文不存在: " + " / ".join(missing))
+    base_text_path = output.parent / "窗口前回修母稿.md"
+    base_text_path.parent.mkdir(parents=True, exist_ok=True)
+    base_text_path.write_text(text, encoding="utf-8")
     data = {
-        "version": "1.0",
+        "version": "1.1",
         "project": project,
         "status": "pending",
         "execution_mode": "current_model_manual",
@@ -96,6 +120,18 @@ def create_receipt(project: str, text_path: Path, output: Path) -> None:
             "char_count": len(text),
             "word_count": count_fanqie(text),
             "word_count_rule": "fanqie_non_whitespace_without_markdown_headings",
+        },
+        "base_text": {
+            "path": str(base_text_path.resolve()),
+            "sha256": sha256(base_text_path),
+        },
+        "imitation_mode": imitation_mode,
+        "selected_sources": [
+            {"path": str(path), "sha256": sha256(path)} for path in sources
+        ],
+        "source_granularity_baseline": {
+            "source_evidence": [],
+            **{field: "" for field in sorted(SOURCE_GRANULARITY_FIELDS)},
         },
         "prerequisites": {
             "writing_rule_receipt": None,
@@ -109,10 +145,131 @@ def create_receipt(project: str, text_path: Path, output: Path) -> None:
         "rule_families_applied": [],
         "source_assets_applied": [],
         "revision_items": [],
+        "revision_blocks": [],
         "manual_summary": "",
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def validate_binding(value: Any, label: str, errors: list[str]) -> Path | None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} 必须是对象")
+        return None
+    path = Path(str(value.get("path") or "")).expanduser().resolve()
+    if not path.is_file():
+        errors.append(f"{label}不存在: {path}")
+        return None
+    if value.get("sha256") != sha256(path):
+        errors.append(f"{label} SHA 已变化")
+    return path
+
+
+def validate_imitation_revision(
+    data: dict[str, Any],
+    text: str,
+    errors: list[str],
+) -> None:
+    base_path = validate_binding(data.get("base_text"), "窗口前回修母稿", errors)
+    base_text = base_path.read_text(encoding="utf-8") if base_path else ""
+    source_texts: dict[str, str] = {}
+    sources = data.get("selected_sources")
+    if not isinstance(sources, list) or not sources:
+        errors.append("仿写窗口前回修必须绑定 selected_sources")
+    else:
+        for index, binding in enumerate(sources, start=1):
+            path = validate_binding(binding, f"selected_sources[{index}]", errors)
+            if path:
+                source_texts[str(path)] = path.read_text(encoding="utf-8")
+
+    baseline = data.get("source_granularity_baseline")
+    if not isinstance(baseline, dict):
+        errors.append("仿写窗口前回修缺少 source_granularity_baseline")
+    else:
+        for field in SOURCE_GRANULARITY_FIELDS:
+            if not str(baseline.get(field) or "").strip():
+                errors.append(f"source_granularity_baseline.{field} 不能为空")
+        evidence = baseline.get("source_evidence")
+        if not isinstance(evidence, list) or len(evidence) < 2:
+            errors.append("source_granularity_baseline.source_evidence 至少需要两条原文证据")
+        else:
+            distinct_quotes: set[str] = set()
+            for index, item in enumerate(evidence, start=1):
+                if not isinstance(item, dict):
+                    errors.append(f"原文颗粒证据格式错误[{index}]")
+                    continue
+                source_path = Path(str(item.get("source_path") or "")).expanduser().resolve()
+                source_text = source_texts.get(str(source_path))
+                quote = str(item.get("quote") or "").strip()
+                if source_text is None:
+                    errors.append(f"原文颗粒证据未绑定选中原文[{index}]")
+                elif item.get("source_sha256") != sha256(source_path):
+                    errors.append(f"原文颗粒证据 SHA 不一致[{index}]")
+                elif not quote or quote not in source_text:
+                    errors.append(f"原文颗粒证据不在原文中[{index}]")
+                if quote:
+                    distinct_quotes.add(quote)
+                if not str(item.get("function") or "").strip():
+                    errors.append(f"原文颗粒证据缺少功能判断[{index}]")
+            if len(distinct_quotes) < 2:
+                errors.append("原文颗粒证据不得用同一句重复充数")
+
+    items = data.get("revision_items")
+    text_changed = any(
+        isinstance(item, dict) and item.get("text_changed") is True
+        for item in items or []
+    )
+    if any(isinstance(item, dict) and not isinstance(item.get("text_changed"), bool) for item in items or []):
+        errors.append("仿写窗口前回修项必须逐项填写 text_changed=true/false")
+    blocks = data.get("revision_blocks")
+    if text_changed and (not isinstance(blocks, list) or not blocks):
+        errors.append("仿写窗口前回修修改正文后必须填写 revision_blocks")
+        return
+    if text_changed and base_path and sha256(base_path) == hashlib.sha256(text.encode("utf-8")).hexdigest():
+        errors.append("已声明正文发生回修，但母稿与改后正文 SHA 相同；禁止改后重建母稿")
+    for index, block in enumerate(blocks or [], start=1):
+        label = f"revision_blocks[{index}]"
+        if not isinstance(block, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        for field in (
+            "target_block",
+            "preserved_source_granularity",
+            "removed_draft_extra_ai_shell",
+            "manual_judgment",
+        ):
+            if not str(block.get(field) or "").strip():
+                errors.append(f"{label}.{field} 不能为空")
+        source_path = Path(str(block.get("source_path") or "")).expanduser().resolve()
+        source_text = source_texts.get(str(source_path))
+        if source_text is None:
+            errors.append(f"{label}.source_path 必须绑定选中原文")
+        elif block.get("source_sha256") != sha256(source_path):
+            errors.append(f"{label}.source_sha256 与原文不一致")
+        source_evidence = block.get("source_evidence")
+        if not isinstance(source_evidence, list) or len({str(x).strip() for x in source_evidence if str(x).strip()}) < 2:
+            errors.append(f"{label}.source_evidence 至少需要两条不同原文证据")
+        elif source_text is not None:
+            for quote in source_evidence:
+                if str(quote).strip() not in source_text:
+                    errors.append(f"{label}.source_evidence 不在原文中: {quote!r}")
+        for field, haystack in (("base_text_evidence", base_text), ("revised_text_evidence", text)):
+            evidence = block.get(field)
+            if not isinstance(evidence, list) or not evidence:
+                errors.append(f"{label}.{field} 至少需要一条证据")
+            else:
+                for quote in evidence:
+                    if not str(quote).strip() or str(quote).strip() not in haystack:
+                        errors.append(f"{label}.{field} 不在对应文本中: {quote!r}")
+        if block.get("base_text_evidence") == block.get("revised_text_evidence"):
+            errors.append(f"{label} 母稿证据与改后证据不能完全相同")
+        for field in (
+            "no_added_explanation_density",
+            "no_source_rhythm_regularization",
+            "surface_copy_check",
+        ):
+            if block.get(field) is not True:
+                errors.append(f"{label}.{field} 必须为 true")
 
 
 def validate(receipt_path: Path, text_path: Path) -> list[str]:
@@ -137,6 +294,9 @@ def validate(receipt_path: Path, text_path: Path) -> list[str]:
         errors.append("正文字符数已变化，必须重新执行窗口前规则/资产定向回修")
     if binding.get("word_count") != count_fanqie(text):
         errors.append("正文统一字数已变化，必须重新执行窗口前规则/资产定向回修")
+
+    if data.get("imitation_mode") is True:
+        validate_imitation_revision(data, text, errors)
 
     prereqs = data.get("prerequisites")
     if not isinstance(prereqs, dict):
@@ -221,6 +381,8 @@ def main() -> int:
     init.add_argument("--project", required=True)
     init.add_argument("--text", required=True)
     init.add_argument("--receipt", required=True)
+    init.add_argument("--imitation-mode", action="store_true")
+    init.add_argument("--source", action="append", default=[])
 
     check = sub.add_parser("validate")
     check.add_argument("--receipt", required=True)
@@ -228,7 +390,17 @@ def main() -> int:
 
     args = parser.parse_args()
     if args.command == "init":
-        create_receipt(args.project, Path(args.text).resolve(), Path(args.receipt).resolve())
+        try:
+            create_receipt(
+                args.project,
+                Path(args.text).resolve(),
+                Path(args.receipt).resolve(),
+                imitation_mode=args.imitation_mode,
+                source_paths=[Path(path).resolve() for path in args.source],
+            )
+        except (OSError, ValueError) as exc:
+            print(f"pre_window_revision_gate: blocked\n- {exc}")
+            return 2
         print("pre_window_revision_gate: initialized")
         return 0
 

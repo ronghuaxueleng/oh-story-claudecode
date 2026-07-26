@@ -106,6 +106,7 @@ SUBFLOW_REQUIRED_FIELDS = (
     "entry_state",
     "required_sequence",
     "scene_granularity",
+    "causal_preconditions",
     "information_delay",
     "control_changes",
     "emotion_sequence",
@@ -115,6 +116,14 @@ SUBFLOW_REQUIRED_FIELDS = (
     "source_evidence",
 )
 SUBFLOW_ID_PATTERN = re.compile(r"^SF-\d{2,}$")
+CAUSAL_PRECONDITION_LIST_FIELDS = (
+    "arrival_causes",
+    "knowledge_boundaries",
+    "object_lifecycle",
+    "institutional_constraints",
+    "obvious_alternative_blockers",
+    "source_evidence",
+)
 
 ASSET_CANDIDATE_CATEGORY_TARGETS = {
     "导语": "可直接仿写_导语拆解表.md",
@@ -276,6 +285,7 @@ GLOBAL_SHAPE_AUDIT_HEADINGS = [
     "### 10.2 主角不规则性与能动性",
     "### 10.3 专业细节功能性",
     "### 10.4 全文对白模式",
+    "### 10.5 句段气口与镜头连续性",
 ]
 
 GLOBAL_SHAPE_AUDIT_LABELS = [
@@ -284,6 +294,7 @@ GLOBAL_SHAPE_AUDIT_LABELS = [
     "主角不规则性",
     "专业细节功能性",
     "全文对白模式",
+    "句段气口与镜头连续性",
 ]
 
 GLOBAL_SHAPE_EVIDENCE_LABELS = [
@@ -320,6 +331,7 @@ PROFILE_SOURCE_HEADINGS = [
     "## 10. 作者站位高危句",
     "## 11. style_assets 原始材料",
     "## 12. 迁移替换资产",
+    "## 13. 场景因果资产",
 ]
 
 DIRECT_REQUIRED_SNIPPETS = [
@@ -332,6 +344,7 @@ BOOK_PROFILE_KEYS = [
     "meta",
     "sample_grading",
     "bridge_rules",
+    "causal_precondition_assets",
     "scene_assets",
     "style_assets",
     "derived_patterns",
@@ -1923,7 +1936,18 @@ def check_plot_nodes_quality(
             f"参考值 {min_rows}；请人工判断是否漏拆，禁止为达数量凑节点"
         )
     node_lines = [line for line in text.splitlines() if re.match(r"^N\d+\b", line)]
-    required_fields = ("类型", "情绪", "涉及", "状态变化", "因果", "故事时序")
+    required_fields = (
+        "类型",
+        "情绪",
+        "涉及",
+        "状态变化",
+        "因果",
+        "故事时序",
+        "入场前提",
+        "行动权限",
+        "替代方案阻断",
+        "离场因果",
+    )
     incomplete_nodes = [
         line.split("|", 1)[0].strip()
         for line in node_lines
@@ -1933,7 +1957,8 @@ def check_plot_nodes_quality(
         preview = ", ".join(incomplete_nodes[:8])
         errors.append(
             f"{path} 节点施工字段不完整：{preview}"
-            f"；每个节点必须含 `类型 / 情绪 / 涉及 / 状态变化 / 因果 / 故事时序`"
+            "；每个节点必须含 `类型 / 情绪 / 涉及 / 状态变化 / 因果 / 故事时序 / "
+            "入场前提 / 行动权限 / 替代方案阻断 / 离场因果`"
         )
 def load_source_manifest(root: Path, errors: list[str]) -> dict:
     path = root / "_source_manifest.json"
@@ -2058,6 +2083,79 @@ def parse_fact_ledger(
     return facts
 
 
+def check_scene_causality_ledger(
+    path: Path,
+    source_lines: list[str],
+    errors: list[str],
+) -> None:
+    """Validate fact-state, character-knowledge, and object-lifecycle ledgers."""
+    if not path.is_file():
+        return
+    records: dict[str, list[tuple[str, dict[str, str]]]] = {
+        "FS": [],
+        "KS": [],
+        "OL": [],
+    }
+    for raw in read_text(path).splitlines():
+        match = re.match(r"^(FS|KS|OL)-(\d{2,})\s*\|\s*(.+)$", raw.strip())
+        if not match:
+            continue
+        record_type = match.group(1)
+        record_id = f"{record_type}-{match.group(2)}"
+        fields: dict[str, str] = {}
+        for part in match.group(3).split("|"):
+            key, separator, value = part.strip().partition("：")
+            if separator:
+                fields[key.strip()] = value.strip()
+        records[record_type].append((record_id, fields))
+
+    required = {
+        "FS": ("状态对象", "初始状态", "迁移", "触发", "不兼容状态"),
+        "KS": ("人物", "入场前已知", "本场新知", "仍未知", "证据"),
+        "OL": ("物件", "生成", "持有", "使用", "失效/去向", "证据"),
+    }
+    for record_type, labels in required.items():
+        if not records[record_type]:
+            errors.append(
+                f"{path} 缺少 {record_type}-xx 场景因果台账；"
+                "必须同时记录事实状态链、人物知情链和物件生命周期"
+            )
+            continue
+        for record_id, fields in records[record_type]:
+            missing = [label for label in labels if not fields.get(label, "").strip()]
+            if missing:
+                errors.append(f"{path} {record_id} 缺少字段：{', '.join(missing)}")
+            evidence_field = "触发" if record_type == "FS" else "证据"
+            ranges = re.findall(r"L(\d+)(?:\s*-\s*L?(\d+))?", fields.get(evidence_field, ""))
+            if not ranges:
+                errors.append(f"{path} {record_id}.{evidence_field} 必须引用原文行号")
+            for start_text, end_text in ranges:
+                start = int(start_text)
+                end = int(end_text or start_text)
+                if start < 1 or end < start or end > len(source_lines):
+                    errors.append(
+                        f"{path} {record_id}.{evidence_field} 原文范围越界：L{start}-L{end}"
+                    )
+
+    latest_state: dict[str, str] = {}
+    for record_id, fields in records["FS"]:
+        subject = fields.get("状态对象", "").strip()
+        initial = fields.get("初始状态", "").strip()
+        transition = re.match(r"^(.+?)\s*[-=]+>\s*(.+)$", fields.get("迁移", "").strip())
+        if not transition:
+            errors.append(f"{path} {record_id}.迁移 必须使用 `from -> to` 格式")
+            continue
+        from_state, to_state = (part.strip() for part in transition.groups())
+        expected = latest_state.get(subject, initial)
+        if from_state != expected:
+            errors.append(
+                f"{path} {record_id} 状态迁移不连续：期望 {expected!r}，实际 {from_state!r}"
+            )
+        if initial != from_state:
+            errors.append(f"{path} {record_id}.初始状态 必须等于迁移起点")
+        latest_state[subject] = to_state
+
+
 def check_fact_references(
     root: Path,
     facts: dict[str, dict[str, str]],
@@ -2146,6 +2244,11 @@ def check_fact_integrity_gate(
         source_lines,
         fact_errors,
         notes,
+    )
+    check_scene_causality_ledger(
+        root / "事实与推断台账.md",
+        source_lines,
+        fact_errors,
     )
     check_fact_references(root, facts, fact_errors, notes)
     collect_timeline_review_notes(
@@ -2400,6 +2503,7 @@ def check_global_shape_audit(
         "### 10.2 主角不规则性与能动性": ("主角不规则性",),
         "### 10.3 专业细节功能性": ("专业细节功能性",),
         "### 10.4 全文对白模式": ("全文对白模式",),
+        "### 10.5 句段气口与镜头连续性": ("句段气口与镜头连续性",),
     }
     for heading, labels in section_map.items():
         section = extract_any_section_text(text, (heading,))
@@ -2853,6 +2957,30 @@ def check_book_profile_quality(
                         f"{path} bridge_rules[{idx}] `{label}` 缺少原文证据"
                     )
 
+    causal_assets = data.get("causal_precondition_assets")
+    if not isinstance(causal_assets, list) or not causal_assets:
+        errors.append(f"{path} causal_precondition_assets 为空：场景因果资产未成功结构化")
+    else:
+        required_causal_fields = (
+            "arrival_causes",
+            "knowledge_boundaries",
+            "object_lifecycle",
+            "institutional_constraints",
+            "obvious_alternative_blockers",
+            "exit_cause",
+            "source_evidence",
+        )
+        for idx, item in enumerate(causal_assets, start=1):
+            if not isinstance(item, dict):
+                errors.append(f"{path} causal_precondition_assets[{idx}] 不是对象")
+                continue
+            if not str(item.get("causal_asset_id") or "").strip():
+                errors.append(f"{path} causal_precondition_assets[{idx}].causal_asset_id 为空")
+            for field in required_causal_fields:
+                value = item.get(field)
+                if not isinstance(value, list) or not any(str(entry).strip() for entry in value):
+                    errors.append(f"{path} causal_precondition_assets[{idx}].{field} 为空")
+
 
 def check_profile_source_quality(
     path: Path,
@@ -3047,6 +3175,29 @@ def check_subflow_assets(
         ):
             if not isinstance(entry.get(field), str) or not str(entry[field]).strip():
                 errors.append(f"{label}.{field} 不能为空")
+        causal = entry.get("causal_preconditions")
+        if not isinstance(causal, dict):
+            errors.append(f"{label}.causal_preconditions 必须是对象")
+        else:
+            for field in CAUSAL_PRECONDITION_LIST_FIELDS:
+                minimum = 2 if field == "source_evidence" else 1
+                value = causal.get(field)
+                if not isinstance(value, list) or len(
+                    [item for item in value if str(item).strip()]
+                ) < minimum:
+                    errors.append(
+                        f"{label}.causal_preconditions.{field} 至少 {minimum} 条"
+                    )
+            if not isinstance(causal.get("exit_cause"), str) or not str(
+                causal.get("exit_cause") or ""
+            ).strip():
+                errors.append(f"{label}.causal_preconditions.exit_cause 不能为空")
+            for quote in causal.get("source_evidence") or []:
+                evidence = str(quote).strip()
+                if evidence and evidence not in original_text:
+                    errors.append(
+                        f"{label}.causal_preconditions.source_evidence 不在原文中：{evidence!r}"
+                    )
         for field, minimum in (
             ("function_tags", 1),
             ("required_sequence", 2),
@@ -3196,6 +3347,29 @@ def check_cross_asset_semantics(
                     f"{path} 当前 {fake_reason_count} 条“为什么假”；"
                     "仿写约束至少要解释 2 条禁写法为什么会写假"
                 )
+            check_telegraphic_paragraph_guardrail(path, errors)
+
+
+def check_telegraphic_paragraph_guardrail(path: Path, errors: list[str]) -> None:
+    """Require a source-specific guardrail without treating all short prose as bad."""
+    if not path.exists() or not path.is_file():
+        return
+    text = read_text(path)
+    has_telegraphic_risk = bool(
+        re.search(r"(电报(?:文|式)|镜头清单|一句一个动作|一段一个动作)", text)
+    )
+    distinguishes_effective_short_prose = bool(
+        re.search(
+            r"(有效短促|短促气口|短句.{0,16}(?:不是|不等于|不能一律|不能整体|人物状态|现场节奏))",
+            text,
+        )
+    )
+    if not has_telegraphic_risk:
+        errors.append(f"{path} 缺少电报式句段或镜头清单禁写项")
+    if not distinguishes_effective_short_prose:
+        errors.append(
+            f"{path} 未区分有效短促气口与机械短段；不能把短句整体判为禁写"
+        )
 
 
 def check_json_keys(path: Path, required_keys: list[str], errors: list[str]) -> dict:

@@ -21,7 +21,7 @@ SPEC.loader.exec_module(GATE)
 
 class OutlinePerformanceContractTest(unittest.TestCase):
     @staticmethod
-    def emotion_beats(evidence: str) -> list[dict]:
+    def emotion_beats(evidence: str | list[str]) -> list[dict]:
         roles = [
             "情绪进入点",
             "受辱或刺痛",
@@ -36,7 +36,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "relationship_position_change": f"{role}后关系位置发生变化",
                 "reader_effect": f"读者在{role}感到关系继续恶化",
                 "intensity": 7 + min(index, 2),
-                "evidence": evidence,
+                "evidence": evidence[index % len(evidence)] if isinstance(evidence, list) else evidence,
             }
             for index, role in enumerate(roles)
         ]
@@ -52,10 +52,17 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.book_root = self.root / "拆文库" / "测试书"
         self.source = self.book_root / "原文" / "原文.txt"
         self.source.parent.mkdir(parents=True)
-        self.source.write_text("原文场面", encoding="utf-8")
+        self.source.write_text("原文场面。原文动作。原文余痛。", encoding="utf-8")
         self.catalog = self.book_root / "写作资产" / "桥段施工卡.md"
         self.catalog.parent.mkdir(parents=True)
         self.catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+        (self.book_root / "book.profile.json").write_text(
+            json.dumps(
+                {"causal_precondition_assets": [{"causal_asset_id": "CPA-01"}]},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         self.receipt = self.root / "细纲表演验收回执.json"
         data = GATE.create_receipt("测试", self.outline, [self.source])
         source_path = str(self.source.resolve())
@@ -82,7 +89,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "source_required_sequence": ["先公开偏护", "再让主角失去位置"],
                 "source_must_keep_actions": ["对手抢走位置", "旁观者改变站队"],
                 "source_scene_granularity": "先抢位置，再由旁观者确认关系掉位。",
-                "source_emotion_sequence": self.emotion_beats("原文场面"),
+                "source_emotion_sequence": self.emotion_beats(["原文场面", "原文动作", "原文余痛"]),
                 "target_emotion_sequence": self.emotion_beats("动作一"),
                 "source_reversal_beat": 4,
                 "target_reversal_beat": 4,
@@ -135,6 +142,25 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "bystander_or_order_shift": "旁观者停止等待乙的决定。",
                 "scene_end_residue": "乙失去默认成员身份。",
             }
+            section["scene_logic_contract"] = {
+                "source_path": source_path,
+                "source_sha256": source_sha,
+                "causal_asset_id": "CPA-01",
+                "source_causal_preconditions": ["甲先到入口，乙随后到场阻拦。"],
+                "source_evidence": ["原文场面", "原文动作"],
+                "target_entry_causes": ["乙收到门锁报警后赶到入口。"],
+                "target_knowledge_state": ["乙只知道门锁异常，不知道甲已获丈夫允许。"],
+                "key_object_lifecycle": ["钥匙原由乙持有，丈夫表态后才交给甲。"],
+                "external_rule_dependency": {
+                    "domain": "none",
+                    "verified": True,
+                    "authoritative_basis": "冲突只依赖人物持有钥匙和主动表态，不借外部制度强推。",
+                },
+                "obvious_alternative_blocker": ["乙必须现场处理报警，不能直接离开。"],
+                "exit_cause": "钥匙换手使乙失去进入权，只能离场。",
+                "target_outline_evidence": section["outline_evidence"],
+                "manual_judgment": "人物同场、知情差和物件换手均有前置原因。",
+            }
             section["information_delay"] = {
                 "entry_known": "只知眼前异常。",
                 "leaked_in_scene": "只漏出一次偏手。",
@@ -169,7 +195,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             }
             section["source_emotion_parity"] = {
                 "source_excerpt": "原文场面",
-                "source_emotion_sequence": self.emotion_beats("原文场面"),
+                "source_emotion_sequence": self.emotion_beats(["原文场面", "原文动作", "原文余痛"]),
                 "target_emotion_sequence": self.emotion_beats(
                     section["outline_evidence"][0]
                 ),
@@ -187,6 +213,12 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             }
             section["first_draft_generation_contract"] = {
                 "source_performance_excerpt": "原文场面",
+                "source_performance_evidence": ["原文动作", "原文余痛"],
+                "source_excerpt_reuse_reason": (
+                    "同一原文场面跨两节迁移；本节读取的是失位后的余痛，不是上一节的期待。"
+                    if section["section_id"] == "2"
+                    else ""
+                ),
                 "emotion_process": {
                     "entry_state": "她入场时还在期待丈夫会维护自己。",
                     "involuntary_body_response": "听到丈夫改口后，她的手先松开钥匙。",
@@ -211,6 +243,11 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "function_word_strategy": "使用‘原本、却、才、还’贴合第一人称口气，不批量撒书面连词。",
                 "telegraphic_risk": "最容易把松手、看挂件、改口、交钥匙切成四个动作短段。",
                 "emotion_shorthand_to_avoid": ["手指发紧", "我没说话"],
+                "target_emotion_landing_plan": [
+                    "先让期待落在丈夫是否维护她的具体注意上。",
+                    "再让改口暴露自尊和求证冲动的冲突。",
+                    "最后用钥匙换手后的身体余感留下场末余痛。",
+                ],
                 "no_fixed_short_sentence_ratio": True,
                 "manual_judgment": "首写要把期待、身体失控、自尊反冲、错答和余痛织进同一连续现场。",
             }
@@ -219,6 +256,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         data["global_review"] = {
             "full_source_mechanisms_reviewed": True,
             "dual_track_function_and_scene_granularity_reviewed": True,
+            "scene_causality_reviewed_before_draft": True,
             "source_bridge_flow_inventory_completed": True,
             "outline_bridge_flow_parity_reviewed_before_draft": True,
             "relationship_legibility_reviewed_before_draft": True,
@@ -232,6 +270,27 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             "global_storyboard_or_process_list": False,
             "manual_judgment": "每场只压一个不可逆变化，信息延迟到后场。",
         }
+        data["story_fact_state_ledger"] = [
+            {
+                "fact_id": "FACT-01",
+                "initial_state": "乙持有钥匙",
+                "incompatible_states": ["交出钥匙前甲已用钥匙进入"],
+                "transitions": [
+                    {
+                        "from_state": "乙持有钥匙",
+                        "to_state": "甲持有钥匙",
+                        "section_id": "1",
+                        "trigger_evidence": ["动作一"],
+                    },
+                    {
+                        "from_state": "甲持有钥匙",
+                        "to_state": "乙失去进入权",
+                        "section_id": "2",
+                        "trigger_evidence": ["动作三"],
+                    },
+                ],
+            }
+        ]
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self) -> None:
@@ -239,6 +298,36 @@ class OutlinePerformanceContractTest(unittest.TestCase):
 
     def test_complete_contract_passes(self) -> None:
         self.assertEqual([], GATE.validate_receipt(self.receipt, self.outline))
+
+    def test_scene_logic_missing_arrival_cause_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["sections"][0]["scene_logic_contract"]["target_entry_causes"] = []
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("target_entry_causes" in error for error in errors))
+
+    def test_scene_logic_causal_asset_must_exist_in_source_profile(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["sections"][0]["scene_logic_contract"]["causal_asset_id"] = "CPA-99"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不在所选原文 profile" in error for error in errors))
+
+    def test_unverified_external_rule_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        dependency = data["sections"][0]["scene_logic_contract"]["external_rule_dependency"]
+        dependency.update({"domain": "medical", "verified": False, "authoritative_basis": "听说如此"})
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("必须完成人工核实" in error for error in errors))
+        self.assertTrue(any("可靠依据" in error for error in errors))
+
+    def test_fact_state_transition_must_be_continuous(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["story_fact_state_ledger"][0]["transitions"][1]["from_state"] = "乙仍持有钥匙"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("状态迁移不连续" in error for error in errors))
 
     def test_outline_change_invalidates_receipt(self) -> None:
         self.outline.write_text("## 1. 改写\n\n动作一\n动作二\n", encoding="utf-8")
@@ -315,6 +404,32 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("不得设置固定短句" in error for error in errors))
+
+    def test_strong_emotion_cannot_reuse_one_source_evidence_for_all_beats(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        beats = data["sections"][0]["source_emotion_parity"]["source_emotion_sequence"]
+        for beat in beats:
+            beat["evidence"] = "原文场面"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("同一句原文证据覆盖全部情绪拍" in error for error in errors))
+
+    def test_first_draft_requires_multiple_real_source_details(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["first_draft_generation_contract"]
+        contract["source_performance_evidence"] = ["原文场面", "原文场面"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不得用同一句重复充数" in error for error in errors))
+
+    def test_adjacent_excerpt_reuse_requires_specific_reason(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["sections"][1]["first_draft_generation_contract"][
+            "source_excerpt_reuse_reason"
+        ] = ""
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("source_excerpt_reuse_reason" in error for error in errors))
 
     def test_reversal_beat_must_match_source(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
@@ -393,6 +508,13 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         auxiliary_catalog = auxiliary_root / "写作资产" / "桥段施工卡.md"
         auxiliary_catalog.parent.mkdir(parents=True)
         auxiliary_catalog.write_text("## BID-03 稀缺资源撤回\n", encoding="utf-8")
+        (auxiliary_root / "book.profile.json").write_text(
+            json.dumps(
+                {"causal_precondition_assets": [{"causal_asset_id": "CPA-03"}]},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
         old = json.loads(self.receipt.read_text(encoding="utf-8"))
         data = GATE.create_receipt("测试", self.outline, [self.source, auxiliary])

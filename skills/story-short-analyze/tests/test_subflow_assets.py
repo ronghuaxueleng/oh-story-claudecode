@@ -37,6 +37,15 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
         "entry_state": "主角仍有现场决定权。",
         "required_sequence": ["对手先抢入口", "关系人随后要求主角让位"],
         "scene_granularity": "对手先伸手，主角挡住，关系人表态后主角才松手。",
+        "causal_preconditions": {
+            "arrival_causes": ["对手先到入口，主角随后赶到阻拦。"],
+            "knowledge_boundaries": ["主角只知道入口被抢，不知道关系人会公开偏护。"],
+            "object_lifecycle": ["钥匙先在主角手里，表态后才被交出。"],
+            "institutional_constraints": ["无外部制度依赖，现场权限只由钥匙控制。"],
+            "obvious_alternative_blockers": ["主角不能直接离场，因为入口仍由她负责。"],
+            "exit_cause": "关系人公开表态后，主角失去阻拦资格并交出钥匙。",
+            "source_evidence": ["对手先伸手", "主角才松手"],
+        },
         "information_delay": "本场只漏出偏护，完整责任压后。",
         "control_changes": ["入口控制权从主角转给对手"],
         "emotion_sequence": ["警觉", "受辱", "余痛"],
@@ -102,6 +111,22 @@ class SubflowAssetTest(unittest.TestCase):
         errors: list[str] = []
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
         self.assertTrue(any("不在原文中" in error for error in errors))
+
+    def test_missing_causal_precondition_blocks(self) -> None:
+        entry = subflow()
+        entry["causal_preconditions"]["arrival_causes"] = []
+        self.write_entries([entry])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("arrival_causes" in error for error in errors))
+
+    def test_fake_causal_evidence_blocks(self) -> None:
+        entry = subflow()
+        entry["causal_preconditions"]["source_evidence"][1] = "并不存在的因果证据"
+        self.write_entries([entry])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("causal_preconditions.source_evidence" in error for error in errors))
 
     def test_cross_book_library_preserves_source_boundary(self) -> None:
         book_dir = self.root / "拆文库" / "测试书" / "写作资产"

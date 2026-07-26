@@ -1455,8 +1455,8 @@ def sequence_audit(text: str, terms: list[str]) -> dict:
 
 
 def split_paragraphs(text: str) -> list[str]:
-    # story-short-write 的紧密排版禁止段间空行，因此正文中的每个非空行
-    # 才是实际段落。按空白行切分会把整篇误判成一个超长段。
+    # 知乎阅读版在自然段间保留单空行；每个非空行仍对应一个已判断好的
+    # 自然段。按非空行扫描可同时兼容旧稿的紧密排版。
     return [
         line.strip()
         for line in text.splitlines()

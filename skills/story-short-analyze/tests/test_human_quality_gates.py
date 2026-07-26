@@ -427,6 +427,8 @@ class HumanQualityGateTest(unittest.TestCase):
                     "- 专业细节功能性：术语密集",
                     "### 10.4 全文对白模式",
                     "- 全文对白模式：反复问答确认",
+                    "### 10.5 句段气口与镜头连续性",
+                    "- 句段气口与镜头连续性：短段机械切镜",
                 ]
             ),
         )
@@ -442,6 +444,7 @@ class HumanQualityGateTest(unittest.TestCase):
             ("### 10.2 主角不规则性与能动性", "主角不规则性"),
             ("### 10.3 专业细节功能性", "专业细节功能性"),
             ("### 10.4 全文对白模式", "全文对白模式"),
+            ("### 10.5 句段气口与镜头连续性", "句段气口与镜头连续性"),
         ):
             sections.extend(
                 [
@@ -493,6 +496,7 @@ class HumanQualityGateTest(unittest.TestCase):
             "- 主角不规则性：L94-L95 删信息，L229-L234 砸杯扇人。\n"
             "- 专业细节功能性：L78 夫妻代言，L424-L429 改成全程直播。\n"
             "- 全文对白模式：L58-L60 轮得到你来管我。\n"
+            "- 句段气口与镜头连续性：L53-L66 长短句随动作压力变化。\n"
             "### 全局结构形状\n"
             "案例：L53-L66 先给公开体面，再用抱走和留下完成掉位。\n"
             "### 章尾收束模式\n"
@@ -502,10 +506,31 @@ class HumanQualityGateTest(unittest.TestCase):
             "### 专业细节功能性\n"
             "案例：L78 夫妻代言让私事产生公开补台责任。\n"
             "### 全文对白模式\n"
-            "案例：L100-L106 称谓争夺后立刻进入戒指见血。\n",
+            "案例：L100-L106 称谓争夺后立刻进入戒指见血。\n"
+            "### 句段气口与镜头连续性\n"
+            "案例：L53-L66 抱走、松手与被留下处在连续现场气口中。\n",
         )
         errors: list[str] = []
         VALIDATOR.check_sample_grading_quality(path, errors, require_global_shape=True)
+        self.assertEqual([], errors)
+
+    def test_forbidden_list_requires_telegraphic_paragraph_guardrail(self) -> None:
+        path = self._write(
+            "仿写约束_禁写清单.md",
+            "禁写：连续短段都写成一个镜头清单。\n"
+            "- 为什么假：人物动作会退化为逐项交付。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_telegraphic_paragraph_guardrail(path, errors)
+        self.assertTrue(any("未区分有效短促气口" in error for error in errors))
+
+        path.write_text(
+            path.read_text(encoding="utf-8")
+            + "短句不是问题；由人物状态和现场节奏驱动的短促气口可以保留。\n",
+            encoding="utf-8",
+        )
+        errors = []
+        VALIDATOR.check_telegraphic_paragraph_guardrail(path, errors)
         self.assertEqual([], errors)
 
     def test_report_agency_requires_three_distinct_layers(self) -> None:
@@ -523,7 +548,9 @@ class HumanQualityGateTest(unittest.TestCase):
         path = self._write(
             "情节节点.md",
             "N1 | L1-L2 | 锚点：那次聚会 | 类型：信息 | 情绪：冷 | "
-            "涉及：甲 | 状态变化：未知到知情 | 因果：收到证据后等待\n",
+            "涉及：甲 | 状态变化：未知到知情 | 因果：收到证据后等待 | "
+            "入场前提：收到通知 | 行动权限：本人可查看 | 替代方案阻断：必须当面确认 | "
+            "离场因果：确认后离开\n",
         )
         errors: list[str] = []
         VALIDATOR.check_plot_nodes_quality(path, 1, errors)
@@ -533,7 +560,9 @@ class HumanQualityGateTest(unittest.TestCase):
         path = self._write(
             "情节节点.md",
             "N1 | L1-L2 | 锚点：开场 | 类型：信息 | 情绪：冷 | "
-            "涉及：甲 | 状态变化：未知到知情 | 因果：收到证据 | 故事时序：第一件事\n",
+            "涉及：甲 | 状态变化：未知到知情 | 因果：收到证据 | 故事时序：第一件事 | "
+            "入场前提：收到通知 | 行动权限：本人可查看 | 替代方案阻断：必须当面确认 | "
+            "离场因果：确认后离开\n",
         )
         errors: list[str] = []
         notes: list[str] = []
@@ -576,6 +605,33 @@ class HumanQualityGateTest(unittest.TestCase):
         VALIDATOR.parse_fact_ledger(path, ["收到录像证据"], errors, notes)
         self.assertFalse(any("事实台账过薄" in error for error in errors))
         self.assertTrue(any("禁止为达数量编造" in note for note in notes))
+
+    def test_scene_causality_ledger_requires_all_three_chains(self) -> None:
+        path = self._write(
+            "事实与推断台账.md",
+            "FS-01 | 状态对象：怀孕事实 | 初始状态：疑似 | 迁移：疑似 -> 已确认 | "
+            "触发：L1-L1 医生确认 | 不兼容状态：确认前已有确诊单\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_scene_causality_ledger(path, ["医生确认"], errors)
+        self.assertTrue(any("KS-xx" in error for error in errors))
+        self.assertTrue(any("OL-xx" in error for error in errors))
+
+    def test_scene_causality_ledger_rejects_broken_state_chain(self) -> None:
+        path = self._write(
+            "事实与推断台账.md",
+            "FS-01 | 状态对象：怀孕事实 | 初始状态：疑似 | 迁移：疑似 -> 已确认 | "
+            "触发：L1-L1 医生确认 | 不兼容状态：确认前已有确诊单\n"
+            "FS-02 | 状态对象：怀孕事实 | 初始状态：未检查 | 迁移：未检查 -> 已建档 | "
+            "触发：L2-L2 建档 | 不兼容状态：未确认即建档\n"
+            "KS-01 | 人物：女主 | 入场前已知：疑似 | 本场新知：已确认 | 仍未知：胎心 | "
+            "证据：L1-L1 医生确认\n"
+            "OL-01 | 物件：检查单 | 生成：确认后 | 持有：女主持有 | 使用：用于建档 | "
+            "失效/去向：留存 | 证据：L2-L2 建档\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_scene_causality_ledger(path, ["医生确认", "建档"], errors)
+        self.assertTrue(any("状态迁移不连续" in error for error in errors))
 
     def test_profile_asset_counts_are_review_notes(self) -> None:
         errors: list[str] = []
@@ -934,9 +990,10 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertIn("BID-01 中段承重桥", node_contract["bid_rules"][1])
         self.assertIn("故事时序", node_contract["required_entry_fields"])
         craft_contract = chronology_contract["files"]["写作手法.md"]
-        self.assertEqual(len(craft_contract["required_headings"]), 14)
+        self.assertEqual(len(craft_contract["required_headings"]), 15)
         self.assertIn("反面仿写句", craft_contract["required_sentence_assets"])
         self.assertIn("## 10. 全局成文形状审计", craft_contract["required_headings"])
+        self.assertIn("### 10.5 句段气口与镜头连续性", craft_contract["required_headings"])
         self.assertIn("原文证据", craft_contract["global_shape_audit_fields"])
         discovery_contract = foundation_contracts["discovery_index"]["files"]
         self.assertEqual(

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = (
@@ -55,6 +56,12 @@ class ShortWriteCompletionTest(unittest.TestCase):
             "project_path": str(self.project),
             "status": status,
             "checks": checks,
+            "preview_ready_at": "2026-07-26T00:00:00+00:00" if status == "draft_preview" else "",
+            "deep_review_user_confirmed": status == "complete",
+            "deep_review_confirmed_at": (
+                "2026-07-26T00:01:00+00:00" if status == "complete" else ""
+            ),
+            "deep_review_confirmation_note": "用户确认继续深审" if status == "complete" else "",
             "next_action": "继续执行。",
             "pause_reason": "",
             "blocker": {},
@@ -77,6 +84,67 @@ class ShortWriteCompletionTest(unittest.TestCase):
             result = GATE.hook_result(self.root)
         self.assertEqual(0, result)
         self.assertEqual({"continue": True}, json.loads(output.getvalue()))
+
+    def test_draft_preview_allows_stop_without_deep_checks(self) -> None:
+        state = self.create_passed_state(status="draft_preview")
+        state["checks"] = [
+            check
+            for check in state["checks"]
+            if check["label"] in GATE.FIRST_DRAFT_PREVIEW_CHECK_LABELS
+        ]
+        GATE.write_state(self.state, state)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = GATE.hook_result(self.root)
+        self.assertEqual(0, result)
+        self.assertEqual({"continue": True}, json.loads(output.getvalue()))
+
+    def test_draft_preview_requires_basic_review(self) -> None:
+        state = self.create_passed_state(status="draft_preview")
+        state["checks"] = [
+            check
+            for check in state["checks"]
+            if check["label"] != "first_draft_basic_review"
+        ]
+        GATE.write_state(self.state, state)
+        _, errors = GATE.validate_state(self.state)
+        self.assertTrue(any("first_draft_basic_review" in error for error in errors))
+
+    def test_complete_requires_explicit_deep_review_confirmation(self) -> None:
+        state = self.create_passed_state(status="complete")
+        state["deep_review_user_confirmed"] = False
+        state["deep_review_confirmed_at"] = ""
+        GATE.write_state(self.state, state)
+        _, errors = GATE.validate_state(self.state)
+        self.assertTrue(any("用户明确确认" in error for error in errors))
+
+    def test_mark_preview_then_confirm_deep_review(self) -> None:
+        state = self.create_passed_state(status="active")
+        GATE.write_state(self.state, state)
+        with patch(
+            "sys.argv",
+            ["gate", "mark-draft-preview", "--state", str(self.state)],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(0, GATE.main())
+        preview = json.loads(self.state.read_text(encoding="utf-8"))
+        self.assertEqual("draft_preview", preview["status"])
+        self.assertFalse(preview["deep_review_user_confirmed"])
+
+        with patch(
+            "sys.argv",
+            [
+                "gate",
+                "confirm-deep-review",
+                "--state",
+                str(self.state),
+                "--confirmation-note",
+                "用户明确说继续深审",
+            ],
+        ), redirect_stdout(io.StringIO()):
+            self.assertEqual(0, GATE.main())
+        confirmed = json.loads(self.state.read_text(encoding="utf-8"))
+        self.assertEqual("active", confirmed["status"])
+        self.assertTrue(confirmed["deep_review_user_confirmed"])
 
     def test_invalidated_complete_state_blocks_stop_hook(self) -> None:
         state = self.create_passed_state(status="complete")

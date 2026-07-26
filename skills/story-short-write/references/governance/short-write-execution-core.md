@@ -95,19 +95,19 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `first_draft_generation_contract`，绑定原文情感颗粒、连续瞬间、断段理由和句间关系
-20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`；每写一节前重读该节原文片段和生成契约，写完当场停检并处理电报文、情感压缩和句间断裂，再进入下一节
-21. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
-22. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
-23. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
-24. 通过 `validate_pre_window_revision_gate.py`
-25. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
-26. 跑正式全量审计并回填脚本产物
-27. 若属于仿写 / 融合 / 同桥任务，先对主体原文跑同一套轻审计和全量审计，再运行 `compare_source_baseline_audit.py` 生成基线对照
-28. 逐窗人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
-29. 只把 `draft_extra_ai_shell` 写进回修任务单；`source_like / craft_tradeoff` 可保留，但必须写明原文基线和情节功能
-30. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执、正式审计和原文基线对照全部失效
-31. 回到第 23 步，重新做规则/资产定向回修，再重新切窗和重审
+19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger`，再逐节验证原文表演机制、场景因果前提、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `scene_logic_contract` 与 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
+20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`；每写一节前重读该节至少两处原文表演证据和生成契约，写完当场停检并处理电报文、情感压缩和句间断裂，再进入下一节
+21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，再绑定修改后的正文 SHA
+22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
+23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
+24. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
+25. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
+26. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修；仿写稿先固定本轮母稿、重新实读每个待改区块对应原文切片，再逐项留下原文、母稿和改后正文证据
+27. 通过 `validate_pre_window_revision_gate.py`
+28. 仿写 / 融合 / 同桥任务先建立原文审计基线，再导出人工模型分段任务并逐节点人工切窗
+29. 跑正式全量审计、逐窗人工裁决并生成回修任务单
+30. 按正式审计施工单回修；仿写稿每个待改区块仍须重新读取对应原文切片并建立本轮双基线，不能沿用上一轮概括。正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执、正式审计和原文基线对照全部失效
+31. 回到第 26 步，重新做规则/资产定向回修，再重新切窗和重审
 32. 无正文变化后，绑定最终写作产物；递归重绑规则台账中所有目标产物证据和 `source_contract_reviews`，再通过 `rule_execution_gate`
 33. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
 34. 生成人工语义复核回执并人工复扫全文
@@ -120,6 +120,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
 - 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
 - `first_draft_generation_contract` 是正文生成输入，不是写后审计；必须在每节第一稿就完成原文同级情感过程、连续气口和句间关系，不得把它们推给后续去味或润色
+- 强情绪节必须用多处真实原文证据支撑不同情绪拍；同一句证据包办整节，或相邻小节无理由复用同一摘录，均视为没有真实消费原文颗粒度
+- `draft_preview` 是合法停靠态，不是完整流程完成态；它只证明首稿已完成基础审计和必要的基础回修。用户明确确认前，深审链必须保持未执行
+- 原文全量审计基线可以在用户确认深审后运行，但任何更早发生的仿写正文修改都必须先建立区块级原文颗粒基线；不得用“尚未进入深审”豁免回读原文
 - 用户要求“借颗粒度、自造情节”时，细纲表演验收使用 `source_mode: granularity_only`：不强迫主体 BID 全集迁移，但必须用 `granularity_transfer_contract` 覆盖全部目标小节，并逐场证明事件拍密度、信息延迟、控制权变化与原文同级，同时列明拒绝复制的表层元素
 - 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`
@@ -132,7 +135,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
 - 正文完成判定必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
 - 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执、人工分段和审计里记录的字符数/字数不得使用估算或其他脚本口径
-- 人工窗口不是首轮通用规则执行器。正文首稿完成后，必须先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
+- 人工窗口不是首稿基础审计器。首稿基础审计完成后先交用户；用户明确确认继续深审后，才按 skill 规则和主体拆书资产做窗口前定向回修，再导出人工窗口任务
 - `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
 - 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
 - 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；没有汇总输出不算正式人工窗口审计闭环
@@ -449,15 +452,50 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 硬闸：任一单书 profile 缺少 `precheck_overrides` 时停止融合，重新全量拆书后再生成单书和融合 profile。
 
-### 7. 跑全量审计
+### 7. 首稿基础审计与停靠
 
-窗口前先初始化并回填规则/资产定向回修回执：
+正文落笔后、任何基础回修前，初始化并人工回填基础审计回执。下例用于仿写稿；自由创作去掉 `--imitation-mode` 和 `--source`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic_review.py" init \
+  --draft "正文.md" \
+  --receipt "写作资产/首稿基础审计回执.json" \
+  --imitation-mode \
+  --source "拆文库/{主体书名}/原文/{原文文件}.txt"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic_review.py" validate \
+  --draft "正文.md" \
+  --receipt "写作资产/首稿基础审计回执.json"
+```
+
+四项人工检查都必须引用当前正文原句。初始化会保存 `写作资产/首稿基础审计母稿.md`；仿写稿还必须填写原文颗粒基线。发现问题时，在同一回执填写逐区块双基线记录，完成回修后更新最终正文绑定，禁止重新初始化覆盖母稿。通过后将该回执绑定为完成状态中的 `first_draft_basic_review`，然后执行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_short_write_completion.py" mark-draft-preview \
+  --state "写作资产/短篇全流程状态.json"
+```
+
+此命令通过后必须立即向用户交付首稿并停止。只有用户明确确认继续深审后，才记录确认并恢复流程：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_short_write_completion.py" confirm-deep-review \
+  --state "写作资产/短篇全流程状态.json" \
+  --confirmation-note "用户明确确认继续深审的原话或等义记录"
+```
+
+禁止由模型自行填写确认，禁止把初始写作委托当作深审确认。
+
+### 8. 跑全量审计
+
+窗口前、任何定向回修前先初始化并回填规则/资产定向回修回执。下例用于仿写稿；自由创作去掉 `--imitation-mode` 和 `--source`：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_pre_window_revision_gate.py" init \
   --project "{项目名}" \
   --text "正文.md" \
-  --receipt "写作资产/窗口前规则资产回修回执.json"
+  --receipt "写作资产/窗口前规则资产回修回执.json" \
+  --imitation-mode \
+  --source "拆文库/{主体书名}/原文/{原文文件}.txt"
 ```
 
 回填后必须通过：
@@ -501,7 +539,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
 
 正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断，并逐窗完成 `procedural_stiffness_review`。任何 `out_of_order / missing / ambiguous` 都阻断；任何疑似 AI 窗口缺少具体病灶或 `none_found` 反证，也阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
 
-### 8. 生成回修任务单
+### 9. 生成回修任务单
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" \
@@ -512,7 +550,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" 
 
 已识别的高风险桥段如果没有进入前排桥段任务，任务单生成直接阻断。已绑定 profile 时，`bridge_rules / scene_assets / style_assets / story_guardrails` 缺失也直接阻断并要求重建拆书/profile。短段偏多、局部频率和统计波动仍只作诊断预警，不得据此机械改文。
 
-### 9. 跑单轮闭环
+### 10. 跑单轮闭环
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" 当前短篇目录

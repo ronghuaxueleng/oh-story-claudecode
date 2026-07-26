@@ -10,22 +10,26 @@ from pathlib import Path
 from typing import Any
 
 
-REQUIRED_CHECK_LABELS = {
+FIRST_DRAFT_PREVIEW_CHECK_LABELS = {
     "writing_rule_gate",
     "source_read_gate",
-    "rule_execution_gate",
     "sequence_contract",
     "opening_contract",
+    "first_draft_basic_review",
+}
+DEEP_REVIEW_CHECK_LABELS = {
+    "rule_execution_gate",
     "pre_window_revision",
     "model_segmentation",
     "formal_audit",
     "post_write_human_review",
     "anti_false_pass_review",
 }
+REQUIRED_CHECK_LABELS = FIRST_DRAFT_PREVIEW_CHECK_LABELS | DEEP_REVIEW_CHECK_LABELS
 IMITATION_REQUIRED_CHECK_LABELS = {
     "source_baseline_audit",
 }
-VALID_STATUSES = {"active", "complete", "paused", "blocked"}
+VALID_STATUSES = {"active", "draft_preview", "complete", "paused", "blocked"}
 
 
 def now_iso() -> str:
@@ -82,7 +86,11 @@ def validate_check(check: dict[str, Any], project: Path) -> list[str]:
     return []
 
 
-def validate_state(path: Path) -> tuple[dict[str, Any], list[str]]:
+def validate_state(
+    path: Path,
+    *,
+    target_status: str | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     try:
         data = read_json(path)
@@ -90,7 +98,7 @@ def validate_state(path: Path) -> tuple[dict[str, Any], list[str]]:
         return {}, [f"状态文件无法读取: {exc}"]
     if data.get("workflow") != "story-short-write":
         errors.append("workflow 必须为 story-short-write")
-    status = str(data.get("status") or "")
+    status = target_status or str(data.get("status") or "")
     if status not in VALID_STATUSES:
         errors.append(f"status 无效: {status!r}")
     project_raw = str(data.get("project_path") or "")
@@ -102,8 +110,12 @@ def validate_state(path: Path) -> tuple[dict[str, Any], list[str]]:
         checks = []
         errors.append("checks 必须是数组")
     labels = [str(item.get("label") or "") for item in checks if isinstance(item, dict)]
-    required_labels = set(REQUIRED_CHECK_LABELS)
-    if data.get("imitation_mode") is True:
+    required_labels = (
+        set(FIRST_DRAFT_PREVIEW_CHECK_LABELS)
+        if status == "draft_preview"
+        else set(REQUIRED_CHECK_LABELS)
+    )
+    if status == "complete" and data.get("imitation_mode") is True:
         required_labels.update(IMITATION_REQUIRED_CHECK_LABELS)
     missing = sorted(required_labels - set(labels))
     duplicate = sorted({label for label in labels if label and labels.count(label) > 1})
@@ -115,8 +127,19 @@ def validate_state(path: Path) -> tuple[dict[str, Any], list[str]]:
         if not isinstance(check, dict):
             errors.append("checks 含非对象条目")
             continue
-        if status in {"active", "complete"}:
+        label = str(check.get("label") or "")
+        if status in {"active", "draft_preview", "complete"} and label in required_labels:
             errors.extend(validate_check(check, project))
+    if status == "draft_preview":
+        if data.get("deep_review_user_confirmed") is True:
+            errors.append("draft_preview 状态不得提前标记 deep_review_user_confirmed")
+        if not str(data.get("preview_ready_at") or "").strip() and target_status is None:
+            errors.append("draft_preview 状态缺少 preview_ready_at")
+    if status == "complete":
+        if data.get("deep_review_user_confirmed") is not True:
+            errors.append("完整深审缺少用户明确确认，禁止标记 complete")
+        if not str(data.get("deep_review_confirmed_at") or "").strip():
+            errors.append("完整深审缺少 deep_review_confirmed_at")
     if status == "paused" and not str(data.get("pause_reason") or "").strip():
         errors.append("paused 状态缺少 pause_reason")
     if status == "blocked":
@@ -156,12 +179,16 @@ def init_state(path: Path, project: Path, force: bool) -> int:
     write_state(
         path,
         {
-            "version": "1.0",
+            "version": "1.1",
             "workflow": "story-short-write",
             "project_path": str(project.resolve()),
             "status": "active",
             "imitation_mode": False,
             "started_at": now_iso(),
+            "preview_ready_at": "",
+            "deep_review_user_confirmed": False,
+            "deep_review_confirmed_at": "",
+            "deep_review_confirmation_note": "",
             "checks": checks,
             "next_action": "填写全部检查路径并继续执行当前未完成门禁。",
             "pause_reason": "",
@@ -187,7 +214,7 @@ def hook_result(root: Path) -> int:
         status = str(data.get("status") or "")
         if status == "complete" and not errors:
             continue
-        if status in {"paused", "blocked"} and not errors:
+        if status in {"draft_preview", "paused", "blocked"} and not errors:
             continue
         next_action = str(data.get("next_action") or "继续执行第一个未通过的完成检查。")
         details = errors[:6] or [f"status={status!r}，尚未执行 mark-complete"]
@@ -198,7 +225,7 @@ def hook_result(root: Path) -> int:
         print(json.dumps({"continue": True}, ensure_ascii=False))
         return 0
     reason = (
-        "story-short-write 全流程仍处于 active/失效状态，禁止阶段性结束。"
+        "story-short-write 当前阶段仍处于 active/失效状态，禁止阶段性结束。"
         "不得只报告未完成；立即继续真实执行、回修或复验。\\n- "
         + "\\n- ".join(blocked)
     )
@@ -215,6 +242,11 @@ def main() -> int:
     init.add_argument("--force", action="store_true")
     validate = sub.add_parser("validate")
     validate.add_argument("--state", required=True)
+    preview = sub.add_parser("mark-draft-preview")
+    preview.add_argument("--state", required=True)
+    confirm = sub.add_parser("confirm-deep-review")
+    confirm.add_argument("--state", required=True)
+    confirm.add_argument("--confirmation-note", required=True)
     complete = sub.add_parser("mark-complete")
     complete.add_argument("--state", required=True)
     resume = sub.add_parser("resume")
@@ -239,6 +271,40 @@ def main() -> int:
             return 2
         print(f"short_write_completion: {data.get('status')}")
         return 0
+    if args.command == "mark-draft-preview":
+        _, preview_errors = validate_state(state_path, target_status="draft_preview")
+        if preview_errors:
+            print("short_write_completion: blocked")
+            for error in preview_errors:
+                print(f"- {error}")
+            return 2
+        data["status"] = "draft_preview"
+        data["preview_ready_at"] = now_iso()
+        data["deep_review_user_confirmed"] = False
+        data["deep_review_confirmed_at"] = ""
+        data["deep_review_confirmation_note"] = ""
+        data["next_action"] = "首稿已交用户确认；未获明确确认前禁止进入人工分窗、原文基线和正式审计。"
+        write_state(state_path, data)
+        print("short_write_completion: draft_preview")
+        return 0
+    if args.command == "confirm-deep-review":
+        if data.get("status") != "draft_preview":
+            print("short_write_completion: blocked")
+            print("- 只有 draft_preview 状态可以接受深审确认")
+            return 2
+        note = str(args.confirmation_note or "").strip()
+        if not note:
+            print("short_write_completion: blocked")
+            print("- confirmation-note 不能为空")
+            return 2
+        data["status"] = "active"
+        data["deep_review_user_confirmed"] = True
+        data["deep_review_confirmed_at"] = now_iso()
+        data["deep_review_confirmation_note"] = note
+        data["next_action"] = "用户已确认，继续执行窗口前回修、原文基线、人工分窗和正式审计。"
+        write_state(state_path, data)
+        print("short_write_completion: deep_review_confirmed")
+        return 0
     if args.command == "mark-complete":
         if data.get("status") in {"paused", "blocked"}:
             project = Path(str(data.get("project_path") or state_path.parent.parent)).resolve()
@@ -256,6 +322,10 @@ def main() -> int:
         write_state(state_path, data)
         print("short_write_completion: complete")
         return 0
+    if data.get("status") == "draft_preview":
+        print("short_write_completion: blocked")
+        print("- 首稿停靠后必须使用 confirm-deep-review 记录用户明确确认")
+        return 2
     data["status"] = "active"
     data["pause_reason"] = ""
     data["blocker"] = {}

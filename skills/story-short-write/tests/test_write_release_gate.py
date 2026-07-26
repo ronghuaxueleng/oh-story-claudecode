@@ -20,7 +20,7 @@ SPEC.loader.exec_module(GATE)
 
 class WriteReleaseGateTest(unittest.TestCase):
     @staticmethod
-    def emotion_beats(evidence: str) -> list[dict]:
+    def emotion_beats(evidence: str | list[str]) -> list[dict]:
         roles = ["情绪进入点", "受辱或刺痛", "短暂希望或反抗", "反刀", "场末余痛"]
         return [
             {
@@ -29,9 +29,9 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "relationship_position_change": f"{role}改变关系位置",
                 "reader_effect": f"读者在{role}感到关系恶化",
                 "intensity": 8,
-                "evidence": evidence,
+                "evidence": evidence[index % len(evidence)] if isinstance(evidence, list) else evidence,
             }
-            for role in roles
+            for index, role in enumerate(roles)
         ]
 
     def setUp(self) -> None:
@@ -51,10 +51,17 @@ class WriteReleaseGateTest(unittest.TestCase):
         source_root = self.root / "拆文库" / "测试书"
         self.source_original = source_root / "原文" / "原文.txt"
         self.source_original.parent.mkdir(parents=True)
-        self.source_original.write_text("原文场面", encoding="utf-8")
+        self.source_original.write_text("原文场面。原文动作。原文余痛。", encoding="utf-8")
         bridge_catalog = source_root / "写作资产" / "桥段施工卡.md"
         bridge_catalog.parent.mkdir(parents=True)
         bridge_catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+        (source_root / "book.profile.json").write_text(
+            json.dumps(
+                {"causal_precondition_assets": [{"causal_asset_id": "CPA-01"}]},
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         for name in (
             "writing",
             "source",
@@ -130,6 +137,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         payload["global_review"] = {
             "full_source_mechanisms_reviewed": True,
             "dual_track_function_and_scene_granularity_reviewed": True,
+            "scene_causality_reviewed_before_draft": True,
             "source_bridge_flow_inventory_completed": True,
             "outline_bridge_flow_parity_reviewed_before_draft": True,
             "relationship_legibility_reviewed_before_draft": True,
@@ -165,7 +173,7 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "source_required_sequence": ["先公开偏护", "再让主角失位"],
                 "source_must_keep_actions": ["抢走位置", "旁观者改站队"],
                 "source_scene_granularity": "动作和站位连续换主。",
-                "source_emotion_sequence": self.emotion_beats("原文场面"),
+                "source_emotion_sequence": self.emotion_beats(["原文场面", "原文动作", "原文余痛"]),
                 "target_emotion_sequence": self.emotion_beats("动作一"),
                 "source_reversal_beat": 4,
                 "target_reversal_beat": 4,
@@ -202,6 +210,25 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "dialogue_forces_action": "公开确认迫使乙交出钥匙。",
                     "bystander_or_order_shift": "旁观者不再等待乙决定。",
                     "scene_end_residue": "乙被公开排除。",
+                },
+                "scene_logic_contract": {
+                    "source_path": source_path,
+                    "source_sha256": source_sha,
+                    "causal_asset_id": "CPA-01",
+                    "source_causal_preconditions": ["人物因公开活动同时到场。"],
+                    "source_evidence": ["原文场面", "原文动作"],
+                    "target_entry_causes": ["乙收到入口报警后到场。"],
+                    "target_knowledge_state": ["乙只知道入口异常，不知道丈夫已允许甲进入。"],
+                    "key_object_lifecycle": ["钥匙原由乙持有，丈夫表态后才交给甲。"],
+                    "external_rule_dependency": {
+                        "domain": "none",
+                        "verified": True,
+                        "authoritative_basis": "冲突依赖人物主动表态和钥匙持有，不依赖外部制度。",
+                    },
+                    "obvious_alternative_blocker": ["乙负责处理报警，不能直接离场。"],
+                    "exit_cause": "钥匙换手后乙失去进入权，只能离场。",
+                    "target_outline_evidence": ["动作一", "动作二"],
+                    "manual_judgment": "同场原因、知情差和物件换手均有前置条件。",
                 },
                 "source_mechanism": {
                     "source_path": source_path,
@@ -245,7 +272,7 @@ class WriteReleaseGateTest(unittest.TestCase):
                 },
                 "source_emotion_parity": {
                     "source_excerpt": "原文场面",
-                    "source_emotion_sequence": self.emotion_beats("原文场面"),
+                    "source_emotion_sequence": self.emotion_beats(["原文场面", "原文动作", "原文余痛"]),
                     "target_emotion_sequence": self.emotion_beats("动作一"),
                     "source_intensity_score": 8,
                     "target_intensity_score": 8,
@@ -261,6 +288,8 @@ class WriteReleaseGateTest(unittest.TestCase):
                 },
                 "first_draft_generation_contract": {
                     "source_performance_excerpt": "原文场面",
+                    "source_performance_evidence": ["原文动作", "原文余痛"],
+                    "source_excerpt_reuse_reason": "",
                     "emotion_process": {
                         "entry_state": "她还在等丈夫给一个合理解释。",
                         "involuntary_body_response": "他开口偏护时，她的手先松开了钥匙。",
@@ -285,6 +314,11 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "function_word_strategy": "用原本、却、才和还组织自然口气。",
                     "telegraphic_risk": "避免把松手、看挂件、改口和交钥匙切成四个短段。",
                     "emotion_shorthand_to_avoid": ["手指发紧", "我没说话"],
+                    "target_emotion_landing_plan": [
+                        "期待先落在丈夫是否解释的具体注意上。",
+                        "改口承载追问冲动和自尊之间的冲突。",
+                        "钥匙换手后的压痕负责留下场末余痛。",
+                    ],
                     "no_fixed_short_sentence_ratio": True,
                     "manual_judgment": "第一稿就保留期待、身体失控、自尊反冲、错答和余痛。",
                 },
@@ -295,6 +329,21 @@ class WriteReleaseGateTest(unittest.TestCase):
         )
         payload["reviewed_by_current_model"] = True
         payload["gate_status"] = "passed"
+        payload["story_fact_state_ledger"] = [
+            {
+                "fact_id": "FACT-01",
+                "initial_state": "乙持有钥匙",
+                "incompatible_states": ["交出前甲已持有钥匙"],
+                "transitions": [
+                    {
+                        "from_state": "乙持有钥匙",
+                        "to_state": "甲持有钥匙",
+                        "section_id": "1",
+                        "trigger_evidence": ["动作一"],
+                    }
+                ],
+            }
+        ]
         return payload
 
     @staticmethod

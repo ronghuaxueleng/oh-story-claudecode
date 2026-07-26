@@ -293,7 +293,7 @@ def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
             if value:
                 result[f"{current_parent}::{key.strip()}"].append(value.strip())
             continue
-        if re.match(r"^桥段[：:]", body):
+        if re.match(r"^(?:桥段|因果资产)[：:]", body):
             current_parent = body
             result[current_parent]
             continue
@@ -1066,6 +1066,41 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
     return rules
 
 
+def build_profile_source_causal_assets(text: str) -> list[dict]:
+    """Extract source-grounded scene-causality cards from profile_source.md."""
+    sections = parse_markdown_sections(text)
+    lines = sections.get("13. 场景因果资产", [])
+    if not lines:
+        return []
+    pairs = collect_profile_source_pairs(lines)
+    assets: list[dict] = []
+    field_aliases = (
+        ("arrival_causes", "到场原因"),
+        ("knowledge_boundaries", "知情边界"),
+        ("object_lifecycle", "物件生命周期"),
+        ("institutional_constraints", "制度约束"),
+        ("obvious_alternative_blockers", "明显替代方案阻断"),
+        ("exit_cause", "离场因果"),
+        ("source_evidence", "原文证据"),
+    )
+    for key in pairs:
+        if not key.startswith("因果资产") or "::" in key:
+            continue
+        title = key.removeprefix("因果资产：").removeprefix("因果资产:").strip()
+        id_match = re.search(r"\b(CPA-\d{2,3})\b", title, flags=re.I)
+        asset: dict[str, object] = {
+            "causal_asset_id": id_match.group(1).upper() if id_match else "",
+            "name": re.sub(r"^CPA-\d{2,3}\s*", "", title, flags=re.I).strip(),
+        }
+        for output_field, label in field_aliases:
+            values = normalize_items(
+                collect_profile_source_reason_lines(pairs.get(f"{key}::{label}", []))
+            )
+            asset[output_field] = values
+        assets.append(asset)
+    return assets
+
+
 def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     sections = parse_markdown_sections(text)
     result: dict[str, list[str] | list[dict]] = {}
@@ -1356,6 +1391,7 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         result["story_guardrails"] = story_guardrails
 
     result["bridge_rules"] = build_profile_source_bridge_rules(text)
+    result["causal_precondition_assets"] = build_profile_source_causal_assets(text)
     return result
 
 
@@ -2427,6 +2463,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     }
     collected: dict[str, list[str]] = defaultdict(list)
     bridge_rules: list[dict] = []
+    causal_precondition_assets: list[dict] = []
     sample_source_entries: list[dict[str, str]] = []
     dynamic_object_terms: set[str] = set()
     precheck_fact_patterns: list[str] = []
@@ -2636,6 +2673,11 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             collected["profile_derived_patterns"].extend(parsed.get("derived_patterns", []))
             for asset_name, items in parsed.get("migration_assets", {}).items():
                 collected[f"profile_migration_asset::{asset_name}"].extend(items)
+            parsed_causal_assets = parsed.get("causal_precondition_assets", [])
+            if isinstance(parsed_causal_assets, list):
+                causal_precondition_assets.extend(
+                    item for item in parsed_causal_assets if isinstance(item, dict)
+                )
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
             story_guardrails = parsed.get("story_guardrails", {})
@@ -2892,6 +2934,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "banned_phrases": banned_phrases,
         "banned_regex": [],
         "bridge_rules": bridge_rules,
+        "causal_precondition_assets": causal_precondition_assets,
         "scene_assets": scene_assets,
         "style_assets": style_assets,
         "derived_patterns": derived_patterns,
@@ -3058,6 +3101,12 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
                 if isinstance(profile.get("bridge_rules", []), list)
             ]
         ),
+        "causal_precondition_assets": [
+            item
+            for profile in profiles
+            for item in profile.get("causal_precondition_assets", [])
+            if isinstance(item, dict)
+        ],
         "scene_assets": scene_assets,
         "style_assets": style_assets,
         "derived_patterns": merge_string_lists(profiles, "derived_patterns"),

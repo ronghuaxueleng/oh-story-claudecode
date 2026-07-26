@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Zhihu/Yanyan short-story section markers."""
+"""Validate Zhihu/Yanyan section markers and reading-layout spacing."""
 
 from __future__ import annotations
 
@@ -32,11 +32,28 @@ def validate_text(text: str) -> tuple[list[str], list[int]]:
     errors: list[str] = []
     sections: list[int] = []
     nonempty_index = 0
+    lines = text.splitlines()
 
-    for line_number, raw_line in enumerate(text.splitlines(), start=1):
+    previous_nonempty_line: int | None = None
+    blank_run = 0
+
+    for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
         if not line:
+            blank_run += 1
             continue
+
+        if previous_nonempty_line is not None:
+            if blank_run == 0:
+                errors.append(
+                    f"第 {previous_nonempty_line} 与第 {line_number} 行之间缺少一个空行"
+                )
+            elif blank_run > 1:
+                errors.append(
+                    f"第 {previous_nonempty_line} 与第 {line_number} 行之间存在 {blank_run} 个连续空行，只允许一个"
+                )
+        previous_nonempty_line = line_number
+        blank_run = 0
 
         nonempty_index += 1
         pure_match = PURE_SECTION.fullmatch(line)
@@ -79,7 +96,7 @@ def validate_text(text: str) -> tuple[list[str], list[int]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Validate pure numeric section markers for Zhihu/Yanyan drafts."
+        description="Validate section markers and single-blank-line reading layout."
     )
     parser.add_argument("--text", required=True)
     args = parser.parse_args()

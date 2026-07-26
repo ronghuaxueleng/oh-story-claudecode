@@ -41,6 +41,24 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 class StoryProfileSceneAssetsTest(unittest.TestCase):
+    def test_profile_source_extracts_scene_causal_assets(self) -> None:
+        parsed = GENERATOR.parse_profile_source(
+            "## 13. 场景因果资产\n"
+            "- 因果资产：CPA-01 执行任务撞见丈夫\n"
+            "  - 到场原因：女主接到任务后进入现场\n"
+            "  - 知情边界：女主入场前不知道丈夫在场\n"
+            "  - 物件生命周期：执法记录从入场后开始生成\n"
+            "  - 制度约束：避嫌后必须移交同事处理\n"
+            "  - 明显替代方案阻断：任务已开始，不能私下先联系丈夫\n"
+            "  - 离场因果：认出丈夫后触发避嫌和移交\n"
+            "  - 原文证据：接到扫黄任务；我冲进去时\n"
+        )
+        assets = parsed["causal_precondition_assets"]
+        self.assertEqual("CPA-01", assets[0]["causal_asset_id"])
+        self.assertEqual("执行任务撞见丈夫", assets[0]["name"])
+        self.assertEqual(["女主接到任务后进入现场"], assets[0]["arrival_causes"])
+        self.assertEqual(["避嫌后必须移交同事处理"], assets[0]["institutional_constraints"])
+
     def test_dynamic_signal_dictionary_generates_precheck_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
