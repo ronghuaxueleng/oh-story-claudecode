@@ -95,7 +95,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py extend-outline` 从已通过的设定回执增量建立完整契约，保留已审核设定证据
 17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger`，再逐节验证原文表演机制、场景因果前提、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `scene_logic_contract` 与 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
+19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger` 与覆盖所有相邻小节的 `section_handoff_chain`；再逐节用 `scene_entry_state / beat_dependency_chain / knowledge_state_chain / causal_risk_reviews / scene_exit_state` 验证节内每一拍的前态、触发、知情、空间或物件权限和后态首尾相接，同时核对原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据。融合仿写还必须绑定拆文读取回执，并用 `auxiliary_subflow_flow_parity` 完整逐步迁移每个已选辅助 SF；最后逐节填完 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
 20. 先运行 `build_section_source_bundle.py` 生成 `逐节原文颗粒包.json`，再运行 `validate_first_draft_entry.py init` 作为正文首稿唯一入口；该入口会实时复验 `validate_write_release_gate.py draft` 并初始化 `validate_section_draft_execution.py`。正文目标文件已有内容、已出现数字小节、缺逐节颗粒包或任一放行回执失效时，入口直接阻断。每节先 `open-section`，装载该节颗粒包后重读全部 `source_slice_bindings` 和生成契约，只写当前节，再 `close-section` 完成事件、情绪、文风和气口停检；未关闭不得进入下一节
 21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，再绑定修改后的正文 SHA
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核

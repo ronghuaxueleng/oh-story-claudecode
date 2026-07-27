@@ -83,6 +83,33 @@ SCENE_LOGIC_LIST_FIELDS = (
     "obvious_alternative_blocker",
     "target_outline_evidence",
 )
+BEAT_DEPENDENCY_FIELDS = (
+    "beat_id",
+    "actor",
+    "action",
+    "from_state",
+    "trigger",
+    "knowledge_before",
+    "spatial_or_object_access",
+    "to_state",
+    "next_beat_cause",
+    "outline_evidence",
+)
+CAUSAL_RISK_TYPES = (
+    "character_convergence",
+    "critical_information_delay",
+    "critical_interruption",
+    "spatial_or_object_access",
+)
+CAUSAL_PLACEHOLDER_MARKERS = (
+    "读者新获知",
+    "上一节已公开的信息",
+    "人物均由上一节未完成动作或主动追问",
+    "必须留到场末",
+    "已有明确持有人",
+    "均连续",
+    "不是作者强推人物动作的借口",
+)
 
 
 def sha256(path: Path) -> str:
@@ -111,6 +138,61 @@ def nonempty_list(value: Any, minimum: int = 1) -> bool:
         isinstance(value, list)
         and len([item for item in value if str(item).strip()]) >= minimum
     )
+
+
+def contains_causal_placeholder(value: Any) -> bool:
+    text = str(value or "")
+    return any(marker in text for marker in CAUSAL_PLACEHOLDER_MARKERS)
+
+
+def source_receipt_auxiliary_contracts(
+    receipt_path: Path,
+    auxiliary_source_paths: list[Path],
+) -> dict[str, list[dict[str, Any]]]:
+    if not receipt_path.is_file():
+        raise FileNotFoundError(f"拆文读取回执不存在: {receipt_path}")
+    try:
+        data = json.loads(read_text(receipt_path))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"拆文读取回执不是有效 JSON: {exc}") from exc
+    sources = data.get("sources") if isinstance(data, dict) else None
+    if not isinstance(sources, list):
+        raise ValueError("拆文读取回执.sources 必须是列表")
+    result: dict[str, list[dict[str, Any]]] = {}
+    for source_path in auxiliary_source_paths:
+        source_root = source_path.resolve().parent.parent
+        matched = next(
+            (
+                item
+                for item in sources
+                if isinstance(item, dict)
+                and Path(str(item.get("root") or "")).expanduser().resolve()
+                == source_root
+            ),
+            None,
+        )
+        if matched is None:
+            raise ValueError(f"拆文读取回执未找到辅助来源: {source_root}")
+        selected_ids = [
+            str(item).strip()
+            for item in matched.get("selected_subflow_ids") or []
+            if str(item).strip()
+        ]
+        contracts = matched.get("selected_subflow_contracts")
+        if not selected_ids or not isinstance(contracts, list):
+            raise ValueError(f"辅助来源缺少已选 SF 完整契约: {source_root}")
+        by_id = {
+            str(item.get("subflow_id") or "").strip(): item
+            for item in contracts
+            if isinstance(item, dict)
+        }
+        missing = [subflow_id for subflow_id in selected_ids if subflow_id not in by_id]
+        if missing:
+            raise ValueError(
+                f"辅助来源已选 SF 缺少完整契约: {source_root} -> {', '.join(missing)}"
+            )
+        result[str(source_path.resolve())] = [by_id[subflow_id] for subflow_id in selected_ids]
+    return result
 
 
 def bridge_catalog_path(source: Path) -> Path:
@@ -145,10 +227,25 @@ def create_receipt(
     outline_path: Path,
     source_paths: list[Path],
     source_mode: str = "full_bridge",
+    source_receipt_path: Path | None = None,
 ) -> dict[str, Any]:
     outline = outline_path.resolve()
     if not outline.is_file():
         raise FileNotFoundError(f"细纲不存在: {outline}")
+    resolved_source_paths = [path.resolve() for path in source_paths]
+    auxiliary_contracts: dict[str, list[dict[str, Any]]] = {}
+    source_receipt_binding: dict[str, str] | None = None
+    if len(resolved_source_paths) > 1 and source_mode == "full_bridge":
+        if source_receipt_path is None:
+            raise ValueError("融合仿写初始化细纲契约时必须传 --source-receipt")
+        resolved_source_receipt = source_receipt_path.resolve()
+        auxiliary_contracts = source_receipt_auxiliary_contracts(
+            resolved_source_receipt, resolved_source_paths[1:]
+        )
+        source_receipt_binding = {
+            "path": str(resolved_source_receipt),
+            "sha256": sha256(resolved_source_receipt),
+        }
     sources = []
     for index, source_path in enumerate(source_paths):
         source = source_path.resolve()
@@ -167,6 +264,7 @@ def create_receipt(
         if not available_causal_asset_ids:
             raise ValueError(f"单书 profile 未识别到场景因果资产 CPA: {profile_path}")
         role = "primary" if index == 0 else "auxiliary"
+        selected_contracts = auxiliary_contracts.get(str(source), [])
         sources.append(
             {
                 "path": str(source),
@@ -192,13 +290,17 @@ def create_receipt(
                     if role == "primary" and source_mode == "full_bridge"
                     else []
                 ),
+                "selected_subflow_ids": [
+                    str(item.get("subflow_id") or "").strip()
+                    for item in selected_contracts
+                ],
             }
         )
 
     sections = outline_sections(read_text(outline))
     first_source = sources[0]
     return {
-        "version": "1.4",
+        "version": "1.5",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -206,11 +308,15 @@ def create_receipt(
         "source_mode": source_mode,
         "reviewed_by_current_model": False,
         "outline": {"path": str(outline), "sha256": sha256(outline)},
+        "source_read_receipt": source_receipt_binding,
         "selected_source_originals": sources,
         "global_review": {
             "full_source_mechanisms_reviewed": False,
             "dual_track_function_and_scene_granularity_reviewed": False,
             "scene_causality_reviewed_before_draft": False,
+            "intra_section_beat_causality_reviewed": False,
+            "section_handoff_reviewed": False,
+            "auxiliary_subflow_full_flow_reviewed": False,
             "source_bridge_flow_inventory_completed": False,
             "outline_bridge_flow_parity_reviewed_before_draft": False,
             "relationship_legibility_reviewed_before_draft": False,
@@ -226,6 +332,77 @@ def create_receipt(
             "manual_judgment": "",
         },
         "story_fact_state_ledger": [],
+        "section_handoff_chain": [
+            {
+                "from_section_id": sections[index],
+                "to_section_id": sections[index + 1],
+                "elapsed_time": "",
+                "from_exit_state": "",
+                "to_entry_state": "",
+                "handoff_trigger": "",
+                "character_state_continuity": [],
+                "knowledge_continuity": [],
+                "object_continuity": [],
+                "location_continuity": "",
+                "unresolved_threads": [],
+                "outline_evidence": [],
+                "manual_judgment": "",
+            }
+            for index in range(max(0, len(sections) - 1))
+        ],
+        "auxiliary_subflow_flow_parity": [
+            {
+                "source_path": source_path,
+                "source_sha256": next(
+                    source["sha256"]
+                    for source in sources
+                    if source["path"] == source_path
+                ),
+                "subflow_id": str(contract.get("subflow_id") or "").strip(),
+                "source_entry_state": str(contract.get("entry_state") or "").strip(),
+                "source_required_sequence": contract.get("required_sequence") or [],
+                "source_knowledge_boundaries": (
+                    contract.get("causal_preconditions", {}).get("knowledge_boundaries")
+                    if isinstance(contract.get("causal_preconditions"), dict)
+                    else []
+                ) or [],
+                "source_object_lifecycle": (
+                    contract.get("causal_preconditions", {}).get("object_lifecycle")
+                    if isinstance(contract.get("causal_preconditions"), dict)
+                    else []
+                ) or [],
+                "source_exit_cause": (
+                    contract.get("causal_preconditions", {}).get("exit_cause")
+                    if isinstance(contract.get("causal_preconditions"), dict)
+                    else ""
+                ),
+                "source_end_state": str(contract.get("end_state") or "").strip(),
+                "target_outline_sections": [],
+                "target_entry_state": "",
+                "sequence_mappings": [
+                    {
+                        "source_step": str(step).strip(),
+                        "target_step": "",
+                        "section_id": "",
+                        "precondition": "",
+                        "trigger": "",
+                        "state_change": "",
+                        "outline_evidence": [],
+                    }
+                    for step in contract.get("required_sequence") or []
+                ],
+                "target_knowledge_boundaries": [],
+                "target_object_lifecycle": [],
+                "target_exit_cause": "",
+                "target_end_state": "",
+                "target_outline_evidence": [],
+                "parity_status": "pending",
+                "adaptation_reason": "",
+                "manual_judgment": "",
+            }
+            for source_path, contracts in auxiliary_contracts.items()
+            for contract in contracts
+        ],
         "granularity_transfer_contract": [],
         "source_bridge_flow_inventory": [
             {
@@ -304,6 +481,23 @@ def create_receipt(
                     "obvious_alternative_blocker": [],
                     "exit_cause": "",
                     "target_outline_evidence": [],
+                    "scene_entry_state": "",
+                    "scene_exit_state": "",
+                    "beat_dependency_chain": [],
+                    "knowledge_state_chain": [],
+                    "causal_risk_reviews": [
+                        {
+                            "risk_type": risk_type,
+                            "applicable": None,
+                            "event": "",
+                            "setup": "",
+                            "causal_explanation": "",
+                            "outline_evidence": [],
+                            "not_applicable_reason": "",
+                            "manual_judgment": "",
+                        }
+                        for risk_type in CAUSAL_RISK_TYPES
+                    ],
                     "manual_judgment": "",
                 },
                 "source_mechanism": {
@@ -478,6 +672,7 @@ def validate_scene_logic_contract(
     source_texts: dict[str, str],
     source_metadata: dict[str, dict[str, Any]],
     outline_text: str,
+    section_id: str,
     label: str,
     errors: list[str],
 ) -> None:
@@ -504,6 +699,22 @@ def validate_scene_logic_contract(
         minimum = 2 if field in {"source_evidence", "target_outline_evidence"} else 1
         if not nonempty_list(value.get(field), minimum=minimum):
             errors.append(f"{label} scene_logic_contract.{field} 至少 {minimum} 条")
+        elif field in {
+            "target_entry_causes",
+            "target_knowledge_state",
+            "key_object_lifecycle",
+        }:
+            for item in value.get(field) or []:
+                if contains_causal_placeholder(item):
+                    errors.append(
+                        f"{label} scene_logic_contract.{field} 使用验收占位话代替真实因果: "
+                        f"{str(item).strip()!r}"
+                    )
+    if section_id == "1":
+        for field in ("target_entry_causes", "target_knowledge_state"):
+            for item in value.get(field) or []:
+                if "上一节" in str(item):
+                    errors.append(f"{label} 为首节，{field} 不得引用上一节")
     for quote in value.get("source_evidence") or []:
         if str(quote).strip() not in source_texts.get(source_key, ""):
             errors.append(f"{label} scene_logic_contract.source_evidence 不在原文中: {quote!r}")
@@ -515,6 +726,142 @@ def validate_scene_logic_contract(
     for field in ("exit_cause", "manual_judgment"):
         if not nonempty_text(value.get(field)):
             errors.append(f"{label} scene_logic_contract.{field} 不能为空")
+        elif contains_causal_placeholder(value.get(field)):
+            errors.append(f"{label} scene_logic_contract.{field} 不得使用模板化放行声明")
+
+    scene_entry_state = str(value.get("scene_entry_state") or "").strip()
+    scene_exit_state = str(value.get("scene_exit_state") or "").strip()
+    if not scene_entry_state:
+        errors.append(f"{label} scene_logic_contract.scene_entry_state 不能为空")
+    if not scene_exit_state:
+        errors.append(f"{label} scene_logic_contract.scene_exit_state 不能为空")
+    beat_chain = value.get("beat_dependency_chain")
+    valid_beat_ids: set[str] = set()
+    if not isinstance(beat_chain, list) or len(beat_chain) < 3:
+        errors.append(f"{label} beat_dependency_chain 至少三拍，逐拍证明前因、触发和状态变化")
+    else:
+        expected_from_state = scene_entry_state
+        for index, beat in enumerate(beat_chain, start=1):
+            beat_label = f"{label} beat_dependency_chain[{index}]"
+            if not isinstance(beat, dict):
+                errors.append(f"{beat_label} 必须是对象")
+                continue
+            for field in BEAT_DEPENDENCY_FIELDS:
+                if field == "outline_evidence":
+                    if not nonempty_list(beat.get(field)):
+                        errors.append(f"{beat_label}.{field} 至少一条")
+                elif not nonempty_text(beat.get(field)):
+                    errors.append(f"{beat_label}.{field} 不能为空")
+            beat_id = str(beat.get("beat_id") or "").strip()
+            if beat_id in valid_beat_ids:
+                errors.append(f"{beat_label}.beat_id 重复: {beat_id}")
+            valid_beat_ids.add(beat_id)
+            from_state = str(beat.get("from_state") or "").strip()
+            to_state = str(beat.get("to_state") or "").strip()
+            if expected_from_state and from_state != expected_from_state:
+                errors.append(
+                    f"{beat_label} 状态未首尾相接：期望 from_state={expected_from_state!r}，"
+                    f"实际为 {from_state!r}"
+                )
+            expected_from_state = to_state
+            for quote in beat.get("outline_evidence") or []:
+                if str(quote).strip() not in outline_text:
+                    errors.append(f"{beat_label}.outline_evidence 不在细纲中: {quote!r}")
+        if scene_exit_state and expected_from_state != scene_exit_state:
+            errors.append(
+                f"{label} beat_dependency_chain 末拍未落到 scene_exit_state: "
+                f"{expected_from_state!r} != {scene_exit_state!r}"
+            )
+
+    knowledge_chains = value.get("knowledge_state_chain")
+    if not isinstance(knowledge_chains, list) or not knowledge_chains:
+        errors.append(f"{label} knowledge_state_chain 至少覆盖一条承重知情事实")
+    else:
+        seen_fact_ids: set[str] = set()
+        for index, fact in enumerate(knowledge_chains, start=1):
+            fact_label = f"{label} knowledge_state_chain[{index}]"
+            if not isinstance(fact, dict):
+                errors.append(f"{fact_label} 必须是对象")
+                continue
+            for field in ("fact_id", "character", "initial_state", "final_state"):
+                if not nonempty_text(fact.get(field)):
+                    errors.append(f"{fact_label}.{field} 不能为空")
+            fact_id = str(fact.get("fact_id") or "").strip()
+            if fact_id in seen_fact_ids:
+                errors.append(f"{fact_label}.fact_id 重复: {fact_id}")
+            seen_fact_ids.add(fact_id)
+            if not nonempty_list(fact.get("incompatible_states")):
+                errors.append(f"{fact_label}.incompatible_states 至少一条")
+            transitions = fact.get("transitions")
+            current_state = str(fact.get("initial_state") or "").strip()
+            if not isinstance(transitions, list) or not transitions:
+                errors.append(f"{fact_label}.transitions 至少一条")
+                continue
+            for transition_index, transition in enumerate(transitions, start=1):
+                transition_label = f"{fact_label}.transitions[{transition_index}]"
+                if not isinstance(transition, dict):
+                    errors.append(f"{transition_label} 必须是对象")
+                    continue
+                for field in ("from_state", "to_state", "beat_id", "trigger"):
+                    if not nonempty_text(transition.get(field)):
+                        errors.append(f"{transition_label}.{field} 不能为空")
+                if str(transition.get("from_state") or "").strip() != current_state:
+                    errors.append(f"{transition_label} 知情状态未首尾相接")
+                current_state = str(transition.get("to_state") or "").strip()
+                beat_id = str(transition.get("beat_id") or "").strip()
+                if beat_id not in valid_beat_ids:
+                    errors.append(f"{transition_label}.beat_id 不在本节逐拍链中: {beat_id}")
+                evidence = transition.get("outline_evidence")
+                if not nonempty_list(evidence):
+                    errors.append(f"{transition_label}.outline_evidence 至少一条")
+                else:
+                    for quote in evidence:
+                        if str(quote).strip() not in outline_text:
+                            errors.append(
+                                f"{transition_label}.outline_evidence 不在细纲中: {quote!r}"
+                            )
+            if current_state != str(fact.get("final_state") or "").strip():
+                errors.append(f"{fact_label}.final_state 与最后一次知情迁移不一致")
+
+    risk_reviews = value.get("causal_risk_reviews")
+    if not isinstance(risk_reviews, list):
+        errors.append(f"{label} causal_risk_reviews 必须是列表")
+    else:
+        by_type = {
+            str(item.get("risk_type") or "").strip(): item
+            for item in risk_reviews
+            if isinstance(item, dict)
+        }
+        unknown = sorted(set(by_type) - set(CAUSAL_RISK_TYPES))
+        missing = sorted(set(CAUSAL_RISK_TYPES) - set(by_type))
+        if unknown:
+            errors.append(f"{label} causal_risk_reviews 存在未知类型: {', '.join(unknown)}")
+        if missing:
+            errors.append(f"{label} causal_risk_reviews 缺少类型: {', '.join(missing)}")
+        for risk_type in CAUSAL_RISK_TYPES:
+            review = by_type.get(risk_type)
+            if not isinstance(review, dict):
+                continue
+            applicable = review.get("applicable")
+            if applicable not in {True, False}:
+                errors.append(f"{label} {risk_type}.applicable 必须为 true/false")
+            if applicable is True:
+                for field in ("event", "setup", "causal_explanation", "manual_judgment"):
+                    if not nonempty_text(review.get(field)):
+                        errors.append(f"{label} {risk_type}.{field} 不能为空")
+                evidence = review.get("outline_evidence")
+                if not nonempty_list(evidence):
+                    errors.append(f"{label} {risk_type}.outline_evidence 至少一条")
+                else:
+                    for quote in evidence:
+                        if str(quote).strip() not in outline_text:
+                            errors.append(
+                                f"{label} {risk_type}.outline_evidence 不在细纲中: {quote!r}"
+                            )
+            elif applicable is False and not nonempty_text(
+                review.get("not_applicable_reason")
+            ):
+                errors.append(f"{label} {risk_type}.not_applicable_reason 不能为空")
     dependency = value.get("external_rule_dependency")
     if not isinstance(dependency, dict):
         errors.append(f"{label} scene_logic_contract.external_rule_dependency 必须是对象")
@@ -594,6 +941,238 @@ def validate_story_fact_state_ledger(
                 for quote in evidence:
                     if str(quote).strip() not in outline_text:
                         errors.append(f"{item_label}.trigger_evidence 不在细纲中: {quote!r}")
+
+
+def validate_section_handoff_chain(
+    value: Any,
+    section_ids: list[str],
+    by_id: dict[str, Any],
+    outline_text: str,
+    errors: list[str],
+) -> None:
+    expected_pairs = list(zip(section_ids, section_ids[1:]))
+    if not isinstance(value, list):
+        errors.append("section_handoff_chain 必须是列表")
+        return
+    entries: dict[tuple[str, str], dict[str, Any]] = {}
+    for index, item in enumerate(value, start=1):
+        label = f"section_handoff_chain[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        pair = (
+            str(item.get("from_section_id") or "").strip(),
+            str(item.get("to_section_id") or "").strip(),
+        )
+        if pair in entries:
+            errors.append(f"{label} 重复小节交接: {pair[0]} -> {pair[1]}")
+        entries[pair] = item
+    missing = [pair for pair in expected_pairs if pair not in entries]
+    extra = [pair for pair in entries if pair not in expected_pairs]
+    if missing:
+        errors.append(
+            "section_handoff_chain 缺少相邻小节交接: "
+            + ", ".join(f"{start}->{end}" for start, end in missing)
+        )
+    if extra:
+        errors.append(
+            "section_handoff_chain 包含非相邻交接: "
+            + ", ".join(f"{start}->{end}" for start, end in extra)
+        )
+    for start, end in expected_pairs:
+        item = entries.get((start, end))
+        if not isinstance(item, dict):
+            continue
+        label = f"小节交接 {start}->{end}"
+        for field in (
+            "elapsed_time",
+            "from_exit_state",
+            "to_entry_state",
+            "handoff_trigger",
+            "location_continuity",
+            "manual_judgment",
+        ):
+            if not nonempty_text(item.get(field)):
+                errors.append(f"{label}.{field} 不能为空")
+            elif contains_causal_placeholder(item.get(field)):
+                errors.append(f"{label}.{field} 不得使用模板占位话")
+        for field in (
+            "character_state_continuity",
+            "knowledge_continuity",
+            "object_continuity",
+            "unresolved_threads",
+        ):
+            if not nonempty_list(item.get(field)):
+                errors.append(f"{label}.{field} 至少一条")
+            else:
+                for entry in item.get(field) or []:
+                    if contains_causal_placeholder(entry):
+                        errors.append(f"{label}.{field} 不得使用模板占位话")
+        evidence = item.get("outline_evidence")
+        if not nonempty_list(evidence, minimum=2):
+            errors.append(f"{label}.outline_evidence 至少引用前后两节各一条原句")
+        else:
+            for quote in evidence:
+                if str(quote).strip() not in outline_text:
+                    errors.append(f"{label}.outline_evidence 不在细纲中: {quote!r}")
+        start_logic = (
+            by_id.get(start, {}).get("scene_logic_contract", {})
+            if isinstance(by_id.get(start), dict)
+            else {}
+        )
+        end_logic = (
+            by_id.get(end, {}).get("scene_logic_contract", {})
+            if isinstance(by_id.get(end), dict)
+            else {}
+        )
+        expected_exit = str(start_logic.get("scene_exit_state") or "").strip()
+        expected_entry = str(end_logic.get("scene_entry_state") or "").strip()
+        if expected_exit and str(item.get("from_exit_state") or "").strip() != expected_exit:
+            errors.append(f"{label}.from_exit_state 与前节 scene_exit_state 不一致")
+        if expected_entry and str(item.get("to_entry_state") or "").strip() != expected_entry:
+            errors.append(f"{label}.to_entry_state 与后节 scene_entry_state 不一致")
+
+
+def validate_auxiliary_subflow_flow_parity(
+    value: Any,
+    source_receipt_binding: Any,
+    source_path_order: list[Path],
+    source_texts: dict[str, str],
+    section_ids: list[str],
+    outline_text: str,
+    errors: list[str],
+) -> None:
+    auxiliary_paths = source_path_order[1:]
+    if not auxiliary_paths:
+        if value not in (None, []):
+            errors.append("无辅助来源时 auxiliary_subflow_flow_parity 必须为空")
+        return
+    if not isinstance(source_receipt_binding, dict):
+        errors.append("融合仿写细纲契约必须绑定 source_read_receipt")
+        return
+    path = Path(str(source_receipt_binding.get("path") or "")).expanduser().resolve()
+    if not path.is_file():
+        errors.append(f"source_read_receipt 不存在: {path}")
+        return
+    if source_receipt_binding.get("sha256") != sha256(path):
+        errors.append("source_read_receipt SHA 已变化，必须重建辅助 SF 对齐")
+    try:
+        expected_by_path = source_receipt_auxiliary_contracts(path, auxiliary_paths)
+    except (FileNotFoundError, ValueError) as exc:
+        errors.append(str(exc))
+        return
+    expected: dict[tuple[str, str], dict[str, Any]] = {
+        (source_path, str(contract.get("subflow_id") or "").strip()): contract
+        for source_path, contracts in expected_by_path.items()
+        for contract in contracts
+    }
+    if not isinstance(value, list):
+        errors.append("auxiliary_subflow_flow_parity 必须是列表")
+        return
+    actual: dict[tuple[str, str], dict[str, Any]] = {}
+    for index, item in enumerate(value, start=1):
+        label = f"辅助 SF 对齐[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        source_path = str(
+            Path(str(item.get("source_path") or "")).expanduser().resolve()
+        )
+        subflow_id = str(item.get("subflow_id") or "").strip()
+        key = (source_path, subflow_id)
+        if key in actual:
+            errors.append(f"{label} 重复: {Path(source_path).parent.parent.name} {subflow_id}")
+        actual[key] = item
+    missing = sorted(set(expected) - set(actual))
+    extra = sorted(set(actual) - set(expected))
+    if missing:
+        errors.append(
+            "辅助 SF 未逐流程进入细纲对齐: "
+            + ", ".join(f"{Path(path).parent.parent.name}:{subflow}" for path, subflow in missing)
+        )
+    if extra:
+        errors.append(
+            "辅助 SF 对齐存在未选来源: "
+            + ", ".join(f"{Path(path).parent.parent.name}:{subflow}" for path, subflow in extra)
+        )
+    for key, contract in expected.items():
+        item = actual.get(key)
+        if not isinstance(item, dict):
+            continue
+        source_path, subflow_id = key
+        label = f"辅助 SF {Path(source_path).parent.parent.name}:{subflow_id}"
+        if item.get("source_sha256") != sha256(Path(source_path)):
+            errors.append(f"{label}.source_sha256 与原文不一致")
+        causal = contract.get("causal_preconditions")
+        causal = causal if isinstance(causal, dict) else {}
+        expected_fields = {
+            "source_entry_state": str(contract.get("entry_state") or "").strip(),
+            "source_required_sequence": contract.get("required_sequence") or [],
+            "source_knowledge_boundaries": causal.get("knowledge_boundaries") or [],
+            "source_object_lifecycle": causal.get("object_lifecycle") or [],
+            "source_exit_cause": causal.get("exit_cause") or "",
+            "source_end_state": str(contract.get("end_state") or "").strip(),
+        }
+        for field, expected_value in expected_fields.items():
+            if item.get(field) != expected_value:
+                errors.append(f"{label}.{field} 与拆文读取回执中的完整 SF 契约不一致")
+        target_sections = [
+            str(section_id).strip()
+            for section_id in item.get("target_outline_sections") or []
+            if str(section_id).strip()
+        ]
+        if not target_sections:
+            errors.append(f"{label}.target_outline_sections 至少一节")
+        for section_id in target_sections:
+            if section_id not in section_ids:
+                errors.append(f"{label}.target_outline_sections 不在细纲中: {section_id}")
+        mappings = item.get("sequence_mappings")
+        source_steps = [str(step).strip() for step in contract.get("required_sequence") or []]
+        if not isinstance(mappings, list) or len(mappings) != len(source_steps):
+            errors.append(f"{label}.sequence_mappings 必须逐项覆盖完整 required_sequence")
+        else:
+            mapped_steps = [str(mapping.get("source_step") or "").strip() for mapping in mappings if isinstance(mapping, dict)]
+            if mapped_steps != source_steps:
+                errors.append(f"{label}.sequence_mappings 必须保持原 SF 步骤顺序且不得删并")
+            for index, mapping in enumerate(mappings, start=1):
+                mapping_label = f"{label}.sequence_mappings[{index}]"
+                if not isinstance(mapping, dict):
+                    errors.append(f"{mapping_label} 必须是对象")
+                    continue
+                for field in ("target_step", "section_id", "precondition", "trigger", "state_change"):
+                    if not nonempty_text(mapping.get(field)):
+                        errors.append(f"{mapping_label}.{field} 不能为空")
+                section_id = str(mapping.get("section_id") or "").strip()
+                if section_id not in target_sections:
+                    errors.append(f"{mapping_label}.section_id 未列入 target_outline_sections")
+                evidence = mapping.get("outline_evidence")
+                if not nonempty_list(evidence):
+                    errors.append(f"{mapping_label}.outline_evidence 至少一条")
+                else:
+                    for quote in evidence:
+                        if str(quote).strip() not in outline_text:
+                            errors.append(f"{mapping_label}.outline_evidence 不在细纲中: {quote!r}")
+        for field in (
+            "target_entry_state",
+            "target_exit_cause",
+            "target_end_state",
+            "adaptation_reason",
+            "manual_judgment",
+        ):
+            if not nonempty_text(item.get(field)):
+                errors.append(f"{label}.{field} 不能为空")
+        for field in ("target_knowledge_boundaries", "target_object_lifecycle"):
+            if not nonempty_list(item.get(field), minimum=2):
+                errors.append(f"{label}.{field} 至少两条，不能只迁移事件结果")
+        evidence = item.get("target_outline_evidence")
+        if not nonempty_list(evidence, minimum=2):
+            errors.append(f"{label}.target_outline_evidence 至少两条")
+        else:
+            for quote in evidence:
+                if str(quote).strip() not in outline_text:
+                    errors.append(f"{label}.target_outline_evidence 不在细纲中: {quote!r}")
+        if item.get("parity_status") not in {"matched", "adapted"}:
+            errors.append(f"{label}.parity_status 只能为 matched/adapted")
 
 
 def validate_information_delay(value: Any, label: str, errors: list[str]) -> None:
@@ -1218,6 +1797,10 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         return [f"细纲表演验收回执不是有效 JSON: {exc}"]
     if not isinstance(data, dict):
         return ["细纲表演验收回执必须是 JSON 对象"]
+    if data.get("version") != "1.5":
+        errors.append(
+            "细纲表演验收回执版本必须为 1.5；旧回执缺少节内逐拍、跨节交接或辅助 SF 全流程契约，必须重新 init"
+        )
 
     resolved_outline = outline_path.resolve()
     if not resolved_outline.is_file():
@@ -1228,6 +1811,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
 
     sources = data.get("selected_source_originals")
     source_paths: set[str] = set()
+    source_path_order: list[Path] = []
     source_texts: dict[str, str] = {}
     source_metadata: dict[str, dict[str, Any]] = {}
     if not isinstance(sources, list) or not sources:
@@ -1236,6 +1820,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         for index, source in enumerate(sources, start=1):
             source_path = validate_binding(source, f"选中原文[{index}]", errors)
             if source_path is not None:
+                source_path_order.append(source_path)
                 source_key = str(source_path)
                 source_paths.add(source_key)
                 source_texts[source_key] = read_text(source_path)
@@ -1290,6 +1875,14 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须人工确认已同时核对拆书功能机制和原文场面颗粒度，不能只做功能映射")
         if global_review.get("scene_causality_reviewed_before_draft") is not True:
             errors.append("必须在正文前核对到场原因、知情边界、物件生命周期、制度约束和离场因果")
+        if global_review.get("intra_section_beat_causality_reviewed") is not True:
+            errors.append("必须在正文前逐节核对每一拍的前置状态、触发、视野/物件权限和状态变化")
+        if global_review.get("section_handoff_reviewed") is not True:
+            errors.append("必须在正文前完成相邻小节状态交接，禁止只核小节标题顺序")
+        if len(source_path_order) > 1 and global_review.get(
+            "auxiliary_subflow_full_flow_reviewed"
+        ) is not True:
+            errors.append("融合仿写必须逐个验收辅助 SF 的完整流程、知情和物件生命周期")
         source_mode = str(data.get("source_mode") or "full_bridge").strip()
         if source_mode == "full_bridge":
             if global_review.get("source_bridge_flow_inventory_completed") is not True:
@@ -1327,6 +1920,16 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         data.get("story_fact_state_ledger"), section_ids, outline_text, errors
     )
     source_mode = str(data.get("source_mode") or "full_bridge").strip()
+    if source_mode == "full_bridge":
+        validate_auxiliary_subflow_flow_parity(
+            data.get("auxiliary_subflow_flow_parity"),
+            data.get("source_read_receipt"),
+            source_path_order,
+            source_texts,
+            section_ids,
+            outline_text,
+            errors,
+        )
     if source_mode not in {"full_bridge", "granularity_only"}:
         errors.append(f"source_mode 无效: {source_mode!r}")
     if source_mode == "granularity_only":
@@ -1375,6 +1978,9 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         errors.append(f"细纲小节缺少验收: {', '.join(missing)}")
     if extra:
         errors.append(f"回执存在细纲中没有的小节: {', '.join(extra)}")
+    validate_section_handoff_chain(
+        data.get("section_handoff_chain"), section_ids, by_id, outline_text, errors
+    )
 
     repeated_scene_signatures: dict[tuple[str, ...], list[str]] = {}
     repeated_emotion_signatures: dict[tuple[str, ...], list[str]] = {}
@@ -1403,6 +2009,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             source_texts,
             source_metadata,
             outline_text,
+            section_id,
             label,
             errors,
         )
@@ -1568,6 +2175,10 @@ def main() -> int:
     init.add_argument("--outline", required=True)
     init.add_argument("--source-original", action="append", required=True)
     init.add_argument(
+        "--source-receipt",
+        help="融合仿写必传，用于锁定每个辅助来源已选 SF 的完整契约",
+    )
+    init.add_argument(
         "--source-mode",
         choices=("full_bridge", "granularity_only"),
         default="full_bridge",
@@ -1585,6 +2196,9 @@ def main() -> int:
                 Path(args.outline),
                 [Path(value) for value in args.source_original],
                 source_mode=args.source_mode,
+                source_receipt_path=(
+                    Path(args.source_receipt) if args.source_receipt else None
+                ),
             )
         except (FileNotFoundError, ValueError) as exc:
             print("outline_performance_contract: blocked")

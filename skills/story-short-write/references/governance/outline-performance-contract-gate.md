@@ -26,6 +26,10 @@
 - 连续小节复制同一套场面颗粒度或人工判断，批量制造假通过回执
 - 连续小节复制同一套原文情绪拍、触发和证据，只换目标桥段名称
 - 人物到场没有原因、入场前知情越界、关键物件在生成前被使用，或本场不能因果触发下一场
+- 小节内部从听见直接跳到看见、从争执直接跳到取得证据，缺少掀开遮挡、移动、索取、交付等必要动作
+- 人物近距离在场很久才发现显眼信息，或用身体不适、电话、第三人连续精准打断关键回答
+- 相邻小节没有交代时间、地点、人物、知情、物件持有和未决问题的状态交接
+- 辅助来源只摘取一个结果或反转硬插主体骨架，没有迁移已选 SF 的完整前态、步骤、知情、物件和出口状态
 - 虚构医疗、法律、金融、行政规定替人物制造不得不做的动作
 - 同一关键事实跨节同时处于“待确认”和“已确认”等不兼容状态
 
@@ -53,6 +57,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-original "拆文库/{辅助书一}/原文/{辅助书一}.txt" \
   --source-original "拆文库/{辅助书二}/原文/{辅助书二}.txt" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
 
@@ -64,7 +69,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
 
-输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲或任一选中原文 SHA 变化后，旧回执立即失效。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文或概括后的细纲开写。
+输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲、任一选中原文或拆文读取回执 SHA 变化后，旧回执立即失效。1.4 及更早回执不具备节内逐拍链、跨节交接链和辅助 SF 全流程对齐，必须重新 `init` 并由当前模型人工回填。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文或概括后的细纲开写。
 
 ### 颗粒度原创模式
 
@@ -142,7 +147,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 2. `controlling_object`：本场唯一主控物件或空间控制点，必须服务人物争夺。
 3. `source_function_mechanism`：绑定拆书资料中的功能机制，说明本节迁移的是公开掉位、私域换主、不可替代物爆体、高成本补救后再选错、行动验收、公开反噬、私人尾声等哪类功能；必须填写拆书资产路径、资产规则和本节采用理由。
 4. `original_scene_granularity`：绑定选中原文具体桥段，写清原文场面颗粒度：谁先施压、谁抢/挡/松手、哪个物件或空间改归属、哪句台词逼出动作、旁观者或外部秩序如何改变现场。不能只写“参考原文节奏”。
-5. `scene_logic_contract`：绑定原文的 `causal_asset_id`、原文路径/SHA 和至少两条真实证据；逐项填写目标人物为何同场、各自入场前知道什么、关键物件何时生成/持有/使用、明显替代方案为何不可用、本场如何触发下一场。`external_rule_dependency` 涉及医疗/法律/金融/行政时必须有可靠依据；无法核实时不得借制度硬推，改由角色主动选择承担责任。
+5. `scene_logic_contract`：绑定原文的 `causal_asset_id`、原文路径/SHA 和至少两条真实证据；逐项填写目标人物为何同场、各自入场前知道什么、关键物件何时生成/持有/使用、明显替代方案为何不可用、本场如何触发下一场。还必须用 `scene_entry_state / scene_exit_state / beat_dependency_chain` 逐拍闭合前态、触发、知情、空间或物件权限、后态和下一拍原因；用 `knowledge_state_chain` 记录承重事实如何被谁在第几拍获知；逐项裁决人物汇合、关键信息延迟、精准打断和空间/物件权限四类风险。`external_rule_dependency` 涉及医疗/法律/金融/行政时必须有可靠依据；无法核实时不得借制度硬推，改由角色主动选择承担责任。
 6. `source_mechanism`：绑定一段选中原文，说明只迁移的表演机制，以及不复制人物、职业、原句和完整桥壳的改写边界。
 7. `information_delay`：入场已知、本场只漏出什么、必须压到后场的事实分别是什么。
 7. `character_missteps`：至少两条。写清谁先躲、谁先抓、谁错答、谁把什么当作可以补救，不写抽象性格标签。
@@ -170,6 +175,10 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 
 `story_fact_state_ledger` 至少覆盖一条承重事实。每条写 `fact_id / initial_state / incompatible_states / transitions`；每次迁移写 `from_state / to_state / section_id / trigger_evidence`。验证器检查迁移首尾相接、小节不倒退、触发证据真实存在于细纲。怀孕、死亡、亲子或婚姻身份、证据取得、关键物件生成等事实一旦参与冲突，就必须入账。
 
+`section_handoff_chain` 必须覆盖每一对相邻小节。每条交接写清 `elapsed_time / from_exit_state / to_entry_state / handoff_trigger / character_state_continuity / knowledge_continuity / object_continuity / location_continuity / unresolved_threads / outline_evidence / manual_judgment`。前后状态必须与相邻两节的 `scene_exit_state / scene_entry_state` 精确一致，禁止后节凭空换地点、换持有人、增加知情或制造新巧合。
+
+融合仿写还必须填写 `auxiliary_subflow_flow_parity`。该表从绑定的 `拆文读取回执.json` 继承每个已选辅助 SF 的完整 `entry_state / required_sequence / knowledge_boundaries / object_lifecycle / exit_cause / end_state`，然后逐步写 `sequence_mappings`。步骤数量和顺序必须原样保留，每一步均需目标动作、所在小节、前置条件、触发、状态变化和细纲证据；只摘事件结果或删并步骤直接失败。
+
 ## 全局必填
 
 `global_review` 必须明确：
@@ -177,6 +186,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 已完整阅读所有选中原文的表演机制，而非只读拆书摘要；
 - 已同时读取拆书资料的功能机制和原文对应桥段的场面颗粒度，不能只做功能映射；
 - 已在正文前核对场景因果颗粒和跨节事实状态链，确认人物到场、知情、物件、制度与离场原因连续；
+- 已逐节核对所有事件拍的前态、触发、权限和后态首尾相接；
+- 已完成全部相邻小节的人物、知情、物件、地点和未决问题交接；
+- 融合仿写已逐个验收辅助 SF 的完整步骤、知情边界、物件生命周期和出口状态；
 - 已在正文前完成原文 BID / 关键子桥段流程全集；
 - 已在正文前逐桥验收细纲对原文主情节和子情节流程的迁移；
 - 已在正文前确认人物关系对陌生读者直接可懂；

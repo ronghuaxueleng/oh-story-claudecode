@@ -159,8 +159,93 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "obvious_alternative_blocker": ["乙必须现场处理报警，不能直接离开。"],
                 "exit_cause": "钥匙换手使乙失去进入权，只能离场。",
                 "target_outline_evidence": section["outline_evidence"],
+                "scene_entry_state": (
+                    "乙持有钥匙，甲尚未取得入口控制权"
+                    if section["section_id"] == "1"
+                    else "甲持有钥匙，乙仍准备争回进入权"
+                ),
+                "scene_exit_state": (
+                    "甲持有钥匙，乙仍准备争回进入权"
+                    if section["section_id"] == "1"
+                    else "乙失去进入权并转向外部处理"
+                ),
+                "beat_dependency_chain": [],
+                "knowledge_state_chain": [],
+                "causal_risk_reviews": [
+                    {
+                        "risk_type": risk_type,
+                        "applicable": False,
+                        "event": "",
+                        "setup": "",
+                        "causal_explanation": "",
+                        "outline_evidence": [],
+                        "not_applicable_reason": "本测试场没有该类巧合或强制信息延迟。",
+                        "manual_judgment": "",
+                    }
+                    for risk_type in GATE.CAUSAL_RISK_TYPES
+                ],
                 "manual_judgment": "人物同场、知情差和物件换手均有前置原因。",
             }
+            logic = section["scene_logic_contract"]
+            first_evidence, second_evidence = section["outline_evidence"]
+            intermediate_one = f"{section['section_id']}节第一拍后现场进入争夺"
+            intermediate_two = f"{section['section_id']}节第二拍后丈夫公开表态"
+            logic["beat_dependency_chain"] = [
+                {
+                    "beat_id": "B1",
+                    "actor": "乙",
+                    "action": "乙因门锁报警赶到入口",
+                    "from_state": logic["scene_entry_state"],
+                    "trigger": "门锁报警出现",
+                    "knowledge_before": "乙只知道入口异常",
+                    "spatial_or_object_access": "乙持有原钥匙并能到达门口",
+                    "to_state": intermediate_one,
+                    "next_beat_cause": "甲必须说明自己为何在门内",
+                    "outline_evidence": [first_evidence],
+                },
+                {
+                    "beat_id": "B2",
+                    "actor": "甲",
+                    "action": "甲说明丈夫已经允许自己进入",
+                    "from_state": intermediate_one,
+                    "trigger": "乙当面阻拦",
+                    "knowledge_before": "甲知道丈夫已表态，乙不知道",
+                    "spatial_or_object_access": "甲站在门内并接触钥匙",
+                    "to_state": intermediate_two,
+                    "next_beat_cause": "丈夫必须公开确认钥匙归属",
+                    "outline_evidence": [second_evidence],
+                },
+                {
+                    "beat_id": "B3",
+                    "actor": "丈夫",
+                    "action": "丈夫确认钥匙交给甲",
+                    "from_state": intermediate_two,
+                    "trigger": "双方同时要求确认归属",
+                    "knowledge_before": "丈夫知道自己先前的授权",
+                    "spatial_or_object_access": "丈夫在场并拥有授权解释权",
+                    "to_state": logic["scene_exit_state"],
+                    "next_beat_cause": "钥匙换手形成场末后果",
+                    "outline_evidence": [second_evidence],
+                },
+            ]
+            logic["knowledge_state_chain"] = [
+                {
+                    "fact_id": f"FACT-KNOW-{section['section_id']}",
+                    "character": "乙",
+                    "initial_state": "乙不知道丈夫已允许甲进入",
+                    "incompatible_states": ["乙在丈夫表态前已知道完整授权"],
+                    "transitions": [
+                        {
+                            "from_state": "乙不知道丈夫已允许甲进入",
+                            "to_state": "乙听见甲声称获得允许但尚未确认",
+                            "beat_id": "B2",
+                            "trigger": "甲当面说明授权",
+                            "outline_evidence": [second_evidence],
+                        }
+                    ],
+                    "final_state": "乙听见甲声称获得允许但尚未确认",
+                }
+            ]
             section["information_delay"] = {
                 "entry_known": "只知眼前异常。",
                 "leaked_in_scene": "只漏出一次偏手。",
@@ -273,6 +358,9 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             "full_source_mechanisms_reviewed": True,
             "dual_track_function_and_scene_granularity_reviewed": True,
             "scene_causality_reviewed_before_draft": True,
+            "intra_section_beat_causality_reviewed": True,
+            "section_handoff_reviewed": True,
+            "auxiliary_subflow_full_flow_reviewed": True,
             "source_bridge_flow_inventory_completed": True,
             "outline_bridge_flow_parity_reviewed_before_draft": True,
             "relationship_legibility_reviewed_before_draft": True,
@@ -307,6 +395,25 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 ],
             }
         ]
+        first_logic = data["sections"][0]["scene_logic_contract"]
+        second_logic = data["sections"][1]["scene_logic_contract"]
+        data["section_handoff_chain"] = [
+            {
+                "from_section_id": "1",
+                "to_section_id": "2",
+                "elapsed_time": "同日十分钟后",
+                "from_exit_state": first_logic["scene_exit_state"],
+                "to_entry_state": second_logic["scene_entry_state"],
+                "handoff_trigger": "钥匙换手后，乙立即转到下一处入口继续处理",
+                "character_state_continuity": ["乙保持争回进入权的行动目标"],
+                "knowledge_continuity": ["乙仍只知道甲声称获得授权，尚未核实"],
+                "object_continuity": ["钥匙继续由甲持有，没有离场后自动换手"],
+                "location_continuity": "人物从门口移动到相邻入口，路程和到场原因明确",
+                "unresolved_threads": ["丈夫授权是否真实仍待下一节确认"],
+                "outline_evidence": ["动作二", "动作三"],
+                "manual_judgment": "前节钥匙换手直接触发后节核验，不靠新巧合重启剧情。",
+            }
+        ]
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def tearDown(self) -> None:
@@ -321,6 +428,65 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("target_entry_causes" in error for error in errors))
+
+    def test_scene_logic_rejects_reader_information_as_arrival_cause(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["sections"][0]["scene_logic_contract"]["target_entry_causes"] = [
+            "读者新获知丈夫偏心，人物均由上一节未完成动作或主动追问进入本场。"
+        ]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("验收占位话代替真实因果" in error for error in errors))
+        self.assertTrue(any("首节" in error and "上一节" in error for error in errors))
+
+    def test_legacy_receipt_version_requires_reinit(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["version"] = "1.4"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("版本必须为 1.5" in error for error in errors))
+
+    def test_beat_dependency_chain_must_connect_states(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        chain = data["sections"][0]["scene_logic_contract"]["beat_dependency_chain"]
+        chain[1]["from_state"] = "凭空出现的另一状态"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("状态未首尾相接" in error for error in errors))
+
+    def test_knowledge_state_chain_must_connect_and_close(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        fact = data["sections"][0]["scene_logic_contract"]["knowledge_state_chain"][0]
+        fact["final_state"] = "乙从开场就知道全部授权"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("final_state 与最后一次知情迁移不一致" in error for error in errors))
+
+    def test_applicable_causal_risk_requires_setup_and_evidence(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        review = data["sections"][0]["scene_logic_contract"]["causal_risk_reviews"][0]
+        review.update(
+            {
+                "applicable": True,
+                "event": "夫妻意外出现在同一现场",
+                "setup": "",
+                "causal_explanation": "",
+                "outline_evidence": [],
+                "not_applicable_reason": "",
+                "manual_judgment": "",
+            }
+        )
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("character_convergence.setup" in error for error in errors))
+        self.assertTrue(any("character_convergence.outline_evidence" in error for error in errors))
+
+    def test_missing_section_handoff_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["section_handoff_chain"] = []
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("缺少相邻小节交接" in error for error in errors))
 
     def test_scene_logic_causal_asset_must_exist_in_source_profile(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
@@ -533,8 +699,51 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             encoding="utf-8",
         )
 
+        source_receipt = self.root / "拆文读取回执.json"
+        source_receipt.write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {
+                            "name": "测试书",
+                            "role": "main",
+                            "root": str(self.book_root),
+                            "selected_subflow_ids": ["SF-01"],
+                            "selected_subflow_contracts": [],
+                        },
+                        {
+                            "name": "辅助书",
+                            "role": "auxiliary",
+                            "root": str(auxiliary_root),
+                            "selected_subflow_ids": ["SF-03"],
+                            "selected_subflow_contracts": [
+                                {
+                                    "subflow_id": "SF-03",
+                                    "entry_state": "辅助事件已有明确前态。",
+                                    "required_sequence": ["先给资源", "再撤回资源"],
+                                    "causal_preconditions": {
+                                        "knowledge_boundaries": ["主角起初不知道资源会撤回", "责任方知道自己能改动资源"],
+                                        "object_lifecycle": ["凭证先交给主角", "凭证随后被系统转走"],
+                                        "exit_cause": "资源撤回造成现实损害。",
+                                    },
+                                    "end_state": "主角失去稀缺资源。",
+                                }
+                            ],
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
         old = json.loads(self.receipt.read_text(encoding="utf-8"))
-        data = GATE.create_receipt("测试", self.outline, [self.source, auxiliary])
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source, auxiliary],
+            source_receipt_path=source_receipt,
+        )
         data["global_review"] = old["global_review"]
         data["source_bridge_flow_inventory"] = old["source_bridge_flow_inventory"]
         data["outline_bridge_flow_parity"] = old["outline_bridge_flow_parity"]
@@ -545,6 +754,79 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("辅助来源桥段库存缺失" in error for error in errors))
+
+    def test_fusion_init_requires_source_receipt(self) -> None:
+        auxiliary_root = self.root / "拆文库" / "辅助书"
+        auxiliary = auxiliary_root / "原文" / "辅助书.txt"
+        auxiliary.parent.mkdir(parents=True)
+        auxiliary.write_text("辅助原文", encoding="utf-8")
+        (auxiliary_root / "写作资产").mkdir(parents=True)
+        (auxiliary_root / "写作资产" / "桥段施工卡.md").write_text(
+            "## BID-03 辅助桥段\n", encoding="utf-8"
+        )
+        (auxiliary_root / "book.profile.json").write_text(
+            json.dumps({"causal_precondition_assets": [{"causal_asset_id": "CPA-03"}]}),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "必须传 --source-receipt"):
+            GATE.create_receipt("测试", self.outline, [self.source, auxiliary])
+
+    def test_auxiliary_subflow_sequence_cannot_drop_steps(self) -> None:
+        auxiliary_root = self.root / "拆文库" / "辅助书"
+        auxiliary = auxiliary_root / "原文" / "辅助书.txt"
+        auxiliary.parent.mkdir(parents=True)
+        auxiliary.write_text("辅助原文", encoding="utf-8")
+        (auxiliary_root / "写作资产").mkdir(parents=True)
+        (auxiliary_root / "写作资产" / "桥段施工卡.md").write_text(
+            "## BID-03 辅助桥段\n", encoding="utf-8"
+        )
+        (auxiliary_root / "book.profile.json").write_text(
+            json.dumps({"causal_precondition_assets": [{"causal_asset_id": "CPA-03"}]}),
+            encoding="utf-8",
+        )
+        source_receipt = self.root / "拆文读取回执_辅助.json"
+        source_receipt.write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {"root": str(self.book_root), "role": "main"},
+                        {
+                            "root": str(auxiliary_root),
+                            "role": "auxiliary",
+                            "selected_subflow_ids": ["SF-03"],
+                            "selected_subflow_contracts": [
+                                {
+                                    "subflow_id": "SF-03",
+                                    "entry_state": "资源已经交付。",
+                                    "required_sequence": ["交付资源", "系统撤回", "现实受损"],
+                                    "causal_preconditions": {
+                                        "knowledge_boundaries": ["主角不知道会撤回", "责任方知道可撤回"],
+                                        "object_lifecycle": ["凭证先交付", "凭证后失效"],
+                                        "exit_cause": "损害迫使主角重新判断关系。",
+                                    },
+                                    "end_state": "资源已失效且损害发生。",
+                                }
+                            ],
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source, auxiliary],
+            source_receipt_path=source_receipt,
+        )
+        data["auxiliary_subflow_flow_parity"][0]["sequence_mappings"] = data[
+            "auxiliary_subflow_flow_parity"
+        ][0]["sequence_mappings"][:-1]
+        temp_receipt = self.root / "辅助细纲回执.json"
+        temp_receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(temp_receipt, self.outline)
+        self.assertTrue(any("逐项覆盖完整 required_sequence" in error for error in errors))
 
 
 if __name__ == "__main__":

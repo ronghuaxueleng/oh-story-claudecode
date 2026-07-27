@@ -232,6 +232,10 @@ metadata:
 117. **没有逐节证据链，不得声称“已按原文颗粒度首写”**：仿写任务只有同时满足以下条件，才允许在项目内或对外声称“正文首稿已经按原文颗粒度完成”：`拆文读取回执 passed（direct_imitation）`、`细纲表演验收回执 passed`、`首写容量契约回执 passed`、`首稿入口回执 passed`、`逐节首写执行回执 passed`，且每节都绑定主体原文切片与全部选中辅助 SF 切片。缺任一项，必须明确定性为“未按 skill 完整颗粒链执行的草稿/测试稿”，禁止用“已经参考原文颗粒度”或“效果上等同”代替。
 118. **仿写正文必须先编译逐节原文颗粒包**：通过 `outline_performance_contract` 后、正文放行前，必须先运行 `build_section_source_bundle.py`，把每节 `source_slice_bindings / source_performance_excerpt / emotion_process / scene_logic_contract / source_emotion_parity / sentence_relation_plan` 编译成 `逐节原文颗粒包.json`。正文放行、首稿入口和 `open-section` 都只认这个颗粒包；没有颗粒包或颗粒包 SHA 失效时，不得开任何一节。
 119. **默认融合仿写，原创必须显式降级**：新书初始化读取回执默认 `direct_imitation`，即主体全量 SF 加辅助已选 SF 的融合仿写；用户提出“仿写、同桥、主干参照、融合参照、完全参照原文、按原文颗粒度/文风颗粒度写”时不得改为 `standard`。只有用户明确要求完全原创且不迁移原文桥段或文风颗粒，才可显式传入 `--writing-mode standard`。旧回执缺少 `writing_mode`，或将上述任务标为 `standard`，均不得写设定、大纲或正文。
+120. **细纲必须逐拍闭合节内因果，不得只验小节之间**：每节 `scene_logic_contract` 必须先写唯一 `scene_entry_state / scene_exit_state`，再用 `beat_dependency_chain` 逐拍列出人物、动作、前态、真实触发、动作前知情、空间/物件权限、后态、下一拍原因和细纲原句。第一拍必须承接入场状态，后一拍 `from_state` 必须等于前一拍 `to_state`，末拍必须落到离场状态。正文需要的掀帘、开门、拿到文件、看见腕带、走到另一地点等动作不能只存在于回执，必须在细纲原句中出现；缺任一中间动作直接阻断正文。
+121. **人物知情和高风险巧合必须在细纲内显式审查**：每节至少建立一条 `knowledge_state_chain`，把承重事实的初态、逐拍获知过程、互斥状态和终态首尾接起。另须逐项裁决 `character_convergence / critical_information_delay / critical_interruption / spatial_or_object_access`：适用时必须有事前铺垫、因果解释和细纲证据；不适用时必须写具体理由。禁止让人物近距离争执很久后才看见显眼证据，禁止用身体不适、电话或第三人连续精准打断关键回答，禁止人物或物件无权限出现。
+122. **相邻小节必须完成状态交接**：`section_handoff_chain` 必须覆盖每一对相邻小节，并与前节 `scene_exit_state`、后节 `scene_entry_state` 精确相等；同时交代时间经过、触发动作、人物状态、知情边界、物件持有、地点移动和未决问题。后节不能靠新巧合重启剧情，也不能把前节未取得的证据、未建立的知情或未完成的移动当成既成事实。
+123. **辅助 SF 必须按拆文回执整条逐步迁移**：融合仿写初始化 `细纲表演验收回执.json` 时必须传 `--source-receipt 写作资产/拆文读取回执.json` 并绑定其 SHA。`auxiliary_subflow_flow_parity` 必须对每个已选辅助 `SF-*` 原样继承 `entry_state / required_sequence / knowledge_boundaries / object_lifecycle / exit_cause / end_state`，再按原顺序逐步映射到目标细纲，不得删步、并步或只摘事件结果。禁止用“读者新获知”“上一节已公开的信息”“已有明确持有人”“均连续”等验收套话冒充真实因果；1.4 及更早回执必须重新初始化和人工回填。
 
 ---
 
@@ -380,6 +384,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --outline "{项目目录}/小节大纲.md" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-original "拆文库/{辅助书}/原文/{辅助书}.txt" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 
 # 当前模型人工回填后：
