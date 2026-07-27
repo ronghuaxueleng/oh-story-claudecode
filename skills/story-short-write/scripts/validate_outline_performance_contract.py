@@ -363,6 +363,7 @@ def create_receipt(
                     "adaptation_boundary": "",
                 },
                 "first_draft_generation_contract": {
+                    "source_slice_bindings": [],
                     "source_performance_excerpt": "",
                     "source_performance_evidence": [],
                     "source_excerpt_reuse_reason": "",
@@ -844,6 +845,43 @@ def validate_first_draft_generation_contract(
         errors.append(f"{label} first_draft_generation_contract 必须是对象")
         return
 
+    source_slice_bindings = value.get("source_slice_bindings")
+    if not isinstance(source_slice_bindings, list) or not source_slice_bindings:
+        errors.append(f"{label} first_draft_generation_contract.source_slice_bindings 至少绑定一段精确原文行段")
+    else:
+        for index, binding in enumerate(source_slice_bindings, start=1):
+            binding_label = f"{label}.source_slice_bindings[{index}]"
+            if not isinstance(binding, dict):
+                errors.append(f"{binding_label} 必须是对象")
+                continue
+            source_path = Path(str(binding.get("source_path") or "")).expanduser().resolve()
+            source_text = source_texts.get(str(source_path))
+            if source_text is None:
+                errors.append(f"{binding_label}.source_path 必须绑定选中原文")
+                continue
+            if binding.get("source_sha256") != sha256(source_path):
+                errors.append(f"{binding_label}.source_sha256 与原文不一致")
+            range_match = re.fullmatch(r"L(\d+)-L(\d+)", str(binding.get("source_range") or "").strip())
+            if not range_match:
+                errors.append(f"{binding_label}.source_range 必须使用 L起始-L结束")
+                continue
+            start, end = int(range_match.group(1)), int(range_match.group(2))
+            source_lines = source_text.splitlines()
+            if start < 1 or end < start or end > len(source_lines):
+                errors.append(f"{binding_label}.source_range 超出原文范围")
+                continue
+            source_slice = "\n".join(source_lines[start - 1 : end])
+            evidence = binding.get("source_evidence")
+            quotes = [str(quote).strip() for quote in evidence if str(quote).strip()] if isinstance(evidence, list) else []
+            if len(set(quotes)) < 2:
+                errors.append(f"{binding_label}.source_evidence 至少两条不同原文证据")
+            for quote in quotes:
+                if quote not in source_slice:
+                    errors.append(f"{binding_label}.source_evidence 不在精确行段内: {quote!r}")
+            consumed = binding.get("style_fields_consumed")
+            if not isinstance(consumed, list) or len({str(item).strip() for item in consumed if str(item).strip()}) < 6:
+                errors.append(f"{binding_label}.style_fields_consumed 必须覆盖六类逐 SF 文风颗粒")
+
     excerpt = str(value.get("source_performance_excerpt") or "").strip()
     if not excerpt or not any(excerpt in text for text in source_texts.values()):
         errors.append(
@@ -962,9 +1000,10 @@ def validate_bridge_inventory(
             if str(item).strip()
         }
         if not expected_ids:
-            errors.append(
-                f"{'主体' if role == 'primary' else '辅助'}来源必须填写 {expected_field}: {source_path}"
-            )
+            if role == "primary":
+                errors.append(f"主体来源必须填写 {expected_field}: {source_path}")
+            # SF-only auxiliary consumption is validated by source_read_gate;
+            # do not widen it into a parent BID inventory here.
             continue
         available_ids = {
             str(item).strip()
@@ -1236,8 +1275,10 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         errors.append(
                             "主体来源 required_bridge_ids 必须覆盖桥段施工卡全部 BID"
                         )
-                elif expected_role == "auxiliary" and source_mode == "full_bridge" and not nonempty_list(source.get("selected_bridge_ids")):
-                    errors.append("辅助来源 selected_bridge_ids 至少选择一个 BID")
+                # Auxiliary sources may be consumed as complete SF contracts by the
+                # independently required source-read gate. Only explicit BID choices
+                # belong to this bridge inventory; an SF-only auxiliary must not be
+                # widened into its parent BID here.
 
     global_review = data.get("global_review")
     if not isinstance(global_review, dict):
@@ -1338,6 +1379,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
     repeated_scene_signatures: dict[tuple[str, ...], list[str]] = {}
     repeated_emotion_signatures: dict[tuple[str, ...], list[str]] = {}
     repeated_judgments: dict[str, list[str]] = {}
+    repeated_generation_fields: dict[tuple[str, str], list[str]] = {}
     previous_generation_excerpt = ""
     for section_id in section_ids:
         entry = by_id.get(section_id)
@@ -1409,6 +1451,35 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         "必须填写 source_excerpt_reuse_reason 说明本节读取的不同情感功能"
                     )
             previous_generation_excerpt = generation_excerpt
+            emotion_process = generation_contract.get("emotion_process")
+            for field in (
+                "memory_association_or_attention_drift",
+                "contradictory_impulse",
+                "speech_misfire_or_avoidance",
+            ):
+                value = (
+                    str(emotion_process.get(field) or "").strip()
+                    if isinstance(emotion_process, dict)
+                    else ""
+                )
+                if value:
+                    repeated_generation_fields.setdefault((f"emotion_process.{field}", value), []).append(section_id)
+            for field in (
+                "continuous_moment_groups",
+                "paragraph_break_reasons",
+                "sentence_relation_plan",
+                "function_word_strategy",
+                "emotion_shorthand_to_avoid",
+                "target_emotion_landing_plan",
+            ):
+                raw_value = generation_contract.get(field)
+                value = (
+                    json.dumps(raw_value, ensure_ascii=False, sort_keys=True)
+                    if isinstance(raw_value, (list, dict))
+                    else str(raw_value or "").strip()
+                )
+                if value:
+                    repeated_generation_fields.setdefault((field, value), []).append(section_id)
         if not nonempty_list(entry.get("forbidden_items"), minimum=2):
             errors.append(f"{label} forbidden_items 至少填写两条禁写项")
         evidence = entry.get("outline_evidence")
@@ -1468,6 +1539,13 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         if signature and len(repeated_sections) >= 3:
             errors.append(
                 "原文情绪流程连续复用同一套模板，必须逐节绑定真实情绪拍: "
+                + ", ".join(repeated_sections)
+            )
+    for (field, _value), repeated_sections in repeated_generation_fields.items():
+        if len(repeated_sections) >= 3:
+            errors.append(
+                f"首写生成契约字段 {field} 在三节以上复用同一模板，"
+                "必须逐节从绑定原文行段提取不同写法: "
                 + ", ".join(repeated_sections)
             )
 

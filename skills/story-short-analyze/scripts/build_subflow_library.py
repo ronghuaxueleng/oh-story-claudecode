@@ -20,6 +20,7 @@ REQUIRED_FIELDS = (
     "entry_state",
     "required_sequence",
     "scene_granularity",
+    "causal_preconditions",
     "information_delay",
     "control_changes",
     "emotion_sequence",
@@ -27,6 +28,7 @@ REQUIRED_FIELDS = (
     "embeddable_after",
     "incompatible_with",
     "source_evidence",
+    "source_style_granularity",
 )
 
 
@@ -59,7 +61,11 @@ def build_library(corpus_root: Path) -> list[dict[str, Any]]:
     corpus_root = corpus_root.resolve()
     entries: list[dict[str, Any]] = []
     seen_global_ids: set[str] = set()
-    index_paths = sorted(corpus_root.glob("*/写作资产/子流程索引.jsonl"))
+    index_paths = sorted(
+        path
+        for path in corpus_root.glob("*/写作资产/子流程索引.jsonl")
+        if (path.parent / "仿写无损编译包.json").is_file()
+    )
     for index_path in index_paths:
         book_dir = index_path.parent.parent
         index_hash = sha256(index_path)
@@ -112,13 +118,24 @@ def main() -> int:
         else corpus_root.parent / "资料库" / "子流程总索引.jsonl"
     )
     try:
+        all_index_count = len(list(corpus_root.glob("*/写作资产/子流程索引.jsonl")))
+        ready_index_count = len(
+            [
+                path
+                for path in corpus_root.glob("*/写作资产/子流程索引.jsonl")
+                if (path.parent / "仿写无损编译包.json").is_file()
+            ]
+        )
         entries = build_library(corpus_root)
         write_library(entries, output_path)
     except ValueError as exc:
         print("subflow_library: blocked")
         print(f"- {exc}")
         return 2
-    print(f"subflow_library: built ({len(entries)} entries, {output_path.resolve()})")
+    print(
+        f"subflow_library: built ({len(entries)} entries, {output_path.resolve()}); "
+        f"ready_books={ready_index_count}, skipped_unreleased_books={all_index_count - ready_index_count}"
+    )
     return 0
 
 

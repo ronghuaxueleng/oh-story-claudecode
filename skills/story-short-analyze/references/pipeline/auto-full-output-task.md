@@ -27,8 +27,8 @@
 5. foundation 预检
 6. 第二波并发：按 3 个复用会话粗粒度派发；`agent-core` 一次完成结构动作表+高敏资产，`agent-craft` 一次完成对白关系表+常规资产，`agent-discovery` 从发现索引续写 8 份细节库
 7. 统一核销与 BID 贯通
-8. `profile_source`，随后脚本单独生成 `book.profile`
-9. 全量验收
+8. `profile_source`，随后脚本单独生成 `book.profile` 与仿写无损编译包
+9. 全量验收并校验编译包新鲜度
 
 每个批次都要满足：
 

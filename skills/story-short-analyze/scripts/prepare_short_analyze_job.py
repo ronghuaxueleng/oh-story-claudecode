@@ -81,14 +81,20 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "桥段施工卡.md",
         "子流程施工卡.md",
         "子流程索引.jsonl",
+        "仿写无损编译包.json",
     ],
 )
+
+GENERATED_OUTPUTS = {"写作资产/仿写无损编译包.json"}
 
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/build_direct_imitation_package.py",
+    "skills/story-short-analyze/scripts/build_subflow_library.py",
+    "skills/story-short-analyze/scripts/sync_finalize_human_review.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
     "skills/story-short-write/scripts/generate_story_profile.py",
@@ -181,7 +187,8 @@ FOUNDATION_LANE_FIRST_WRITE_CONTRACT = {
             "情节节点.md": {
                 "entry_format": (
                     "Nxx | L起-L止 | 锚点：原文短语 | 类型：... | 情绪：... | "
-                    "涉及：... | 状态变化：... | 因果：... | 故事时序：..."
+                    "涉及：... | 状态变化：... | 因果：... | 故事时序：... | "
+                    "入场前提：... | 行动权限：... | 替代方案阻断：... | 离场因果：..."
                 ),
                 "required_entry_fields": [
                     "L起-L止",
@@ -192,6 +199,10 @@ FOUNDATION_LANE_FIRST_WRITE_CONTRACT = {
                     "状态变化",
                     "因果",
                     "故事时序",
+                    "入场前提",
+                    "行动权限",
+                    "替代方案阻断",
+                    "离场因果",
                 ],
                 "bid_rules": [
                     "每个 `_analysis_brief.md` BID 必须直接写在一条对应 Nxx 节点行",
@@ -508,6 +519,13 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "进场状态",
             "必须保留的连续顺序",
             "场面颗粒",
+            "场景因果前提",
+            "到场原因",
+            "知情边界",
+            "物件生命周期",
+            "制度约束",
+            "明显替代方案阻断",
+            "离场因果",
             "信息延迟",
             "控制权变化",
             "情绪顺序",
@@ -533,6 +551,7 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "entry_state",
             "required_sequence",
             "scene_granularity",
+            "causal_preconditions",
             "information_delay",
             "control_changes",
             "emotion_sequence",
@@ -544,6 +563,7 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
         "rules": [
             "JSONL 与同名施工卡一一对应",
             "required_sequence 至少两步，source_evidence 至少两条",
+            "causal_preconditions 完整包含到场、知情、物件、制度、替代阻断、离场和原文证据",
         ],
     },
 }
@@ -924,14 +944,17 @@ def write_upgrade_plan(
     missing_files: list[str],
     refreshed_process_files: list[str],
 ) -> None:
+    missing_model_files = [name for name in missing_files if name not in GENERATED_OUTPUTS]
+    missing_generated_files = [name for name in missing_files if name in GENERATED_OUTPUTS]
     lines = [
         f"# {book_name} 历史拆书目录增量升级计划",
         "",
         "## 升级原则",
         "",
-        "- 本文件只登记缺失项，不自动生成任何正式 Markdown 内容。",
+        "- 本文件不允许脚本伪造空模板、通用占位或无依据的正式内容。",
         "- 已有拆书成果禁止删除、覆盖或用空模板替换。",
-        "- 缺失正式产物必须由模型重新读取原文、样本与对应模板后人工补写。",
+        "- 一旦进入 `--upgrade-existing`，当前模型必须继续自动增量补拆，不得停在扫描结果或错误清单。",
+        "- 缺失、过期或缺字段的正式产物必须由当前模型重新读取原文、样本与对应模板后增量补写。",
         "- 文件缺失清单不等于升级完成；还必须运行 finalize，把内容级缺项和新版门禁缺项全部补完。",
         "- 过程文件刷新不等于正式资产已升级；必须逐项完成内容合同复核。",
         "- 回填完成后必须运行 `run_short_analyze_finalize.py`，没通过不算 ready-for-write。",
@@ -941,6 +964,8 @@ def write_upgrade_plan(
         f"- 输出目录：`{out_dir}`",
         f"- 缺失目录数：{len(missing_dirs)}",
         f"- 缺失正式产物数：{len(missing_files)}",
+        f"- 其中模型内容产物：{len(missing_model_files)}",
+        f"- 其中 finalize 生成物：{len(missing_generated_files)}",
         "",
         "## 过程文件已刷新",
         "",
@@ -951,6 +976,11 @@ def write_upgrade_plan(
             "",
             "## 内容合同逐项复核",
             "",
+            "- [ ] `事实与推断台账.md` 已按原文补齐 FS 状态链、KS 知情链、OL 物件生命周期，且证据行可核验。",
+            "- [ ] `情节节点.md` 每条节点已补齐入场前提、行动权限、替代方案阻断和离场因果。",
+            "- [ ] `拆文报告.md / 写作手法.md / 样本分级与可学层.md` 已共同补齐六项全局成文形状审计，尤其是句段气口与镜头连续性；风险成立时同步写入 `仿写约束_禁写清单.md`。",
+            "- [ ] 每条 SF 已在施工卡和索引中补齐 `causal_preconditions` 七字段，且每个父 BID 至少有一条 SF。",
+            "- [ ] `profile_source.md` 已补齐 `## 13. 场景因果资产`，每张 CPA 含到场、知情、物件、制度、替代阻断、离场和原文证据。",
             "- [ ] 逐 BID 核对六拍情绪序列、烈度和原文证据是否贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
             "- [ ] 逐文件核对当前 first-write contract 新字段，不能只检查文件是否存在。",
             "- [ ] 逐条处理 validator 输出的 `human_review_items`，并写入 `_finalize_human_review.json`。",
@@ -959,6 +989,7 @@ def write_upgrade_plan(
             "",
             "- [ ] 内容复核完成后重新生成 `book.profile.json`。",
             "- [ ] 核对 `bridge_rules[*].emotion_sequence`、整句角色偏手和完整后果链没有碎裂。",
+            "- [ ] 由 finalize 生成并校验 `写作资产/仿写无损编译包.json`；写作阶段不得代为生成。",
             "",
             "## 缺失目录",
             "",
@@ -970,8 +1001,17 @@ def write_upgrade_plan(
         lines.append("- 无")
 
     lines.extend(["", "## 缺失正式产物", ""])
-    if missing_files:
-        lines.extend(f"- [ ] `{name}`" for name in missing_files)
+    if missing_model_files:
+        lines.extend(f"- [ ] `{name}`" for name in missing_model_files)
+    else:
+        lines.append("- 无")
+
+    lines.extend(["", "## 缺失的 finalize 生成物", ""])
+    if missing_generated_files:
+        lines.extend(
+            f"- [ ] `{name}`：禁止手写，内容合同通过后由 finalize 生成。"
+            for name in missing_generated_files
+        )
     else:
         lines.append("- 无")
 
@@ -984,10 +1024,11 @@ def write_upgrade_plan(
             "2. 对每个缺失文件，只读取 `output-templates.md` 中对应模板区段，不整份吞模板。",
             "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
-            "5. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
-            "6. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
-            "7. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
-            "8. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
+            "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
+            "6. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
+            "7. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
+            "8. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
+            "9. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
             "",
             "## 最终验收命令",
             "",
@@ -999,6 +1040,16 @@ def write_upgrade_plan(
 
 
 def write_upgrade_review_receipt(path: Path) -> None:
+    if path.is_file():
+        try:
+            existing = json.loads(read_text(path))
+        except json.JSONDecodeError:
+            existing = None
+        if isinstance(existing, dict):
+            existing["skill_fingerprint"] = compute_skill_fingerprint()
+            existing["upgrade_status"] = "pending_content_review"
+            dump_json(path, existing)
+            return
     payload = {
         "version": 1,
         "skill_fingerprint": compute_skill_fingerprint(),
@@ -1509,11 +1560,13 @@ def write_execution_prompt(
         "- 禁止把别本拆书目录、旧 profile、bak 产物当 few-shot；只允许使用 skill 内置 `references/examples/`",
         "- 写完主报告后必须回看所选样本反例区，并把“未滑入反例 / 需要回炉”的裁决写回 `_sample_comparison.md`",
         "- 最终必须跑 `run_short_analyze_finalize.py`；没通过不算完成",
-        "- `run_short_analyze_finalize.py` 只允许生成 `book.profile.json` 和执行校验，禁止修改任何 Markdown 正式产物",
+        "- `run_short_analyze_finalize.py` 只允许生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 和执行校验，禁止修改任何 Markdown 正式产物",
         "- `profile_source.md` 的 `## 7. 禁句 / 禁写法` 里，每条禁写法后必须补 `- 为什么假：...`；少于 2 条视为当前批未完成",
         "- `scene_assets.public_explosion / scene_assets.external_order` 必须拆成多条独立事件，不要用分号把 4 个场面塞成 1 条",
         "- `情节节点.md` 不能只保开头链和终局链；默认至少保 1 条中段承重链，单节点原文范围尽量控制在 80 行内，过宽就继续拆细",
         "- `事实与推断台账.md` 里的单条事实不要吞大段剧情；遇到中段承重桥，宁可拆成 2-3 条 `Fxx`，也不要写成一个超宽范围",
+        "- `事实与推断台账.md` 必须继续写 FS 状态链、KS 人物知情链和 OL 物件生命周期，逐条给出原文行段与锚点",
+        "- `情节节点.md` 每条除旧字段外必须首写 `入场前提 / 行动权限 / 替代方案阻断 / 离场因果`，禁止留到 validator 后补",
         "- 16 张表不能只靠表后总结过检；表格本身要带原文证据列或同语义列，并且每行都要有迁移字段",
         "- 16 张表优先保表格承重：8000 字以上样本里，`物件/动作/对白功能/钩子/微动作/失控说话` 默认至少保 5 条独立资产行，`公开炸场` 默认至少保 4 条，`顺序事件/对话衔接/误判/安静压迫场/人物偏手/烂关系漏出/后果链` 默认至少保 4 条，`导语拆解/外部秩序` 默认至少保 3 条；解释层再厚也不能代替表格行",
         "- 16 张表后面的 `可直接借的承重结构 / 迁移顺序提醒 / 为什么这个顺序不能乱` 都必须直接点名本表条目，不能只写抽象总结",
@@ -1523,7 +1576,8 @@ def write_execution_prompt(
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
         "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
-        "- 每个 BID 必须继续下钻成一个或多个完整 `SF-*`；`子流程施工卡.md / 子流程索引.jsonl` 保留进场状态、连续顺序、信息延迟、控制权变化和场末状态，禁止拆成零件池",
+        "- 每个 BID 必须继续下钻成一个或多个完整 `SF-*`；`子流程施工卡.md / 子流程索引.jsonl` 保留进场状态、连续顺序、场景因果前提、信息延迟、控制权变化和场末状态，`causal_preconditions` 七字段必须齐全，禁止拆成零件池",
+        "- `profile_source.md` 必须首写 `## 13. 场景因果资产`，每张 CPA 保留到场、知情、物件、制度、替代阻断、离场和原文证据",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：全局结构、章尾收束、主角不规则性、专业细节功能性、全文对白模式、句段气口与镜头连续性；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- `仿写约束_禁写清单.md` 必须单列电报式句段风险，区分有效短促气口与一段一个动作/证据/反应的机械镜头；禁止用短句比例代判",
@@ -1693,8 +1747,9 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "meta_refreshed": meta_refreshed,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
-            "then": "按 _upgrade_plan.md 人工回填缺失正式产物；脚本不会自动补写 Markdown 正式内容",
+            "then": "按 _upgrade_plan.md 继续自动增量补拆缺失、过期和缺字段内容；脚本不伪造正式 Markdown 占位",
             "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
+            "auto_continue_expected": True,
         },
     }
 

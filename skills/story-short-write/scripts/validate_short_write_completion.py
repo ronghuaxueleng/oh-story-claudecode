@@ -13,8 +13,10 @@ from typing import Any
 FIRST_DRAFT_PREVIEW_CHECK_LABELS = {
     "writing_rule_gate",
     "source_read_gate",
+    "first_draft_entry",
     "sequence_contract",
     "opening_contract",
+    "section_draft_execution",
     "first_draft_basic_review",
 }
 DEEP_REVIEW_CHECK_LABELS = {

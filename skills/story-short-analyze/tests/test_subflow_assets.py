@@ -32,7 +32,7 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
         "source_book": "测试书",
         "parent_bridge_id": bridge_id,
         "name": "先抢入口再迫使让位",
-        "source_range": "L1-L2",
+        "source_range": "L1-L1",
         "function_tags": ["公开失位"],
         "entry_state": "主角仍有现场决定权。",
         "required_sequence": ["对手先抢入口", "关系人随后要求主角让位"],
@@ -53,6 +53,13 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
         "embeddable_after": [],
         "incompatible_with": [],
         "source_evidence": ["对手先伸手", "主角才松手"],
+        "source_style_granularity": {
+            field: {
+                "analysis": f"{field} 的逐场分析",
+                "source_evidence": ["对手先伸手", "主角才松手"],
+            }
+            for field in VALIDATOR.SUBFLOW_STYLE_GRANULARITY_FIELDS
+        },
     }
 
 
@@ -128,6 +135,26 @@ class SubflowAssetTest(unittest.TestCase):
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
         self.assertTrue(any("causal_preconditions.source_evidence" in error for error in errors))
 
+    def test_missing_per_subflow_style_blocks(self) -> None:
+        entry = subflow()
+        del entry["source_style_granularity"]
+        self.write_entries([entry])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("source_style_granularity" in error for error in errors))
+
+    def test_style_evidence_outside_exact_subflow_range_blocks(self) -> None:
+        entry = subflow()
+        entry["source_range"] = "L1-L1"
+        entry["source_style_granularity"]["sentence_relation_and_rhythm"]["source_evidence"] = [
+            "对手先伸手",
+            "不存在于行段",
+        ]
+        self.write_entries([entry])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("精确行段" in error for error in errors))
+
     def test_cross_book_library_preserves_source_boundary(self) -> None:
         book_dir = self.root / "拆文库" / "测试书" / "写作资产"
         book_dir.mkdir(parents=True)
@@ -136,10 +163,27 @@ class SubflowAssetTest(unittest.TestCase):
             json.dumps(subflow(), ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+        (book_dir / "仿写无损编译包.json").write_text("{}", encoding="utf-8")
         entries = LIBRARY.build_library(self.root / "拆文库")
         self.assertEqual("测试书::SF-01", entries[0]["global_subflow_id"])
         self.assertEqual(str(index.resolve()), entries[0]["source_index_path"])
         self.assertEqual(LIBRARY.sha256(index), entries[0]["source_index_sha256"])
+
+    def test_cross_book_library_skips_unreleased_book(self) -> None:
+        ready = self.root / "拆文库" / "已放行" / "写作资产"
+        stale = self.root / "拆文库" / "未放行" / "写作资产"
+        ready.mkdir(parents=True)
+        stale.mkdir(parents=True)
+        (ready / "子流程索引.jsonl").write_text(
+            json.dumps(subflow(), ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        (ready / "仿写无损编译包.json").write_text("{}", encoding="utf-8")
+        (stale / "子流程索引.jsonl").write_text(
+            json.dumps({**subflow("SF-02"), "causal_preconditions": {}}, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        entries = LIBRARY.build_library(self.root / "拆文库")
+        self.assertEqual(["SF-01"], [entry["subflow_id"] for entry in entries])
 
 
 if __name__ == "__main__":

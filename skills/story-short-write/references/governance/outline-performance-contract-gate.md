@@ -105,7 +105,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 
 - `init` 会从每本选中原文对应的 `写作资产/桥段施工卡.md` 自动提取 `available_bridge_ids` 并绑定该文件 SHA。
 - 第一本选中原文固定为 `primary`，`required_bridge_ids` 必须与施工卡全部 BID 完全一致，不能手工删减。
-- 后续选中原文固定为 `auxiliary`，必须在 `selected_bridge_ids` 中显式列出本稿采用的子 BID。
+- 后续选中原文固定为 `auxiliary`。如果写作读取门禁选择的是完整 `SF-*`，不得在这里被迫扩成父 `BID-*`；只有本稿确实采用完整辅助 BID 时，才在 `selected_bridge_ids` 中显式列出并进入桥段库存。
 - 每条库存通过 `source_path` 继承来源的 `primary / auxiliary` 角色，`bridge_id` 可带书名前缀，但必须保留可识别的 `BID-*`。
 - 主体 `required_bridge_ids` 或辅助 `selected_bridge_ids` 任一未进入库存及对齐表，正文硬阻断。
 
@@ -156,6 +156,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 15. `professional_shell_translation`：用一句白话翻译职业冲突，并证明去掉术语后感情冲突仍成立。
 16. `source_emotion_parity`：引用真实原文片段，逐拍列出原文与目标情绪流程。每拍都必须填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`；另填两边反刀拍、峰值拍、场末余痛等价、读者体感等价、人工判断及迁移边界。
 17. `first_draft_generation_contract`：必须在首写前填完，不得从正文反向补写。字段必须包含：
+   - `source_slice_bindings`：逐一绑定本节使用的主体/辅助原文路径、SHA、精确行段、至少两条行段内证据和六类已消费文风字段；
    - `source_performance_excerpt`：任一选中原文中真实存在的表演片段。
    - `emotion_process`：逐项写明入场情绪、非自主身体反应、记忆/联想/注意漂移、矛盾冲动、说错/回避和场末余痛。本场若无回忆，要写明由何种现场注意漂移代替，不得留空。
    - `continuous_moment_groups`：至少两组，写明哪些动作、感知和反应属于同一瞬间，不能拆成电报式短段。

@@ -41,6 +41,20 @@ VALIDATOR_SPEC.loader.exec_module(VALIDATOR)
 
 
 class StoryProfileSceneAssetsTest(unittest.TestCase):
+    def test_source_coverage_excludes_generated_profile_and_imitation_package(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "写作资产").mkdir(parents=True)
+            (root / "原文.txt").write_text("原文", encoding="utf-8")
+            (root / "book.profile.json").write_text("{}", encoding="utf-8")
+            (root / "_meta.json").write_text("{}", encoding="utf-8")
+            (root / "_timing.json").write_text("{}", encoding="utf-8")
+            (root / "_sample_comparison.md").write_text("样本证据", encoding="utf-8")
+            (root / "写作资产" / "仿写无损编译包.json").write_text("{}", encoding="utf-8")
+            coverage = GENERATOR.build_source_asset_coverage([root])[0]
+            paths = {item["path"] for item in coverage["files"]}
+            self.assertEqual({"原文.txt", "_sample_comparison.md"}, paths)
+
     def test_profile_source_extracts_scene_causal_assets(self) -> None:
         parsed = GENERATOR.parse_profile_source(
             "## 13. 场景因果资产\n"

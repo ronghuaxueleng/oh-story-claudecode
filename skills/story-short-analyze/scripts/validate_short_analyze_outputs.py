@@ -7,6 +7,8 @@ import hashlib
 import json
 import math
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 
@@ -94,7 +96,10 @@ WRITING_ASSET_FILES = [
     "桥段施工卡.md",
     "子流程施工卡.md",
     "子流程索引.jsonl",
+    "仿写无损编译包.json",
 ]
+
+GENERATED_WRITING_ASSET_FILES = {"仿写无损编译包.json"}
 
 SUBFLOW_REQUIRED_FIELDS = (
     "subflow_id",
@@ -114,6 +119,15 @@ SUBFLOW_REQUIRED_FIELDS = (
     "embeddable_after",
     "incompatible_with",
     "source_evidence",
+    "source_style_granularity",
+)
+SUBFLOW_STYLE_GRANULARITY_FIELDS = (
+    "narrative_voice_and_attitude",
+    "sentence_relation_and_rhythm",
+    "paragraph_breath_and_cut_points",
+    "dialogue_misfire_or_avoidance",
+    "action_perception_emotion_weave",
+    "narrator_interjection_and_roughness",
 )
 SUBFLOW_ID_PATTERN = re.compile(r"^SF-\d{2,}$")
 CAUSAL_PRECONDITION_LIST_FIELDS = (
@@ -379,6 +393,9 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
+    "skills/story-short-analyze/scripts/build_direct_imitation_package.py",
+    "skills/story-short-analyze/scripts/build_subflow_library.py",
+    "skills/story-short-analyze/scripts/sync_finalize_human_review.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
     "skills/story-short-write/scripts/generate_story_profile.py",
@@ -400,7 +417,7 @@ SKILL_FINGERPRINT_FILES = (
 DETAIL_PLACEHOLDER_PATTERNS = [
     "原文里出现了",
     "这一类场面或关系后果",
-    "可迁到",
+    "可迁到同题材桥段",
     "同题材桥段",
     "对应人物A、人物B、人物C三角关系",
 ]
@@ -589,9 +606,11 @@ PLACEHOLDER_HEADING_PATTERN = re.compile(
 )
 
 EMPTY_LABELED_BULLET_PATTERN = re.compile(
-    r"^\s*-\s+[^：:\n]{1,40}[：:]\s*$",
+    r"^\s*-\s+(?P<label>[^：:\n]{1,40})[：:]\s*$",
     flags=re.M,
 )
+
+ALLOWED_EMPTY_CONTAINER_LABELS = {"场景因果前提"}
 
 SOURCE_COVERAGE_LABELS = (
     "原文总行数",
@@ -819,6 +838,11 @@ def sha1_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def sha1_source_text(path: Path) -> str:
+    """Provide a newline-normalized fallback for historical source manifests."""
+    return hashlib.sha1(read_text(path).encode("utf-8")).hexdigest()
+
+
 def repo_root_from_script() -> Path:
     return Path(__file__).resolve().parents[3]
 
@@ -928,6 +952,25 @@ def check_file_exists(path: Path, errors: list[str]) -> None:
         errors.append(f"空文件：{path}")
 
 
+def check_direct_imitation_package(root: Path, errors: list[str]) -> None:
+    checker = Path(__file__).with_name("build_direct_imitation_package.py")
+    result = subprocess.run(
+        [sys.executable, str(checker), str(root), "--check", "--json"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="ignore",
+    )
+    if result.returncode == 0:
+        return
+    try:
+        payload = json.loads(result.stdout)
+        package_errors = payload.get("errors", [])
+    except json.JSONDecodeError:
+        package_errors = [result.stderr.strip() or result.stdout.strip() or "仿写无损编译包校验失败"]
+    errors.extend(f"仿写无损编译包校验失败：{item}" for item in package_errors)
+
+
 def check_markdown_hygiene(path: Path, errors: list[str]) -> None:
     if not path.exists() or not path.is_file() or path.suffix.lower() != ".md":
         return
@@ -947,6 +990,7 @@ def check_markdown_hygiene(path: Path, errors: list[str]) -> None:
     empty_labels = [
         match.group(0).strip()
         for match in EMPTY_LABELED_BULLET_PATTERN.finditer(text)
+        if normalize_text(match.group("label")) not in ALLOWED_EMPTY_CONTAINER_LABELS
     ]
     if empty_labels:
         preview = " / ".join(empty_labels[:5])
@@ -1802,12 +1846,53 @@ def extract_report_character_names(path: Path) -> set[str]:
     if not path.exists() or not path.is_file():
         return set()
     text = read_text(path)
-    section = extract_any_section_text(text, ("### 人物分析", "## 人物分析"))
-    names = {
-        name.strip()
-        for name in re.findall(r"\*\*([^*：:\n]{2,12})\*\*", section)
-        if not any(token in name for token in ("分析", "角色", "人物"))
-    }
+    marker = re.search(r"^(#{2,4})\s+人物分析\s*$", text, flags=re.M)
+    if not marker:
+        return set()
+
+    marker_level = len(marker.group(1))
+    section_lines: list[str] = []
+    for line in text[marker.end() :].splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if heading and len(heading.group(1)) <= marker_level:
+            break
+        section_lines.append(line)
+    headers, rows = parse_first_markdown_table("\n".join(section_lines))
+    normalized_headers = [normalize_text(header) for header in headers]
+    if "角色" in normalized_headers:
+        role_index = normalized_headers.index("角色")
+        table_names = {
+            row[role_index].strip()
+            for row in rows
+            if role_index < len(row) and 1 < len(row[role_index].strip()) <= 12
+        }
+        if table_names:
+            return table_names
+
+    names: set[str] = set()
+    saw_character_heading = False
+    for line in text[marker.end() :].splitlines():
+        heading = re.match(r"^(#{1,6})\s+(.+?)\s*$", line)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            numbered = re.match(r"^\d+[.、)]\s*(.+)$", title)
+            if level < marker_level or (level == marker_level and not numbered):
+                break
+            if level > marker_level or numbered:
+                raw_name = numbered.group(1) if numbered else title
+                name = re.split(r"[：:]", raw_name, maxsplit=1)[0].strip()
+                if 1 < len(name) <= 12:
+                    names.add(name)
+                    saw_character_heading = True
+            continue
+
+        listed_name = re.match(
+            r"^\s*(?:[-*+]\s+|\d+[.、)]\s+)\*\*([^*：:\n]{2,12})\*\*[：:]",
+            line,
+        )
+        if listed_name and not saw_character_heading:
+            names.add(listed_name.group(1).strip())
     return names
 
 
@@ -1821,14 +1906,24 @@ def check_character_bias_role_coverage(
     if not table_path.exists():
         return
     headers, rows = parse_first_markdown_table(read_text(table_path))
+    normalized_headers = [normalize_text(header) for header in headers]
     role_index = next(
         (
             index
-            for index, header in enumerate(headers)
-            if any(marker in header for marker in ("角色", "人物"))
+            for index, header in enumerate(normalized_headers)
+            if header in {"角色", "人物"}
         ),
         None,
     )
+    if role_index is None:
+        role_index = next(
+            (
+                index
+                for index, header in enumerate(normalized_headers)
+                if header in {"资产名", "资产名称"}
+            ),
+            None,
+        )
     if role_index is None:
         return
     table_roles = {
@@ -1837,7 +1932,11 @@ def check_character_bias_role_coverage(
         if role_index < len(row) and row[role_index].strip()
     }
     report_roles = extract_report_character_names(root / "拆文报告.md")
-    missing_report_roles = sorted(report_roles - table_roles)
+    missing_report_roles = sorted(
+        role
+        for role in report_roles
+        if not any(role in table_role for table_role in table_roles)
+    )
     if report_roles and len(missing_report_roles) == len(report_roles) and notes is not None:
         notes.append(
             f"模型复核提示：{table_path} 角色列与人物分析可能未对齐；"
@@ -1996,10 +2095,10 @@ def read_manifest_source(root: Path, manifest: dict, errors: list[str]) -> tuple
         errors.append(f"{root / '原文'} 无法确定唯一原文文件")
         return None, []
 
-    actual_sha1 = sha1_file(source_path)
+    actual_sha1s = {sha1_file(source_path), sha1_source_text(source_path)}
     for key in ("sha1", "copied_sha1"):
         expected = manifest.get(key)
-        if isinstance(expected, str) and expected and actual_sha1 != expected:
+        if isinstance(expected, str) and expected and expected not in actual_sha1s:
             errors.append(f"{source_path} 原文哈希与 manifest.{key} 不一致")
     lines = read_text(source_path).splitlines()
     expected_lines = manifest.get("line_count")
@@ -3046,6 +3145,64 @@ def check_profile_source_quality(
         if missing:
             first_line = block.splitlines()[0].strip()
             errors.append(f"{path} {first_line} 缺少桥段承重件子项：{', '.join(missing)}")
+        first_line = block.splitlines()[0].strip()
+        for label in BRIDGE_EMOTION_LABELS:
+            match = re.search(
+                rf"^\s*-\s*{re.escape(label)}[：:]\s*(.+)$",
+                block,
+                flags=re.M,
+            )
+            if not match:
+                continue
+            value = match.group(1).strip()
+            content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", value, maxsplit=1)[0].strip()
+            intensity = re.search(r"(?:情绪)?烈度[：:]\s*(\d{1,2})(?:\s*\||\s*$)", value)
+            evidence = re.search(r"原文证据[：:]\s*(\S.+|\S)$", value)
+            if not content:
+                errors.append(f"{path} {first_line} `{label}` 缺少情绪动作/处境内容")
+            if not intensity or not 1 <= int(intensity.group(1)) <= 10:
+                errors.append(
+                    f"{path} {first_line} `{label}` 必须使用 `烈度：1-10` 的可解析格式"
+                )
+            if not evidence:
+                errors.append(
+                    f"{path} {first_line} `{label}` 必须使用 `原文证据：...` 的可解析格式"
+                )
+
+    causal_heading = re.search(
+        r"^## 13\. 场景因果资产\s*$([\s\S]*?)(?=^## |\Z)",
+        text,
+        flags=re.M,
+    )
+    causal_section = causal_heading.group(1) if causal_heading else ""
+    causal_cards = list(
+        re.finditer(
+            r"^\s*-\s*因果资产[：:]\s*(CPA-\d{2,3})\b.*?(?=^\s*-\s*因果资产[：:]|\Z)",
+            causal_section,
+            flags=re.M | re.S | re.I,
+        )
+    )
+    if not causal_cards:
+        errors.append(f"{path} `## 13. 场景因果资产` 缺少可解析的 `- 因果资产：CPA-xx` 卡片")
+    causal_labels = (
+        "到场原因",
+        "知情边界",
+        "物件生命周期",
+        "制度约束",
+        "明显替代方案阻断",
+        "离场因果",
+        "原文证据",
+    )
+    for card in causal_cards:
+        block = card.group(0)
+        card_id = card.group(1).upper()
+        missing = [
+            label
+            for label in causal_labels
+            if not re.search(rf"^\s+-\s*{re.escape(label)}[：:]\s*\S+", block, flags=re.M)
+        ]
+        if missing:
+            errors.append(f"{path} 因果资产 {card_id} 缺少可解析字段：{', '.join(missing)}")
 
 
 def check_bridge_workcards_quality(
@@ -3140,6 +3297,26 @@ def check_subflow_assets(
     bridge_ids = set(
         re.findall(r"^##\s+\[?(BID-\d+)\]?", read_text(asset_dir / "桥段施工卡.md"), flags=re.M)
     )
+
+    def build_source_slice(source_range: str) -> tuple[str, str | None]:
+        parts = [
+            part.strip()
+            for part in re.split(r"[、,，]\s*", source_range.strip())
+            if part.strip()
+        ]
+        slices: list[str] = []
+        original_lines = original_text.splitlines()
+        for part in parts:
+            match = re.fullmatch(r"L(\d+)-L(\d+)", part)
+            if not match:
+                return "", "必须使用 L起始-L结束 或多段 `L起始-L结束、L起始-L结束`"
+            start, end = int(match.group(1)), int(match.group(2))
+            if 1 <= start <= end <= len(original_lines):
+                slices.append("\n".join(original_lines[start - 1 : end]))
+            else:
+                return "", "超出完整原文行号范围"
+        return "\n".join(slices), None
+
     seen_ids: set[str] = set()
     covered_bridges: set[str] = set()
     for index, entry in enumerate(entries, start=1):
@@ -3215,6 +3392,34 @@ def check_subflow_assets(
             text = str(quote).strip()
             if text and text not in original_text:
                 errors.append(f"{label}.source_evidence 不在原文中：{text!r}")
+        style = entry.get("source_style_granularity")
+        source_slice, range_error = build_source_slice(str(entry.get("source_range") or "").strip())
+        if range_error == "超出完整原文行号范围":
+            errors.append(f"{label}.source_range 超出完整原文行号范围")
+        elif range_error:
+            errors.append(f"{label}.source_range {range_error}")
+        if not isinstance(style, dict):
+            errors.append(f"{label}.source_style_granularity 必须是逐 SF 文风颗粒对象")
+        else:
+            for field in SUBFLOW_STYLE_GRANULARITY_FIELDS:
+                item = style.get(field)
+                style_label = f"{label}.source_style_granularity.{field}"
+                if not isinstance(item, dict):
+                    errors.append(f"{style_label} 必须是对象")
+                    continue
+                if not str(item.get("analysis") or "").strip():
+                    errors.append(f"{style_label}.analysis 不能为空")
+                evidence = item.get("source_evidence")
+                quotes = (
+                    [str(quote).strip() for quote in evidence if str(quote).strip()]
+                    if isinstance(evidence, list)
+                    else []
+                )
+                if len(set(quotes)) < 2:
+                    errors.append(f"{style_label}.source_evidence 至少需要两条不同原文证据")
+                for quote in quotes:
+                    if quote not in source_slice:
+                        errors.append(f"{style_label}.source_evidence 不在该 SF 精确行段内：{quote!r}")
 
     missing_bridges = sorted(bridge_ids - covered_bridges)
     if missing_bridges:
@@ -3531,7 +3736,9 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         for rel in WRITING_ASSET_FILES:
             path = asset_dir / rel
             check_file_exists(path, errors)
-            check_markdown_hygiene(path, errors)
+            if rel not in GENERATED_WRITING_ASSET_FILES:
+                check_markdown_hygiene(path, errors)
+        check_direct_imitation_package(root, errors)
     if source_lines and (asset_dir / "原文资产候选池.md").is_file():
         check_asset_candidate_ledger(root, source_lines, word_count, errors, notes)
     if source_lines and (asset_dir / "本书动态信号字典.json").is_file():

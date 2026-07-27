@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+import importlib.util
 
 
 REQUIRED_REVIEW_IDS = {
@@ -25,6 +26,14 @@ SOURCE_GRANULARITY_FIELDS = {
     "scene_ending",
     "manual_judgment",
 }
+
+_DRAFT_ENTRY_GATE_PATH = Path(__file__).with_name("validate_first_draft_entry.py")
+_DRAFT_ENTRY_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_first_draft_entry", _DRAFT_ENTRY_GATE_PATH
+)
+assert _DRAFT_ENTRY_SPEC and _DRAFT_ENTRY_SPEC.loader
+_DRAFT_ENTRY_MODULE = importlib.util.module_from_spec(_DRAFT_ENTRY_SPEC)
+_DRAFT_ENTRY_SPEC.loader.exec_module(_DRAFT_ENTRY_MODULE)
 
 
 def sha256(path: Path) -> str:
@@ -54,6 +63,8 @@ def init_receipt(
     force: bool,
     imitation_mode: bool = False,
     source_paths: list[Path] | None = None,
+    section_execution_receipt: Path | None = None,
+    draft_entry_receipt: Path | None = None,
 ) -> int:
     if receipt.exists() and not force:
         print(f"首稿基础审计回执已存在，拒绝覆盖: {receipt}")
@@ -65,6 +76,30 @@ def init_receipt(
     if imitation_mode and not sources:
         print("仿写模式必须至少传入一个 --source 原文")
         return 2
+    if imitation_mode and section_execution_receipt is None:
+        print("仿写模式必须提供 --section-execution-receipt，禁止批量写完后补逐节记录")
+        return 2
+    if imitation_mode and draft_entry_receipt is None:
+        print("仿写模式必须提供 --draft-entry-receipt，禁止绕过首稿入口直接写正文")
+        return 2
+    if draft_entry_receipt is not None:
+        if not draft_entry_receipt.is_file():
+            print(f"首稿入口回执不存在: {draft_entry_receipt}")
+            return 2
+        entry_errors = _DRAFT_ENTRY_MODULE.validate_entry(draft_entry_receipt, draft)
+        if entry_errors:
+            print("首稿入口回执未通过")
+            for error in entry_errors:
+                print(f"- {error}")
+            return 2
+    if section_execution_receipt is not None:
+        if not section_execution_receipt.is_file():
+            print(f"逐节首写执行回执不存在: {section_execution_receipt}")
+            return 2
+        execution = read_json(section_execution_receipt)
+        if execution.get("gate_status") != "passed" or execution.get("final_draft_sha256") != sha256(draft):
+            print("逐节首写执行回执未通过或未绑定当前正文")
+            return 2
     missing_sources = [str(path) for path in sources if not path.is_file()]
     if missing_sources:
         print("原文不存在: " + " / ".join(missing_sources))
@@ -95,6 +130,16 @@ def init_receipt(
             "base_draft": source_binding(base_draft),
             "imitation_mode": imitation_mode,
             "selected_sources": [source_binding(path) for path in sources],
+            "section_execution_receipt": (
+                source_binding(section_execution_receipt)
+                if section_execution_receipt is not None
+                else None
+            ),
+            "draft_entry_receipt": (
+                source_binding(draft_entry_receipt)
+                if draft_entry_receipt is not None
+                else None
+            ),
             "source_granularity_baseline": {
                 "source_evidence": [],
                 **{field: "" for field in sorted(SOURCE_GRANULARITY_FIELDS)},
@@ -252,6 +297,27 @@ def validate_receipt(receipt: Path, draft_override: Path | None = None) -> list[
                 if path:
                     source_texts[str(path)] = path.read_text(encoding="utf-8")
         validate_source_baseline(data, source_texts, errors)
+        execution_path = validate_file_binding(
+            data.get("section_execution_receipt"),
+            "section_execution_receipt",
+            errors,
+        )
+        draft_entry_path = validate_file_binding(
+            data.get("draft_entry_receipt"),
+            "draft_entry_receipt",
+            errors,
+        )
+        if execution_path:
+            execution = read_json(execution_path)
+            if execution.get("gate_status") != "passed":
+                errors.append("section_execution_receipt.gate_status 必须为 passed")
+            if execution.get("final_draft_sha256") != sha256(draft):
+                errors.append("section_execution_receipt 未绑定当前正文")
+        if draft_entry_path:
+            entry_errors = _DRAFT_ENTRY_MODULE.validate_entry(draft_entry_path, draft)
+            if entry_errors:
+                errors.append("draft_entry_receipt 未通过")
+                errors.extend(entry_errors)
     items = data.get("review_items")
     if not isinstance(items, list):
         return errors + ["review_items 必须是数组"]
@@ -309,6 +375,8 @@ def main() -> int:
     init.add_argument("--force", action="store_true")
     init.add_argument("--imitation-mode", action="store_true")
     init.add_argument("--source", action="append", default=[])
+    init.add_argument("--section-execution-receipt")
+    init.add_argument("--draft-entry-receipt")
     validate = sub.add_parser("validate")
     validate.add_argument("--receipt", required=True)
     validate.add_argument("--draft")
@@ -320,6 +388,16 @@ def main() -> int:
             args.force,
             imitation_mode=args.imitation_mode,
             source_paths=[Path(path).resolve() for path in args.source],
+            section_execution_receipt=(
+                Path(args.section_execution_receipt).resolve()
+                if args.section_execution_receipt
+                else None
+            ),
+            draft_entry_receipt=(
+                Path(args.draft_entry_receipt).resolve()
+                if args.draft_entry_receipt
+                else None
+            ),
         )
     receipt = Path(args.receipt).resolve()
     draft = Path(args.draft).resolve() if args.draft else None

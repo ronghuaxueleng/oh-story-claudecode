@@ -81,6 +81,102 @@ class HumanQualityGateTest(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
         return path
 
+    def test_specific_migration_phrase_does_not_trigger_placeholder_note(self) -> None:
+        path = self._write(
+            "场景细节库.md",
+            "\n".join(
+                f"## 场景{i}\n- 后续能迁到什么新桥段：可迁到公开会议上由证据改变席位的桥段{i}。"
+                for i in range(1, 6)
+            ),
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_detail_library_quality(path, 9000, errors, notes)
+        self.assertFalse(any("模板句" in note for note in notes))
+
+    def test_character_bias_role_coverage_uses_asset_name_before_bias_type(self) -> None:
+        self._write(
+            "拆文报告.md",
+            "## 人物分析\n\n- **周逢雅**：用行动改站位。\n- **唐月轩**：用软话夺位。\n",
+        )
+        self._write(
+            "可直接仿写_人物偏手表.md",
+            "| 候选 | 资产名 | 人物偏手类型/口吻特征 |\n"
+            "|---|---|---|\n"
+            "| C040 | 周逢雅粗口护短后用行动改站位 | 粗口划界 |\n"
+            "| C041 | 唐月轩甜口道歉夹带称呼夺位 | 甜称呼 |\n",
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_character_bias_role_coverage(self.root, 8000, errors, notes)
+        self.assertFalse(any("角色列与人物分析可能未对齐" in note for note in notes))
+
+    def test_character_bias_role_coverage_prefers_exact_role_column(self) -> None:
+        self._write(
+            "拆文报告.md",
+            "## 人物分析\n\n- **许初**：先控规则。\n",
+        )
+        self._write(
+            "可直接仿写_人物偏手表.md",
+            "| 资产名 | 角色 | 人物偏手类型 |\n"
+            "|---|---|---|\n"
+            "| 匿名护短动作 | 许初 | 程序回控 |\n",
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_character_bias_role_coverage(self.root, 8000, errors, notes)
+        self.assertFalse(any("角色列与人物分析可能未对齐" in note for note in notes))
+
+    def test_character_names_stop_before_same_level_non_character_section(self) -> None:
+        report = self._write(
+            "拆文报告.md",
+            "### 人物分析\n\n"
+            "### 1. 周逢雅：粗口护短\n\n"
+            "**人物底色**：强势保护者。\n\n"
+            "### 2. 唐月轩：甜口夺位\n\n"
+            "**口气与动作**：先道歉再越界。\n\n"
+            "### 情感曲线\n\n"
+            "### 1. 曲线总览\n\n"
+            "**前置蓄压**：合法关系先短暂站稳。\n",
+        )
+        self.assertEqual(
+            VALIDATOR.extract_report_character_names(report),
+            {"周逢雅", "唐月轩"},
+        )
+
+    def test_character_names_use_nested_headings_not_character_field_labels(self) -> None:
+        report = self._write(
+            "拆文报告.md",
+            "### 人物分析\n\n"
+            "#### 林书宁\n\n"
+            "- **表层性格**：克制。\n"
+            "- **动作偏手**：先留证。\n\n"
+            "#### 贺予白\n\n"
+            "- **核心矛盾**：选择性执行规则。\n\n"
+            "### 开头分析\n",
+        )
+        self.assertEqual(
+            VALIDATOR.extract_report_character_names(report),
+            {"林书宁", "贺予白"},
+        )
+
+    def test_character_names_prefer_role_column_in_character_table(self) -> None:
+        report = self._write(
+            "拆文报告.md",
+            "### 人物分析\n\n"
+            "| 角色 | 欲望 |\n"
+            "|---|---|\n"
+            "| 沈宝珠 | 自主选择 |\n"
+            "| 宋霁 | 尊重选择 |\n\n"
+            "#### 人物不同脸证据\n\n"
+            "这里不是人物名。\n\n"
+            "### 情感曲线\n",
+        )
+        self.assertEqual(
+            VALIDATOR.extract_report_character_names(report),
+            {"沈宝珠", "宋霁"},
+        )
+
     def test_large_direct_table_requires_tiers(self) -> None:
         rows = "\n".join(
             f"| 资产{i} | 原文证据{i} | 迁移{i} |" for i in range(1, 7)
@@ -163,6 +259,45 @@ class HumanQualityGateTest(unittest.TestCase):
             errors,
         )
         self.assertEqual([], errors)
+
+    def test_source_manifest_hash_accepts_equivalent_crlf_checkout(self) -> None:
+        source_dir = self.root / "原文"
+        source_dir.mkdir()
+        source_path = source_dir / "样本.txt"
+        source_path.write_bytes("第一行\r\n第二行\r\n".encode("utf-8"))
+        normalized_sha1 = VALIDATOR.hashlib.sha1(
+            "第一行\n第二行\n".encode("utf-8")
+        ).hexdigest()
+        manifest = {
+            "sha1": normalized_sha1,
+            "copied_sha1": normalized_sha1,
+            "line_count": 2,
+        }
+        errors: list[str] = []
+
+        selected, lines = VALIDATOR.read_manifest_source(self.root, manifest, errors)
+
+        self.assertEqual(source_path, selected)
+        self.assertEqual(["第一行", "第二行"], lines)
+        self.assertEqual([], errors)
+
+    def test_markdown_hygiene_allows_subflow_causality_container(self) -> None:
+        path = self._write(
+            "子流程施工卡.md",
+            "## SF-01 进场\n\n"
+            "- 场景因果前提：\n"
+            "  - 到场原因：两人都收到通知。\n"
+            "  - 知情边界：甲不知道证据已送达。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_markdown_hygiene(path, errors)
+        self.assertEqual([], errors)
+
+    def test_markdown_hygiene_still_rejects_other_empty_fields(self) -> None:
+        path = self._write("桥段施工卡.md", "## BID-01 进场\n\n- 原文证据：\n")
+        errors: list[str] = []
+        VALIDATOR.check_markdown_hygiene(path, errors)
+        self.assertTrue(any("残留空字段" in error for error in errors), errors)
 
     def test_preparer_and_validator_use_same_fingerprint_files(self) -> None:
         self.assertEqual(
@@ -317,6 +452,87 @@ class HumanQualityGateTest(unittest.TestCase):
         notes: list[str] = []
         VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, notes)
         self.assertEqual([], errors)
+
+    def test_profile_source_rejects_unparseable_bridge_beats_and_compressed_cpa(self) -> None:
+        bridge_fields = "\n".join(
+            f"  - {label}：受辱后沉默｜烈度 4｜L1-L2"
+            for label in VALIDATOR.BRIDGE_EMOTION_LABELS
+        )
+        text = "\n".join(VALIDATOR.PROFILE_SOURCE_HEADINGS) + "\n"
+        text += (
+            "- 桥段：BID-01 撤回承诺\n"
+            "  - 桥段角色：受害者\n"
+            "  - 原文怎么起手：先给承诺\n"
+            "  - 不能丢的顺序：给出再撤回\n"
+            "  - 为什么这个顺序不能乱：先抬高期待\n"
+            "  - 最容易写假的点：直接总结\n"
+            "  - 原文为什么能过：用动作落地\n"
+            f"{bridge_fields}\n"
+            "- 为什么假：只有结论\n"
+            "- 为什么假：没有动作\n"
+            "- scene_assets.public_explosion：公开撤回\n"
+            "- scene_assets.external_order：旁人围观\n"
+            "- scene_assets.consequence_chain：关系破裂\n"
+            "- 感情伤抬升到现实伤的节点：失去资格\n"
+            "- 秩序回正节点：公开澄清\n"
+            "- 长尾惩罚节点：信用破产\n"
+            "- 离场 / 换图节点：离开现场\n"
+            "- 容易写成作者判词的句型：他活该\n"
+            "- 容易写成主题总结的句型：爱会消失\n"
+            "- 容易写成整齐揭露的句型：所有人都知道\n"
+            "- CPA-01｜到场原因：赴约；知情边界：不知撤回｜证据：L1-L2\n"
+        )
+        path = self._write("profile_source.md", text)
+        errors: list[str] = []
+        VALIDATOR.check_profile_source_quality(path, 1000, errors)
+        self.assertTrue(any("必须使用 `烈度：1-10`" in error for error in errors), errors)
+        self.assertTrue(any("必须使用 `原文证据：...`" in error for error in errors), errors)
+        self.assertTrue(any("缺少可解析的 `- 因果资产：CPA-xx`" in error for error in errors), errors)
+
+    def test_profile_source_accepts_parseable_bridge_beats_and_structured_cpa(self) -> None:
+        bridge_fields = "\n".join(
+            f"  - {label}：受辱后沉默 | 烈度：4 | 原文证据：L1-L2 他低下头"
+            for label in VALIDATOR.BRIDGE_EMOTION_LABELS
+        )
+        text = "\n".join(VALIDATOR.PROFILE_SOURCE_HEADINGS) + "\n"
+        text += (
+            "- 桥段：BID-01 撤回承诺\n"
+            "  - 桥段角色：受害者\n"
+            "  - 原文怎么起手：先给承诺\n"
+            "  - 不能丢的顺序：给出再撤回\n"
+            "  - 为什么这个顺序不能乱：先抬高期待\n"
+            "  - 最容易写假的点：直接总结\n"
+            "  - 原文为什么能过：用动作落地\n"
+            f"{bridge_fields}\n"
+            "- 为什么假：只有结论\n"
+            "- 为什么假：没有动作\n"
+            "- scene_assets.public_explosion：公开撤回\n"
+            "- scene_assets.external_order：旁人围观\n"
+            "- scene_assets.consequence_chain：关系破裂\n"
+            "- 感情伤抬升到现实伤的节点：失去资格\n"
+            "- 秩序回正节点：公开澄清\n"
+            "- 长尾惩罚节点：信用破产\n"
+            "- 离场 / 换图节点：离开现场\n"
+            "- 容易写成作者判词的句型：他活该\n"
+            "- 容易写成主题总结的句型：爱会消失\n"
+            "- 容易写成整齐揭露的句型：所有人都知道\n"
+            "- 因果资产：CPA-01 撤回承诺\n"
+            "  - 到场原因：按约赴会\n"
+            "  - 知情边界：不知承诺将撤回\n"
+            "  - 物件生命周期：请柬从凭证变废纸\n"
+            "  - 制度约束：名单决定入场资格\n"
+            "  - 明显替代方案阻断：现场无法改名单\n"
+            "  - 离场因果：资格撤销后离开\n"
+            "  - 原文证据：L1-L2 他低下头\n"
+        )
+        path = self._write("profile_source.md", text)
+        errors: list[str] = []
+        VALIDATOR.check_profile_source_quality(path, 1000, errors)
+        parse_errors = [
+            error for error in errors
+            if "可解析" in error or "必须使用 `烈度" in error or "必须使用 `原文证据" in error
+        ]
+        self.assertEqual([], parse_errors)
 
     def test_bridge_reconciliation_accepts_bid_on_node_line(self) -> None:
         asset_dir = self.root / "写作资产"
@@ -989,6 +1205,10 @@ class HumanQualityGateTest(unittest.TestCase):
         node_contract = chronology_contract["files"]["情节节点.md"]
         self.assertIn("BID-01 中段承重桥", node_contract["bid_rules"][1])
         self.assertIn("故事时序", node_contract["required_entry_fields"])
+        self.assertIn("入场前提", node_contract["required_entry_fields"])
+        self.assertIn("行动权限", node_contract["required_entry_fields"])
+        self.assertIn("替代方案阻断", node_contract["required_entry_fields"])
+        self.assertIn("离场因果", node_contract["required_entry_fields"])
         craft_contract = chronology_contract["files"]["写作手法.md"]
         self.assertEqual(len(craft_contract["required_headings"]), 15)
         self.assertIn("反面仿写句", craft_contract["required_sentence_assets"])

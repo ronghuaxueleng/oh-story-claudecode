@@ -183,8 +183,9 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 1. `写作资产/profile_source.md` 是否存在
 2. `book.profile.json` 自动生成
-3. `validate_short_analyze_outputs.py` 作为收口脚本内部的全量验收
-4. 最终状态只返回 `ready-for-write / blocked-on-assets`
+3. `写作资产/仿写无损编译包.json` 自动生成并校验
+4. `validate_short_analyze_outputs.py` 作为收口脚本内部的全量验收
+5. 最终状态只返回 `ready-for-write / blocked-on-assets`
 
 固定执行任务单：
 
@@ -338,11 +339,13 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 2. 检查 16 张表、原文细节库、写作资产全包是否齐
 3. 由模型补 `写作资产/profile_source.md`
 4. 再生成 `book.profile.json`
+5. 由 finalize 生成并校验 `写作资产/仿写无损编译包.json`
 
 禁止：
 
 - 跳过单书 `profile`
 - 直接在写前临时拼题材规则
+- 把无损编译包留到写作阶段临时生成
 - 只留 Markdown 结论，不做结构化落盘
 
 ---

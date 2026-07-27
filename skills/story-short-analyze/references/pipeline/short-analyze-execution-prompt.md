@@ -81,7 +81,8 @@
 > 8. 统一核销与 BID 贯通
 > 9. `profile_source.md`
 > 10. 生成 `book.profile.json`
-> 11. 全量验收
+> 11. 生成并校验 `写作资产/仿写无损编译包.json`
+> 12. 全量验收
 >
 > 每个批次都必须：
 >
@@ -463,7 +464,8 @@
 
 1. 先由模型补完 `profile_source.md`
 2. 再生成 `book.profile.json`
-3. 再检查 JSON 关键字段是否齐
+3. 再由 finalize 生成无损编译包
+4. 再检查 profile 与编译包关键字段是否齐且新鲜
 
 ### 本批自检
 
@@ -514,6 +516,8 @@
 - `子流程施工卡.md / 子流程索引.jsonl` 是否已把每个 BID 下钻成完整 `SF-*`
 - 每个 `SF-*` 是否保留进场状态、连续动作/反应顺序、信息延迟、控制权变化和场末状态，而不是只有功能名
 - `子流程索引.jsonl` 是否逐条回指同名施工卡、父 BID 和至少两条真实原文证据
+- 每个 `SF-*` 是否已写入逐场 `source_style_granularity`，且六项齐全：`narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`
+- `source_style_granularity` 每项是否都有 `analysis` 和至少两条不同原文证据，且证据位于该 SF 的 `source_range` 内；如果只是全书通用文风、跨 SF 重复模板或一句“按原文颗粒度”，不得进入 finalize
 - `story_guardrails.character_face_split` 是否完整含有非空的 `different_face_evidence / reaction_order_split / action_authority_split`
 - `story_guardrails.consequence_structure` 是否完整含有非空的 `pre_evidence_reality_consequences / consequence_rebound_modes / tail_entry_owner / tail_entry_exclusion_reason`
 
@@ -536,6 +540,8 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 - 收口脚本是否通过
 - `book.profile.json` 是否已自动生成
+- `写作资产/仿写无损编译包.json` 是否已由拆书 finalize 生成 `version: 1.1` 并通过新鲜度校验
+- 编译包是否原样携带全部 SF 字段和逐 SF `source_style_granularity`；旧 `1.0` 包或写作阶段临时补文风都不能放行
 - 是否仍有缺件、缺标题、缺字段
 - `_meta.json` 与真实文件数是否一致
 

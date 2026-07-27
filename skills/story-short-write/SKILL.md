@@ -62,6 +62,10 @@ metadata:
 - `validate_write_release_gate.py`
 - `validate_sequence_contract.py`
 - `validate_outline_performance_contract.py`
+- `validate_draft_capacity_contract.py`
+- `validate_first_draft_entry.py`
+- `validate_section_draft_execution.py`
+- `build_section_source_bundle.py`
 - `validate_post_write_human_review_gate.py`
 - `validate_zhihu_section_format.py`
 - `count_words.py`
@@ -118,7 +122,7 @@ metadata:
 7. 写前必须有规则包：单书读 `book.profile.json`，融合稿读 `project.profile.json`。
 8. 规则包来自拆书产物，不来自 skill 内硬编码题材默认值。
 9. 写设定、大纲或正文前必须通过 `validate_writing_rule_gate.py`；`format-and-structure.md`、当前版 `anti-ai-writing.md`、`craft/narrator-voice.md` 任一未读都阻断。
-10. 写大纲和正文前必须通过 `validate_source_read_gate.py`；默认读取经 `book.profile.json.source_asset_coverage` 对全部正式拆书资产完成 SHA 验收的无损关键编译包，不是只读二手摘要。主体必须包含完整原文、全部 BID/SF 及其事实/因果/情绪/表演资产；辅助必须显式选择真实 `SF-*` 并保留该子流程的全部颗粒。
+10. 写大纲和正文前必须通过 `validate_source_read_gate.py`；`source_asset_coverage` 的 SHA 只负责追溯，不得冒充模型已读。仿写任务必须用 `--writing-mode direct_imitation` 读取由 `story-short-analyze` finalize 预先生成的无损语义编译包：完整原文仅存一份，主体全量 BID/SF 及其事实/因果/情绪/表演/文风字段、辅助已选 SF 的全部字段均为包内真实内容。写作阶段禁止生成或刷新该包；缺失/过期必须阻断并返回拆书 finalize。
 11. 桥段链高敏时，先回细纲换链，不许直接磨句子。
 12. 写前写后都要审计，不能只看送检结果倒推补丁。
 13. 审计分段只服务定位风险，不反向指导正文排版。
@@ -216,6 +220,17 @@ metadata:
 105. **原文颗粒度必须包含场景因果颗粒，不只包含动作表演**：写细纲前必须从 `book.profile.json.causal_precondition_assets` 和对应原文切片读取人物到场原因、入场前知情边界、关键物件生命周期、制度约束、明显替代方案阻断及离场因果。每节在 `scene_logic_contract` 中完成原文到目标场的逐项迁移；只写动作顺序、站位和余波而答不出“为什么这些人此时在这里、为什么能做这件事”，直接阻断正文。
 106. **跨节关键事实必须先建状态链**：`story_fact_state_ledger` 必须覆盖怀孕确认、死亡认定、婚姻/亲子身份、证据取得、关键物件生成与持有等承重事实，逐次记录 `from_state -> trigger -> to_state` 和所在小节。状态迁移必须首尾相接，禁止在“待确认”阶段提前使用“已确认”物件或结论，也禁止人物提前知道后场信息。
 107. **外部制度不得替人物硬造冲突**：涉及医疗、法律、金融、行政流程时，`external_rule_dependency` 必须写明制度领域、可靠依据并由当前模型核实。无法核实的规定不得作为唯一因果，例如虚构“某栏不能为空/必须由某人签字”强迫角色做事；应改成角色主动选择、已有授权或现场可验证的现实条件，再保留其人物责任。
+108. **首稿容量与文风颗粒必须在落笔前锁定**：正文放行前必须初始化并通过 `首写容量契约回执.json`。短篇目标必须在 `9000-13000` 字，细纲必须有 8-15 节；每节至少预算 800 字，并逐节写清场面完成条件、起手或翻刀、情绪升级、场末变化和来源机制。每节还必须绑定原文真实切片，分别填写 `source_style_granularity`（叙述者嘴型、句间关系、段落气口、对白错答/回避、动作与感知如何织成连续瞬间）与 `first_draft_style_plan`（本节如何迁移上述成文机制且替换原人物、原句、职业和物件）。不得把“只借事件流程、先写短稿、之后扩写”当作首稿流程；正文低于目标的 85% 时，`first_draft_basic_review` 不得通过，必须回到细纲重建后整篇首写。
+109. **仿写是全量颗粒迁移，不是桥名或功能抽样**：任务被判为 `同桥仿写 / 主干仿写 / 融合仿写 / 完全参照原文` 时，主体原文的全部 `BID`、全部 `SF-*`、每条的进场状态、完整动作/反应顺序、场景因果前提、信息延迟、物件/空间/身份控制权变化、情绪拍、场末状态、人物偏手、错答/回避和原文真实文风颗粒，必须先进入 `source_bridge_flow_inventory`。主体来源禁止选择性省略、合并为功能名，或只迁移“最虐/最爽”的几段；任一 `BID` 或 `SF-*` 未被逐条裁决为 `matched / adapted`，正文放行直接失败。
+110. **选中的辅助子流程必须整条消费**：辅助来源一旦在 `selected_subflow_ids` 中选中某个 `SF-*`，必须完整读取并迁移该 `SF-*` 的进场状态、连续顺序、场面颗粒、场景因果、信息延迟、控制权变化、情绪顺序、场末状态和原文文风颗粒。禁止从选中 SF 里只摘一个动作、一个物件、一个反转或一句口气；若只需要零件，不得选中该 SF，也不得把零件伪装成“辅助仿写”。
+111. **文风颗粒和事件颗粒同级验收**：逐桥/逐 SF 的 `outline_bridge_flow_parity` 除桥段流程和情绪流程外，必须新增 `source_style_granularity_parity`。每项至少记录：`source_excerpt_paths / source_excerpt_sha256 / narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action-perception-emotion_weave / target_style_plan / target_outline_evidence / parity_status / manual_judgment`。原文切片必须真实逐段读取；只引用 profile、拆文报告、风格摘要或一句“保持原文颗粒度”，均视为未执行。
+112. **首写逐节重读、逐节停检**：仿写正文每一节落笔前，当前模型必须重新读取该节绑定的主体原文切片和全部选中辅助 SF 对应切片；写完该节、进入下一节前，必须同时检查事件流程、情绪拍和文风颗粒是否与绑定原文同级。任何一项被压成“发生 -> 判断 -> 决定”、解释段、动作标签清单或统一 AI 句长，立即在当前节整场重写；禁止写完整篇后用扩写、润色或去味补回原文颗粒。
+113. **逐 SF 文风颗粒必须在拆书 finalize 前固化**：`仿写无损编译包.json` 中每个 SF 必须包含 `source_style_granularity`，逐项覆盖叙述者态度、句间关系与节奏、段落气口与切点、对白错答/回避、动作感知情绪织法、即时插嘴与粗粝度；每项至少绑定两条位于该 SF 精确行段内的原文证据。写作读取门禁只能继承这些上游锁定字段，禁止临场用“贴脸叙述、长短句结合”等通用五条回填。
+114. **仿写首稿必须从唯一入口开写，禁止人工直写绕闸**：正文落笔前必须先运行 `validate_first_draft_entry.py init`，它会实时复验 `write_release_gate draft`、初始化 `逐节首写执行回执.json`，并拒绝任何已含正文内容或数字小节的目标文件。没有 `首稿入口回执.json`，不得创建或填写 `正文.md`，也不得把人工直接写出的正文补登记为合格首稿。
+115. **仿写首稿必须使用逐节执行回执**：正文不存在数字小节时由首稿入口初始化 `逐节首写执行回执.json`；每节严格执行 `open-section -> 只写当前节 -> close-section`。正文提前出现未放行节号、上一节未关闭、来源切片未绑定或四项停检未通过时立即阻断。仿写模式的 `first_draft_basic_review init` 必须同时绑定已通过的 `首稿入口回执.json` 与正文 SHA 一致的逐节执行回执，禁止批量写完后倒填。
+116. **首写生成契约不得跨节套模板**：三节及以上复用相同的矛盾冲动、注意漂移、说话失手、连续瞬间分组、断段理由、句间计划、虚词策略、情绪禁例或落点计划，视为未逐节读取原文，细纲表演闸必须失败。只替换物件名、目标权力名或节号仍算同一模板。
+117. **没有逐节证据链，不得声称“已按原文颗粒度首写”**：仿写任务只有同时满足以下条件，才允许在项目内或对外声称“正文首稿已经按原文颗粒度完成”：`拆文读取回执 passed（direct_imitation）`、`细纲表演验收回执 passed`、`首写容量契约回执 passed`、`首稿入口回执 passed`、`逐节首写执行回执 passed`，且每节都绑定主体原文切片与全部选中辅助 SF 切片。缺任一项，必须明确定性为“未按 skill 完整颗粒链执行的草稿/测试稿”，禁止用“已经参考原文颗粒度”或“效果上等同”代替。
+118. **仿写正文必须先编译逐节原文颗粒包**：通过 `outline_performance_contract` 后、正文放行前，必须先运行 `build_section_source_bundle.py`，把每节 `source_slice_bindings / source_performance_excerpt / emotion_process / scene_logic_contract / source_emotion_parity / sentence_relation_plan` 编译成 `逐节原文颗粒包.json`。正文放行、首稿入口和 `open-section` 都只认这个颗粒包；没有颗粒包或颗粒包 SHA 失效时，不得开任何一节。
 
 ---
 
@@ -320,6 +335,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
   --sequence-receipt 写作资产/顺序契约回执.json \
   --opening-contract 写作资产/开头承重契约回执.json \
   --outline-contract 写作资产/细纲表演验收回执.json \
+  --draft-capacity-contract 写作资产/首写容量契约回执.json \
   --profile profiles/{项目名}.project.profile.json
 ```
 

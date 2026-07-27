@@ -110,6 +110,28 @@ class ShortWriteCompletionTest(unittest.TestCase):
         _, errors = GATE.validate_state(self.state)
         self.assertTrue(any("first_draft_basic_review" in error for error in errors))
 
+    def test_draft_preview_requires_section_execution(self) -> None:
+        state = self.create_passed_state(status="draft_preview")
+        state["checks"] = [
+            check
+            for check in state["checks"]
+            if check["label"] != "section_draft_execution"
+        ]
+        GATE.write_state(self.state, state)
+        _, errors = GATE.validate_state(self.state)
+        self.assertTrue(any("section_draft_execution" in error for error in errors))
+
+    def test_draft_preview_requires_first_draft_entry(self) -> None:
+        state = self.create_passed_state(status="draft_preview")
+        state["checks"] = [
+            check
+            for check in state["checks"]
+            if check["label"] != "first_draft_entry"
+        ]
+        GATE.write_state(self.state, state)
+        _, errors = GATE.validate_state(self.state)
+        self.assertTrue(any("first_draft_entry" in error for error in errors))
+
     def test_complete_requires_explicit_deep_review_confirmation(self) -> None:
         state = self.create_passed_state(status="complete")
         state["deep_review_user_confirmed"] = False

@@ -879,6 +879,14 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertEqual(1, summary["outline_changes"])
         self.assertEqual(1, summary["draft_changes"])
 
+    def test_all_entries_plan_scope_includes_skill_rules(self) -> None:
+        data = {
+            "skill_rules": [{"id": "skill-rule"}],
+            "source_assets": [{"id": "source-file", "rules": [{"id": "asset-rule"}]}],
+        }
+        ids = [entry["id"] for entry in GATE.iter_plan_entries(data, "all_entries")]
+        self.assertEqual(["skill-rule", "source-file", "asset-rule"], ids)
+
 
 if __name__ == "__main__":
     unittest.main()

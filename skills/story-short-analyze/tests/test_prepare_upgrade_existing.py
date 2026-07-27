@@ -75,14 +75,23 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("写作资产/冲突载体清单.md", payload["missing_files"])
 
             plan = (root / "_upgrade_plan.md").read_text(encoding="utf-8")
-            self.assertIn("不自动生成任何正式 Markdown 内容", plan)
+            self.assertIn("不允许脚本伪造空模板、通用占位或无依据的正式内容", plan)
+            self.assertIn("当前模型必须继续自动增量补拆", plan)
             self.assertIn("文件缺失清单不等于升级完成", plan)
             self.assertIn("finalize 返回 `ok=true`", plan)
             self.assertIn("写作资产/交流承压拆解.md", plan)
             self.assertIn("写作资产/冲突载体清单.md", plan)
             self.assertIn("过程文件已刷新", plan)
             self.assertIn("内容合同逐项复核", plan)
+            self.assertIn("FS 状态链、KS 知情链、OL 物件生命周期", plan)
+            self.assertIn("每条 SF 已在施工卡和索引中补齐", plan)
+            self.assertIn("## 13. 场景因果资产", plan)
             self.assertIn("profile 重新生成", plan)
+            self.assertIn("仿写无损编译包.json", plan)
+            model_section = plan.split("## 缺失正式产物", 1)[1].split("## 缺失的 finalize 生成物", 1)[0]
+            generated_section = plan.split("## 缺失的 finalize 生成物", 1)[1].split("## 回填执行顺序", 1)[0]
+            self.assertNotIn("仿写无损编译包.json", model_section)
+            self.assertIn("禁止手写", generated_section)
 
             manifest = json.loads((root / "_required_outputs.json").read_text(encoding="utf-8"))
             self.assertIn("交流承压拆解.md", manifest["required"]["asset_files"])
@@ -106,6 +115,27 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertTrue(
                 all("first_write_contract" in lane for lane in parallel_plan["asset_lanes"])
             )
+            node_contract = parallel_plan["foundation_lanes"][1]["first_write_contract"]["files"]["情节节点.md"]
+            self.assertIn("入场前提", node_contract["required_entry_fields"])
+            sensitive_contract = next(
+                lane["first_write_contract"]
+                for lane in parallel_plan["asset_lanes"]
+                if lane["id"] == "sensitive_assets"
+            )
+            subflow_contract = sensitive_contract["files"]["写作资产/子流程索引.jsonl"]
+            self.assertIn("causal_preconditions", subflow_contract["required_fields"])
+
+            execution_prompt = (root / "_execution_prompt.md").read_text(encoding="utf-8")
+            self.assertIn("FS 状态链", execution_prompt)
+            self.assertIn("入场前提 / 行动权限 / 替代方案阻断 / 离场因果", execution_prompt)
+            self.assertIn("causal_preconditions", execution_prompt)
+            self.assertIn("## 13. 场景因果资产", execution_prompt)
+
+            self.assertEqual(
+                "按 _upgrade_plan.md 继续自动增量补拆缺失、过期和缺字段内容；脚本不伪造正式 Markdown 占位",
+                payload["next_step"]["then"],
+            )
+            self.assertTrue(payload["next_step"]["auto_continue_expected"])
 
             progress = (root / "_progress.md").read_text(encoding="utf-8")
             self.assertIn(
@@ -123,6 +153,24 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertEqual("pending_content_review", receipt["upgrade_status"])
             self.assertEqual([], receipt["formal_markdown_sha1s"])
             self.assertEqual(3, len(receipt["upgrade_reviews"]))
+
+            receipt["upgrade_reviews"][0].update(
+                {
+                    "status": "resolved",
+                    "judgement": "这段人工判断不得被重复 prepare 覆盖。",
+                    "evidence": ["_parallel_plan.json"],
+                }
+            )
+            (root / "_finalize_human_review.json").write_text(
+                json.dumps(receipt, ensure_ascii=False), encoding="utf-8"
+            )
+            PREPARE.upgrade_existing(
+                argparse.Namespace(upgrade_existing=str(root), source=None, name=None)
+            )
+            repeated = json.loads(
+                (root / "_finalize_human_review.json").read_text(encoding="utf-8")
+            )
+            self.assertIn("不得被重复", repeated["upgrade_reviews"][0]["judgement"])
 
 
 if __name__ == "__main__":

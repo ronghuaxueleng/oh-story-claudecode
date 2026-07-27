@@ -105,13 +105,35 @@ MAIN_COMPILED_FILES = (
 AUXILIARY_COMPILED_FILES = (
     "book.profile.json",
     "写作资产/profile_source.md",
-    "写作资产/样本分级与可学层.md",
-    "写作资产/作者DNA指纹.md",
-    "写作资产/仿写约束_禁写清单.md",
-    "写作资产/同桥段过检规则.md",
     "写作资产/桥段施工卡.md",
     "写作资产/子流程施工卡.md",
     "写作资产/子流程索引.jsonl",
+)
+
+DIRECT_IMITATION_PACKAGE = "写作资产/仿写无损编译包.json"
+DIRECT_IMITATION_PROFILE_KEYS = (
+    "bridge_rules",
+    "causal_precondition_assets",
+    "scene_assets",
+    "style_assets",
+    "migration_assets",
+    "story_guardrails",
+    "sample_grading",
+    "author_stance_patterns",
+    "banned_phrases",
+    "banned_regex",
+)
+SUBFLOW_CONSUMPTION_FIELDS = (
+    "source_range",
+    "entry_state",
+    "required_sequence",
+    "scene_granularity",
+    "causal_preconditions",
+    "information_delay",
+    "control_changes",
+    "emotion_sequence",
+    "end_state",
+    "source_style_granularity",
 )
 
 
@@ -145,6 +167,12 @@ def discover_full_inventory(root: Path) -> tuple[list[Path], list[str]]:
         and path.suffix.lower() in {".md", ".json", ".jsonl", ".txt"}
         and "bak" not in path.parts
         and "__pycache__" not in path.parts
+        and path.relative_to(root).as_posix() != DIRECT_IMITATION_PACKAGE
+        and not (
+            path.parent == root
+            and path.name.startswith("_")
+            and path.name != "_sample_comparison.md"
+        )
     }
 
     return sorted(discovered, key=lambda path: path.relative_to(root).as_posix()), errors
@@ -158,10 +186,14 @@ def source_originals(root: Path) -> list[Path]:
 
 
 def available_subflow_ids(root: Path) -> set[str]:
+    return set(subflow_index(root))
+
+
+def subflow_index(root: Path) -> dict[str, dict[str, Any]]:
     path = root / "写作资产" / "子流程索引.jsonl"
     if not path.is_file():
-        return set()
-    result: set[str] = set()
+        return {}
+    result: dict[str, dict[str, Any]] = {}
     for raw in read_text(path).splitlines():
         if not raw.strip():
             continue
@@ -170,8 +202,77 @@ def available_subflow_ids(root: Path) -> set[str]:
         except json.JSONDecodeError:
             continue
         if isinstance(item, dict) and str(item.get("subflow_id") or "").strip():
-            result.add(str(item["subflow_id"]).strip())
+            result[str(item["subflow_id"]).strip()] = item
     return result
+
+
+def direct_imitation_package_path(root: Path) -> Path:
+    return root / DIRECT_IMITATION_PACKAGE
+
+
+def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str]]:
+    path = direct_imitation_package_path(root)
+    if not path.is_file():
+        return None, [
+            f"缺少仿写无损编译包: {path}；"
+            "写作阶段禁止临时生成，请回到 story-short-analyze finalize 重新收口"
+        ]
+    try:
+        package = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        return None, [f"仿写编译包不是合法 JSON: {path}: {exc}"]
+    errors: list[str] = []
+    if package.get("kind") != "direct_imitation_semantic_package":
+        errors.append(f"仿写编译包类型错误: {path}")
+    if package.get("version") != "1.1":
+        errors.append(f"仿写编译包版本过期: {path}；必须回到 story-short-analyze finalize 重建为 1.1")
+    original = package.get("original") if isinstance(package, dict) else None
+    originals = source_originals(root)
+    if not isinstance(original, dict) or len(originals) != 1:
+        errors.append(f"仿写编译包缺少完整原文: {path}")
+    elif original.get("sha256") != sha256(originals[0]) or original.get("text") != read_text(originals[0]):
+        errors.append(f"仿写编译包中的完整原文已过期: {path}")
+    indexed = subflow_index(root)
+    packaged_subflows = {
+        str(item.get("subflow_id") or "").strip(): item
+        for item in package.get("subflows", []) if isinstance(item, dict)
+    } if isinstance(package, dict) else {}
+    if packaged_subflows != indexed:
+        errors.append(f"仿写编译包未完整保留 SF 全字段: {path}")
+    for subflow_id, item in indexed.items():
+        missing_fields = [field for field in SUBFLOW_CONSUMPTION_FIELDS if not item.get(field)]
+        if missing_fields:
+            errors.append(f"SF 索引缺少无损编译字段: {subflow_id} -> {', '.join(missing_fields)}")
+    profile_path = root / "book.profile.json"
+    profile = json.loads(read_text(profile_path)) if profile_path.is_file() else {}
+    current_coverage = next(
+        (
+            item for item in profile.get("source_asset_coverage", [])
+            if isinstance(item, dict)
+            and Path(str(item.get("root") or "")).resolve() == root.resolve()
+        ),
+        None,
+    )
+    if package.get("source_asset_manifest") != current_coverage:
+        errors.append(f"仿写编译包来源清单已过期: {path}")
+    bridge_path = root / "写作资产" / "桥段施工卡.md"
+    bridge_cards = package.get("bridge_cards") if isinstance(package, dict) else None
+    if (
+        not isinstance(bridge_cards, dict)
+        or not bridge_path.is_file()
+        or bridge_cards.get("sha256") != sha256(bridge_path)
+        or bridge_cards.get("text") != read_text(bridge_path)
+    ):
+        errors.append(f"仿写编译包 BID 内容已过期: {path}")
+    assets = package.get("profile_assets") if isinstance(package, dict) else None
+    current_assets = {
+        key: profile.get(key) for key in DIRECT_IMITATION_PROFILE_KEYS if key in profile
+    }
+    if assets != current_assets:
+        errors.append(f"仿写编译包缺少承重文风/表演资产: {path}")
+    coverage_errors = validate_profile_coverage(root)
+    errors.extend(coverage_errors)
+    return path if not errors else None, errors
 
 
 def validate_profile_coverage(root: Path) -> list[str]:
@@ -227,7 +328,11 @@ def discover_inventory(
     *,
     role: str = "main",
     inventory_mode: str = "compiled",
+    writing_mode: str = "standard",
 ) -> tuple[list[Path], list[str]]:
+    if writing_mode == "direct_imitation":
+        package, errors = validate_direct_imitation_package(root)
+        return ([package] if package else []), errors
     if inventory_mode == "full":
         return discover_full_inventory(root)
     errors = validate_profile_coverage(root)
@@ -247,22 +352,52 @@ def create_receipt(
     project: str,
     source_dirs: list[Path],
     inventory_mode: str = "compiled",
+    writing_mode: str = "standard",
+    selected_subflows: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
+    if writing_mode not in {"standard", "direct_imitation"}:
+        return {}, [f"writing_mode 无效: {writing_mode!r}"]
     sources: list[dict[str, Any]] = []
     for index, root in enumerate(source_dirs):
         resolved = root.resolve()
         role = "main" if index == 0 else "auxiliary"
+        all_subflows = sorted(available_subflow_ids(resolved))
         inventory, source_errors = discover_inventory(
-            resolved, role=role, inventory_mode=inventory_mode
+            resolved, role=role, inventory_mode=inventory_mode, writing_mode=writing_mode
         )
         errors.extend(source_errors)
+        selected_ids = (
+            all_subflows
+            if writing_mode == "direct_imitation" and role == "main"
+            else sorted((selected_subflows or {}).get(resolved.name, set()))
+        )
+        unknown_ids = sorted(set(selected_ids) - set(all_subflows))
+        if unknown_ids:
+            errors.append(
+                f"辅助来源选中了不存在的 SF: {resolved} -> " + ", ".join(unknown_ids)
+            )
+        indexed_subflows = subflow_index(resolved)
+        contracts = []
+        if writing_mode == "direct_imitation":
+            for subflow_id in selected_ids:
+                indexed = indexed_subflows.get(subflow_id)
+                if not indexed:
+                    continue
+                contract = {"subflow_id": subflow_id}
+                for field in SUBFLOW_CONSUMPTION_FIELDS:
+                    contract[field] = indexed.get(field)
+                contract["source_evidence"] = indexed.get("source_evidence", [])
+                contracts.append(contract)
         sources.append(
             {
                 "name": resolved.name,
                 "role": role,
                 "root": str(resolved),
-                "selected_subflow_ids": [],
+                # The primary source is not a pick-list in direct imitation:
+                # every extracted subflow must be explicitly accounted for.
+                "selected_subflow_ids": selected_ids,
+                "selected_subflow_contracts": contracts,
                 "files": [
                     {
                         "path": path.relative_to(resolved).as_posix(),
@@ -280,6 +415,7 @@ def create_receipt(
     receipt = {
         "version": "1.1",
         "inventory_mode": inventory_mode,
+        "writing_mode": writing_mode,
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -315,26 +451,33 @@ def validate_receipt(
         errors.append("confirmed_before_draft 必须为 true")
     if len(sources) > 1 and not nonempty_strings(data.get("cross_source_decisions")):
         errors.append("融合写作必须填写 cross_source_decisions")
+    writing_mode = str(data.get("writing_mode") or "standard")
+    inventory_mode = str(data.get("inventory_mode") or "full")
+    if writing_mode not in {"standard", "direct_imitation"}:
+        errors.append(f"writing_mode 无效: {writing_mode!r}")
 
     total_files = 0
     read_files = 0
     for source_index, source in enumerate(sources, start=1):
         root = Path(str(source.get("root") or "")).resolve()
         role = str(source.get("role") or ("main" if source_index == 1 else "auxiliary"))
-        inventory_mode = str(data.get("inventory_mode") or "full")
         inventory, inventory_errors = discover_inventory(
-            root, role=role, inventory_mode=inventory_mode
+            root, role=role, inventory_mode=inventory_mode, writing_mode=writing_mode
         )
         errors.extend(inventory_errors)
         selected_subflows: set[str] = set()
-        if role == "auxiliary" and inventory_mode == "compiled":
+        requires_subflow_selection = writing_mode == "direct_imitation" or (
+            role == "auxiliary" and inventory_mode == "compiled"
+        )
+        if requires_subflow_selection:
             selected_subflows = set(nonempty_strings(source.get("selected_subflow_ids")))
             if not selected_subflows:
                 errors.append(
-                    f"sources[{source_index}] 辅助来源必须填写 selected_subflow_ids"
+                    f"sources[{source_index}] {'主体' if role == 'main' else '辅助'}来源必须填写 selected_subflow_ids"
                 )
             else:
-                unknown = sorted(selected_subflows - available_subflow_ids(root))
+                indexed_subflows = subflow_index(root)
+                unknown = sorted(selected_subflows - set(indexed_subflows))
                 if unknown:
                     errors.append(
                         f"sources[{source_index}] selected_subflow_ids 不在子流程索引中: "
@@ -358,18 +501,57 @@ def validate_receipt(
             errors.append(f"读取回执含过期文件项: {root / relative}")
 
         if selected_subflows:
-            for relative in (
-                "写作资产/子流程施工卡.md",
-                "写作资产/子流程索引.jsonl",
-            ):
+            if writing_mode == "direct_imitation" and role == "main":
+                missing_primary = sorted(set(subflow_index(root)) - selected_subflows)
+                if missing_primary:
+                    errors.append(
+                        f"直接仿写主体来源不得省略 SF: {root} -> " + ", ".join(missing_primary)
+                    )
+            evidence_files = (
+                (DIRECT_IMITATION_PACKAGE,)
+                if writing_mode == "direct_imitation"
+                else ("写作资产/子流程施工卡.md", "写作资产/子流程索引.jsonl")
+            )
+            for relative in evidence_files:
                 entry = actual.get(relative)
                 evidence_terms = set(nonempty_strings(entry.get("evidence_terms"))) if entry else set()
                 missing_evidence = sorted(selected_subflows - evidence_terms)
                 if missing_evidence:
                     errors.append(
-                        f"辅助子流程缺少读取证据: {root / relative} -> "
+                        f"子流程缺少读取证据: {root / relative} -> "
                         + ", ".join(missing_evidence)
                     )
+            if writing_mode == "direct_imitation":
+                contracts = source.get("selected_subflow_contracts")
+                if not isinstance(contracts, list):
+                    errors.append(f"sources[{source_index}].selected_subflow_contracts 必须是列表")
+                    contracts = []
+                by_id = {
+                    str(item.get("subflow_id") or "").strip(): item
+                    for item in contracts
+                    if isinstance(item, dict) and str(item.get("subflow_id") or "").strip()
+                }
+                missing_contracts = sorted(selected_subflows - set(by_id))
+                extra_contracts = sorted(set(by_id) - selected_subflows)
+                if missing_contracts:
+                    errors.append(f"选中 SF 缺少完整消费契约: {root} -> " + ", ".join(missing_contracts))
+                if extra_contracts:
+                    errors.append(f"SF 消费契约含未选子流程: {root} -> " + ", ".join(extra_contracts))
+                original_paths = source_originals(root)
+                original_text = read_text(original_paths[0]) if len(original_paths) == 1 else ""
+                for subflow_id in sorted(selected_subflows & set(by_id)):
+                    contract = by_id[subflow_id]
+                    indexed = subflow_index(root).get(subflow_id, {})
+                    label = f"sources[{source_index}].selected_subflow_contracts[{subflow_id}]"
+                    for field in SUBFLOW_CONSUMPTION_FIELDS:
+                        if contract.get(field) != indexed.get(field):
+                            errors.append(f"{label}.{field} 必须逐字段等同子流程索引，禁止只摘取零件")
+                    evidence = nonempty_strings(contract.get("source_evidence"))
+                    required_evidence = nonempty_strings(indexed.get("source_evidence"))
+                    if set(evidence) != set(required_evidence):
+                        errors.append(f"{label}.source_evidence 必须覆盖该 SF 的全部索引原文证据")
+                    elif any(term not in original_text for term in evidence):
+                        errors.append(f"{label}.source_evidence 不在完整原文中")
 
         for relative, path in expected.items():
             total_files += 1
@@ -422,6 +604,19 @@ def main() -> int:
     init_parser.add_argument(
         "--inventory-mode", choices=("compiled", "full"), default="compiled"
     )
+    init_parser.add_argument(
+        "--writing-mode",
+        choices=("standard", "direct_imitation"),
+        default="standard",
+        help="直接仿写读取单份无损语义包，并逐条锁定主体全部 SF 与辅助已选 SF。",
+    )
+    init_parser.add_argument(
+        "--select-subflow",
+        action="append",
+        default=[],
+        metavar="SOURCE=SF-ID",
+        help="直接仿写时预选辅助来源完整子流程；可重复传入。",
+    )
     init_parser.add_argument("--force", action="store_true")
 
     validate_parser = subparsers.add_parser("validate", help="校验读取回执")
@@ -439,11 +634,24 @@ def main() -> int:
         if receipt_path.exists() and not args.force:
             print(f"读取回执已存在，拒绝覆盖: {receipt_path}")
             return 2
+        selected_subflows: dict[str, set[str]] = {}
+        selection_errors: list[str] = []
+        for raw in args.select_subflow:
+            source_name, separator, subflow_id = raw.partition("=")
+            source_name = source_name.strip()
+            subflow_id = subflow_id.strip()
+            if not separator or not source_name or not subflow_id:
+                selection_errors.append(f"--select-subflow 格式必须为 SOURCE=SF-ID: {raw!r}")
+                continue
+            selected_subflows.setdefault(source_name, set()).add(subflow_id)
         receipt, errors = create_receipt(
             args.project,
             [Path(raw) for raw in args.source_dir],
             args.inventory_mode,
+            args.writing_mode,
+            selected_subflows,
         )
+        errors = [*selection_errors, *errors]
         if errors:
             print("source_read_gate: blocked")
             for error in errors:

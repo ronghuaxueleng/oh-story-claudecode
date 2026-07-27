@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -44,12 +45,16 @@ class WriteReleaseGateTest(unittest.TestCase):
         )
         self.original_validate_writing_receipt = GATE._WRITING_RULE_MODULE.validate_receipt
         self.original_validate_source_receipt = GATE._SOURCE_READ_MODULE.validate_receipt
+        self.original_validate_capacity_contract = GATE._DRAFT_CAPACITY_MODULE.validate
         self.original_validate_opening_receipt = GATE._OPENING_CONTRACT_MODULE.validate_receipt
+        self.original_validate_section_bundle = GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle
         GATE._RULE_LEDGER_MODULE.validate_ledger = lambda _path: ([], {})
         GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = lambda _path: []
         GATE._WRITING_RULE_MODULE.validate_receipt = lambda _path: ([], {})
         GATE._SOURCE_READ_MODULE.validate_receipt = lambda _path: ([], {})
+        GATE._DRAFT_CAPACITY_MODULE.validate = lambda _path: []
         GATE._OPENING_CONTRACT_MODULE.validate_receipt = lambda *_args: ([], {})
+        GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle = lambda _path: []
         self.setting = self.root / "设定.md"
         self.outline = self.root / "大纲.md"
         self.setting.write_text("设定", encoding="utf-8")
@@ -77,6 +82,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             "profile",
             "sequence",
             "setting_sequence",
+            "section_bundle",
         ):
             path = self.root / f"{name}.json"
             payload = {"gate_status": "passed"}
@@ -130,6 +136,32 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "gate_status": "passed",
                     "primary_source": {"path": str(self.source_original.resolve())},
                     "target_text": {"path": str(self.outline.resolve())},
+                }
+            elif name == "section_bundle":
+                payload = {
+                    "gate": "section_source_bundle",
+                    "gate_status": "passed",
+                    "outline_contract": {"path": str(self.files["outline_contract"].resolve()), "sha256": "x"},
+                    "source_receipt": {"path": str(self.files["source"].resolve()), "sha256": "y"},
+                    "section_packet_ids": ["section-1"],
+                    "packets": [
+                        {
+                            "packet_id": "section-1",
+                            "section_id": "1",
+                            "packet_sha256": "z",
+                            "payload": {
+                                "source_slice_bindings": [
+                                    {
+                                        "source_path": str(self.source_original.resolve()),
+                                        "source_sha256": hashlib.sha256(self.source_original.read_bytes()).hexdigest(),
+                                        "source_range": "L1-L1",
+                                        "source_evidence": ["原文"],
+                                        "style_fields_consumed": ["a", "b", "c", "d", "e", "f"],
+                                    }
+                                ]
+                            },
+                        }
+                    ],
                 }
             path.write_text(
                 json.dumps(payload),
@@ -299,6 +331,22 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "adaptation_boundary": "只迁移情绪结构，不复制人物与原句。",
                 },
                 "first_draft_generation_contract": {
+                    "source_slice_bindings": [
+                        {
+                            "source_path": source_path,
+                            "source_sha256": source_sha,
+                            "source_range": "L1-L1",
+                            "source_evidence": ["原文场面", "原文动作"],
+                            "style_fields_consumed": [
+                                "narrative_voice_and_attitude",
+                                "sentence_relation_and_rhythm",
+                                "paragraph_breath_and_cut_points",
+                                "dialogue_misfire_or_avoidance",
+                                "action_perception_emotion_weave",
+                                "narrator_interjection_and_roughness",
+                            ],
+                        }
+                    ],
                     "source_performance_excerpt": "原文场面",
                     "source_performance_evidence": ["原文动作", "原文余痛"],
                     "source_excerpt_reuse_reason": "",
@@ -374,7 +422,9 @@ class WriteReleaseGateTest(unittest.TestCase):
         )
         GATE._WRITING_RULE_MODULE.validate_receipt = self.original_validate_writing_receipt
         GATE._SOURCE_READ_MODULE.validate_receipt = self.original_validate_source_receipt
+        GATE._DRAFT_CAPACITY_MODULE.validate = self.original_validate_capacity_contract
         GATE._OPENING_CONTRACT_MODULE.validate_receipt = self.original_validate_opening_receipt
+        GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle = self.original_validate_section_bundle
         self.temp_dir.cleanup()
 
     def test_blocked_ledger_blocks_draft(self) -> None:
@@ -391,6 +441,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("规则执行门禁未通过" in item for item in errors))
 
@@ -408,6 +460,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("重新校验失败" in item for item in errors))
         self.assertTrue(any("skill 规则源已变化" in item for item in errors))
@@ -425,6 +479,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("未完成写前分类与执行计划" in item for item in errors))
         self.assertTrue(any("缺少 canonical_rule_text" in item for item in errors))
@@ -443,6 +499,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("拆文读取回执实时复验失败" in item for item in errors))
         self.assertTrue(any("覆盖清单已过期" in item for item in errors))
@@ -457,6 +515,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.assertTrue(any("开头承重契约" in item for item in errors))
         self.assertTrue(any("细纲表演验收" in item for item in errors))
         self.assertTrue(any("profile" in item for item in errors))
+        self.assertTrue(any("逐节原文颗粒包" in item for item in errors))
 
     def test_all_preconditions_pass(self) -> None:
         errors = GATE.validate_release(
@@ -468,6 +527,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertEqual([], errors)
 
@@ -480,6 +541,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             opening_contract=self.files["opening"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("细纲表演验收" in item for item in errors))
 
@@ -500,6 +563,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("matched/adapted" in item for item in errors))
 
@@ -521,6 +586,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
         )
         self.assertTrue(any("不得设置固定短句" in item for item in errors))
 

@@ -3204,11 +3204,18 @@ def build_source_asset_coverage(sources: list[Path]) -> list[dict[str, object]]:
         for path in sorted(resolved.rglob("*")):
             if not path.is_file() or path.suffix.lower() not in {".md", ".json", ".jsonl", ".txt"}:
                 continue
-            if path.name == "book.profile.json" or "bak" in path.parts or "__pycache__" in path.parts:
+            relative = path.relative_to(resolved).as_posix()
+            if (
+                path.name == "book.profile.json"
+                or relative == "写作资产/仿写无损编译包.json"
+                or (path.parent == resolved and path.name.startswith("_") and path.name != "_sample_comparison.md")
+                or "bak" in path.parts
+                or "__pycache__" in path.parts
+            ):
                 continue
             files.append(
                 {
-                    "path": path.relative_to(resolved).as_posix(),
+                    "path": relative,
                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 }
             )

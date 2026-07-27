@@ -212,6 +212,22 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "adaptation_boundary": "只迁移情绪顺序和烈度，不复制人物与原句。",
             }
             section["first_draft_generation_contract"] = {
+                "source_slice_bindings": [
+                    {
+                        "source_path": source_path,
+                        "source_sha256": source_sha,
+                        "source_range": "L1-L1",
+                        "source_evidence": ["原文场面", "原文动作"],
+                        "style_fields_consumed": [
+                            "narrative_voice_and_attitude",
+                            "sentence_relation_and_rhythm",
+                            "paragraph_breath_and_cut_points",
+                            "dialogue_misfire_or_avoidance",
+                            "action_perception_emotion_weave",
+                            "narrator_interjection_and_roughness",
+                        ],
+                    }
+                ],
                 "source_performance_excerpt": "原文场面",
                 "source_performance_evidence": ["原文动作", "原文余痛"],
                 "source_excerpt_reuse_reason": (
@@ -470,6 +486,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.assertTrue(any("连续复用泛化模板" in error for error in errors))
         self.assertTrue(any("连续复用同一句" in error for error in errors))
         self.assertTrue(any("情绪流程连续复用" in error for error in errors))
+        self.assertTrue(any("首写生成契约字段" in error for error in errors))
 
     def test_missing_source_bridge_parity_blocks(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

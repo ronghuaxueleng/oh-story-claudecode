@@ -17,6 +17,16 @@ assert SPEC and SPEC.loader
 GATE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GATE)
 
+ENTRY_SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "validate_first_draft_entry.py"
+)
+ENTRY_SPEC = importlib.util.spec_from_file_location("first_draft_entry", ENTRY_SCRIPT)
+assert ENTRY_SPEC and ENTRY_SPEC.loader
+ENTRY = importlib.util.module_from_spec(ENTRY_SPEC)
+ENTRY_SPEC.loader.exec_module(ENTRY)
+
 
 class FirstDraftBasicReviewTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -25,6 +35,8 @@ class FirstDraftBasicReviewTest(unittest.TestCase):
         self.draft = self.root / "正文.md"
         self.receipt = self.root / "写作资产" / "首稿基础审计回执.json"
         self.source = self.root / "拆文库" / "主体" / "原文.txt"
+        self.section_execution = self.root / "写作资产" / "逐节首写执行回执.json"
+        self.draft_entry = self.root / "写作资产" / "首稿入口回执.json"
         self.source.parent.mkdir(parents=True)
         self.source.write_text(
             "她看着那把钥匙，原本想问，话到嘴边却换成了别的。\n"
@@ -36,15 +48,52 @@ class FirstDraftBasicReviewTest(unittest.TestCase):
             "钥匙交出去以后，她掌心还留着一道红痕。\n",
             encoding="utf-8",
         )
+        self.section_execution.parent.mkdir(parents=True, exist_ok=True)
+        self.section_execution.write_text(
+            json.dumps(
+                {
+                    "gate_status": "passed",
+                    "final_draft_sha256": GATE.sha256(self.draft),
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.draft_entry.write_text(
+            json.dumps(
+                {
+                    "gate": "first_draft_entry",
+                    "gate_status": "passed",
+                    "draft_path": str(self.draft.resolve()),
+                    "section_execution_receipt_path": str(self.section_execution.resolve()),
+                    "writing_receipt": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "source_receipt": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "ledger": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "opening_contract": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "outline_contract": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "profile": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "sequence_receipt": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "draft_capacity_contract": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                    "section_source_bundle": {"path": str(self.source.resolve()), "sha256": GATE.sha256(self.source)},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.original_entry_validate = GATE._DRAFT_ENTRY_MODULE.validate_entry
+        GATE._DRAFT_ENTRY_MODULE.validate_entry = lambda _receipt, _draft=None: []
         GATE.init_receipt(
             self.draft,
             self.receipt,
             force=False,
             imitation_mode=True,
             source_paths=[self.source],
+            section_execution_receipt=self.section_execution,
+            draft_entry_receipt=self.draft_entry,
         )
 
     def tearDown(self) -> None:
+        GATE._DRAFT_ENTRY_MODULE.validate_entry = self.original_entry_validate
         self.temp.cleanup()
 
     def passed_receipt(self) -> dict:
@@ -82,6 +131,19 @@ class FirstDraftBasicReviewTest(unittest.TestCase):
         data["gate_status"] = "passed"
         return data
 
+    def test_imitation_mode_requires_draft_entry_receipt(self) -> None:
+        other = self.root / "写作资产" / "另一份回执.json"
+        result = GATE.init_receipt(
+            self.draft,
+            other,
+            force=False,
+            imitation_mode=True,
+            source_paths=[self.source],
+            section_execution_receipt=self.section_execution,
+            draft_entry_receipt=None,
+        )
+        self.assertEqual(2, result)
+
     def test_complete_review_passes(self) -> None:
         data = self.passed_receipt()
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
@@ -107,6 +169,10 @@ class FirstDraftBasicReviewTest(unittest.TestCase):
             encoding="utf-8",
         )
         data["draft"]["sha256"] = GATE.sha256(self.draft)
+        execution = json.loads(self.section_execution.read_text(encoding="utf-8"))
+        execution["final_draft_sha256"] = GATE.sha256(self.draft)
+        self.section_execution.write_text(json.dumps(execution), encoding="utf-8")
+        data["section_execution_receipt"] = GATE.source_binding(self.section_execution)
         for item in data["review_items"]:
             item["draft_evidence"] = ["她本来想问为什么。看见钥匙，她改了口。"]
         data["revision_blocks"] = [

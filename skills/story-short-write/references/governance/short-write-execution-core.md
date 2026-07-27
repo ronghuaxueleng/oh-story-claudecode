@@ -96,7 +96,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger`，再逐节验证原文表演机制、场景因果前提、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据；同时逐节填完 `scene_logic_contract` 与 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
-20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`；每写一节前重读该节至少两处原文表演证据和生成契约，写完当场停检并处理电报文、情感压缩和句间断裂，再进入下一节
+20. 先运行 `build_section_source_bundle.py` 生成 `逐节原文颗粒包.json`，再运行 `validate_first_draft_entry.py init` 作为正文首稿唯一入口；该入口会实时复验 `validate_write_release_gate.py draft` 并初始化 `validate_section_draft_execution.py`。正文目标文件已有内容、已出现数字小节、缺逐节颗粒包或任一放行回执失效时，入口直接阻断。每节先 `open-section`，装载该节颗粒包后重读全部 `source_slice_bindings` 和生成契约，只写当前节，再 `close-section` 完成事件、情绪、文风和气口停检；未关闭不得进入下一节
 21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，再绑定修改后的正文 SHA
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
 23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
@@ -121,6 +121,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
 - `first_draft_generation_contract` 是正文生成输入，不是写后审计；必须在每节第一稿就完成原文同级情感过程、连续气口和句间关系，不得把它们推给后续去味或润色
 - 强情绪节必须用多处真实原文证据支撑不同情绪拍；同一句证据包办整节，或相邻小节无理由复用同一摘录，均视为没有真实消费原文颗粒度
+- 未同时通过 `source_read_gate(direct_imitation)`、`outline_performance_contract`、`draft_capacity_contract`、`first_draft_entry` 与 `section_draft_execution` 时，不得宣称“首稿已经按原文颗粒度完成”；这类产物只能记为测试稿或未过门禁草稿
+- 逐节原文颗粒包是正文生成输入，不是审计附属文件；没有它时，说明当前执行链还没把原文表演/文风颗粒真正装载到正文首写步骤
+- `first_draft_entry` 是防止人工直写绕闸的唯一入口：它必须在正文落笔前创建，后续 `first_draft_basic_review` 和 `draft_preview` 都要反查该入口。正文已经写完再补入口，一律失败
 - `draft_preview` 是合法停靠态，不是完整流程完成态；它只证明首稿已完成基础审计和必要的基础回修。用户明确确认前，深审链必须保持未执行
 - 原文全量审计基线可以在用户确认深审后运行，但任何更早发生的仿写正文修改都必须先建立区块级原文颗粒基线；不得用“尚未进入深审”豁免回读原文
 - 用户要求“借颗粒度、自造情节”时，细纲表演验收使用 `source_mode: granularity_only`：不强迫主体 BID 全集迁移，但必须用 `granularity_transfer_contract` 覆盖全部目标小节，并逐场证明事件拍密度、信息延迟、控制权变化与原文同级，同时列明拒绝复制的表层元素
@@ -351,6 +354,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --source-dir "拆文库/{主体书}" \
   --source-dir "拆文库/{辅助书}" \
   --inventory-mode compiled \
+  --writing-mode direct_imitation \
   --receipt "{项目目录}/写作资产/拆文读取回执.json"
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
@@ -360,7 +364,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --output "{项目目录}/正文.md"
 ```
 
-初始化后，必须为每个 `role=auxiliary` 来源填写 `selected_subflow_ids`。若 profile 的全量覆盖清单与当前正式资产任一 SHA 不一致，默认编译模式必须阻断。
+同桥/主干/融合仿写必须使用 `--writing-mode direct_imitation`；它只读取由 `story-short-analyze` finalize 预先生成的、含完整原文、全量主体 SF、已选辅助 SF 与承重风格资产的无损语义编译包，而不是读取 SHA 清单。初始化后，必须为每个 `role=auxiliary` 来源填写 `selected_subflow_ids`。包缺失、过期，或 profile 的全量覆盖清单与当前正式资产任一 SHA 不一致时，必须阻断并返回拆书 finalize；写作阶段不得生成或刷新编译包。
 
 ### 3. 初始化、绑定并校验规则执行台账
 
@@ -465,6 +469,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic
   --draft "正文.md" \
   --receipt "写作资产/首稿基础审计回执.json" \
   --imitation-mode \
+  --draft-entry-receipt "写作资产/首稿入口回执.json" \
+  --section-execution-receipt "写作资产/逐节首写执行回执.json" \
   --source "拆文库/{主体书名}/原文/{原文文件}.txt"
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic_review.py" validate \

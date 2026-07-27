@@ -1289,7 +1289,7 @@ ALLOWED_PLAN_FIELDS = {
 
 
 def iter_plan_entries(data: dict[str, Any], scope: str) -> Iterable[dict[str, Any]]:
-    if scope in {"skill_rules", "all_rules"}:
+    if scope in {"skill_rules", "all_rules", "all_entries"}:
         for entry in data.get("skill_rules", []):
             if isinstance(entry, dict):
                 yield entry

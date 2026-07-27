@@ -70,6 +70,22 @@ assert _OPENING_CONTRACT_SPEC and _OPENING_CONTRACT_SPEC.loader
 _OPENING_CONTRACT_MODULE = importlib.util.module_from_spec(_OPENING_CONTRACT_SPEC)
 _OPENING_CONTRACT_SPEC.loader.exec_module(_OPENING_CONTRACT_MODULE)
 
+_DRAFT_CAPACITY_GATE_PATH = Path(__file__).with_name("validate_draft_capacity_contract.py")
+_DRAFT_CAPACITY_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_draft_capacity_contract", _DRAFT_CAPACITY_GATE_PATH
+)
+assert _DRAFT_CAPACITY_SPEC and _DRAFT_CAPACITY_SPEC.loader
+_DRAFT_CAPACITY_MODULE = importlib.util.module_from_spec(_DRAFT_CAPACITY_SPEC)
+_DRAFT_CAPACITY_SPEC.loader.exec_module(_DRAFT_CAPACITY_MODULE)
+
+_SECTION_SOURCE_BUNDLE_PATH = Path(__file__).with_name("build_section_source_bundle.py")
+_SECTION_SOURCE_BUNDLE_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_section_source_bundle", _SECTION_SOURCE_BUNDLE_PATH
+)
+assert _SECTION_SOURCE_BUNDLE_SPEC and _SECTION_SOURCE_BUNDLE_SPEC.loader
+_SECTION_SOURCE_BUNDLE_MODULE = importlib.util.module_from_spec(_SECTION_SOURCE_BUNDLE_SPEC)
+_SECTION_SOURCE_BUNDLE_SPEC.loader.exec_module(_SECTION_SOURCE_BUNDLE_MODULE)
+
 
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
     if not path.is_file():
@@ -184,6 +200,8 @@ def validate_release(
     profile: Path | None = None,
     sequence_receipt: Path | None = None,
     setting_sequence_receipt: Path | None = None,
+    draft_capacity_contract: Path | None = None,
+    section_source_bundle: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
     writing_data = load_json(writing_receipt, "写作规则读取回执", errors)
@@ -250,6 +268,22 @@ def validate_release(
                             )
                         )
     if phase == "draft":
+        if draft_capacity_contract is None:
+            errors.append("正文写作放行必须提供首写容量契约")
+        else:
+            capacity_errors = _DRAFT_CAPACITY_MODULE.validate(draft_capacity_contract)
+            if capacity_errors:
+                errors.append("首写容量契约未通过")
+                errors.extend(capacity_errors)
+        if section_source_bundle is None:
+            errors.append("正文写作放行必须提供逐节原文颗粒包")
+        else:
+            bundle_errors = _SECTION_SOURCE_BUNDLE_MODULE.validate_bundle(
+                section_source_bundle
+            )
+            if bundle_errors:
+                errors.append("逐节原文颗粒包未通过")
+                errors.extend(bundle_errors)
         if sequence_receipt is None:
             errors.append("正文写作放行必须提供设定—大纲—正文顺序契约回执")
         else:
@@ -350,6 +384,8 @@ def main() -> int:
     parser.add_argument("--profile")
     parser.add_argument("--sequence-receipt")
     parser.add_argument("--setting-sequence-receipt")
+    parser.add_argument("--draft-capacity-contract")
+    parser.add_argument("--section-source-bundle")
     args = parser.parse_args()
 
     errors = validate_release(
@@ -363,6 +399,12 @@ def main() -> int:
         Path(args.sequence_receipt).resolve() if args.sequence_receipt else None,
         Path(args.setting_sequence_receipt).resolve()
         if args.setting_sequence_receipt
+        else None,
+        Path(args.draft_capacity_contract).resolve()
+        if args.draft_capacity_contract
+        else None,
+        Path(args.section_source_bundle).resolve()
+        if args.section_source_bundle
         else None,
     )
     if errors:
