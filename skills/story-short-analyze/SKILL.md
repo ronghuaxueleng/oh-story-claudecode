@@ -124,6 +124,9 @@ description: |
 - finalize 只允许生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 和执行验证，不允许修改任何 Markdown 正式产物
 - 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
 - `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；脚本不得空壳补文件，但主流程不能停在扫描结果，当前模型必须按原文、模板和样本自动继续增量补拆缺失、过期和缺字段内容
+- `--upgrade-existing` 会自动运行 `complete_upgrade_existing.py`。若发现逐 SF 文风缺失、不完整、证据越界、命中旧模板或跨 3 个以上 SF 重复分析，必须生成 `_style_reanalysis_tasks.json`；任务必须携带 `source_range`、原文绝对路径和精确 `source_excerpt`，不得携带脚本生成的文风结论。
+- `_style_reanalysis_tasks.json` 一旦存在，当前模型必须在本轮自动逐 SF 重读切片，独立重写 `子流程索引.jsonl.source_style_granularity` 六项及范围内证据；不得停下来汇报待办、等待用户再次提醒，也不得依据事件字段或旧 analysis 改写模板句。脚本只负责发现、分派和验证，模型负责真实语义拆解。
+- 写回后立即重跑 `complete_upgrade_existing.py`；只有返回 `ready_for_finalize` 且任务文件自动清除，才能依次同步人工复核清单、完成实际语义裁决并运行 `run_short_analyze_finalize.py`。finalize 仍报错时继续处理责任资产，不得把扫描、任务生成或 profile 重生单独视为完成。
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 的文件缺失，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成
 - 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、逐 BID 情绪贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
 - finalize 返回的 `errors[]` 必须逐条补齐，包括全局成文形状审计、profile_source 资产不足、book.profile 派生不足等新版门禁；只有 `ok=true / status=ready-for-write / error_count=0` 才能汇报完成

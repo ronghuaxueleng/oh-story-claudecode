@@ -364,7 +364,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --output "{项目目录}/正文.md"
 ```
 
-同桥/主干/融合仿写必须使用 `--writing-mode direct_imitation`；它只读取由 `story-short-analyze` finalize 预先生成的、含完整原文、全量主体 SF、已选辅助 SF 与承重风格资产的无损语义编译包，而不是读取 SHA 清单。初始化后，必须为每个 `role=auxiliary` 来源填写 `selected_subflow_ids`。包缺失、过期，或 profile 的全量覆盖清单与当前正式资产任一 SHA 不一致时，必须阻断并返回拆书 finalize；写作阶段不得生成或刷新编译包。
+`--writing-mode` 默认 `direct_imitation`，即同桥/主干/融合仿写的主体全量 SF 与辅助已选 SF 消费链；只有完全原创任务才能显式选择 `standard`。直接仿写只读取由 `story-short-analyze` finalize 预先生成的、含完整原文、全量主体 SF、已选辅助 SF 与承重风格资产的无损语义编译包，而不是读取 SHA 清单。初始化后，必须为每个 `role=auxiliary` 来源填写 `selected_subflow_ids`。包缺失、过期，或 profile 的全量覆盖清单与当前正式资产任一 SHA 不一致时，必须阻断并返回拆书 finalize；写作阶段不得生成或刷新编译包。
 
 ### 3. 初始化、绑定并校验规则执行台账
 

@@ -32,9 +32,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --receipt "项目目录/写作资产/拆文读取回执.json"
 ```
 
-第一个 `--source-dir` 固定是主体，后续均为辅助。直接仿写时用可重复的 `--select-subflow "来源目录名=SF-ID"` 预选辅助完整子流程。初始化会从索引机械预填全部必须逐字段等同的消费契约，只把 `source_style_granularity` 留给当前写作模型逐条实读后人工填写。`--inventory-mode full` 只用于诊断旧资料或覆盖异常，不是默认写作路径。
+第一个 `--source-dir` 固定是主体，后续均为辅助。`--writing-mode` 默认 `direct_imitation`，即主体全量 SF 与辅助已选 SF 的融合仿写；完全原创任务才允许显式传入 `standard`。直接仿写时用可重复的 `--select-subflow "来源目录名=SF-ID"` 预选辅助完整子流程。初始化会从索引机械预填全部必须逐字段等同的消费契约，`source_style_granularity` 也必须原样继承上游逐 SF 分析和切片证据，禁止在写作阶段用通用口号补填。`--inventory-mode full` 只用于诊断旧资料或覆盖异常，不是默认写作路径。
 
-同桥/主干/融合仿写必须额外传入 `--writing-mode direct_imitation`，仍使用 `--inventory-mode compiled`。`写作资产/仿写无损编译包.json` 必须已经由 `story-short-analyze` finalize 生成：完整原文只保留一份，主体全量 SF 与每本书的 BID、因果、情绪、表演和文风资产均为包内真实内容；辅助只允许从包中消费已选 SF 的全部字段。写作门禁只读、只校验，包缺失或任一来源资产失配时必须阻断并返回拆书 finalize；不得在写作阶段重生成，不得退化为逐文件全读，更不得用 profile 的 SHA 清单替代包内容。
+同桥/主干/融合仿写使用默认 `direct_imitation`，仍使用 `--inventory-mode compiled`。`写作资产/仿写无损编译包.json` 必须已经由 `story-short-analyze` finalize 生成：完整原文只保留一份，主体全量 SF 与每本书的 BID、因果、情绪、表演和文风资产均为包内真实内容；辅助只允许从包中消费已选 SF 的全部字段。写作门禁只读、只校验，包缺失或任一来源资产失配时必须阻断并返回拆书 finalize；不得在写作阶段重生成，不得退化为逐文件全读，更不得用 profile 的 SHA 清单替代包内容。
 
 直接仿写时，语义包文件的 `evidence_terms` 必须逐一包含该来源要求消费的 `SF-*`；标准编译模式仍检查 `子流程施工卡.md` 与 `子流程索引.jsonl`。只在 `selected_subflow_ids` 里填 ID，没有包内读取证据和逐字段消费契约，门禁仍然阻断。
 

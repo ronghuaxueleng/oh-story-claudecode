@@ -73,6 +73,8 @@
 
 ## 收口规则
 
+历史增量目录在收口前必须先运行 `complete_upgrade_existing.py`。若产出 `_style_reanalysis_tasks.json`，当前模型必须自动逐 SF 重读其中的精确原文切片，真实重写六项文风颗粒并复验；不得让脚本按事件字段拼 analysis，也不得停在待办清单。只有检查器返回 `ready_for_finalize` 且任务文件已清除，才进入下面的同步复核与 finalize。
+
 最后固定运行：
 
 ```bash

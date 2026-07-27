@@ -231,6 +231,7 @@ metadata:
 116. **首写生成契约不得跨节套模板**：三节及以上复用相同的矛盾冲动、注意漂移、说话失手、连续瞬间分组、断段理由、句间计划、虚词策略、情绪禁例或落点计划，视为未逐节读取原文，细纲表演闸必须失败。只替换物件名、目标权力名或节号仍算同一模板。
 117. **没有逐节证据链，不得声称“已按原文颗粒度首写”**：仿写任务只有同时满足以下条件，才允许在项目内或对外声称“正文首稿已经按原文颗粒度完成”：`拆文读取回执 passed（direct_imitation）`、`细纲表演验收回执 passed`、`首写容量契约回执 passed`、`首稿入口回执 passed`、`逐节首写执行回执 passed`，且每节都绑定主体原文切片与全部选中辅助 SF 切片。缺任一项，必须明确定性为“未按 skill 完整颗粒链执行的草稿/测试稿”，禁止用“已经参考原文颗粒度”或“效果上等同”代替。
 118. **仿写正文必须先编译逐节原文颗粒包**：通过 `outline_performance_contract` 后、正文放行前，必须先运行 `build_section_source_bundle.py`，把每节 `source_slice_bindings / source_performance_excerpt / emotion_process / scene_logic_contract / source_emotion_parity / sentence_relation_plan` 编译成 `逐节原文颗粒包.json`。正文放行、首稿入口和 `open-section` 都只认这个颗粒包；没有颗粒包或颗粒包 SHA 失效时，不得开任何一节。
+119. **默认融合仿写，原创必须显式降级**：新书初始化读取回执默认 `direct_imitation`，即主体全量 SF 加辅助已选 SF 的融合仿写；用户提出“仿写、同桥、主干参照、融合参照、完全参照原文、按原文颗粒度/文风颗粒度写”时不得改为 `standard`。只有用户明确要求完全原创且不迁移原文桥段或文风颗粒，才可显式传入 `--writing-mode standard`。旧回执缺少 `writing_mode`，或将上述任务标为 `standard`，均不得写设定、大纲或正文。
 
 ---
 
