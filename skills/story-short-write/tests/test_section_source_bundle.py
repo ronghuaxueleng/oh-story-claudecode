@@ -25,7 +25,7 @@ class SectionSourceBundleTest(unittest.TestCase):
             "source_sha256": GATE.sha256(self.source),
             "source_range": "L1-L1",
             "source_evidence": ["原文第一拍", "原文第二拍"],
-            "style_fields_consumed": ["voice", "rhythm", "breath", "dialogue", "weave", "roughness"],
+            "style_fields_consumed": list(GATE.REQUIRED_STYLE_FIELDS),
         }
         self.outline = self.root / "细纲回执.json"
         self.outline.write_text(json.dumps({
@@ -34,7 +34,7 @@ class SectionSourceBundleTest(unittest.TestCase):
                 "section_id": "1",
                 "scene_logic_contract": {"ok": True},
                 "source_emotion_parity": {"ok": True},
-                "original_scene_granularity": "先护后弃再反刀",
+                "original_scene_granularity": {"action_sequence": "先护后弃再反刀"},
                 "first_draft_generation_contract": {
                     "source_slice_bindings": [binding],
                     "source_performance_excerpt": "原文第一拍。原文第二拍。",
@@ -61,9 +61,20 @@ class SectionSourceBundleTest(unittest.TestCase):
     def test_build_and_validate_bundle(self) -> None:
         bundle, errors = GATE.create_bundle(self.outline, self.source_receipt)
         self.assertEqual([], errors)
+        self.assertIn("source_excerpt_sha256", bundle["packets"][0]["payload"]["source_slice_bindings"][0])
         output = self.root / "颗粒包.json"
         GATE.write_json(output, bundle)
         self.assertEqual([], GATE.validate_bundle(output))
+
+    def test_source_evidence_must_be_inside_bound_range(self) -> None:
+        data = json.loads(self.outline.read_text(encoding="utf-8"))
+        binding = data["sections"][0]["first_draft_generation_contract"]["source_slice_bindings"][0]
+        binding["source_range"] = "L1-L1"
+        binding["source_evidence"] = ["原文第一拍", "不在原文中"]
+        self.outline.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        _, errors = GATE.create_bundle(self.outline, self.source_receipt)
+        self.assertTrue(any("不在绑定行段内" in item for item in errors))
 
 
 if __name__ == "__main__":

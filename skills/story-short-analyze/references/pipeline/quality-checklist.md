@@ -282,7 +282,7 @@
 - [ ] 如果目标是后续仿写/融合/回修，`拆文报告.md` 已补 `情感曲线 / 爆点分析 / 反转分析 / 人物分析 / 开头分析 / 结尾分析 / 五维评分`
 - [ ] `拆文报告.md` 不是只有结构概括，而是能直接回答“为什么这本能写成这样”
 - [ ] 写完主报告后，已回看所选样本反例区，确认当前结果没有滑成同类反例
-- [ ] finalize 前后全部 Markdown SHA1 一致，没有发生脚本代写
+- [ ] finalize 前后全部 Markdown 规范化 SHA-256 一致，没有发生脚本代写
 - [ ] 16 张 `可直接仿写_*.md` 都不只是有表，而且每张都补了 `可直接借的承重结构`
 - [ ] 16 张表完整消费候选池；原文无对应资产的表明确写“原文未发现”
 - [ ] 16 张表的 3 段施工层每段至少有 2 条具体说明，不是单句概括
@@ -342,7 +342,7 @@
 - [ ] `book.profile.json.bridge_rules[*].emotion_sequence` 六拍齐全，且每拍含 `content / intensity / source_evidence`
 - [ ] `role_bias_variants` 和 `scene_assets.consequence_chain` 保持完整语义句，没有被逗号、顿号切成碎词
 - [ ] validator 输出的全部 `human_review_items` 已写入 `_finalize_human_review.json` 并逐条闭环
-- [ ] `_finalize_human_review.json.formal_markdown_sha1s` 与当前正式 Markdown 完全一致
+- [ ] `_content_fingerprints.json` 与当前正式 Markdown 的规范化内容完全一致，且 `_finalize_human_review.json.content_fingerprint` 引用当前清单
 
 判定口径：
 

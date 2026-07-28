@@ -6,9 +6,19 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+REQUIRED_STYLE_FIELDS = (
+    "narrative_voice_and_attitude",
+    "sentence_relation_and_rhythm",
+    "paragraph_breath_and_cut_points",
+    "dialogue_misfire_or_avoidance",
+    "action_perception_emotion_weave",
+    "narrator_interjection_and_roughness",
+)
 
 
 def now_iso() -> str:
@@ -26,6 +36,21 @@ def read_text(path: Path) -> str:
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def source_excerpt(path: Path, source_range: str) -> str:
+    """Return the exact line ranges bound to one source slice."""
+    lines = read_text(path).splitlines()
+    ranges = re.findall(r"L(\d+)-L(\d+)", source_range)
+    if not ranges:
+        raise ValueError(f"非法 source_range: {source_range!r}")
+    excerpts: list[str] = []
+    for raw_start, raw_end in ranges:
+        start, end = int(raw_start), int(raw_end)
+        if start < 1 or end < start or end > len(lines):
+            raise ValueError(f"source_range 越界: L{start}-L{end}，原文共 {len(lines)} 行")
+        excerpts.append("\n".join(lines[start - 1 : end]))
+    return "\n".join(excerpts)
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -105,24 +130,30 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
             current_sha = sha256(source_path)
             if item.get("source_sha256") != current_sha:
                 errors.append(f"第 {section_id} 节原文切片 SHA 已变化: {source_path}")
+            source_range = str(item.get("source_range") or "").strip()
+            try:
+                excerpt = source_excerpt(source_path, source_range)
+            except ValueError as exc:
+                errors.append(f"第 {section_id} 节原文切片范围无效: {exc}")
+                excerpt = ""
             evidence = item.get("source_evidence")
             if not _nonempty_list(evidence):
                 errors.append(f"第 {section_id} 节原文切片缺少 source_evidence")
             else:
-                source_text = read_text(source_path)
-                missing = [str(term) for term in evidence if str(term).strip() and str(term) not in source_text]
+                missing = [str(term) for term in evidence if str(term).strip() and str(term) not in excerpt]
                 if missing:
                     errors.append(
-                        f"第 {section_id} 节原文切片证据不在源文件中: {' / '.join(missing)}"
+                        f"第 {section_id} 节原文证据不在绑定行段内: {' / '.join(missing)}"
                     )
             style_fields = item.get("style_fields_consumed")
-            if not isinstance(style_fields, list) or len(style_fields) < 6:
-                errors.append(f"第 {section_id} 节 style_fields_consumed 不足 6 项")
+            if not isinstance(style_fields, list) or set(style_fields) != set(REQUIRED_STYLE_FIELDS):
+                errors.append(f"第 {section_id} 节 style_fields_consumed 必须完整覆盖六类文风颗粒")
             normalized_bindings.append(
                 {
                     "source_path": str(source_path),
                     "source_sha256": current_sha,
-                    "source_range": str(item.get("source_range") or "").strip(),
+                    "source_range": source_range,
+                    "source_excerpt_sha256": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
                     "source_evidence": [str(term).strip() for term in (evidence or []) if str(term).strip()],
                     "style_fields_consumed": [str(term).strip() for term in (style_fields or []) if str(term).strip()],
                 }
@@ -253,6 +284,24 @@ def validate_bundle(bundle_path: Path) -> list[str]:
                 continue
             if binding.get("source_sha256") != sha256(source_path):
                 errors.append(f"第 {section_id} 节原文切片 SHA 已变化: {source_path}")
+                continue
+            try:
+                excerpt = source_excerpt(source_path, str(binding.get("source_range") or ""))
+            except ValueError as exc:
+                errors.append(f"第 {section_id} 节原文切片范围无效: {exc}")
+                continue
+            excerpt_sha = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
+            if binding.get("source_excerpt_sha256") != excerpt_sha:
+                errors.append(f"第 {section_id} 节原文精确行段 SHA 已变化: {source_path}")
+            if set(binding.get("style_fields_consumed") or []) != set(REQUIRED_STYLE_FIELDS):
+                errors.append(f"第 {section_id} 节未完整绑定六类文风颗粒")
+            missing = [
+                str(term)
+                for term in binding.get("source_evidence", [])
+                if str(term).strip() and str(term) not in excerpt
+            ]
+            if missing:
+                errors.append(f"第 {section_id} 节原文证据不在绑定行段内: {' / '.join(missing)}")
     if data.get("gate_status") != "passed":
         errors.append("gate_status 必须为 passed")
     return errors

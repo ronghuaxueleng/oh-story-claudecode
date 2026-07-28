@@ -82,9 +82,21 @@ class SourceReadGateTest(unittest.TestCase):
             ) + "\n",
             encoding="utf-8",
         )
+        _, fingerprint_manifest = GATE.CONTENT_FINGERPRINTS.write_manifest(
+            self.source, excluded_names=frozenset()
+        )
+        self.content_fingerprint = GATE.CONTENT_FINGERPRINTS.reference(fingerprint_manifest)
         covered = []
         for path in sorted(self.source.rglob("*")):
-            if not path.is_file() or path.name == "book.profile.json":
+            if (
+                not path.is_file()
+                or path.name == "book.profile.json"
+                or (
+                    path.parent == self.source
+                    and path.name.startswith("_")
+                    and path.name != "_sample_comparison.md"
+                )
+            ):
                 continue
             covered.append(
                 {
@@ -138,10 +150,11 @@ class SourceReadGateTest(unittest.TestCase):
         bridge = self.source / "写作资产" / "桥段施工卡.md"
         package_path = self.source / GATE.DIRECT_IMITATION_PACKAGE
         package = {
-            "version": "1.1",
+            "version": "1.2",
             "kind": "direct_imitation_semantic_package",
             "source_root": str(self.source.resolve()),
             "source_asset_manifest": profile["source_asset_coverage"][0],
+            "content_fingerprint": self.content_fingerprint,
             "original": {
                 "path": original.relative_to(self.source).as_posix(),
                 "sha256": GATE.sha256(original),

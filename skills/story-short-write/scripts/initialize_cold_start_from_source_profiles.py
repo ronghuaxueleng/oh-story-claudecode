@@ -34,6 +34,10 @@ OUTLINE_REBUILDER_SCAFFOLD = load_module(
     "generate_project_outline_receipt_rebuilder_scaffold.py",
     "story_short_write_outline_rebuilder_scaffold",
 )
+WRAPPERS = load_module(
+    "generate_project_tool_wrappers.py",
+    "story_short_write_cold_start_wrappers",
+)
 
 
 def project_paths(project: Path) -> dict[str, Path]:
@@ -130,9 +134,13 @@ def write_checklist(
 ## 建议命令
 
 ```bash
+python3 写作资产/项目工具箱.py prepare-prewrite
+python3 写作资产/项目工具箱.py prepare-setting
+python3 写作资产/项目工具箱.py prepare-outline
 python3 写作资产/项目工具箱.py refresh-bindings
 python3 写作资产/项目工具箱.py validate-outline
 python3 写作资产/项目工具箱.py validate-opening
+python3 写作资产/项目工具箱.py prepare-draft
 ```
 
 ## 关键文件
@@ -311,6 +319,21 @@ def initialize(
     )
     touch_placeholders(paths)
     actions["placeholder_timestamps"] = "touched_after_receipts"
+
+    wrapper_result = WRAPPERS.generate_wrappers(
+        paths["project"],
+        use_git_ledger_fallback=False,
+        remove_legacy_sh=True,
+        include_kinds=None,
+    )
+    if not wrapper_result.get("ok"):
+        raise RuntimeError(
+            "项目工具包装器生成失败:\n- "
+            + "\n- ".join(str(item) for item in wrapper_result.get("errors", []))
+        )
+    actions["project_wrappers"] = f"generated:{len(wrapper_result.get('generated', []))}"
+    if wrapper_result.get("errors"):
+        actions["project_wrapper_warnings"] = f"skipped:{len(wrapper_result['errors'])}"
 
     return {
         "ok": True,

@@ -26,7 +26,8 @@ class SectionDraftExecutionTest(unittest.TestCase):
             "source_sha256": source_sha,
             "source_range": "L1-L1",
             "source_evidence": ["原文第一拍", "原文第二拍"],
-            "style_fields_consumed": ["a", "b", "c", "d", "e", "f"],
+            "source_excerpt_sha256": GATE.hashlib.sha256(self.source.read_text(encoding="utf-8").encode("utf-8")).hexdigest(),
+            "style_fields_consumed": list(GATE.STYLE_DIMENSIONS),
         }
         self.outline = self.root / "细纲回执.json"
         self.outline.write_text(json.dumps({
@@ -53,17 +54,40 @@ class SectionDraftExecutionTest(unittest.TestCase):
         self.draft = self.root / "正文.md"
         self.receipt = self.root / "逐节回执.json"
 
+    def complete_review(self, section_id: str, target_evidence: list[str]) -> Path:
+        review_path = GATE.section_review_path(self.receipt, section_id)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        common = {
+            "status": "passed",
+            "source_evidence": ["原文第一拍。", "原文第二拍。"],
+            "target_evidence": target_evidence,
+            "judgment": "原文与目标证据已逐项核对。",
+        }
+        for name in ("event_flow", "emotion_flow", "telegraphic_and_relation_check"):
+            review["checks"][name] = dict(common)
+        style = review["checks"]["style_granularity"]
+        style["status"] = "passed"
+        style["judgment"] = "六类文风颗粒均按精确原文切片核对。"
+        for name in GATE.STYLE_DIMENSIONS:
+            style["dimensions"][name] = dict(common)
+        review["manual_judgment"] = "事件、情绪、文风与句间关系全部通过。"
+        review["gate_status"] = "passed"
+        review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2), encoding="utf-8")
+        return review_path
+
     def tearDown(self) -> None:
         self.temp.cleanup()
 
     def test_sequential_open_write_close_passes(self) -> None:
         self.assertEqual(0, GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt))
         self.assertEqual(0, GATE.open_section(self.receipt, "1", "已重读第一节精确切片"))
-        self.draft.write_text("1.\n\n第一节正文。\n", encoding="utf-8")
-        self.assertEqual(0, GATE.close_section(self.receipt, "1", "四项逐节停检通过"))
+        self.draft.write_text("1.\n\n第一节正文。第一节第二拍。\n", encoding="utf-8")
+        review_one = self.complete_review("1", ["第一节正文。", "第一节第二拍。"])
+        self.assertEqual(0, GATE.close_section(self.receipt, "1", review_one))
         self.assertEqual(0, GATE.open_section(self.receipt, "2", "已重读第二节精确切片"))
-        self.draft.write_text("1.\n\n第一节正文。\n\n2.\n\n第二节正文。\n", encoding="utf-8")
-        self.assertEqual(0, GATE.close_section(self.receipt, "2", "四项逐节停检通过"))
+        self.draft.write_text("1.\n\n第一节正文。第一节第二拍。\n\n2.\n\n第二节正文。第二节第二拍。\n", encoding="utf-8")
+        review_two = self.complete_review("2", ["第二节正文。", "第二节第二拍。"])
+        self.assertEqual(0, GATE.close_section(self.receipt, "2", review_two))
         _, errors = GATE.validate_receipt(self.receipt, require_complete=True)
         self.assertEqual([], errors)
 
@@ -71,10 +95,49 @@ class SectionDraftExecutionTest(unittest.TestCase):
         self.draft.write_text("1.\n\n第一节。\n\n2.\n\n第二节。", encoding="utf-8")
         self.assertEqual(2, GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt))
 
+    def test_force_rebuilds_existing_receipt(self) -> None:
+        self.assertEqual(0, GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt))
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["sections"][0]["status"] = "open"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        self.assertEqual(
+            0,
+            GATE.init_receipt(
+                self.outline,
+                self.source_receipt,
+                self.bundle,
+                self.draft,
+                self.receipt,
+                force=True,
+            ),
+        )
+        rebuilt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertEqual("pending", rebuilt["sections"][0]["status"])
+
     def test_cannot_open_next_section_before_previous_close(self) -> None:
         GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt)
         GATE.open_section(self.receipt, "1", "已重读")
         self.assertEqual(2, GATE.open_section(self.receipt, "2", "试图抢跑"))
+
+    def test_cannot_close_without_structured_style_review(self) -> None:
+        GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt)
+        GATE.open_section(self.receipt, "1", "已重读")
+        self.draft.write_text("1.\n\n第一节正文。第一节第二拍。\n", encoding="utf-8")
+
+        self.assertEqual(2, GATE.close_section(self.receipt, "1", GATE.section_review_path(self.receipt, "1")))
+
+    def test_reset_archives_latest_section(self) -> None:
+        GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt)
+        GATE.open_section(self.receipt, "1", "已重读")
+        self.draft.write_text("1.\n\n第一节正文。第一节第二拍。\n", encoding="utf-8")
+        review = self.complete_review("1", ["第一节正文。", "第一节第二拍。"])
+        GATE.close_section(self.receipt, "1", review)
+
+        self.assertEqual(0, GATE.reset_section(self.receipt, "1"))
+        self.assertEqual("", self.draft.read_text(encoding="utf-8"))
+        self.assertEqual("pending", json.loads(self.receipt.read_text(encoding="utf-8"))["sections"][0]["status"])
+        self.assertEqual(1, len(list((self.root / "首稿小节归档").glob("第1节-*.md"))))
 
 
 if __name__ == "__main__":

@@ -31,6 +31,8 @@ def load_module(filename: str, module_name: str) -> Any:
 
 
 REFRESH = load_module("refresh_legacy_project_bindings.py", "story_short_write_refresh_toolbox")
+WRITING_RULE = load_module("validate_writing_rule_gate.py", "story_short_write_writing_rule_toolbox")
+SOURCE_READ = load_module("validate_source_read_gate.py", "story_short_write_source_read_toolbox")
 WRITE_RELEASE = load_module("validate_write_release_gate.py", "story_short_write_release_toolbox")
 OUTLINE = load_module("validate_outline_performance_contract.py", "story_short_write_outline_toolbox")
 OPENING = load_module("validate_opening_contract.py", "story_short_write_opening_toolbox")
@@ -55,6 +57,10 @@ SHORT_WRITE_COMPLETION = load_module(
 LOCAL_STIFFNESS = load_module(
     "audit_local_stiffness.py",
     "story_short_write_local_stiffness_toolbox",
+)
+SECTION_SOURCE_BUNDLE = load_module(
+    "build_section_source_bundle.py",
+    "story_short_write_section_source_bundle_toolbox",
 )
 
 
@@ -90,6 +96,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "writing_receipt": asset / "写作规则读取回执.json",
         "source_receipt": asset / "拆文读取回执.json",
         "ledger": asset / "规则执行台账.json",
+        "model_review_task": asset / "规则执行模型复核任务.json",
         "opening_contract": asset / "开头承重契约回执_大纲.json",
         "outline_contract": asset / "细纲表演验收回执.json",
         "draft_capacity_contract": asset / "首写容量契约回执.json",
@@ -107,6 +114,172 @@ def project_paths(project: Path) -> dict[str, Path]:
 
 def print_json(data: dict[str, Any]) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def print_flow_result(command: str, errors: list[str], actions: list[str], as_json: bool) -> int:
+    """Print one consistent result for fail-fast workflow commands."""
+    if as_json:
+        print_json({"ok": not errors, "command": command, "actions": actions, "errors": errors})
+    else:
+        print(f"project_toolbox: {command} {'passed' if not errors else 'blocked'}")
+        for item in actions:
+            print(f"- action: {item}")
+        for item in errors:
+            print(f"- {item}")
+    return 0 if not errors else 2
+
+
+def command_prepare_prewrite(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Validate read receipts, initialize/sync the ledger, then enforce prewrite review."""
+    actions: list[str] = []
+    try:
+        writing_errors, _ = WRITING_RULE.validate_receipt(paths["writing_receipt"])
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        writing_errors = [f"写作规则读取回执不可读取: {exc}"]
+    if writing_errors:
+        return print_flow_result("prepare-prewrite", writing_errors, actions, args.json)
+    actions.append("validate-writing-rule-gate")
+
+    try:
+        source_errors, _ = SOURCE_READ.validate_receipt(paths["source_receipt"])
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        source_errors = [f"拆文读取回执不可读取: {exc}"]
+    if source_errors:
+        return print_flow_result("prepare-prewrite", source_errors, actions, args.json)
+    actions.append("validate-source-read-gate")
+
+    if paths["ledger"].is_file():
+        ledger_errors, _ = RULE_LEDGER.sync_sources(paths["ledger"])
+        if ledger_errors:
+            return print_flow_result("prepare-prewrite", ledger_errors, actions, args.json)
+        actions.append("sync-rule-ledger-sources")
+    else:
+        ledger, ledger_errors = RULE_LEDGER.create_ledger(
+            paths["project"].name,
+            paths["writing_receipt"],
+            paths["source_receipt"],
+        )
+        if ledger_errors:
+            return print_flow_result("prepare-prewrite", ledger_errors, actions, args.json)
+        paths["ledger"].parent.mkdir(parents=True, exist_ok=True)
+        paths["ledger"].write_text(
+            json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        actions.append("initialize-rule-ledger")
+
+    RULE_LEDGER.export_model_review(paths["ledger"], paths["model_review_task"], args.batch_size)
+    actions.append("export-model-review")
+    errors = RULE_LEDGER.validate_prewrite_ledger(paths["ledger"])
+    return print_flow_result("prepare-prewrite", errors, actions, args.json)
+
+
+def command_prepare_setting(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    errors = WRITE_RELEASE.validate_release(
+        "setting",
+        paths["writing_receipt"],
+        paths["source_receipt"],
+        paths["ledger"],
+    )
+    actions = [] if errors else ["validate-setting-release"]
+    return print_flow_result("prepare-setting", errors, actions, args.json)
+
+
+def command_prepare_outline(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    errors = SEQUENCE.validate_setting(paths["setting_sequence_receipt"], paths["setting"])
+    if errors:
+        return print_flow_result("prepare-outline", errors, [], args.json)
+    actions = ["validate-setting-sequence"]
+    errors = WRITE_RELEASE.validate_release(
+        "outline",
+        paths["writing_receipt"],
+        paths["source_receipt"],
+        paths["ledger"],
+        setting_sequence_receipt=paths["setting_sequence_receipt"],
+    )
+    if not errors:
+        actions.append("validate-outline-release")
+    return print_flow_result("prepare-outline", errors, actions, args.json)
+
+
+def command_prepare_draft(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    actions: list[str] = []
+    checks = (
+        ("validate-outline", lambda: OUTLINE.validate_receipt(paths["outline_contract"], paths["outline"])),
+        ("validate-opening", lambda: command_errors_for_opening(paths)),
+        ("validate-sequence", lambda: SEQUENCE.validate(paths["sequence_receipt"], paths["setting"], paths["outline"], None)),
+    )
+    for action, validate in checks:
+        errors = validate()
+        if errors:
+            return print_flow_result("prepare-draft", errors, actions, args.json)
+        actions.append(action)
+
+    bundle_errors = (
+        SECTION_SOURCE_BUNDLE.validate_bundle(paths["section_source_bundle"])
+        if paths["section_source_bundle"].is_file()
+        else ["逐节原文颗粒包不存在"]
+    )
+    if bundle_errors:
+        bundle, build_errors = SECTION_SOURCE_BUNDLE.create_bundle(
+            paths["outline_contract"],
+            paths["source_receipt"],
+        )
+        if build_errors:
+            return print_flow_result("prepare-draft", build_errors, actions, args.json)
+        SECTION_SOURCE_BUNDLE.write_json(paths["section_source_bundle"], bundle)
+        actions.append("build-section-source-bundle")
+    else:
+        actions.append("validate-section-source-bundle")
+
+    errors = WRITE_RELEASE.validate_release(
+        "draft",
+        paths["writing_receipt"],
+        paths["source_receipt"],
+        paths["ledger"],
+        opening_contract=paths["opening_contract"],
+        outline_contract=paths["outline_contract"],
+        profile=paths["profile"],
+        sequence_receipt=paths["sequence_receipt"],
+        setting_sequence_receipt=paths["setting_sequence_receipt"],
+        draft_capacity_contract=paths["draft_capacity_contract"],
+        section_source_bundle=paths["section_source_bundle"],
+        project=paths["project"],
+    )
+    if not errors:
+        actions.append("validate-draft-release")
+    return print_flow_result("prepare-draft", errors, actions, args.json)
+
+
+def read_opening_receipt(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def command_errors_for_opening(paths: dict[str, Path]) -> list[str]:
+    try:
+        receipt = read_opening_receipt(paths["opening_contract"])
+    except Exception as exc:
+        return [f"开头承重契约不可读取: {exc}"]
+    source_path = Path(str(receipt.get("primary_source", {}).get("path") or "")).resolve()
+    target_path = Path(str(receipt.get("target_text", {}).get("path") or paths["outline"])).resolve()
+    errors, _ = OPENING.validate_receipt(paths["opening_contract"], source_path, target_path)
+    return errors
+
+
+def command_finish_draft_preview(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    actions: list[str] = []
+    checks = (
+        ("validate-first-draft-entry", lambda: FIRST_DRAFT.validate_entry(paths["first_draft_entry"], paths["draft"])),
+        ("validate-section-execution", lambda: SECTION_EXECUTION.validate_receipt(paths["section_execution_receipt"], require_complete=True)[1]),
+        ("validate-first-draft-basic-review", lambda: FIRST_DRAFT_BASIC_REVIEW.validate_receipt(paths["first_draft_basic_review"], paths["draft"])),
+    )
+    for action, validate in checks:
+        errors = validate()
+        if errors:
+            return print_flow_result("finish-draft-preview", errors, actions, args.json)
+        actions.append(action)
+    result = command_mark_draft_preview(paths, args)
+    return result
 
 
 def command_refresh(paths: dict[str, Path], args: argparse.Namespace) -> int:
@@ -173,7 +346,7 @@ def command_validate_outline(paths: dict[str, Path], args: argparse.Namespace) -
 
 
 def command_validate_opening(paths: dict[str, Path], args: argparse.Namespace) -> int:
-    receipt = OPENING.read_json(paths["opening_contract"])
+    receipt = read_opening_receipt(paths["opening_contract"])
     source_path = Path(str(receipt.get("primary_source", {}).get("path") or "")).resolve()
     target_path = Path(str(receipt.get("target_text", {}).get("path") or paths["outline"])).resolve()
     errors, _ = OPENING.validate_receipt(paths["opening_contract"], source_path, target_path)
@@ -314,7 +487,7 @@ def command_sync_sources(paths: dict[str, Path], args: argparse.Namespace) -> in
 
 def command_init_first_draft(paths: dict[str, Path], args: argparse.Namespace) -> int:
     result = FIRST_DRAFT.init_entry(
-        project=paths["project"],
+        project=str(paths["project"]),
         draft=paths["draft"],
         receipt=paths["first_draft_entry"],
         writing_receipt=paths["writing_receipt"],
@@ -526,7 +699,14 @@ def command_close_section(paths: dict[str, Path], args: argparse.Namespace) -> i
     return SECTION_EXECUTION.close_section(
         paths["section_execution_receipt"],
         args.section,
-        args.judgment,
+        paths["asset"] / "逐节首写停检" / f"第{args.section}节.json",
+    )
+
+
+def command_reset_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    return SECTION_EXECUTION.reset_section(
+        paths["section_execution_receipt"],
+        args.section,
     )
 
 
@@ -694,6 +874,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    prepare_prewrite = subparsers.add_parser("prepare-prewrite")
+    prepare_prewrite.add_argument("--batch-size", type=int, default=30)
+    prepare_prewrite.set_defaults(func=command_prepare_prewrite)
+
+    prepare_setting = subparsers.add_parser("prepare-setting")
+    prepare_setting.set_defaults(func=command_prepare_setting)
+
+    prepare_outline = subparsers.add_parser("prepare-outline")
+    prepare_outline.set_defaults(func=command_prepare_outline)
+
+    prepare_draft = subparsers.add_parser("prepare-draft")
+    prepare_draft.set_defaults(func=command_prepare_draft)
+
+    finish_preview = subparsers.add_parser("finish-draft-preview")
+    finish_preview.set_defaults(func=command_finish_draft_preview)
+
     refresh = subparsers.add_parser("refresh-bindings")
     refresh.add_argument("--repair-ledger", action="store_true", default=True)
     refresh.add_argument("--refresh-bindings", action="store_true", default=True)
@@ -761,8 +957,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     close_section = subparsers.add_parser("close-section")
     close_section.add_argument("--section", required=True)
-    close_section.add_argument("--judgment", required=True)
     close_section.set_defaults(func=command_close_section)
+
+    reset_section = subparsers.add_parser("reset-section")
+    reset_section.add_argument("--section", required=True)
+    reset_section.set_defaults(func=command_reset_section)
 
     wrappers = subparsers.add_parser("generate-wrappers")
     wrappers.add_argument("--use-git-ledger-fallback", action="store_true")

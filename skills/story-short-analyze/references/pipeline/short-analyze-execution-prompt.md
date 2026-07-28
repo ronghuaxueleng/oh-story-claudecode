@@ -540,7 +540,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 - 收口脚本是否通过
 - `book.profile.json` 是否已自动生成
-- `写作资产/仿写无损编译包.json` 是否已由拆书 finalize 生成 `version: 1.1` 并通过新鲜度校验
+- `写作资产/仿写无损编译包.json` 是否已由拆书 finalize 生成 `version: 1.2`，携带当前内容指纹引用并通过新鲜度校验
 - 编译包是否原样携带全部 SF 字段和逐 SF `source_style_granularity`；旧 `1.0` 包或写作阶段临时补文风都不能放行
 - 是否仍有缺件、缺标题、缺字段
 - `_meta.json` 与真实文件数是否一致

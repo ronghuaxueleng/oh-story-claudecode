@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -395,6 +396,7 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/build_direct_imitation_package.py",
     "skills/story-short-analyze/scripts/build_subflow_library.py",
+    "skills/story-short-analyze/scripts/content_fingerprints.py",
     "skills/story-short-analyze/scripts/sync_finalize_human_review.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
@@ -720,6 +722,19 @@ CORE_WRITING_ASSET_FILES = (
     "第二层冲突清单.md",
 )
 
+def load_content_fingerprints():
+    path = Path(__file__).with_name("content_fingerprints.py")
+    spec = importlib.util.spec_from_file_location("short_analyze_content_fingerprints", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载内容指纹模块：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CONTENT_FINGERPRINTS = load_content_fingerprints()
+CONTENT_FINGERPRINT_FILENAME = CONTENT_FINGERPRINTS.FILENAME
+
 
 def read_text(path: Path) -> str:
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
@@ -730,14 +745,52 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n")
 
 
-def formal_markdown_sha1s(root: Path) -> dict[str, str]:
-    hashes: dict[str, str] = {}
-    for path in sorted(root.rglob("*.md")):
-        if not path.is_file() or path.name in PROCESS_MARKDOWN_FILES:
-            continue
-        rel = str(path.relative_to(root))
-        hashes[rel] = hashlib.sha1(path.read_bytes()).hexdigest()
-    return hashes
+def canonical_text_bytes(path: Path) -> bytes:
+    return CONTENT_FINGERPRINTS.canonical_text_bytes(path)
+
+
+def markdown_sha256s(root: Path, *, include_process: bool = False) -> dict[str, str]:
+    """Fingerprint Markdown content after BOM and newline normalization."""
+    excluded = frozenset() if include_process else frozenset(PROCESS_MARKDOWN_FILES)
+    return CONTENT_FINGERPRINTS.markdown_sha256s(root, excluded_names=excluded)
+
+
+def formal_markdown_sha256s(root: Path) -> dict[str, str]:
+    return markdown_sha256s(root)
+
+
+def content_fingerprint_aggregate(files: dict[str, str]) -> str:
+    return CONTENT_FINGERPRINTS.aggregate(files)
+
+
+def build_content_fingerprint_manifest(root: Path) -> dict:
+    """Build the single authoritative fingerprint manifest for formal assets."""
+    files = formal_markdown_sha256s(root)
+    return {
+        "schema_version": CONTENT_FINGERPRINTS.SCHEMA_VERSION,
+        "algorithm": CONTENT_FINGERPRINTS.ALGORITHM,
+        "normalization": CONTENT_FINGERPRINTS.NORMALIZATION,
+        "scope": "formal_markdown",
+        "files": files,
+        "aggregate_sha256": content_fingerprint_aggregate(files),
+    }
+
+
+def write_content_fingerprint_manifest(root: Path) -> tuple[Path, dict]:
+    return CONTENT_FINGERPRINTS.write_manifest(
+        root, excluded_names=frozenset(PROCESS_MARKDOWN_FILES)
+    )
+
+
+def content_fingerprint_reference(manifest: dict) -> dict[str, str]:
+    return CONTENT_FINGERPRINTS.reference(manifest)
+
+
+def legacy_markdown_sha1s_match(root: Path, recorded: object) -> bool:
+    """Recognize legacy raw SHA-1 receipts across LF/CRLF during one-time migration."""
+    return CONTENT_FINGERPRINTS.legacy_sha1s_match(
+        root, recorded, excluded_names=frozenset(PROCESS_MARKDOWN_FILES)
+    )
 
 
 def build_human_review_items(root: Path, notes: list[str]) -> list[dict[str, str]]:
@@ -786,11 +839,29 @@ def check_human_review_receipt(
     if receipt.get("skill_fingerprint") != compute_skill_fingerprint():
         errors.append(f"{path} skill_fingerprint 不是当前版本，人工复核回执已过期")
 
-    expected_hashes = formal_markdown_sha1s(root)
-    if receipt.get("formal_markdown_sha1s") != expected_hashes:
+    manifest_path = root / CONTENT_FINGERPRINT_FILENAME
+    expected_manifest = build_content_fingerprint_manifest(root)
+    manifest = None
+    if not manifest_path.is_file():
         errors.append(
-            f"{path} 记录的正式 Markdown SHA 与当前文件不一致；"
-            "正文或拆书资产变化后必须重新人工复核"
+            f"{manifest_path} 缺失；必须先运行 sync_finalize_human_review.py 生成内容指纹清单"
+        )
+    else:
+        try:
+            manifest = json.loads(read_text(manifest_path))
+        except json.JSONDecodeError as exc:
+            errors.append(f"{manifest_path} 不是合法 JSON：{exc}")
+        if manifest != expected_manifest:
+            errors.append(
+                f"{manifest_path} 与当前正式 Markdown 内容不一致；"
+                "内容变化后必须重新同步指纹并完成人工复核"
+            )
+
+    expected_reference = content_fingerprint_reference(expected_manifest)
+    if receipt.get("content_fingerprint") != expected_reference:
+        errors.append(
+            f"{path} 引用的内容指纹与当前指纹清单不一致；"
+            "必须重新运行 sync_finalize_human_review.py"
         )
 
     if upgrade_required:

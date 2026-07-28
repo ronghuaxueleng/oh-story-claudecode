@@ -80,134 +80,42 @@ def source_slice(lines: list[str], source_range: str) -> str:
     return "\n".join(slices)
 
 
-def candidate_quotes(entry: dict[str, Any], excerpt: str) -> list[str]:
-    quotes: list[str] = []
-    for field in ("source_evidence",):
-        value = entry.get(field)
-        if isinstance(value, list):
-            quotes.extend(str(item).strip() for item in value if str(item).strip())
-    causal = entry.get("causal_preconditions")
-    if isinstance(causal, dict):
-        value = causal.get("source_evidence")
-        if isinstance(value, list):
-            quotes.extend(str(item).strip() for item in value if str(item).strip())
-    seen: list[str] = []
-    for quote in quotes:
-        if quote in excerpt and quote not in seen:
-            seen.append(quote)
-    if len(seen) >= 2:
-        return seen[:2]
-
-    fallback = [
-        line.strip()
-        for line in excerpt.splitlines()
-        if line.strip()
-    ]
-    for line in fallback:
-        if line not in seen:
-            seen.append(line)
-        if len(seen) >= 2:
-            break
-    return seen[:2]
-
-
-def join_brief(items: list[str], fallback: str) -> str:
-    cleaned = [item for item in items if item]
-    return "、".join(cleaned[:2]) if cleaned else fallback
-
-
-def build_style_granularity(entry: dict[str, Any], excerpt: str) -> dict[str, dict[str, Any]]:
-    evidence = candidate_quotes(entry, excerpt)
-    if len(evidence) < 2:
-        raise ValueError(
-            f"{entry.get('subflow_id') or '<unknown>'} 缺少可用于逐 SF 文风颗粒的两条原文证据"
-        )
-    emotion = [str(item).strip() for item in entry.get("emotion_sequence", []) if str(item).strip()]
-    sequence = [str(item).strip() for item in entry.get("required_sequence", []) if str(item).strip()]
-    controls = [str(item).strip() for item in entry.get("control_changes", []) if str(item).strip()]
-    tags = [str(item).strip() for item in entry.get("function_tags", []) if str(item).strip()]
-    scene = str(entry.get("scene_granularity") or "").strip()
-    info_delay = str(entry.get("information_delay") or "").strip()
-    end_state = str(entry.get("end_state") or "").strip()
-    start_emotion = emotion[0] if emotion else "试探"
-    end_emotion = emotion[-1] if emotion else "余痛"
-    mid_emotion = emotion[1] if len(emotion) > 1 else end_emotion
-    first_steps = join_brief(sequence, "先给异常，再顺着现场推进")
-    first_control = controls[0] if controls else "现场控制权变化"
-    tag_text = join_brief(tags, "当前场面的关系刺点")
-    style = {
-        "narrative_voice_and_attitude": {
-            "analysis": (
-                f"本 SF 的叙述口气不先替人物下总判断，而是紧贴 {start_emotion}"
-                f" 到 {end_emotion} 的体感推进；{info_delay or '信息后压'} 让 narrator 先交现场异常，"
-                f" 再让 {tag_text} 自己浮出来。"
-            ),
-            "source_evidence": evidence,
-        },
-        "sentence_relation_and_rhythm": {
-            "analysis": (
-                f"句间关系按“{first_steps}”连续递进，到 {first_control} 时明显收紧；"
-                f" 节奏不是平均铺开，而是先顺承、再反刀，把 {mid_emotion} 压进后半程。"
-            ),
-            "source_evidence": evidence,
-        },
-        "paragraph_breath_and_cut_points": {
-            "analysis": (
-                f"段落气口围着 {scene or '连续现场动作'} 组织：前段先铺观察和进入条件，"
-                f" 中段在控制权变化处换气，尾段落到 {end_state or '场末状态变化'}，不把解释句提前塞满。"
-            ),
-            "source_evidence": evidence,
-        },
-        "dialogue_misfire_or_avoidance": {
-            "analysis": (
-                f"对白不一次答完，而是让人物借 {tag_text} 做错答、回避或抢位；"
-                f" 说话承担的是场面里的夺权动作，不是作者替人物补主题句。"
-            ),
-            "source_evidence": evidence,
-        },
-        "action_perception_emotion_weave": {
-            "analysis": (
-                f"动作、感知和情绪按 {scene or '现场顺序'} 织成同一连续瞬间："
-                f" 先看见/听见，再出现身体或环境反应，最后把 {start_emotion} 推到 {end_emotion}，"
-                f" 避免压成只有功能节点的摘要。"
-            ),
-            "source_evidence": evidence,
-        },
-        "narrator_interjection_and_roughness": {
-            "analysis": (
-                f"叙述者只在 {tag_text} 的刺点上稍微加重语气，粗粝感主要留给物件、站位和动作后的余波；"
-                f" 文面保持现场口气，不把整场直接收束成价值判断。"
-            ),
-            "source_evidence": evidence,
-        },
-    }
-    return style
-
-
-def backfill_subflow_style(root: Path) -> dict[str, Any]:
+def validate_subflow_style(root: Path) -> dict[str, Any]:
     index_path = root / "写作资产" / "子流程索引.jsonl"
     if not index_path.is_file():
-        return {"updated": 0, "skipped": 0, "path": str(index_path), "missing": True}
+        raise FileNotFoundError(f"缺少子流程索引：{index_path}")
     lines = load_original_lines(root)
     raw_lines = read_text(index_path).splitlines()
-    updated_entries: list[str] = []
-    updated = 0
-    skipped = 0
+    checked = 0
+    errors: list[str] = []
     for raw in raw_lines:
         if not raw.strip():
             continue
         entry = json.loads(raw)
         if not isinstance(entry, dict):
             raise ValueError(f"{index_path} 存在非对象 JSONL 条目")
-        if isinstance(entry.get("source_style_granularity"), dict):
-            skipped += 1
-        else:
-            excerpt = source_slice(lines, str(entry.get("source_range") or ""))
-            entry["source_style_granularity"] = build_style_granularity(entry, excerpt)
-            updated += 1
-        updated_entries.append(json.dumps(entry, ensure_ascii=False))
-    write_text(index_path, "\n".join(updated_entries) + ("\n" if updated_entries else ""))
-    return {"updated": updated, "skipped": skipped, "path": str(index_path), "missing": False}
+        checked += 1
+        subflow_id = str(entry.get("subflow_id") or f"line-{checked}")
+        excerpt = source_slice(lines, str(entry.get("source_range") or ""))
+        style = entry.get("source_style_granularity")
+        if not isinstance(style, dict):
+            errors.append(f"{subflow_id} 缺少 source_style_granularity")
+            continue
+        for field in STYLE_FIELDS:
+            item = style.get(field)
+            if not isinstance(item, dict) or not str(item.get("analysis") or "").strip():
+                errors.append(f"{subflow_id}.{field} 缺少模型分析")
+                continue
+            evidence = item.get("source_evidence")
+            if not isinstance(evidence, list) or len({str(value).strip() for value in evidence if str(value).strip()}) < 2:
+                errors.append(f"{subflow_id}.{field} 至少需要两条不同原文证据")
+                continue
+            missing_quotes = [str(value).strip() for value in evidence if str(value).strip() not in excerpt]
+            if missing_quotes:
+                errors.append(f"{subflow_id}.{field} 证据不在本 SF source_range 内")
+    if errors:
+        raise ValueError("子流程文风颗粒校验失败：\n- " + "\n- ".join(errors))
+    return {"checked": checked, "path": str(index_path)}
 
 
 def mark_progress_reviewed(root: Path) -> bool:
@@ -228,37 +136,60 @@ def mark_progress_reviewed(root: Path) -> bool:
     return changed
 
 
-def infer_evidence_from_message(message: str) -> list[str]:
-    evidence: list[str] = []
-    match = re.search(r"\./([^:：]+)", message)
-    if match:
-        evidence.append(match.group(1))
-    if "F" in message:
-        fact = re.findall(r"\bF\d+\b", message)
-        evidence.extend(fact[:2])
-    return evidence or ["当前正式产物", "validator note"]
+def read_review_decisions(path: Path) -> dict[str, Any]:
+    payload = read_json(path.resolve())
+    for key in ("upgrade_reviews", "review_items"):
+        if not isinstance(payload.get(key), dict):
+            raise ValueError(f"裁决文件 {key} 必须是按 ID/scope 索引的对象")
+    return payload
 
 
-def auto_resolve_receipt(root: Path) -> dict[str, Any]:
-    receipt_path, payload, _ = SYNC.sync_receipt(root)
-    for item in payload.get("upgrade_reviews", []):
-        if not isinstance(item, dict):
-            continue
-        scope = str(item.get("scope") or "upgrade-scope")
-        item["status"] = "resolved"
-        item["judgement"] = f"已按新版增量合同复核 {scope}，当前正式产物与过程文件已对齐本轮升级要求。"
-        item["evidence"] = [
-            "_upgrade_plan.md",
-            "_parallel_plan.json",
-            "写作资产/子流程索引.jsonl",
-        ]
+def apply_review_decisions(payload: dict[str, Any], decisions: dict[str, Any]) -> dict[str, Any]:
+    allowed_statuses = {"resolved", "not_applicable"}
+    decision_groups = {
+        "upgrade_reviews": "scope",
+        "review_items": "id",
+    }
+    for group, identity_field in decision_groups.items():
+        items = payload.get(group, [])
+        decision_map = decisions.get(group, {})
+        expected_ids = {
+            str(item.get(identity_field) or "")
+            for item in items
+            if isinstance(item, dict)
+        }
+        missing = sorted(expected_ids - set(decision_map))
+        extra = sorted(set(decision_map) - expected_ids)
+        if missing:
+            raise ValueError(f"{group} 缺少显式裁决：{', '.join(missing)}")
+        if extra:
+            raise ValueError(f"{group} 包含当前回执不存在的裁决：{', '.join(extra)}")
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            identity = str(item.get(identity_field) or "")
+            decision = decision_map[identity]
+            if not isinstance(decision, dict):
+                raise ValueError(f"{group}.{identity} 裁决必须是对象")
+            status = str(decision.get("status") or "")
+            judgement = str(decision.get("judgement") or "").strip()
+            evidence = decision.get("evidence")
+            if status not in allowed_statuses:
+                raise ValueError(f"{group}.{identity}.status 必须是 resolved 或 not_applicable")
+            if len(judgement) < 8:
+                raise ValueError(f"{group}.{identity}.judgement 必须是具体人工判断")
+            if not isinstance(evidence, list) or not any(str(value).strip() for value in evidence):
+                raise ValueError(f"{group}.{identity}.evidence 不能为空")
+            item["status"] = status
+            item["judgement"] = judgement
+            item["evidence"] = [str(value).strip() for value in evidence if str(value).strip()]
     payload["upgrade_status"] = "completed"
-    for item in payload.get("review_items", []):
-        if not isinstance(item, dict):
-            continue
-        item["status"] = "not_applicable"
-        item["judgement"] = "已结合当前正式产物逐项复核该提示；本轮保留现写法，并以增量升级回执记录人工判断。"
-        item["evidence"] = infer_evidence_from_message(str(item.get("message") or ""))
+    return payload
+
+
+def complete_receipt(root: Path, decisions: dict[str, Any]) -> dict[str, Any]:
+    receipt_path, payload, _ = SYNC.sync_receipt(root)
+    payload = apply_review_decisions(payload, decisions)
     receipt_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return {
         "path": str(receipt_path),
@@ -267,14 +198,14 @@ def auto_resolve_receipt(root: Path) -> dict[str, Any]:
     }
 
 
-def process_root(root: Path) -> dict[str, Any]:
+def process_root(root: Path, review_decisions: dict[str, Any]) -> dict[str, Any]:
     root = root.resolve()
-    style_result = backfill_subflow_style(root)
-    receipt_result = auto_resolve_receipt(root)
+    style_result = validate_subflow_style(root)
+    receipt_result = complete_receipt(root, review_decisions)
     progress_changed = mark_progress_reviewed(root)
     return {
         "root": str(root),
-        "style_backfill": style_result,
+        "style_validation": style_result,
         "receipt": receipt_result,
         "progress_marked": progress_changed,
     }
@@ -283,9 +214,10 @@ def process_root(root: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="补齐历史拆书目录的完整增量升级收尾内容")
     parser.add_argument("root", help="拆文库/{书名} 目录")
+    parser.add_argument("--review-decisions", required=True, help="当前模型逐项人工裁决 JSON")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
-    payload = process_root(Path(args.root))
+    payload = process_root(Path(args.root), read_review_decisions(Path(args.review_decisions)))
     print(json.dumps(payload, ensure_ascii=False, indent=2 if args.json else None))
     return 0
 

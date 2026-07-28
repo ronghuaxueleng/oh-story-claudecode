@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -44,6 +44,19 @@ STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+
+
+def load_content_fingerprints():
+    path = Path(__file__).with_name("content_fingerprints.py")
+    spec = importlib.util.spec_from_file_location("direct_imitation_content_fingerprints", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载内容指纹模块：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+FINGERPRINTS = load_content_fingerprints()
 
 
 def source_slice_for_range(original_text: str, source_range: str) -> tuple[str, str | None]:
@@ -102,16 +115,22 @@ def validate_style_granularity(
 
 
 def read_text(path: Path) -> str:
-    for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return path.read_text(encoding="utf-8", errors="ignore")
+    return FINGERPRINTS.canonical_text(path)
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return FINGERPRINTS.asset_sha256(path)
+
+
+def current_content_fingerprint(root: Path) -> tuple[dict[str, str] | None, list[str]]:
+    path = root / FINGERPRINTS.FILENAME
+    if not path.is_file():
+        return None, [f"缺少内容指纹清单：{path}"]
+    try:
+        manifest = json.loads(read_text(path))
+    except json.JSONDecodeError as exc:
+        return None, [f"内容指纹清单不是合法 JSON：{exc}"]
+    return FINGERPRINTS.reference(manifest), []
 
 
 def source_originals(root: Path) -> list[Path]:
@@ -239,6 +258,8 @@ def load_inputs(root: Path) -> tuple[dict[str, Any], list[Path], Path, list[dict
     if not profile.get("causal_precondition_assets"):
         errors.append("book.profile.json.causal_precondition_assets 为空，禁止生成无损编译包")
     errors.extend(validate_manifest(root, current_manifest(profile, root)))
+    _, fingerprint_errors = current_content_fingerprint(root)
+    errors.extend(fingerprint_errors)
     return profile, originals, bridge_path, subflows, errors
 
 
@@ -248,11 +269,13 @@ def build_package(root: Path) -> Path:
     if errors:
         raise ValueError("；".join(errors))
     original = originals[0]
+    content_fingerprint, _ = current_content_fingerprint(root)
     package = {
-        "version": "1.1",
+        "version": "1.2",
         "kind": "direct_imitation_semantic_package",
         "source_root": str(root),
         "source_asset_manifest": current_manifest(profile, root),
+        "content_fingerprint": content_fingerprint,
         "original": {
             "path": original.relative_to(root).as_posix(),
             "sha256": sha256(original),
@@ -285,8 +308,8 @@ def validate_package(root: Path) -> list[str]:
         return errors + [f"仿写无损编译包不是合法 JSON：{exc}"]
     if not isinstance(package, dict) or package.get("kind") != "direct_imitation_semantic_package":
         return errors + [f"仿写无损编译包类型错误：{path}"]
-    if package.get("version") != "1.1":
-        errors.append("仿写无损编译包版本过期，必须由新版 story-short-analyze finalize 重建为 1.1")
+    if package.get("version") != "1.2":
+        errors.append("仿写无损编译包版本过期，必须由新版 story-short-analyze finalize 重建为 1.2")
     if package.get("source_root") != str(root):
         errors.append("仿写无损编译包 source_root 与当前拆书目录不一致")
     if len(originals) == 1:
@@ -310,6 +333,10 @@ def validate_package(root: Path) -> list[str]:
         errors.append("仿写无损编译包中的 profile 承重资产缺失或已过期")
     if package.get("source_asset_manifest") != current_manifest(profile, root):
         errors.append("仿写无损编译包中的来源清单已过期")
+    content_fingerprint, fingerprint_errors = current_content_fingerprint(root)
+    errors.extend(fingerprint_errors)
+    if package.get("content_fingerprint") != content_fingerprint:
+        errors.append("仿写无损编译包中的内容指纹引用已过期")
     return errors
 
 

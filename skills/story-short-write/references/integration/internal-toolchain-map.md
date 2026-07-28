@@ -130,7 +130,8 @@
 - `story_short_write_project_toolbox.py`
   - 项目级统一 CLI 入口
   - 自动推断项目目录与常用 receipt / artifact 路径，减少手工 `--help` 与长参数拼接
-  - 统一提供 `refresh-bindings / validate-outline / validate-opening / init-setting-sequence / validate-setting-sequence / extend-outline-sequence / validate-sequence / extend-draft-sequence / draft-release / sync-sources / init-first-draft / validate-first-draft / init-first-draft-basic-review / validate-first-draft-basic-review / validate-section-execution / open-section / close-section / generate-wrappers / cold-start-from-source / init-completion / validate-completion / mark-draft-preview / confirm-deep-review / audit-local-stiffness / audit-project`
+  - 统一提供 `prepare-prewrite / prepare-setting / prepare-outline / prepare-draft / finish-draft-preview / refresh-bindings / validate-outline / validate-opening / init-setting-sequence / validate-setting-sequence / extend-outline-sequence / validate-sequence / extend-draft-sequence / draft-release / sync-sources / init-first-draft / validate-first-draft / init-first-draft-basic-review / validate-first-draft-basic-review / validate-section-execution / open-section / close-section / generate-wrappers / cold-start-from-source / init-completion / validate-completion / mark-draft-preview / confirm-deep-review / audit-local-stiffness / audit-project`
+  - `prepare-*` 只编排现有底层门禁，统一路径、执行顺序和失败短路；需要当前模型裁决的回执仍由当前模型完成
   - `audit-project` 会输出当前 gate 阻断点以及 `keep / rebuild / invalidate` 文件清单，可直接落盘 JSON 报告
 - `validate_first_draft_basic_review.py`
   - 首稿基础审计入口
@@ -143,6 +144,7 @@
   - 一次性初始化 `写作规则读取回执 / 拆文读取回执 / 规则执行台账 / 设定顺序契约 / 顺序契约 / 开头承重契约_大纲 / 细纲表演验收回执 / 首写容量契约`
   - 同时落盘 `冷启动来源清单.json` 与 `冷启动执行清单.md`
   - 作用不是代写设定和细纲，而是先把颗粒度硬闸前置，堵住“没建颗粒契约就先写书”的流程缺口
+  - 冷启动结束时自动调用包装器生成器，保证新项目立即拥有 `写作资产/项目工具箱.py`
 - `generate_project_tool_wrappers.py`
   - 自动生成项目内 Python 包装脚本
   - 用于把长参数的 gate 调用固化到项目 `写作资产/`，避免继续维护 `.sh`

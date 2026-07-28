@@ -94,6 +94,7 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/build_direct_imitation_package.py",
     "skills/story-short-analyze/scripts/build_subflow_library.py",
+    "skills/story-short-analyze/scripts/content_fingerprints.py",
     "skills/story-short-analyze/scripts/sync_finalize_human_review.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
@@ -1026,7 +1027,7 @@ def write_upgrade_plan(
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
             "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
             "6. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
-            "7. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
+            "7. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并运行同步脚本生成当前 `_content_fingerprints.json`。",
             "8. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
             "9. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
             "",
@@ -1046,12 +1047,15 @@ def write_upgrade_review_receipt(path: Path) -> None:
         except json.JSONDecodeError:
             existing = None
         if isinstance(existing, dict):
+            existing["version"] = 2
             existing["skill_fingerprint"] = compute_skill_fingerprint()
             existing["upgrade_status"] = "pending_content_review"
+            existing.pop("formal_markdown_sha1s", None)
+            existing.setdefault("content_fingerprint", {})
             dump_json(path, existing)
             return
     payload = {
-        "version": 1,
+        "version": 2,
         "skill_fingerprint": compute_skill_fingerprint(),
         "upgrade_status": "pending_content_review",
         "upgrade_reviews": [
@@ -1063,7 +1067,7 @@ def write_upgrade_review_receipt(path: Path) -> None:
             }
             for scope in UPGRADE_REVIEW_SCOPES
         ],
-        "formal_markdown_sha1s": [],
+        "content_fingerprint": {},
         "review_items": [],
     }
     dump_json(path, payload)
@@ -1582,7 +1586,7 @@ def write_execution_prompt(
         "- 第一波必须完成全局成文形状审计：全局结构、章尾收束、主角不规则性、专业细节功能性、全文对白模式、句段气口与镜头连续性；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- `仿写约束_禁写清单.md` 必须单列电报式句段风险，区分有效短促气口与一段一个动作/证据/反应的机械镜头；禁止用短句比例代判",
         "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",
-        "- validator/finalize 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`，补具体判断、证据和当前正式 Markdown SHA；漏项或 SHA 过期不得完成",
+        "- validator/finalize 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`，补具体判断、证据并引用当前 `_content_fingerprints.json`；漏项或内容指纹过期不得完成",
         "",
         "## 详细规则去哪里看",
         "- 入口与抽样：`stage-00-intake-and-sampling.md`",

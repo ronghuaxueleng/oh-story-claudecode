@@ -24,6 +24,33 @@ FINALIZE_SPEC.loader.exec_module(FINALIZE)
 
 
 class DirectImitationPackageTest(unittest.TestCase):
+    def refresh_profile_coverage(self) -> None:
+        profile_path = self.root / "book.profile.json"
+        profile = json.loads(profile_path.read_text(encoding="utf-8"))
+        files = []
+        for path in sorted(self.root.rglob("*")):
+            if (
+                not path.is_file()
+                or path.name == "book.profile.json"
+                or (
+                    path.parent == self.root
+                    and path.name.startswith("_")
+                    and path.name != "_sample_comparison.md"
+                )
+                or path.relative_to(self.root).as_posix() == PACKAGE.PACKAGE_RELATIVE_PATH
+            ):
+                continue
+            files.append({
+                "path": path.relative_to(self.root).as_posix(),
+                "sha256": PACKAGE.sha256(path),
+            })
+        profile["source_asset_coverage"] = [{
+            "root": str(self.root.resolve()),
+            "file_count": len(files),
+            "files": files,
+        }]
+        profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name) / "拆文库" / "样本"
@@ -62,6 +89,7 @@ class DirectImitationPackageTest(unittest.TestCase):
         }
         self.index_path = self.root / "写作资产" / "子流程索引.jsonl"
         self.index_path.write_text(json.dumps(self.subflow, ensure_ascii=False) + "\n", encoding="utf-8")
+        PACKAGE.FINGERPRINTS.write_manifest(self.root, excluded_names=frozenset())
         profile = {key: [f"{key}-asset"] for key in PACKAGE.PROFILE_ASSET_KEYS}
         profile["scene_assets"] = {"public_explosion": ["公开翻刀"]}
         profile["style_assets"] = {"sentence_rhythm": ["短句追压"]}
@@ -70,7 +98,11 @@ class DirectImitationPackageTest(unittest.TestCase):
         profile["sample_grading"] = {"grade": "A"}
         files = []
         for path in sorted(self.root.rglob("*")):
-            if path.is_file():
+            if path.is_file() and not (
+                path.parent == self.root
+                and path.name.startswith("_")
+                and path.name != "_sample_comparison.md"
+            ):
                 files.append({
                     "path": path.relative_to(self.root).as_posix(),
                     "sha256": PACKAGE.sha256(path),
@@ -112,6 +144,16 @@ class DirectImitationPackageTest(unittest.TestCase):
         self.assertTrue(any("SF" in error or "source_asset_coverage" in error for error in errors))
         self.assertEqual(before, output.read_bytes())
 
+    def test_bom_and_newline_changes_do_not_invalidate_package(self) -> None:
+        PACKAGE.build_package(self.root)
+        (self.root / "原文" / "样本.txt").write_bytes(
+            "\ufeff唯一完整原文。".encode("utf-8")
+        )
+        (self.root / "写作资产" / "桥段施工卡.md").write_bytes(
+            "\ufeff# BID-01\r\n承重桥。\r\n".encode("utf-8")
+        )
+        self.assertEqual([], PACKAGE.validate_package(self.root))
+
     def test_v1_package_is_rejected(self) -> None:
         output = PACKAGE.build_package(self.root)
         data = json.loads(output.read_text(encoding="utf-8"))
@@ -151,6 +193,7 @@ class DirectImitationPackageTest(unittest.TestCase):
             for field in PACKAGE.STYLE_GRANULARITY_FIELDS
         }
         self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
+        self.refresh_profile_coverage()
         PACKAGE.build_package(self.root)
         self.assertEqual([], PACKAGE.validate_package(self.root))
 

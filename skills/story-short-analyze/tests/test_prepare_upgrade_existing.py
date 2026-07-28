@@ -151,7 +151,8 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
                 (root / "_finalize_human_review.json").read_text(encoding="utf-8")
             )
             self.assertEqual("pending_content_review", receipt["upgrade_status"])
-            self.assertEqual([], receipt["formal_markdown_sha1s"])
+            self.assertEqual({}, receipt["content_fingerprint"])
+            self.assertNotIn("formal_markdown_sha1s", receipt)
             self.assertEqual(3, len(receipt["upgrade_reviews"]))
 
             receipt["upgrade_reviews"][0].update(

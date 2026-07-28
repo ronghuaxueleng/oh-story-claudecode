@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from collections import defaultdict
@@ -11,13 +12,26 @@ from pathlib import Path
 from typing import Callable
 
 
+def load_content_fingerprints():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "story-short-analyze"
+        / "scripts"
+        / "content_fingerprints.py"
+    )
+    spec = importlib.util.spec_from_file_location("story_profile_content_fingerprints", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载内容指纹模块：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CONTENT_FINGERPRINTS = load_content_fingerprints()
+
+
 def read_text(path: Path) -> str:
-    for enc in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
-        try:
-            return path.read_text(encoding=enc)
-        except UnicodeDecodeError:
-            continue
-    return path.read_text(encoding="utf-8", errors="ignore")
+    return CONTENT_FINGERPRINTS.canonical_text(path)
 
 
 def collect_original_source_text(roots: list[Path]) -> str:
@@ -3216,7 +3230,7 @@ def build_source_asset_coverage(sources: list[Path]) -> list[dict[str, object]]:
             files.append(
                 {
                     "path": relative,
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "sha256": CONTENT_FINGERPRINTS.asset_sha256(path),
                 }
             )
         coverage.append(

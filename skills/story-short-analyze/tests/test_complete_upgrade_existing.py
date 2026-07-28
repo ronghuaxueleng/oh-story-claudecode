@@ -3,8 +3,11 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "complete_upgrade_existing.py"
@@ -33,9 +36,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
             "## SF-01 子流程\n内容\n",
             encoding="utf-8",
         )
-        (self.root / "写作资产" / "子流程索引.jsonl").write_text(
-            json.dumps(
-                {
+        entry = {
                     "subflow_id": "SF-01",
                     "source_book": "样本",
                     "parent_bridge_id": "BID-01",
@@ -61,9 +62,16 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
                     "embeddable_after": ["前置核验场"],
                     "incompatible_with": ["开场已知全部真相"],
                     "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
-                },
-                ensure_ascii=False,
-            )
+                }
+        entry["source_style_granularity"] = {
+            field: {
+                "analysis": f"{field} 的逐场人工分析。",
+                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
+            }
+            for field in COMPLETE.STYLE_FIELDS
+        }
+        (self.root / "写作资产" / "子流程索引.jsonl").write_text(
+            json.dumps(entry, ensure_ascii=False)
             + "\n",
             encoding="utf-8",
         )
@@ -82,9 +90,38 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_process_root_backfills_style_and_resolves_receipt(self) -> None:
-        payload = COMPLETE.process_root(self.root)
-        self.assertEqual(1, payload["style_backfill"]["updated"])
+    def test_process_root_validates_style_and_requires_explicit_decisions(self) -> None:
+        receipt_path = self.root / "_finalize_human_review.json"
+        receipt = {
+            "upgrade_status": "pending_content_review",
+            "upgrade_reviews": [
+                {"scope": scope, "status": "pending", "judgement": "", "evidence": []}
+                for scope in ("process_plan_refresh", "content_contract_review", "profile_regeneration")
+            ],
+            "review_items": [
+                {"id": "HR-TEST", "status": "pending", "judgement": "", "evidence": []}
+            ],
+        }
+        decisions = {
+            "upgrade_reviews": {
+                scope: {
+                    "status": "resolved",
+                    "judgement": f"已人工复核 {scope} 对应内容。",
+                    "evidence": ["_upgrade_plan.md"],
+                }
+                for scope in ("process_plan_refresh", "content_contract_review", "profile_regeneration")
+            },
+            "review_items": {
+                "HR-TEST": {
+                    "status": "not_applicable",
+                    "judgement": "已读取上下文，确认这是关键词误报。",
+                    "evidence": ["拆文报告.md:2"],
+                }
+            },
+        }
+        with mock.patch.object(COMPLETE.SYNC, "sync_receipt", return_value=(receipt_path, receipt, False)):
+            payload = COMPLETE.process_root(self.root, decisions)
+        self.assertEqual(1, payload["style_validation"]["checked"])
         data = [
             json.loads(line)
             for line in (self.root / "写作资产" / "子流程索引.jsonl").read_text(encoding="utf-8").splitlines()
@@ -102,10 +139,42 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
         receipt = json.loads((self.root / "_finalize_human_review.json").read_text(encoding="utf-8"))
         self.assertEqual("completed", receipt["upgrade_status"])
         self.assertTrue(all(item["status"] == "resolved" for item in receipt["upgrade_reviews"]))
+        self.assertEqual("not_applicable", receipt["review_items"][0]["status"])
 
         progress = (self.root / "_progress.md").read_text(encoding="utf-8")
         self.assertNotIn("- [ ] 模型人工复核", progress)
         self.assertIn("- [x] 已运行 `run_short_analyze_finalize.py` 并通过", progress)
+
+    def test_missing_review_decision_is_blocked(self) -> None:
+        payload = {
+            "upgrade_reviews": [],
+            "review_items": [{"id": "HR-TEST", "status": "pending"}],
+        }
+        with self.assertRaisesRegex(ValueError, "HR-TEST"):
+            COMPLETE.apply_review_decisions(
+                payload,
+                {"upgrade_reviews": {}, "review_items": {}},
+            )
+
+    def test_missing_style_is_blocked_without_mutating_index(self) -> None:
+        path = self.root / "写作资产" / "子流程索引.jsonl"
+        entry = json.loads(path.read_text(encoding="utf-8"))
+        entry.pop("source_style_granularity")
+        original = json.dumps(entry, ensure_ascii=False) + "\n"
+        path.write_text(original, encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "缺少 source_style_granularity"):
+            COMPLETE.validate_subflow_style(self.root)
+        self.assertEqual(original, path.read_text(encoding="utf-8"))
+
+    def test_cli_requires_explicit_review_decisions_file(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), str(self.root), "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--review-decisions", result.stderr)
 
     def test_source_slice_supports_multi_ranges(self) -> None:
         lines = ["一", "二", "三", "四", "五"]

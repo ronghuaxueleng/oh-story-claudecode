@@ -557,6 +557,18 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 ### 脚本入口
 
+项目内默认优先使用 `写作资产/项目工具箱.py` 的阶段流程命令：
+
+```bash
+python3 "{项目目录}/写作资产/项目工具箱.py" prepare-prewrite
+python3 "{项目目录}/写作资产/项目工具箱.py" prepare-setting
+python3 "{项目目录}/写作资产/项目工具箱.py" prepare-outline
+python3 "{项目目录}/写作资产/项目工具箱.py" prepare-draft
+python3 "{项目目录}/写作资产/项目工具箱.py" finish-draft-preview
+```
+
+每个命令只编排可机械验证的步骤，首个门禁失败即停止；脚本不代填阅读证据、模型语义归并、顺序裁决或正文审查结论。
+
 常用入口只保留下面 10 个：
 
 ```bash

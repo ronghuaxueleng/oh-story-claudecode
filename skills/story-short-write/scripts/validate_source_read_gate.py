@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from datetime import datetime
 from pathlib import Path
@@ -138,16 +139,29 @@ SUBFLOW_CONSUMPTION_FIELDS = (
 
 
 def read_text(path: Path) -> str:
-    for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
-        try:
-            return path.read_text(encoding=encoding)
-        except UnicodeDecodeError:
-            continue
-    return path.read_text(encoding="utf-8", errors="ignore")
+    return CONTENT_FINGERPRINTS.canonical_text(path)
+
+
+def load_content_fingerprints():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "story-short-analyze"
+        / "scripts"
+        / "content_fingerprints.py"
+    )
+    spec = importlib.util.spec_from_file_location("source_gate_content_fingerprints", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载内容指纹模块：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CONTENT_FINGERPRINTS = load_content_fingerprints()
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return CONTENT_FINGERPRINTS.asset_sha256(path)
 
 
 def discover_full_inventory(root: Path) -> tuple[list[Path], list[str]]:
@@ -224,8 +238,8 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
     errors: list[str] = []
     if package.get("kind") != "direct_imitation_semantic_package":
         errors.append(f"仿写编译包类型错误: {path}")
-    if package.get("version") != "1.1":
-        errors.append(f"仿写编译包版本过期: {path}；必须回到 story-short-analyze finalize 重建为 1.1")
+    if package.get("version") != "1.2":
+        errors.append(f"仿写编译包版本过期: {path}；必须回到 story-short-analyze finalize 重建为 1.2")
     original = package.get("original") if isinstance(package, dict) else None
     originals = source_originals(root)
     if not isinstance(original, dict) or len(originals) != 1:
@@ -255,6 +269,14 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
     )
     if package.get("source_asset_manifest") != current_coverage:
         errors.append(f"仿写编译包来源清单已过期: {path}")
+    fingerprint_path = root / CONTENT_FINGERPRINTS.FILENAME
+    try:
+        fingerprint_manifest = json.loads(read_text(fingerprint_path)) if fingerprint_path.is_file() else {}
+    except json.JSONDecodeError:
+        fingerprint_manifest = {}
+    expected_fingerprint = CONTENT_FINGERPRINTS.reference(fingerprint_manifest)
+    if not fingerprint_manifest or package.get("content_fingerprint") != expected_fingerprint:
+        errors.append(f"仿写编译包内容指纹引用已过期: {path}")
     bridge_path = root / "写作资产" / "桥段施工卡.md"
     bridge_cards = package.get("bridge_cards") if isinstance(package, dict) else None
     if (

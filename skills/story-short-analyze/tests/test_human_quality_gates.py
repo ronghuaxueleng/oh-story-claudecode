@@ -1310,21 +1310,22 @@ class HumanQualityGateTest(unittest.TestCase):
             for label in PREPARER.BRIDGE_EMOTION_LABELS:
                 self.assertIn(label, labels)
 
-    def test_human_review_receipt_must_match_current_notes_and_markdown_hashes(self) -> None:
+    def test_human_review_receipt_must_match_current_notes_and_content_fingerprint(self) -> None:
         self._write("拆文报告.md", "第一版\n")
         notes = [
             f"模型复核提示：{self.root / '拆文报告.md'} 需要人工判断是否压缩化"
         ]
         review_items = VALIDATOR.build_human_review_items(self.root, notes)
         receipt_path = self.root / "_finalize_human_review.json"
+        _, manifest = VALIDATOR.write_content_fingerprint_manifest(self.root)
         receipt_path.write_text(
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
                     "skill_fingerprint": VALIDATOR.compute_skill_fingerprint(),
                     "upgrade_status": "not_applicable",
                     "upgrade_reviews": [],
-                    "formal_markdown_sha1s": VALIDATOR.formal_markdown_sha1s(self.root),
+                    "content_fingerprint": VALIDATOR.content_fingerprint_reference(manifest),
                     "review_items": [
                         {
                             "id": review_items[0]["id"],
@@ -1345,7 +1346,7 @@ class HumanQualityGateTest(unittest.TestCase):
         self._write("拆文报告.md", "第二版\n")
         stale_errors: list[str] = []
         VALIDATOR.check_human_review_receipt(self.root, notes, {}, stale_errors)
-        self.assertTrue(any("Markdown SHA" in error for error in stale_errors))
+        self.assertTrue(any("内容指纹" in error for error in stale_errors))
 
     def test_long_parallel_plan_reuses_three_agent_sessions(self) -> None:
         path = self.root / "_parallel_plan.json"

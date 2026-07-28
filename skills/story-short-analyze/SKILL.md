@@ -125,9 +125,9 @@ description: |
 - 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
 - `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；脚本不得空壳补文件，但主流程不能停在扫描结果，当前模型必须按原文、模板和样本自动继续增量补拆缺失、过期和缺字段内容
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 的文件缺失，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成
-- 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、逐 BID 情绪贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
+- 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、逐 BID 情绪贯通和 profile 重生全部复核完成，且 `_content_fingerprints.json` 已记录当前正式 Markdown 的规范化 SHA-256、`_finalize_human_review.json` 已引用该清单，才能改为完成态
 - finalize 返回的 `errors[]` 必须逐条补齐，包括全局成文形状审计、profile_source 资产不足、book.profile 派生不足等新版门禁；只有 `ok=true / status=ready-for-write / error_count=0` 才能汇报完成
-- validator/finalize 输出的每条 `human_review_items` 都必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable`，补具体判断、证据和当前正式 Markdown SHA；回执缺失、漏项或 SHA 过期时 finalize 必须阻断
+- validator/finalize 输出的每条 `human_review_items` 都必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable`，补具体判断、证据并引用当前 `_content_fingerprints.json`；回执缺失、漏项或内容指纹过期时 finalize 必须阻断
 - `run_short_analyze_finalize.py` 的模型复核提示至少覆盖以下两类强制收尾项：
   - 第 3 类：资产完整性提醒。凡提示“某张表可能漏掉终局证据载体 / 公开身份场 / 关系硬牌 / 物件回流载体”，必须回到对应正式产物补拆或显式记录“已人工复核，无需补”的判断，不能因为不阻断就直接结束。
   - 第 4 类：人物 / 关系拆解密度提醒。凡提示“未命中人物口气词 / 关系起点词 / 旧案标签 / 关系根部”等，必须回到 `写作手法.md`、`原文细节库/关系细节库.md` 等正式产物补出显性拆法，不允许只留脚本提示。

@@ -10,7 +10,7 @@
 - `run_short_analyze_finalize.py` 不得补标题、补“为什么假”、扩写情绪母线或改写任何 Markdown。
 - profile 生成失败、字段不足或 validator 报错时，直接返回错误。
 - 信息不足时回到责任微批由模型重写；禁止脚本使用通用婚姻、家庭、职场或古言内容代填。
-- finalize 前后 Markdown SHA1 必须一致；任何变化都阻断。
+- finalize 前后 Markdown 规范化 SHA-256 必须一致；真实内容变化才阻断，BOM 与 CRLF/LF 差异不视为内容变化。
 
 ## profile_source 角色
 
@@ -81,11 +81,11 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 理解口径：
 
-- 正式 Markdown 补齐后先运行 `sync_finalize_human_review.py "拆文库/{书名}" --json`，同步当前 SHA 与待裁决项；脚本不得自动填写 `resolved / not_applicable`
+- 正式 Markdown 补齐后先运行 `sync_finalize_human_review.py "拆文库/{书名}" --json`，生成或刷新 `_content_fingerprints.json` 的规范化 SHA-256 并同步待裁决项；脚本不得自动填写 `resolved / not_applicable`
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
-- 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
+- `_content_fingerprints.json` 必须记录当前正式 Markdown 的规范化 SHA-256，回执只引用该清单；任何真实内容变化后都要重新人工复核
 - finalize 只允许生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 和读取正式产物，不允许修改 Markdown
-- 无损编译包归拆书阶段所有：它必须是 `version: 1.1`，包含唯一完整原文、全部 SF 原始字段、每个 SF 的逐场 `source_style_granularity`、BID 施工卡和 profile 承重资产；写作阶段只读、只校验，缺失、旧版或过期必须返回本阶段重跑 finalize
+- 无损编译包归拆书阶段所有：它必须是 `version: 1.2`，包含唯一完整原文、全部 SF 原始字段、每个 SF 的逐场 `source_style_granularity`、BID 施工卡、profile 承重资产和当前内容指纹引用；写作阶段只读、只校验，缺失、旧版或过期必须返回本阶段重跑 finalize
 - `source_style_granularity` 必须在 finalize 前已经由拆书产物固化。六项分别是 `narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`；每项至少两条不同原文证据，且证据必须落在该 SF 的 `source_range` 内
 - `source_asset_coverage` 必须排除无损编译包自身，避免自引用；包内仍保留不含自身的完整来源清单用于新鲜度校验
 - 全量 validator 未通过时，finalize 必须撤销本轮生成包；只有 `ready-for-write` 的拆书目录可以保留并下发该包

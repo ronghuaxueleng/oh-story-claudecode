@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -18,12 +18,23 @@ def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
 
+def load_validator_module():
+    path = Path(__file__).with_name("validate_short_analyze_outputs.py")
+    spec = importlib.util.spec_from_file_location("short_analyze_validator_for_finalize", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载 validator：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def markdown_fingerprints(root: Path) -> dict[str, str]:
+    return load_validator_module().markdown_sha256s(root, include_process=True)
+
+
 def markdown_sha1s(root: Path) -> dict[str, str]:
-    hashes: dict[str, str] = {}
-    for path in sorted(root.rglob("*.md")):
-        if path.is_file():
-            hashes[str(path.relative_to(root))] = hashlib.sha1(path.read_bytes()).hexdigest()
-    return hashes
+    """Backward-compatible name; values are normalized SHA-256 fingerprints."""
+    return markdown_fingerprints(root)
 
 
 def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
@@ -137,7 +148,7 @@ def main() -> int:
     subflow_builder = repo_root / "skills" / "story-short-analyze" / "scripts" / "build_subflow_library.py"
     imitation_builder = repo_root / "skills" / "story-short-analyze" / "scripts" / "build_direct_imitation_package.py"
 
-    markdown_before = markdown_sha1s(root)
+    markdown_before = markdown_fingerprints(root)
     package_output = root / "写作资产" / "仿写无损编译包.json"
     if package_output.is_file():
         package_output.unlink()
@@ -209,7 +220,7 @@ def main() -> int:
         validator_payload["ok"] = False
         validator_payload["status"] = "blocked-on-assets"
         validator_payload["error_count"] = len(validator_payload["errors"])
-    markdown_after = markdown_sha1s(root)
+    markdown_after = markdown_fingerprints(root)
     if markdown_after != markdown_before:
         changed = sorted(
             path

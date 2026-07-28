@@ -50,11 +50,16 @@ def sync_receipt(root: Path) -> tuple[Path, dict[str, Any], bool]:
     validator = load_validator()
     receipt_path = root / "_finalize_human_review.json"
     existing = load_existing(receipt_path)
-    current_hashes = validator.formal_markdown_sha1s(root)
+    _, current_manifest = validator.write_content_fingerprint_manifest(root)
+    current_fingerprint_ref = validator.content_fingerprint_reference(current_manifest)
     current_fingerprint = validator.compute_skill_fingerprint()
-    content_unchanged = (
-        existing.get("formal_markdown_sha1s") == current_hashes
-        and existing.get("skill_fingerprint") == current_fingerprint
+    current_content_matches = existing.get("content_fingerprint") == current_fingerprint_ref
+    if not current_content_matches:
+        current_content_matches = validator.legacy_markdown_sha1s_match(
+            root, existing.get("formal_markdown_sha1s")
+        )
+    content_unchanged = current_content_matches and (
+        existing.get("skill_fingerprint") == current_fingerprint
     )
     _, notes = validator.validate(root)
     expected_items = validator.build_human_review_items(root, notes)
@@ -92,7 +97,7 @@ def sync_receipt(root: Path) -> tuple[Path, dict[str, Any], bool]:
         review_items = [pending_item(item) for item in expected_items]
 
     payload = {
-        "version": 1,
+        "version": 2,
         "skill_fingerprint": current_fingerprint,
         "upgrade_status": (
             existing.get("upgrade_status", "pending_content_review")
@@ -100,7 +105,7 @@ def sync_receipt(root: Path) -> tuple[Path, dict[str, Any], bool]:
             else "pending_content_review"
         ),
         "upgrade_reviews": upgrade_reviews,
-        "formal_markdown_sha1s": current_hashes,
+        "content_fingerprint": current_fingerprint_ref,
         "review_items": review_items,
     }
     receipt_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -108,7 +113,7 @@ def sync_receipt(root: Path) -> tuple[Path, dict[str, Any], bool]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="同步拆书 finalize 人工复核清单与正式 Markdown SHA")
+    parser = argparse.ArgumentParser(description="同步拆书 finalize 人工复核清单与规范化内容指纹")
     parser.add_argument("root", help="拆文库/{书名} 目录")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()

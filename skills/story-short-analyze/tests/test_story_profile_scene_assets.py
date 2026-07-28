@@ -55,6 +55,16 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             paths = {item["path"] for item in coverage["files"]}
             self.assertEqual({"原文.txt", "_sample_comparison.md"}, paths)
 
+    def test_source_coverage_is_stable_across_bom_and_newline_variants(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "拆文报告.md"
+            source.write_text("# 报告\n正文\n", encoding="utf-8")
+            before = GENERATOR.build_source_asset_coverage([root])
+            source.write_bytes("\ufeff# 报告\r\n正文\r\n".encode("utf-8"))
+            after = GENERATOR.build_source_asset_coverage([root])
+            self.assertEqual(before, after)
+
     def test_profile_source_extracts_scene_causal_assets(self) -> None:
         parsed = GENERATOR.parse_profile_source(
             "## 13. 场景因果资产\n"

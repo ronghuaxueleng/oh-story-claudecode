@@ -149,6 +149,7 @@ def init_entry(
         section_source_bundle=section_source_bundle,
         draft=draft,
         receipt=section_execution_receipt,
+        force=force,
     )
     if init_result != 0:
         return init_result

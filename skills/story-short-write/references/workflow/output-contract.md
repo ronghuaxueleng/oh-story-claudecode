@@ -328,7 +328,7 @@ python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrad
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
 - 一旦进入 `--upgrade-existing`，主流程不得停在扫描结果；当前模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后，自动继续增量补拆缺失、过期和缺字段内容。
 - `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
-- 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA。
+- 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，由 `_content_fingerprints.json` 记录当前正式 Markdown 的规范化 SHA-256，并在 `_finalize_human_review.json` 记录具体判断、证据与清单引用。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。
 
 ---
@@ -443,7 +443,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 `profile_source.md` 不是最终规则包，而是“模型先提、脚本后收”的中间层。
 禁止跳过这一层，直接让脚本从全部 Markdown 盲抽。
 
-收口脚本只自动生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 并执行校验，不得修改任何 Markdown。`仿写无损编译包.json` 的版本必须是 `1.1`，并原样携带每个 SF 的 `source_style_granularity`；旧 `1.0` 包、缺文风字段的包或证据不在本 SF 行段内的包都不得进入写作阶段。需要单独排查时，才手动调用：
+收口脚本只自动生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 并执行校验，不得修改任何 Markdown。`仿写无损编译包.json` 的版本必须是 `1.2`，并原样携带每个 SF 的 `source_style_granularity` 与当前内容指纹引用；旧包、缺文风字段、缺内容指纹引用或证据不在本 SF 行段内的包都不得进入写作阶段。需要单独排查时，才手动调用：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -471,7 +471,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 如果桥段只有 `must_keep / must_avoid`，默认仍没拆到可直接支撑同桥段仿写与去 AI 味回修的层级。
 
-validator/finalize 输出的所有 `human_review_items` 必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable` 并附具体判断和证据。回执缺失、漏项或正式 Markdown SHA 变化时，状态固定为 `blocked-on-assets`。
+validator/finalize 输出的所有 `human_review_items` 必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable` 并附具体判断和证据。回执缺失、漏项或 `_content_fingerprints.json` 与正式 Markdown 规范化内容不一致时，状态固定为 `blocked-on-assets`。
 
 ### 7.7 通过
 

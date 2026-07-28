@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -53,6 +54,54 @@ class SyncFinalizeHumanReviewTest(unittest.TestCase):
         self.assertFalse(preserved)
         self.assertEqual("pending", payload["upgrade_reviews"][0]["status"])
         self.assertEqual("", payload["upgrade_reviews"][0]["judgement"])
+
+    def test_newline_and_bom_changes_preserve_existing_judgement(self) -> None:
+        SYNC.sync_receipt(self.root)
+        before = self.resolve_first_upgrade_review()
+        manifest_before = json.loads(
+            (self.root / "_content_fingerprints.json").read_text(encoding="utf-8")
+        )
+        (self.root / "拆文报告.md").write_bytes(
+            "\ufeff# 报告\r\n初版内容\r\n".encode("utf-8")
+        )
+        _, payload, preserved = SYNC.sync_receipt(self.root)
+        manifest_after = json.loads(
+            (self.root / "_content_fingerprints.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(preserved)
+        self.assertEqual("resolved", payload["upgrade_reviews"][0]["status"])
+        self.assertEqual(before["upgrade_reviews"][0]["judgement"], payload["upgrade_reviews"][0]["judgement"])
+        self.assertEqual(manifest_before, manifest_after)
+
+    def test_sync_writes_independent_sha256_manifest(self) -> None:
+        _, payload, _ = SYNC.sync_receipt(self.root)
+        manifest_path = self.root / "_content_fingerprints.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        self.assertEqual("sha256", manifest["algorithm"])
+        self.assertEqual("utf8-bomless-lf-v1", manifest["normalization"])
+        self.assertEqual(
+            manifest["aggregate_sha256"], payload["content_fingerprint"]["aggregate_sha256"]
+        )
+        self.assertNotIn("formal_markdown_sha1s", payload)
+
+    def test_equivalent_legacy_sha1_receipt_migrates_without_reset(self) -> None:
+        SYNC.sync_receipt(self.root)
+        legacy = self.resolve_first_upgrade_review()
+        legacy.pop("content_fingerprint")
+        legacy["version"] = 1
+        legacy["formal_markdown_sha1s"] = {
+            "拆文报告.md": hashlib.sha1(
+                "# 报告\n初版内容\n".encode("utf-8")
+            ).hexdigest()
+        }
+        (self.root / "_finalize_human_review.json").write_text(
+            json.dumps(legacy, ensure_ascii=False), encoding="utf-8"
+        )
+        _, payload, preserved = SYNC.sync_receipt(self.root)
+        self.assertTrue(preserved)
+        self.assertEqual(2, payload["version"])
+        self.assertEqual("resolved", payload["upgrade_reviews"][0]["status"])
+        self.assertNotIn("formal_markdown_sha1s", payload)
 
     def test_skill_fingerprint_change_resets_judgements(self) -> None:
         SYNC.sync_receipt(self.root)
