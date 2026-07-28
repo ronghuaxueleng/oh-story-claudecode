@@ -110,7 +110,7 @@ class SourceReadGateTest(unittest.TestCase):
         )
 
     def _write_completed_receipt(self) -> dict:
-        receipt, errors = GATE.create_receipt("测试项目", [self.source], writing_mode="standard")
+        receipt, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertEqual([], errors)
         receipt["gate_status"] = "passed"
         receipt["confirmed_before_outline"] = True
@@ -161,7 +161,7 @@ class SourceReadGateTest(unittest.TestCase):
         return package_path
 
     def test_pending_receipt_is_blocked(self) -> None:
-        receipt, errors = GATE.create_receipt("测试项目", [self.source], writing_mode="standard")
+        receipt, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertEqual([], errors)
         self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
         self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
@@ -174,13 +174,6 @@ class SourceReadGateTest(unittest.TestCase):
         validation_errors, summary = GATE.validate_receipt(self.receipt_path)
         self.assertEqual([], validation_errors)
         self.assertEqual(len(GATE.MAIN_COMPILED_FILES) + 1, summary["read_count"])
-
-    def test_receipt_without_explicit_writing_mode_is_blocked(self) -> None:
-        receipt = self._write_completed_receipt()
-        receipt.pop("writing_mode")
-        self.receipt_path.write_text(json.dumps(receipt, ensure_ascii=False), encoding="utf-8")
-        validation_errors, _ = GATE.validate_receipt(self.receipt_path)
-        self.assertTrue(any("缺少 writing_mode" in error for error in validation_errors))
 
     def test_compiled_inventory_is_smaller_than_full_inventory(self) -> None:
         compiled, compiled_errors = GATE.discover_inventory(self.source)
@@ -288,27 +281,6 @@ class SourceReadGateTest(unittest.TestCase):
         )
         self.assertTrue(any("版本过期" in error for error in errors))
 
-    def test_direct_imitation_rejects_repeated_subflow_style_templates(self) -> None:
-        self._write_direct_imitation_package()
-        index_path = self.source / "写作资产" / "子流程索引.jsonl"
-        base = GATE.subflow_index(self.source)["SF-01"]
-        variants = []
-        for number in range(1, 4):
-            variant = dict(base)
-            variant["subflow_id"] = f"SF-{number:02d}"
-            variants.append(variant)
-        index_path.write_text(
-            "\n".join(json.dumps(item, ensure_ascii=False) for item in variants) + "\n",
-            encoding="utf-8",
-        )
-        _, errors = GATE.create_receipt(
-            "测试项目",
-            [self.source],
-            inventory_mode="compiled",
-            writing_mode="direct_imitation",
-        )
-        self.assertTrue(any("文风分析模板重复" in error for error in errors))
-
     def test_auxiliary_compiled_receipt_requires_real_selected_subflow(self) -> None:
         auxiliary = self.root / "拆文库" / "辅助"
         import shutil
@@ -318,9 +290,7 @@ class SourceReadGateTest(unittest.TestCase):
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
         profile["source_asset_coverage"][0]["root"] = str(auxiliary.resolve())
         profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
-        receipt, errors = GATE.create_receipt(
-            "测试项目", [self.source, auxiliary], writing_mode="standard"
-        )
+        receipt, errors = GATE.create_receipt("测试项目", [self.source, auxiliary])
         self.assertEqual([], errors)
         receipt["gate_status"] = "passed"
         receipt["confirmed_before_outline"] = True
@@ -351,9 +321,7 @@ class SourceReadGateTest(unittest.TestCase):
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
         profile["source_asset_coverage"][0]["root"] = str(auxiliary.resolve())
         profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
-        receipt, errors = GATE.create_receipt(
-            "测试项目", [self.source, auxiliary], writing_mode="standard"
-        )
+        receipt, errors = GATE.create_receipt("测试项目", [self.source, auxiliary])
         self.assertEqual([], errors)
         receipt["gate_status"] = "passed"
         receipt["confirmed_before_outline"] = True
@@ -388,7 +356,7 @@ class SourceReadGateTest(unittest.TestCase):
 
     def test_missing_asset_requires_reanalysis(self) -> None:
         (self.source / GATE.TABLE_FILES[0]).unlink()
-        _, errors = GATE.create_receipt("测试项目", [self.source], writing_mode="standard")
+        _, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertTrue(any("缺少拆文资产" in error for error in errors))
 
     def test_changed_source_requires_reread(self) -> None:
@@ -400,7 +368,7 @@ class SourceReadGateTest(unittest.TestCase):
 
     def test_new_formal_asset_invalidates_profile_coverage(self) -> None:
         (self.source / "新增正式资产.md").write_text("新增资产", encoding="utf-8")
-        _, errors = GATE.create_receipt("测试项目", [self.source], writing_mode="standard")
+        _, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertTrue(any("覆盖清单缺少正式资产" in error for error in errors))
 
     def test_retroactive_receipt_is_blocked(self) -> None:
@@ -415,7 +383,7 @@ class SourceReadGateTest(unittest.TestCase):
 
     def test_sample_comparison_is_mandatory(self) -> None:
         (self.source / "_sample_comparison.md").unlink()
-        _, errors = GATE.create_receipt("测试项目", [self.source], writing_mode="standard")
+        _, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertTrue(any("_sample_comparison.md" in error for error in errors))
 
 

@@ -131,9 +131,10 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("causal_preconditions", execution_prompt)
             self.assertIn("## 13. 场景因果资产", execution_prompt)
 
-            self.assertIn("_style_reanalysis_tasks.json", payload["next_step"]["then"])
-            self.assertIn("自动增量补拆", payload["next_step"]["then"])
-            self.assertEqual("needs_model_reanalysis", payload["style_reanalysis"]["status"])
+            self.assertEqual(
+                "按 _upgrade_plan.md 继续自动增量补拆缺失、过期和缺字段内容；脚本不伪造正式 Markdown 占位",
+                payload["next_step"]["then"],
+            )
             self.assertTrue(payload["next_step"]["auto_continue_expected"])
 
             progress = (root / "_progress.md").read_text(encoding="utf-8")

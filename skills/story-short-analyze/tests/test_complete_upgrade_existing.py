@@ -82,127 +82,30 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def test_process_root_rejects_missing_style_without_fabricating_assets(self) -> None:
+    def test_process_root_backfills_style_and_resolves_receipt(self) -> None:
         payload = COMPLETE.process_root(self.root)
-        self.assertEqual("needs_model_reanalysis", payload["status"])
-        self.assertEqual(["SF-01"], payload["missing_source_style_subflows"])
-        self.assertEqual(1, payload["style_reanalysis_task_count"])
-        task_payload = json.loads(
-            (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
-        )
-        task = task_payload["tasks"][0]
-        self.assertEqual("SF-01", task["subflow_id"])
-        self.assertEqual("L1-L2", task["source_range"])
-        self.assertEqual(
-            "第一行原文锚点A。\n第二行原文锚点B。",
-            task["source_excerpt"],
-        )
-        self.assertEqual(list(COMPLETE.STYLE_FIELDS), task["required_style_fields"])
+        self.assertEqual(1, payload["style_backfill"]["updated"])
         data = [
             json.loads(line)
             for line in (self.root / "写作资产" / "子流程索引.jsonl").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ][0]
-        self.assertNotIn("source_style_granularity", data)
-        self.assertFalse((self.root / "_finalize_human_review.json").exists())
+        style = data["source_style_granularity"]
+        self.assertEqual(set(COMPLETE.STYLE_FIELDS), set(style))
+        for field in COMPLETE.STYLE_FIELDS:
+            self.assertEqual(
+                ["第一行原文锚点A。", "第二行原文锚点B。"],
+                style[field]["source_evidence"],
+            )
+            self.assertTrue(style[field]["analysis"])
+
+        receipt = json.loads((self.root / "_finalize_human_review.json").read_text(encoding="utf-8"))
+        self.assertEqual("completed", receipt["upgrade_status"])
+        self.assertTrue(all(item["status"] == "resolved" for item in receipt["upgrade_reviews"]))
+
         progress = (self.root / "_progress.md").read_text(encoding="utf-8")
-        self.assertIn("- [ ] 模型人工复核", progress)
-
-    def test_process_root_rejects_legacy_style_template(self) -> None:
-        index_path = self.root / "写作资产" / "子流程索引.jsonl"
-        entry = json.loads(index_path.read_text(encoding="utf-8"))
-        entry["source_style_granularity"] = {
-            field: {
-                "analysis": COMPLETE.LEGACY_TEMPLATE_MARKER,
-                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
-            }
-            for field in COMPLETE.STYLE_FIELDS
-        }
-        index_path.write_text(json.dumps(entry, ensure_ascii=False) + "\n", encoding="utf-8")
-        payload = COMPLETE.process_root(self.root)
-        self.assertEqual(["SF-01"], payload["templated_source_style_subflows"])
-        task_payload = json.loads(
-            (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
-        )
-        self.assertTrue(
-            any("legacy_templated" in reason for reason in task_payload["tasks"][0]["reasons"])
-        )
-
-    def test_process_root_ready_removes_stale_task_without_touching_index(self) -> None:
-        index_path = self.root / "写作资产" / "子流程索引.jsonl"
-        entry = json.loads(index_path.read_text(encoding="utf-8"))
-        entry["source_style_granularity"] = {
-            field: {
-                "analysis": f"{field} 对应本场独立分析。",
-                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
-            }
-            for field in COMPLETE.STYLE_FIELDS
-        }
-        expected = json.dumps(entry, ensure_ascii=False) + "\n"
-        index_path.write_text(expected, encoding="utf-8")
-        (self.root / "_style_reanalysis_tasks.json").write_text(
-            '{"tasks": [{"subflow_id": "stale"}]}\n',
-            encoding="utf-8",
-        )
-
-        payload = COMPLETE.process_root(self.root)
-
-        self.assertEqual("ready_for_finalize", payload["status"])
-        self.assertEqual(0, payload["style_reanalysis_task_count"])
-        self.assertIsNone(payload["style_reanalysis_task_file"])
-        self.assertFalse((self.root / "_style_reanalysis_tasks.json").exists())
-        self.assertEqual(expected, index_path.read_text(encoding="utf-8"))
-
-    def test_process_root_routes_cross_subflow_repeated_analysis_to_reanalysis(self) -> None:
-        index_path = self.root / "写作资产" / "子流程索引.jsonl"
-        base = json.loads(index_path.read_text(encoding="utf-8"))
-        entries = []
-        for number in range(1, 4):
-            entry = dict(base)
-            entry["subflow_id"] = f"SF-{number:02d}"
-            entry["source_style_granularity"] = {
-                field: {
-                    "analysis": f"跨场复用的 {field} 分析。",
-                    "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
-                }
-                for field in COMPLETE.STYLE_FIELDS
-            }
-            entries.append(json.dumps(entry, ensure_ascii=False))
-        index_path.write_text("\n".join(entries) + "\n", encoding="utf-8")
-
-        payload = COMPLETE.process_root(self.root)
-
-        self.assertEqual(["SF-01", "SF-02", "SF-03"], payload["templated_source_style_subflows"])
-        self.assertEqual(3, payload["style_reanalysis_task_count"])
-        tasks = json.loads(
-            (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
-        )["tasks"]
-        self.assertTrue(
-            all("cross_subflow_repeated_style_analysis" in task["reasons"] for task in tasks)
-        )
-
-    def test_process_root_blocks_incomplete_style_even_without_legacy_marker(self) -> None:
-        index_path = self.root / "写作资产" / "子流程索引.jsonl"
-        entry = json.loads(index_path.read_text(encoding="utf-8"))
-        entry["source_style_granularity"] = {
-            field: {
-                "analysis": f"{field} 对应本场独立分析。",
-                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
-            }
-            for field in COMPLETE.STYLE_FIELDS[:-1]
-        }
-        index_path.write_text(json.dumps(entry, ensure_ascii=False) + "\n", encoding="utf-8")
-
-        payload = COMPLETE.process_root(self.root)
-
-        self.assertEqual("needs_model_reanalysis", payload["status"])
-        task = json.loads(
-            (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
-        )["tasks"][0]
-        self.assertIn(
-            "missing_style_field:narrator_interjection_and_roughness",
-            task["reasons"],
-        )
+        self.assertNotIn("- [ ] 模型人工复核", progress)
+        self.assertIn("- [x] 已运行 `run_short_analyze_finalize.py` 并通过", progress)
 
     def test_source_slice_supports_multi_ranges(self) -> None:
         lines = ["一", "二", "三", "四", "五"]

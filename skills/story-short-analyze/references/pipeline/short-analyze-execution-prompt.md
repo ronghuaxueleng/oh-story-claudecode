@@ -523,15 +523,6 @@
 
 ## 第 6 批：全量验收批
 
-### 历史目录文风自动重拆闭环
-
-历史目录进入本批前先运行 `complete_upgrade_existing.py "拆文库/{书名}" --json`。返回 `needs_model_reanalysis` 时：
-
-1. 立即读取 `_style_reanalysis_tasks.json`，不得只汇报任务数量或等待用户再次下令。
-2. 当前模型逐项重读 `source_excerpt`，把六项真实 `source_style_granularity` 和各自至少两条范围内证据写回对应 SF；不要读取旧 analysis 作为改写底稿。
-3. 重跑检查器直到 `ready_for_finalize` 且任务文件被清除；脚本不得代写任何 analysis。
-4. 运行 `sync_finalize_human_review.py`，由模型逐项填写真实裁决，再运行 finalize；报错继续回修责任资产。
-
 ### 洁净与贯通硬闸
 
 - 全量正式 Markdown 不得有重复标题、空字段、`桥1 / 桥段卡1 / 待补 / 占位` 标题或半成品模板壳

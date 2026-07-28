@@ -202,6 +202,24 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def resolve_skill_rule_path(path: Path, skill_root: Path = SKILL_ROOT) -> Path:
+    """Map legacy absolute skill paths onto the current skill root when possible."""
+    resolved = path if path.is_absolute() else path.resolve()
+    if resolved.is_file():
+        return resolved
+    current_root = skill_root.resolve()
+    try:
+        relative = resolved.relative_to(current_root)
+    except ValueError:
+        marker = "story-short-write"
+        parts = resolved.parts
+        if marker not in parts:
+            return resolved
+        relative = Path(*parts[parts.index(marker) + 1 :])
+    candidate = current_root / relative
+    return candidate if candidate.is_file() else resolved
+
+
 def stable_id(prefix: str, source_path: str, rule_text: str) -> str:
     digest = hashlib.sha1(
         f"{source_path}\0{rule_text}".encode("utf-8")
@@ -1040,7 +1058,9 @@ def entry_source_signature(entry: dict[str, Any]) -> str:
         "rule_text": entry.get("rule_text"),
         "cases": [
             {
-                "source_path": item.get("source_path"),
+                "source_path": str(
+                    resolve_skill_rule_path(Path(str(item.get("source_path") or "")))
+                ),
                 "text": item.get("text"),
             }
             for item in entry.get("cases", [])
@@ -1050,11 +1070,24 @@ def entry_source_signature(entry: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
 
 
+def entry_rule_key(entry: dict[str, Any]) -> tuple[str, str]:
+    source_path = str(
+        resolve_skill_rule_path(Path(str(entry.get("source_path") or "")))
+    )
+    return source_path, str(entry.get("rule_text") or "")
+
+
 def entry_state_fields(entry: dict[str, Any]) -> dict[str, Any]:
     source_fields = {
         "id",
         "source_path",
         "source_sha256",
+        "source_name",
+        "source_role",
+        "asset_path",
+        "relative_path",
+        "sha256",
+        "rule_expansion",
         "rule_text",
         "cases",
         "source_refs",
@@ -1096,7 +1129,7 @@ def sync_sources(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
     writing = receipts.get("writing_rule_receipt") or {}
     source = receipts.get("source_read_receipt") or {}
     old_paths = [
-        Path(str(item.get("path") or "")).resolve()
+        resolve_skill_rule_path(Path(str(item.get("path") or "")))
         for item in data.get("skill_rule_files", [])
         if isinstance(item, dict) and item.get("path")
     ]
@@ -1109,7 +1142,11 @@ def sync_sources(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
         SKILL_ROOT,
     )
     core_paths = {(skill_root / relative).resolve() for relative in CORE_SKILL_RULE_FILES}
-    extra_paths = [path for path in old_paths if path not in core_paths]
+    extra_paths = [
+        resolve_skill_rule_path(path, skill_root=skill_root)
+        for path in old_paths
+        if path not in core_paths
+    ]
     rebuilt, errors = create_ledger(
         str(data.get("project") or ""),
         Path(str(writing.get("path") or "")),
@@ -1125,15 +1162,30 @@ def sync_sources(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
         for entry in iter_execution_entries(data)
         if isinstance(entry, dict) and entry.get("id")
     }
+    old_entries_by_signature: dict[str, list[dict[str, Any]]] = {}
+    old_entries_by_rule_key: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for old in old_entries.values():
+        old_entries_by_signature.setdefault(entry_source_signature(old), []).append(old)
+        old_entries_by_rule_key.setdefault(entry_rule_key(old), []).append(old)
     preserved = 0
     reset = 0
     created = 0
     for entry in iter_execution_entries(rebuilt):
         old = old_entries.get(str(entry.get("id") or ""))
+        matched_by_rule_key = False
+        if old is None:
+            matches = old_entries_by_signature.get(entry_source_signature(entry), [])
+            if len(matches) == 1:
+                old = matches[0]
+        if old is None:
+            matches = old_entries_by_rule_key.get(entry_rule_key(entry), [])
+            if len(matches) == 1:
+                old = matches[0]
+                matched_by_rule_key = True
         if old is None:
             created += 1
             continue
-        if entry_source_signature(old) != entry_source_signature(entry):
+        if not matched_by_rule_key and entry_source_signature(old) != entry_source_signature(entry):
             reset += 1
             continue
         candidate = dict(entry)

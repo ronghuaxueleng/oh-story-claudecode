@@ -1,0 +1,101 @@
+{
+  "default_scripts": [
+    {
+      "file": "修复旧项目绑定.py",
+      "kind": "python_wrapper",
+      "purpose": "refresh_legacy_bindings",
+      "entrypoint": "python"
+    },
+    {
+      "file": "运行正文放行.py",
+      "kind": "python_wrapper",
+      "purpose": "draft_release_gate",
+      "entrypoint": "python"
+    },
+    {
+      "file": "初始化首稿入口.py",
+      "kind": "python_wrapper",
+      "purpose": "first_draft_entry_init",
+      "entrypoint": "python"
+    },
+    {
+      "file": "校验首稿入口.py",
+      "kind": "python_wrapper",
+      "purpose": "first_draft_entry_validate",
+      "entrypoint": "python"
+    },
+    {
+      "file": "项目工具箱.py",
+      "kind": "python_wrapper",
+      "purpose": "project_toolbox",
+      "entrypoint": "python"
+    },
+    {
+      "file": "项目总诊断.py",
+      "kind": "python_wrapper",
+      "purpose": "project_audit",
+      "entrypoint": "python"
+    },
+    {
+      "file": "初始化首稿基础审计.py",
+      "kind": "python_wrapper",
+      "purpose": "first_draft_basic_review_init",
+      "entrypoint": "python"
+    },
+    {
+      "file": "校验首稿基础审计.py",
+      "kind": "python_wrapper",
+      "purpose": "first_draft_basic_review_validate",
+      "entrypoint": "python"
+    },
+    {
+      "file": "初始化全流程状态.py",
+      "kind": "python_wrapper",
+      "purpose": "completion_state_init",
+      "entrypoint": "python"
+    },
+    {
+      "file": "校验全流程状态.py",
+      "kind": "python_wrapper",
+      "purpose": "completion_state_validate",
+      "entrypoint": "python"
+    },
+    {
+      "file": "标记首稿停靠.py",
+      "kind": "python_wrapper",
+      "purpose": "draft_preview_mark",
+      "entrypoint": "python"
+    },
+    {
+      "file": "确认继续深审.py",
+      "kind": "python_wrapper",
+      "purpose": "deep_review_confirm",
+      "entrypoint": "python"
+    },
+    {
+      "file": "扫描局部生硬.py",
+      "kind": "python_wrapper",
+      "purpose": "local_stiffness_audit",
+      "entrypoint": "python"
+    }
+  ],
+  "projects": [
+    {
+      "project_name": "我流产手术那天，老公给白月光签了家属单",
+      "scripts": [
+        {
+          "file": "填写写前契约.mjs",
+          "kind": "project_template",
+          "purpose": "prewrite_contract_fill",
+          "entrypoint": "node"
+        },
+        {
+          "file": "填写首稿基础审计.mjs",
+          "kind": "project_template",
+          "purpose": "first_draft_basic_review_fill",
+          "entrypoint": "node"
+        }
+      ]
+    }
+  ]
+}

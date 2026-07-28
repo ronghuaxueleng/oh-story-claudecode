@@ -34,10 +34,7 @@ class SectionSourceBundleTest(unittest.TestCase):
                 "section_id": "1",
                 "scene_logic_contract": {"ok": True},
                 "source_emotion_parity": {"ok": True},
-                "original_scene_granularity": {
-                    "source_scene": "先护后弃再反刀",
-                    "action_sequence": "看见、停住、追问",
-                },
+                "original_scene_granularity": "先护后弃再反刀",
                 "first_draft_generation_contract": {
                     "source_slice_bindings": [binding],
                     "source_performance_excerpt": "原文第一拍。原文第二拍。",

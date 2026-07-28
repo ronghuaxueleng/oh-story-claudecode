@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,10 @@ _SECTION_EXECUTION_SPEC = importlib.util.spec_from_file_location(
 assert _SECTION_EXECUTION_SPEC and _SECTION_EXECUTION_SPEC.loader
 _SECTION_EXECUTION_MODULE = importlib.util.module_from_spec(_SECTION_EXECUTION_SPEC)
 _SECTION_EXECUTION_SPEC.loader.exec_module(_SECTION_EXECUTION_MODULE)
+
+_REFRESH_LEGACY_BINDINGS_PATH = Path(__file__).with_name(
+    "refresh_legacy_project_bindings.py"
+)
 
 
 def sha256(path: Path) -> str:
@@ -47,6 +53,29 @@ def read_json(path: Path) -> dict[str, Any]:
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def auto_refresh_legacy_bindings(project: Path, use_git_ledger_fallback: bool) -> list[str]:
+    cmd = [
+        sys.executable,
+        str(_REFRESH_LEGACY_BINDINGS_PATH),
+        "--project",
+        str(project),
+        "--repair-ledger",
+        "--refresh-bindings",
+        "--rebuild-section-bundle",
+        "--validate",
+    ]
+    if use_git_ledger_fallback:
+        cmd.append("--use-git-ledger-fallback")
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode == 0:
+        return []
+    detail = (proc.stdout or proc.stderr or "").strip()
+    message = "旧项目绑定自动刷新失败"
+    if detail:
+        return [message, detail]
+    return [message]
 
 
 def draft_has_user_content(path: Path) -> bool:
@@ -71,10 +100,22 @@ def init_entry(
     section_source_bundle: Path,
     section_execution_receipt: Path,
     force: bool,
+    auto_refresh_legacy_bindings_enabled: bool,
+    use_git_ledger_fallback: bool,
 ) -> int:
     if receipt.exists() and not force:
         print(f"首稿入口回执已存在，拒绝覆盖: {receipt}")
         return 2
+    if auto_refresh_legacy_bindings_enabled:
+        refresh_errors = auto_refresh_legacy_bindings(
+            Path(project).resolve(),
+            use_git_ledger_fallback=use_git_ledger_fallback,
+        )
+        if refresh_errors:
+            print("first_draft_entry: blocked")
+            for error in refresh_errors:
+                print(f"- {error}")
+            return 2
     release_errors = _WRITE_RELEASE_MODULE.validate_release(
         phase="draft",
         writing_receipt=writing_receipt,
@@ -86,6 +127,7 @@ def init_entry(
         sequence_receipt=sequence_receipt,
         draft_capacity_contract=draft_capacity_contract,
         section_source_bundle=section_source_bundle,
+        project=Path(project).resolve(),
     )
     if release_errors:
         print("first_draft_entry: blocked")
@@ -232,6 +274,8 @@ def main() -> int:
     init.add_argument("--section-source-bundle", required=True)
     init.add_argument("--section-execution-receipt", required=True)
     init.add_argument("--force", action="store_true")
+    init.add_argument("--auto-refresh-legacy-bindings", action="store_true")
+    init.add_argument("--use-git-ledger-fallback", action="store_true")
     validate = sub.add_parser("validate")
     validate.add_argument("--receipt", required=True)
     validate.add_argument("--draft")
@@ -253,6 +297,8 @@ def main() -> int:
             section_source_bundle=Path(args.section_source_bundle).resolve(),
             section_execution_receipt=Path(args.section_execution_receipt).resolve(),
             force=args.force,
+            auto_refresh_legacy_bindings_enabled=args.auto_refresh_legacy_bindings,
+            use_git_ledger_fallback=args.use_git_ledger_fallback,
         )
     draft = Path(args.draft).resolve() if args.draft else None
     errors = validate_entry(Path(args.receipt).resolve(), draft)

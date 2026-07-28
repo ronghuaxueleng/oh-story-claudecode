@@ -42,6 +42,16 @@
 - `compare_with_external_block_audit.py`
 - `compare_source_baseline_audit.py`
 - `count_words.py`
+- `refresh_legacy_project_bindings.py`
+- `story_short_write_project_toolbox.py`
+- `validate_first_draft_basic_review.py`
+- `validate_short_write_completion.py`
+- `项目总诊断.py`（项目内包装脚本，由生成器落盘）
+- `generate_project_tool_wrappers.py`
+- `project_tool_wrapper_registry.py`
+- `initialize_cold_start_from_source_profiles.py`
+- `generate_project_outline_receipt_rebuilder_scaffold.py`
+- `smoke_test_cold_start.py`
 - `audit_ai_flavor.py`
 - `precheck_rewrite_gate.py`
 - `apply_humanizer.py`
@@ -112,6 +122,51 @@
   - 统一正文、回执和审计中的字数统计口径
   - 番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符
   - 禁止用编辑器估算、人工估算或临时脚本结果替代
+- `refresh_legacy_project_bindings.py`
+  - 旧项目迁移与历史回执修复入口
+  - 自动修复旧 skill 路径、过期 SHA、台账同步和可派生产物重建
+  - 默认只处理机械绑定问题，不伪造缺失的人工语义判断
+  - 已接入 `validate_write_release_gate.py` 与 `validate_first_draft_entry.py` 的 `--auto-refresh-legacy-bindings`
+- `story_short_write_project_toolbox.py`
+  - 项目级统一 CLI 入口
+  - 自动推断项目目录与常用 receipt / artifact 路径，减少手工 `--help` 与长参数拼接
+  - 统一提供 `refresh-bindings / validate-outline / validate-opening / init-setting-sequence / validate-setting-sequence / extend-outline-sequence / validate-sequence / extend-draft-sequence / draft-release / sync-sources / init-first-draft / validate-first-draft / init-first-draft-basic-review / validate-first-draft-basic-review / validate-section-execution / open-section / close-section / generate-wrappers / cold-start-from-source / init-completion / validate-completion / mark-draft-preview / confirm-deep-review / audit-local-stiffness / audit-project`
+  - `audit-project` 会输出当前 gate 阻断点以及 `keep / rebuild / invalidate` 文件清单，可直接落盘 JSON 报告
+- `validate_first_draft_basic_review.py`
+  - 首稿基础审计入口
+  - 负责初始化/校验 `首稿基础审计回执.json`，绑定母稿与仿写双基线要求
+- `validate_short_write_completion.py`
+  - 首稿停靠与深审确认状态机
+  - 负责初始化/校验 `短篇全流程状态.json`，并承接 `draft_preview / deep_review_user_confirmed`
+- `initialize_cold_start_from_source_profiles.py`
+  - 从本地拆书 profile 冷启动新书的强制入口
+  - 一次性初始化 `写作规则读取回执 / 拆文读取回执 / 规则执行台账 / 设定顺序契约 / 顺序契约 / 开头承重契约_大纲 / 细纲表演验收回执 / 首写容量契约`
+  - 同时落盘 `冷启动来源清单.json` 与 `冷启动执行清单.md`
+  - 作用不是代写设定和细纲，而是先把颗粒度硬闸前置，堵住“没建颗粒契约就先写书”的流程缺口
+- `generate_project_tool_wrappers.py`
+  - 自动生成项目内 Python 包装脚本
+  - 用于把长参数的 gate 调用固化到项目 `写作资产/`，避免继续维护 `.sh`
+  - `修复旧项目绑定.py / 运行正文放行.py / 初始化首稿入口.py / 校验首稿入口.py / 项目工具箱.py / 项目总诊断.py` 也由 `templates/project_scripts/manifest.json` 显式登记，不再在生成器里写死默认文件名
+  - 包装脚本改为按 `purpose` 分别校验前置文件；新建项目即使还没产出回执，也能先生成 `项目工具箱.py / 项目总诊断.py`
+  - 可顺手删除遗留 `运行正文放行.sh`
+  - 项目模板脚本由 `templates/project_scripts/manifest.json` 显式登记；每条模板可声明 `file / kind / purpose / entrypoint`
+  - 当前支持按 `kind` 选择性生成：`python_wrapper` 或 `project_template`
+  - 登记后会从 `templates/project_scripts/{项目名}/` 同步回写对应 `.mjs` 辅助脚本，保证项目脚本整体可再生
+- `generate_project_outline_receipt_rebuilder_scaffold.py`
+  - 项目级 `重建细纲与容量回执` 脚手架生成器
+  - 自动从当前项目 `小节大纲.md / 细纲表演验收回执.json / 首写容量契约回执.json` 抽出小节、字数、钩子、来源元数据，生成 `*.data.mjs + *.mjs` 双文件结构
+  - `*.data.mjs` 只承载项目数据骨架；`*.mjs` 只做薄包装调用 skill 侧通用重建器
+  - 只生成机械层，不代判原文切片、情绪拍、反刀位和句间关系；这些字段仍由当前模型补齐
+- `promote_outline_receipt_rebuilder_scaffold.py`
+  - 把 `重建细纲与容量回执.scaffold.data.mjs + 重建细纲与容量回执.scaffold.mjs` 提升为正式 `重建细纲与容量回执.data.mjs + 重建细纲与容量回执.mjs`
+  - 自动修正包装脚本里的数据导入路径
+  - 默认删除 scaffold 文件；需要保留时显式传 `--keep-scaffold`
+- `project_tool_wrapper_registry.py`
+  - 包装脚本构造注册表
+  - 统一维护每个 `purpose` 对应的 Python wrapper 生成逻辑，避免在生成器里散落硬编码
+- `smoke_test_cold_start.py`
+  - 工具链开发自测脚本
+  - 只用于验证冷启动初始化链，不属于用户写书主流程
 - `precheck_rewrite_gate.py`
   - 高风险回修前后的第二道预检闸门
   - 检查解释句、提前判断、功能对白、整齐收口等结构风险

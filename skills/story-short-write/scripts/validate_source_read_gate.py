@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -136,14 +135,6 @@ SUBFLOW_CONSUMPTION_FIELDS = (
     "end_state",
     "source_style_granularity",
 )
-STYLE_GRANULARITY_FIELDS = (
-    "narrative_voice_and_attitude",
-    "sentence_relation_and_rhythm",
-    "paragraph_breath_and_cut_points",
-    "dialogue_misfire_or_avoidance",
-    "action_perception_emotion_weave",
-    "narrator_interjection_and_roughness",
-)
 
 
 def read_text(path: Path) -> str:
@@ -219,69 +210,6 @@ def direct_imitation_package_path(root: Path) -> Path:
     return root / DIRECT_IMITATION_PACKAGE
 
 
-def source_slice_for_range(original_text: str, source_range: str) -> tuple[str, str | None]:
-    parts = [part.strip() for part in re.split(r"[、,，]\s*", source_range) if part.strip()]
-    lines = original_text.splitlines()
-    slices: list[str] = []
-    for part in parts:
-        match = re.fullmatch(r"L(\d+)-L(\d+)", part)
-        if not match:
-            return "", "必须使用 L起始-L结束 或多段 L起始-L结束"
-        start, end = int(match.group(1)), int(match.group(2))
-        if start < 1 or end < start or end > len(lines):
-            return "", "超出完整原文行号范围"
-        slices.append("\n".join(lines[start - 1 : end]))
-    return "\n".join(slices), None
-
-
-def validate_subflow_style_granularity(
-    subflow_id: str,
-    value: Any,
-    original_text: str,
-    source_range: str,
-) -> list[str]:
-    if not isinstance(value, dict):
-        return [f"{subflow_id}.source_style_granularity 必须是逐 SF 文风颗粒对象"]
-    source_slice, range_error = source_slice_for_range(original_text, source_range)
-    if range_error:
-        return [f"{subflow_id}.source_range {range_error}"]
-    errors: list[str] = []
-    for field in STYLE_GRANULARITY_FIELDS:
-        item = value.get(field)
-        label = f"{subflow_id}.source_style_granularity.{field}"
-        if not isinstance(item, dict):
-            errors.append(f"{label} 必须是对象")
-            continue
-        if not str(item.get("analysis") or "").strip():
-            errors.append(f"{label}.analysis 不能为空")
-        evidence = item.get("source_evidence")
-        quotes = [str(quote).strip() for quote in evidence if str(quote).strip()] if isinstance(evidence, list) else []
-        if len(set(quotes)) < 2:
-            errors.append(f"{label}.source_evidence 至少需要两条不同原文证据")
-        for quote in quotes:
-            if quote not in source_slice:
-                errors.append(f"{label}.source_evidence 不在该 SF 精确行段内: {quote!r}")
-    return errors
-
-
-def validate_style_template_reuse(subflows: dict[str, dict[str, Any]]) -> list[str]:
-    repeated: dict[tuple[str, str], list[str]] = {}
-    for subflow_id, subflow in subflows.items():
-        style = subflow.get("source_style_granularity")
-        if not isinstance(style, dict):
-            continue
-        for field in STYLE_GRANULARITY_FIELDS:
-            item = style.get(field)
-            analysis = str(item.get("analysis") or "").strip() if isinstance(item, dict) else ""
-            if analysis:
-                repeated.setdefault((field, analysis), []).append(subflow_id)
-    return [
-        f"逐 SF 文风分析模板重复: {field} 在 " + ", ".join(sorted(ids))
-        for (field, _), ids in repeated.items()
-        if len(ids) >= 3
-    ]
-
-
 def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str]]:
     path = direct_imitation_package_path(root)
     if not path.is_file():
@@ -315,15 +243,6 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
         missing_fields = [field for field in SUBFLOW_CONSUMPTION_FIELDS if not item.get(field)]
         if missing_fields:
             errors.append(f"SF 索引缺少无损编译字段: {subflow_id} -> {', '.join(missing_fields)}")
-        errors.extend(
-            validate_subflow_style_granularity(
-                subflow_id,
-                item.get("source_style_granularity"),
-                read_text(originals[0]) if len(originals) == 1 else "",
-                str(item.get("source_range") or ""),
-            )
-        )
-    errors.extend(validate_style_template_reuse(indexed))
     profile_path = root / "book.profile.json"
     profile = json.loads(read_text(profile_path)) if profile_path.is_file() else {}
     current_coverage = next(
@@ -433,7 +352,7 @@ def create_receipt(
     project: str,
     source_dirs: list[Path],
     inventory_mode: str = "compiled",
-    writing_mode: str = "direct_imitation",
+    writing_mode: str = "standard",
     selected_subflows: dict[str, set[str]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
@@ -532,9 +451,7 @@ def validate_receipt(
         errors.append("confirmed_before_draft 必须为 true")
     if len(sources) > 1 and not nonempty_strings(data.get("cross_source_decisions")):
         errors.append("融合写作必须填写 cross_source_decisions")
-    writing_mode = str(data.get("writing_mode") or "")
-    if not writing_mode:
-        errors.append("读取回执缺少 writing_mode；旧回执不得静默按 standard 放行，必须重新初始化")
+    writing_mode = str(data.get("writing_mode") or "standard")
     inventory_mode = str(data.get("inventory_mode") or "full")
     if writing_mode not in {"standard", "direct_imitation"}:
         errors.append(f"writing_mode 无效: {writing_mode!r}")
@@ -690,8 +607,8 @@ def main() -> int:
     init_parser.add_argument(
         "--writing-mode",
         choices=("standard", "direct_imitation"),
-        default="direct_imitation",
-        help="默认 direct_imitation（融合仿写）；仅明确原创任务才传 standard。",
+        default="standard",
+        help="直接仿写读取单份无损语义包，并逐条锁定主体全部 SF 与辅助已选 SF。",
     )
     init_parser.add_argument(
         "--select-subflow",

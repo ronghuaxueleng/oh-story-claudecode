@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
 import json
 import re
 import shutil
@@ -1026,11 +1025,10 @@ def write_upgrade_plan(
             "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
             "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
-            "6. 运行 `complete_upgrade_existing.py`；若生成 `_style_reanalysis_tasks.json`，当前模型立即逐 SF 重读其中原文切片，真实重写六项文风颗粒，禁止脚本拼 analysis。",
-            "7. 重跑检查器直到 `ready_for_finalize` 且任务文件清除，再更新 `_progress.md` 中对应项。",
-            "8. 运行 `sync_finalize_human_review.py`，把 `human_review_items` 逐条真实裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
-            "9. 运行 finalize；如果继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项，禁止只补 `_upgrade_plan.md` 当前列出的文件。",
-            "10. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
+            "6. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
+            "7. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
+            "8. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
+            "9. 只有 finalize 返回 `ok=true`、`status=ready-for-write`、`error_count=0`，增量升级才算完成。",
             "",
             "## 最终验收命令",
             "",
@@ -1737,18 +1735,6 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         refreshed_process_files,
     )
     meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
-    inspector_path = Path(__file__).with_name("complete_upgrade_existing.py")
-    inspector_spec = importlib.util.spec_from_file_location(
-        "story_short_analyze_incremental_inspector",
-        inspector_path,
-    )
-    if not inspector_spec or not inspector_spec.loader:
-        raise RuntimeError(f"无法加载历史拆书增量检查器：{inspector_path}")
-    inspector = importlib.util.module_from_spec(inspector_spec)
-    inspector_spec.loader.exec_module(inspector)
-    style_reanalysis = inspector.inspect_root(out_dir)
-    if style_reanalysis.get("style_reanalysis_task_file"):
-        refreshed_process_files.append("_style_reanalysis_tasks.json")
 
     return {
         "mode": "upgrade-existing",
@@ -1759,13 +1745,9 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "missing_dirs": missing_dirs,
         "missing_files": missing_files,
         "meta_refreshed": meta_refreshed,
-        "style_reanalysis": style_reanalysis,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
-            "then": (
-                "若存在 _style_reanalysis_tasks.json，当前模型立即逐 SF 重读其中原文切片并真实重写文风颗粒；"
-                "随后按 _upgrade_plan.md 自动增量补拆其余缺失、过期和缺字段内容"
-            ),
+            "then": "按 _upgrade_plan.md 继续自动增量补拆缺失、过期和缺字段内容；脚本不伪造正式 Markdown 占位",
             "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
             "auto_continue_expected": True,
         },
@@ -1806,14 +1788,20 @@ def main() -> int:
     else:
         print(f"book_name: {payload['book_name']}")
         print(f"root: {payload['root']}")
-        print(f"source_copy: {payload['source_copy']}")
-        print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
-        print(f"line_count: {payload['line_count']}")
-        print(f"chapter_count: {payload['chapter_count']}")
-        print(f"chunk_count: {payload['chunk_count']}")
-        print("created_files:")
-        for item in payload["created_files"]:
-            print(f"- {item}")
+        if payload.get("mode") == "upgrade-existing":
+            print(f"source_file: {payload['source_file']}")
+            print("written_files:")
+            for item in payload.get("written_files", []):
+                print(f"- {item}")
+        else:
+            print(f"source_copy: {payload['source_copy']}")
+            print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
+            print(f"line_count: {payload['line_count']}")
+            print(f"chapter_count: {payload['chapter_count']}")
+            print(f"chunk_count: {payload['chunk_count']}")
+            print("created_files:")
+            for item in payload["created_files"]:
+                print(f"- {item}")
         print("created_dirs:")
         for item in payload["created_dirs"]:
             print(f"- {item}")

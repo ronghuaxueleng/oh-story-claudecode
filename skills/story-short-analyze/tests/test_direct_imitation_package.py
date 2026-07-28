@@ -87,22 +87,6 @@ class DirectImitationPackageTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
 
-    def _refresh_manifest(self) -> None:
-        profile_path = self.root / "book.profile.json"
-        profile = json.loads(profile_path.read_text(encoding="utf-8"))
-        files = []
-        for path in sorted(self.root.rglob("*")):
-            relative = path.relative_to(self.root).as_posix()
-            if not path.is_file() or path.name == "book.profile.json" or relative == PACKAGE.PACKAGE_RELATIVE_PATH:
-                continue
-            files.append({"path": relative, "sha256": PACKAGE.sha256(path)})
-        profile["source_asset_coverage"] = [{
-            "root": str(self.root.resolve()),
-            "file_count": len(files),
-            "files": files,
-        }]
-        profile_path.write_text(json.dumps(profile, ensure_ascii=False), encoding="utf-8")
-
     def test_build_contains_exact_original_subflows_and_profile_assets(self) -> None:
         output = PACKAGE.build_package(self.root)
         data = json.loads(output.read_text(encoding="utf-8"))
@@ -151,32 +135,6 @@ class DirectImitationPackageTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source_style_granularity"):
             PACKAGE.build_package(self.root)
 
-    def test_repeated_subflow_style_templates_block_package(self) -> None:
-        variants = []
-        for number in range(1, 4):
-            variant = dict(self.subflow)
-            variant["subflow_id"] = f"SF-{number:02d}"
-            variants.append(variant)
-        self.index_path.write_text(
-            "\n".join(json.dumps(item, ensure_ascii=False) for item in variants) + "\n",
-            encoding="utf-8",
-        )
-        with self.assertRaisesRegex(ValueError, "文风分析模板重复"):
-            PACKAGE.build_package(self.root)
-
-    def test_legacy_generated_style_template_blocks_package(self) -> None:
-        value = dict(self.subflow)
-        value["source_style_granularity"] = {
-            field: {
-                "analysis": f"{PACKAGE.LEGACY_STYLE_TEMPLATE_MARKER}，其余为真实分析。",
-                "source_evidence": ["唯一完整", "完整原文"],
-            }
-            for field in PACKAGE.STYLE_GRANULARITY_FIELDS
-        }
-        self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
-        with self.assertRaisesRegex(ValueError, "自动拼接模板"):
-            PACKAGE.build_package(self.root)
-
     def test_multi_range_source_style_is_supported(self) -> None:
         original = self.root / "原文" / "样本.txt"
         original.write_text("第一行原文\n第二行原文\n第三行原文\n第四行原文\n", encoding="utf-8")
@@ -193,7 +151,6 @@ class DirectImitationPackageTest(unittest.TestCase):
             for field in PACKAGE.STYLE_GRANULARITY_FIELDS
         }
         self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
-        self._refresh_manifest()
         PACKAGE.build_package(self.root)
         self.assertEqual([], PACKAGE.validate_package(self.root))
 

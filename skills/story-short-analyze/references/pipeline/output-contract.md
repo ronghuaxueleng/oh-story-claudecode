@@ -327,9 +327,6 @@ python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrad
 - 脚本刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _source_reading_plan.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；不覆盖正式 Markdown。
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
 - 一旦进入 `--upgrade-existing`，主流程不得停在扫描结果；当前模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后，自动继续增量补拆缺失、过期和缺字段内容。
-- 升级入口必须自动调用 `complete_upgrade_existing.py`。若逐 SF 文风缺失、不完整、证据越界、命中旧模板或跨 3 个以上 SF 重复 analysis，脚本生成 `_style_reanalysis_tasks.json`；每项任务必须包含原文绝对路径、`source_range`、精确 `source_excerpt`、待写六字段和写回目标，不得生成任何语义 analysis。
-- `_style_reanalysis_tasks.json` 是当前模型必须立即执行的任务清单，不是交给用户的诊断报告。模型逐项重读切片，按本 SF 的真实叙述口气、句间关系、段落气口、对白错答、动作感知情绪织法和即时插嘴分别写回 `子流程索引.jsonl`；不得用事件摘要、旧 analysis、全书风格摘要或跨 SF 模板代写。
-- 写回后重跑 `complete_upgrade_existing.py`。仅当状态为 `ready_for_finalize` 且旧任务文件已清除，才可运行 `sync_finalize_human_review.py`，由模型完成真实复核裁决，再运行 `run_short_analyze_finalize.py`；任一环节报错都回到责任资产继续增量补拆。
 - `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
 - 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。

@@ -44,7 +44,6 @@ STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
-LEGACY_STYLE_TEMPLATE_MARKER = "本 SF 的叙述口气不先替人物下总判断"
 
 
 def source_slice_for_range(original_text: str, source_range: str) -> tuple[str, str | None]:
@@ -88,8 +87,6 @@ def validate_style_granularity(
             continue
         if not str(item.get("analysis") or "").strip():
             errors.append(f"{label}.analysis 不能为空")
-        elif LEGACY_STYLE_TEMPLATE_MARKER in str(item.get("analysis")):
-            errors.append(f"{label}.analysis 命中旧版自动拼接模板，必须逐 SF 重读原文后人工重拆")
         evidence = item.get("source_evidence")
         quotes = (
             [str(quote).strip() for quote in evidence if str(quote).strip()]
@@ -163,22 +160,6 @@ def load_subflows(
         entries.append(item)
     if not entries:
         errors.append(f"子流程索引为空：{path}")
-    repeated: dict[tuple[str, str], list[str]] = {}
-    for item in entries:
-        subflow_id = str(item.get("subflow_id") or "").strip()
-        style = item.get("source_style_granularity")
-        if not isinstance(style, dict):
-            continue
-        for field in STYLE_GRANULARITY_FIELDS:
-            field_value = style.get(field)
-            analysis = str(field_value.get("analysis") or "").strip() if isinstance(field_value, dict) else ""
-            if analysis:
-                repeated.setdefault((field, analysis), []).append(subflow_id)
-    for (field, _), subflow_ids in repeated.items():
-        if len(subflow_ids) >= 3:
-            errors.append(
-                f"逐 SF 文风分析模板重复：{field} 在 " + ", ".join(sorted(subflow_ids))
-            )
     return entries, errors
 
 

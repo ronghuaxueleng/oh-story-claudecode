@@ -7,6 +7,8 @@ import argparse
 import hashlib
 import json
 import importlib.util
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +87,36 @@ _SECTION_SOURCE_BUNDLE_SPEC = importlib.util.spec_from_file_location(
 assert _SECTION_SOURCE_BUNDLE_SPEC and _SECTION_SOURCE_BUNDLE_SPEC.loader
 _SECTION_SOURCE_BUNDLE_MODULE = importlib.util.module_from_spec(_SECTION_SOURCE_BUNDLE_SPEC)
 _SECTION_SOURCE_BUNDLE_SPEC.loader.exec_module(_SECTION_SOURCE_BUNDLE_MODULE)
+
+_REFRESH_LEGACY_BINDINGS_PATH = Path(__file__).with_name(
+    "refresh_legacy_project_bindings.py"
+)
+
+
+def auto_refresh_legacy_bindings(
+    project: Path,
+    use_git_ledger_fallback: bool,
+) -> list[str]:
+    cmd = [
+        sys.executable,
+        str(_REFRESH_LEGACY_BINDINGS_PATH),
+        "--project",
+        str(project),
+        "--repair-ledger",
+        "--refresh-bindings",
+        "--rebuild-section-bundle",
+        "--validate",
+    ]
+    if use_git_ledger_fallback:
+        cmd.append("--use-git-ledger-fallback")
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode == 0:
+        return []
+    detail = (proc.stdout or proc.stderr or "").strip()
+    message = "旧项目绑定自动刷新失败"
+    if detail:
+        return [message, detail]
+    return [message]
 
 
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
@@ -202,8 +234,20 @@ def validate_release(
     setting_sequence_receipt: Path | None = None,
     draft_capacity_contract: Path | None = None,
     section_source_bundle: Path | None = None,
+    project: Path | None = None,
+    auto_refresh_legacy_bindings_enabled: bool = False,
+    use_git_ledger_fallback: bool = False,
 ) -> list[str]:
     errors: list[str] = []
+    if auto_refresh_legacy_bindings_enabled:
+        if project is None:
+            return ["启用旧项目自动刷新时必须提供 --project"]
+        refresh_errors = auto_refresh_legacy_bindings(
+            project,
+            use_git_ledger_fallback=use_git_ledger_fallback,
+        )
+        if refresh_errors:
+            return refresh_errors
     writing_data = load_json(writing_receipt, "写作规则读取回执", errors)
     require_passed(
         writing_data,
@@ -386,6 +430,9 @@ def main() -> int:
     parser.add_argument("--setting-sequence-receipt")
     parser.add_argument("--draft-capacity-contract")
     parser.add_argument("--section-source-bundle")
+    parser.add_argument("--project")
+    parser.add_argument("--auto-refresh-legacy-bindings", action="store_true")
+    parser.add_argument("--use-git-ledger-fallback", action="store_true")
     args = parser.parse_args()
 
     errors = validate_release(
@@ -406,6 +453,9 @@ def main() -> int:
         Path(args.section_source_bundle).resolve()
         if args.section_source_bundle
         else None,
+        Path(args.project).resolve() if args.project else None,
+        args.auto_refresh_legacy_bindings,
+        args.use_git_ledger_fallback,
     )
     if errors:
         for error in errors:
