@@ -58,6 +58,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "outline_contract": asset / "细纲表演验收回执.json",
         "opening_contract": asset / "开头承重契约回执_大纲.json",
         "draft_capacity_contract": asset / "首写容量契约回执.json",
+        "model_semantic_source": asset / "模型语义输入.json",
         "outline_rebuilder_wrapper": asset / "重建细纲与容量回执.scaffold.mjs",
         "outline_rebuilder_data": asset / "重建细纲与容量回执.scaffold.data.mjs",
         "checklist": asset / "冷启动执行清单.md",
@@ -125,22 +126,22 @@ def write_checklist(
 2. 再填写并通过 `拆文读取回执.json`，确认主体全量无损包和辅助来源都已读。
 3. 初始化并逐项处理 `规则执行台账.json`，不得只写“已读”。
 4. 先写 `设定.md`，再通过 `设定顺序契约回执.json`。
-5. 再写 `小节大纲.md`，随后立刻运行项目工具箱的 `refresh-bindings`，自动重建 `顺序契约回执.json`、`开头承重契约回执_大纲.json`、`细纲表演验收回执.json`、`首写容量契约回执.json` 的真实绑定与节级骨架。
-6. 冷启动已默认生成 `写作资产/重建细纲与容量回执.scaffold.data.mjs` 与 `写作资产/重建细纲与容量回执.scaffold.mjs`；前者只补项目数据，后者保持薄包装，不再新建单文件长脚本。
-7. 只有在 `*.scaffold.data.mjs` 逐节补齐原文切片、情绪拍、句间计划和事实链后，才允许执行 scaffold 包装脚本重建回执。
-8. 只有在细纲表演验收逐节绑定原文切片、情绪拍、句间计划之后，才允许生成 `逐节原文颗粒包.json` 并进入正文。
-9. 没通过上述任一环节前，禁止直接写 `正文.md`。
+5. 再写 `小节大纲.md`，把逐节原文切片、情绪拍、句间计划、桥段和事实链填写到 `模型语义输入.json` 的 `outline_compilation`。
+6. 运行 `compile-outline`，由脚本生成并校验 `顺序契约回执.json`、`开头承重契约回执_大纲.json`、`细纲表演验收回执.json`、`首写容量契约回执.json` 和 `逐节原文颗粒包.json`。
+7. 运行 `start-draft` 统一完成正文放行和首稿入口初始化；没通过上述任一环节前，禁止直接写 `正文.md`。
+8. 每节用 `write-section N` 打开，写完正文并填写 `模型语义输入.json` 的 `section_reviews.N` 后，用 `write-section N --phase close` 关闭；重写使用 `rewrite-section N`。
+9. 全部小节关闭并完成基础审计后，运行 `finish-preview` 停靠首稿。
 
 ## 建议命令
 
 ```bash
 python3 写作资产/项目工具箱.py prepare-prewrite
 python3 写作资产/项目工具箱.py prepare-setting
-python3 写作资产/项目工具箱.py prepare-outline
-python3 写作资产/项目工具箱.py refresh-bindings
-python3 写作资产/项目工具箱.py validate-outline
-python3 写作资产/项目工具箱.py validate-opening
-python3 写作资产/项目工具箱.py prepare-draft
+python3 写作资产/项目工具箱.py compile-outline
+python3 写作资产/项目工具箱.py start-draft
+python3 写作资产/项目工具箱.py write-section 1
+python3 写作资产/项目工具箱.py write-section 1 --phase close
+python3 写作资产/项目工具箱.py finish-preview
 ```
 
 ## 关键文件
@@ -153,8 +154,7 @@ python3 写作资产/项目工具箱.py prepare-draft
 - `写作资产/开头承重契约回执_大纲.json`
 - `写作资产/细纲表演验收回执.json`
 - `写作资产/首写容量契约回执.json`
-- `写作资产/重建细纲与容量回执.scaffold.data.mjs`
-- `写作资产/重建细纲与容量回执.scaffold.mjs`
+- `写作资产/模型语义输入.json`
 """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -209,6 +209,7 @@ def initialize(
     auxiliary_source_profiles: list[Path],
     target_words: int,
     force: bool,
+    generate_legacy_scaffold: bool = False,
 ) -> dict[str, Any]:
     paths = project_paths(project.resolve())
     if not paths["project"].is_dir():
@@ -281,9 +282,34 @@ def initialize(
         force,
     )
 
+    semantic_source = {
+        "version": "1.0",
+        "project": paths["project"].name,
+        "outline_compilation": {
+            "plans": [],
+            "bridgeDefs": [],
+            "globalReview": {},
+            "factLedger": [],
+            "projectName": paths["project"].name,
+            "targetWords": target_words,
+            "sourceTextRelative": os.path.relpath(originals[0], paths["project"]),
+            "bridgeCatalogRelative": os.path.relpath(
+                primary_root / "写作资产" / "桥段施工卡.md",
+                paths["project"],
+            ),
+            "profileRelative": os.path.relpath(primary_root / "book.profile.json", paths["project"]),
+        },
+        "section_reviews": {},
+    }
+    actions["model_semantic_source"] = write_json_if_allowed(
+        paths["model_semantic_source"],
+        semantic_source,
+        force,
+    )
+
     scaffold_wrapper = paths["outline_rebuilder_wrapper"]
     scaffold_data = paths["outline_rebuilder_data"]
-    if force or not scaffold_wrapper.exists() or not scaffold_data.exists():
+    if generate_legacy_scaffold and (force or not scaffold_wrapper.exists() or not scaffold_data.exists()):
         data_text, wrapper_text, _ = OUTLINE_REBUILDER_SCAFFOLD.generate_scaffold(
             paths["project"],
             scaffold_wrapper,
@@ -292,7 +318,7 @@ def initialize(
         scaffold_data.write_text(data_text, encoding="utf-8")
         scaffold_wrapper.write_text(wrapper_text, encoding="utf-8")
         actions["outline_rebuilder_scaffold"] = "written"
-    else:
+    elif generate_legacy_scaffold:
         actions["outline_rebuilder_scaffold"] = "kept"
 
     manifest = {
@@ -305,8 +331,9 @@ def initialize(
         "auxiliary_originals": [str(path) for path in originals[1:]],
         "target_words": target_words,
         "mode": "direct_imitation",
-        "outline_rebuilder_wrapper": str(scaffold_wrapper),
-        "outline_rebuilder_data": str(scaffold_data),
+        "model_semantic_source": str(paths["model_semantic_source"]),
+        "legacy_outline_rebuilder_wrapper": str(scaffold_wrapper) if generate_legacy_scaffold else None,
+        "legacy_outline_rebuilder_data": str(scaffold_data) if generate_legacy_scaffold else None,
     }
     actions["manifest"] = write_json_if_allowed(paths["manifest"], manifest, force)
     actions["checklist"] = write_checklist(
@@ -361,6 +388,7 @@ def main() -> int:
             auxiliary_source_profiles=[Path(raw) for raw in args.aux_source_profile],
             target_words=args.target_words,
             force=args.force,
+            generate_legacy_scaffold=True,
         )
     except Exception as exc:  # pragma: no cover - CLI guard
         result = {"ok": False, "error": str(exc)}

@@ -10,8 +10,11 @@ Purpose:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -97,6 +100,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "source_receipt": asset / "拆文读取回执.json",
         "ledger": asset / "规则执行台账.json",
         "model_review_task": asset / "规则执行模型复核任务.json",
+        "model_semantic_source": asset / "模型语义输入.json",
         "opening_contract": asset / "开头承重契约回执_大纲.json",
         "outline_contract": asset / "细纲表演验收回执.json",
         "draft_capacity_contract": asset / "首写容量契约回执.json",
@@ -127,6 +131,472 @@ def print_flow_result(command: str, errors: list[str], actions: list[str], as_js
         for item in errors:
             print(f"- {item}")
     return 0 if not errors else 2
+
+
+def read_json(path: Path) -> dict[str, Any]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"JSON 顶层必须是对象: {path}")
+    return data
+
+
+def write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def semantic_digest(data: Any) -> str:
+    """Hash semantic content while ignoring compiler-owned paths, fingerprints and timestamps."""
+    def strip(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: strip(item)
+                for key, item in value.items()
+                if key not in {"path", "created_at"} and not key.endswith("sha256")
+            }
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+
+    encoded = json.dumps(strip(data), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def export_outline_semantics_from_receipts(paths: dict[str, Path]) -> list[str]:
+    """Migrate validated receipts into the compact compiler schema without copying bindings."""
+    try:
+        performance = read_json(paths["outline_contract"])
+        capacity = read_json(paths["draft_capacity_contract"])
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"现有细纲回执不可读取: {exc}"]
+    sections = performance.get("sections")
+    capacities = capacity.get("sections")
+    inventories = performance.get("source_bridge_flow_inventory")
+    parities = performance.get("outline_bridge_flow_parity")
+    sources = performance.get("selected_source_originals")
+    if not all(isinstance(value, list) and value for value in (sections, capacities, inventories, parities, sources)):
+        return ["现有细纲/容量回执缺少 sections、桥段库存、桥段对齐或来源绑定"]
+    capacity_by_id = {str(item.get("id")): item for item in capacities if isinstance(item, dict)}
+    parity_by_id = {str(item.get("source_bridge_id")): item for item in parities if isinstance(item, dict)}
+    section_bridge: dict[str, str] = {}
+    for parity in parities:
+        if not isinstance(parity, dict):
+            continue
+        bridge_id = str(parity.get("source_bridge_id") or "")
+        for section_id in parity.get("target_outline_sections") or []:
+            section_bridge[str(section_id)] = bridge_id
+
+    plans: list[dict[str, Any]] = []
+    primary_ranges: dict[str, str] = {}
+    for section in sections:
+        if not isinstance(section, dict):
+            return ["细纲表演回执 sections 存在非对象项"]
+        section_id = str(section.get("section_id") or "")
+        cap = capacity_by_id.get(section_id)
+        if not cap:
+            return [f"首写容量契约缺少第 {section_id} 节"]
+        function = section.get("source_function_mechanism") or {}
+        original = section.get("original_scene_granularity") or {}
+        logic = section.get("scene_logic_contract") or {}
+        mechanism = section.get("source_mechanism") or {}
+        delay = section.get("information_delay") or {}
+        exchange = section.get("interaction_exchange") or {}
+        relationship = section.get("relationship_legibility") or {}
+        emotion = section.get("emotion_intensity") or {}
+        shell = section.get("professional_shell_translation") or {}
+        parity = section.get("source_emotion_parity") or {}
+        generation = section.get("first_draft_generation_contract") or {}
+        process = generation.get("emotion_process") or {}
+        bindings = generation.get("source_slice_bindings") or []
+        if not bindings:
+            return [f"第 {section_id} 节缺少原文切片绑定"]
+        primary_range = str(bindings[0].get("source_range") or "")
+        primary_ranges[section_id] = primary_range
+        source_beats = parity.get("source_emotion_sequence") or []
+        target_beats = parity.get("target_emotion_sequence") or []
+        if len(source_beats) != len(target_beats) or not source_beats:
+            return [f"第 {section_id} 节原文/目标情绪拍数量不一致"]
+        plans.append(
+            {
+                "id": section_id,
+                "range": primary_range,
+                "bridge": section_bridge.get(section_id, ""),
+                "cpa": logic.get("causal_asset_id"),
+                "controllingObject": section.get("controlling_object"),
+                "irreversibleAction": section.get("irreversible_action"),
+                "functionType": function.get("function_type"),
+                "assetRule": function.get("asset_rule"),
+                "whySelectedForThisSection": function.get("why_selected_for_this_section"),
+                "sourceScene": original.get("source_scene"),
+                "actionSequence": original.get("action_sequence"),
+                "bodyControl": original.get("body_object_space_control"),
+                "dialogueForce": original.get("dialogue_forces_action"),
+                "bystanderOrOrderShift": original.get("bystander_or_order_shift"),
+                "residue": original.get("scene_end_residue"),
+                "sourceCausalPreconditions": logic.get("source_causal_preconditions"),
+                "keyObjectLifecycle": logic.get("key_object_lifecycle"),
+                "externalRuleDependency": logic.get("external_rule_dependency"),
+                "obviousAlternativeBlocker": logic.get("obvious_alternative_blocker"),
+                "sceneLogicManualJudgment": logic.get("manual_judgment"),
+                "sourceMechanism": mechanism.get("transferable_mechanism"),
+                "adaptationBoundary": mechanism.get("adaptation_boundary"),
+                "entryKnown": delay.get("entry_known"),
+                "leaked": delay.get("leaked_in_scene"),
+                "deferred": delay.get("deferred_to_later"),
+                "missteps": section.get("character_missteps"),
+                "pressure": exchange.get("pressure"),
+                "forced": exchange.get("forced_response"),
+                "visibleChange": exchange.get("visible_change"),
+                "relationshipRoles": relationship.get("plain_relationship_roles"),
+                "plainInjury": relationship.get("plain_relationship_injury"),
+                "score": emotion.get("score"),
+                "pain": emotion.get("concrete_humiliation_or_pain"),
+                "emotionalTurn": emotion.get("emotional_turn"),
+                "escalationVsPrevious": emotion.get("escalation_vs_previous"),
+                "professionalShellConflict": shell.get("plain_language_conflict"),
+                "professionalShellFunction": shell.get("domain_detail_function"),
+                "sourceBeatRoles": [item.get("role") for item in source_beats],
+                "sourceBeatTriggers": [item.get("trigger") for item in source_beats],
+                "targetBeatTriggers": [item.get("trigger") for item in target_beats],
+                "beatPositions": [item.get("relationship_position_change") for item in source_beats],
+                "beatEffects": [item.get("reader_effect") for item in source_beats],
+                "intensities": [item.get("intensity") for item in source_beats],
+                "sourceReversalBeat": parity.get("source_reversal_beat"),
+                "targetReversalBeat": parity.get("target_reversal_beat"),
+                "sourcePeakBeat": parity.get("source_peak_beat"),
+                "targetPeakBeat": parity.get("target_peak_beat"),
+                "endingAfterpainEquivalent": parity.get("ending_afterpain_equivalent"),
+                "readerExperienceEquivalent": parity.get("reader_experience_equivalent"),
+                "emotionParityManualJudgment": parity.get("manual_judgment"),
+                "emotionParityStatus": parity.get("parity_status"),
+                "reuseReason": generation.get("source_excerpt_reuse_reason", ""),
+                "entryState": process.get("entry_state"),
+                "memoryAssociationOrAttentionDrift": process.get("memory_association_or_attention_drift"),
+                "contradictoryImpulse": process.get("contradictory_impulse"),
+                "continuous": generation.get("continuous_moment_groups"),
+                "breaks": generation.get("paragraph_break_reasons"),
+                "sentencePlan": generation.get("sentence_relation_plan"),
+                "functionWordStrategy": generation.get("function_word_strategy"),
+                "telegraphicRisk": generation.get("telegraphic_risk"),
+                "shorthands": generation.get("emotion_shorthand_to_avoid"),
+                "landings": generation.get("target_emotion_landing_plan"),
+                "firstDraftManualJudgment": generation.get("manual_judgment"),
+                "forbidden": section.get("forbidden_items"),
+                "sectionManualJudgment": section.get("manual_judgment"),
+                "targetOutlineEvidence": section.get("outline_evidence"),
+                "plannedWords": cap.get("planned_words"),
+                "sceneCompletion": cap.get("scene_completion"),
+                "openingOrTurn": cap.get("opening_or_turn"),
+                "capacityEmotionEscalation": cap.get("emotion_escalation"),
+                "capacitySourceStyleGranularity": cap.get("source_style_granularity"),
+                "capacityFirstDraftStylePlan": cap.get("first_draft_style_plan"),
+            }
+        )
+
+    bridge_defs: list[dict[str, Any]] = []
+    for inventory in inventories:
+        bridge_id = str(inventory.get("bridge_id") or "")
+        parity = parity_by_id.get(bridge_id)
+        if not parity:
+            return [f"桥段 {bridge_id} 缺少细纲对齐记录"]
+        target_sections = [str(item) for item in parity.get("target_outline_sections") or []]
+        ranges = [primary_ranges[item] for item in target_sections if item in primary_ranges]
+        if not ranges:
+            return [f"桥段 {bridge_id} 无法推导原文行段"]
+        starts, ends = zip(*(map(int, value.replace("L", "").split("-")) for value in ranges))
+        bridge_defs.append(
+            {
+                "id": bridge_id,
+                "name": inventory.get("bridge_name"),
+                "range": f"L{min(starts)}-L{max(ends)}",
+                "sections": target_sections,
+                "requiredSequence": inventory.get("source_required_sequence"),
+                "mustKeep": inventory.get("source_must_keep_actions"),
+                "granularity": inventory.get("source_scene_granularity"),
+                "endState": inventory.get("source_end_state_change"),
+                "cannotMergeOrDropReason": inventory.get("cannot_merge_or_drop_reason"),
+                "sourceReversalBeat": parity.get("source_reversal_beat"),
+                "targetReversalBeat": parity.get("target_reversal_beat"),
+                "sourcePeakBeat": parity.get("source_peak_beat"),
+                "targetPeakBeat": parity.get("target_peak_beat"),
+                "readerExperienceParity": parity.get("reader_experience_parity"),
+                "emotionParityJudgment": parity.get("emotion_parity_judgment"),
+                "parityStatus": parity.get("parity_status"),
+                "adaptationReason": parity.get("adaptation_reason"),
+                "missingOrWeakenedRisk": parity.get("missing_or_weakened_risk"),
+                "manualJudgment": parity.get("manual_judgment"),
+            }
+        )
+
+    primary = sources[0]
+    project = paths["project"]
+    relative = lambda raw: os.path.relpath(Path(str(raw)).resolve(), project)
+    fact_ledger = []
+    for fact in performance.get("story_fact_state_ledger") or []:
+        fact_ledger.append(
+            {
+                "fact_id": fact.get("fact_id"),
+                "initial_state": fact.get("initial_state"),
+                "incompatible_states": fact.get("incompatible_states"),
+                "transitions": [
+                    {
+                        "from_state": item.get("from_state"),
+                        "to_state": item.get("to_state"),
+                        "section_id": item.get("section_id"),
+                        "trigger": (item.get("trigger_evidence") or [item.get("trigger")])[0],
+                    }
+                    for item in fact.get("transitions") or []
+                ],
+            }
+        )
+    section_reviews: dict[str, Any] = {}
+    review_dir = paths["asset"] / "逐节首写停检"
+    for review_path in sorted(review_dir.glob("第*节.json")) if review_dir.is_dir() else []:
+        try:
+            review = read_json(review_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            return [f"已有逐节停检不可读取: {review_path}: {exc}"]
+        section_id = str(review.get("section_id") or "")
+        if section_id:
+            section_reviews[section_id] = section_review_semantics(review)
+    semantic = {
+        "version": "1.0",
+        "project": project.name,
+        "outline_compilation": {
+            "plans": plans,
+            "bridgeDefs": bridge_defs,
+            "globalReview": performance.get("global_review"),
+            "factLedger": fact_ledger,
+            "projectName": project.name,
+            "targetWords": capacity.get("target_words"),
+            "sourceTextRelative": relative(primary.get("path")),
+            "bridgeCatalogRelative": relative((primary.get("bridge_catalog") or {}).get("path")),
+            "profileRelative": relative((primary.get("causal_asset_profile") or {}).get("path")),
+        },
+        "section_reviews": section_reviews,
+    }
+    write_json(paths["model_semantic_source"], semantic)
+    return []
+
+
+def command_compile_outline(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Compile model-owned outline semantics into derived receipts and validate them."""
+    semantic_source = paths["model_semantic_source"]
+    legacy_module = Path(args.legacy_data_module).resolve() if args.legacy_data_module else None
+    if args.from_existing_receipts:
+        errors = export_outline_semantics_from_receipts(paths)
+        if errors:
+            return print_flow_result("compile-outline", errors, [], args.json)
+    if not semantic_source.is_file() and legacy_module is None:
+        return print_flow_result(
+            "compile-outline",
+            [f"模型语义源不存在: {semantic_source}；旧项目首次迁移可传 --legacy-data-module"],
+            [],
+            args.json,
+        )
+    previous_semantics = None
+    if paths["outline_contract"].is_file() and paths["draft_capacity_contract"].is_file():
+        try:
+            previous_semantics = semantic_digest(
+                {
+                    "outline": read_json(paths["outline_contract"]),
+                    "capacity": read_json(paths["draft_capacity_contract"]),
+                }
+            )
+        except (OSError, json.JSONDecodeError, ValueError):
+            previous_semantics = None
+    compiler = SCRIPT_DIR / "rebuild_outline_and_capacity_receipts.mjs"
+    command = [
+        "node",
+        str(compiler),
+        "--project",
+        str(paths["project"]),
+        "--semantic-source",
+        str(semantic_source),
+    ]
+    if legacy_module is not None:
+        if not legacy_module.is_file():
+            return print_flow_result(
+                "compile-outline",
+                [f"旧语义数据模块不存在: {legacy_module}"],
+                [],
+                args.json,
+            )
+        command.extend(["--legacy-module", str(legacy_module)])
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        detail = (completed.stderr or completed.stdout or "未知编译错误").strip()
+        return print_flow_result("compile-outline", [detail], [], args.json)
+
+    actions = ["compile-outline-performance-and-capacity"]
+    checks = (
+        ("validate-outline", lambda: OUTLINE.validate_receipt(paths["outline_contract"], paths["outline"])),
+        ("validate-opening", lambda: command_errors_for_opening(paths)),
+        (
+            "validate-sequence",
+            lambda: SEQUENCE.validate(
+                paths["sequence_receipt"],
+                paths["setting"],
+                paths["outline"],
+                None,
+            ),
+        ),
+    )
+    for action, validate in checks:
+        errors = validate()
+        if errors:
+            return print_flow_result("compile-outline", errors, actions, args.json)
+        actions.append(action)
+
+    bundle, errors = SECTION_SOURCE_BUNDLE.create_bundle(
+        paths["outline_contract"],
+        paths["source_receipt"],
+    )
+    if errors:
+        return print_flow_result("compile-outline", errors, actions, args.json)
+    SECTION_SOURCE_BUNDLE.write_json(paths["section_source_bundle"], bundle)
+    actions.append("compile-section-source-bundle")
+    current_semantics = semantic_digest(
+        {
+            "outline": read_json(paths["outline_contract"]),
+            "capacity": read_json(paths["draft_capacity_contract"]),
+        }
+    )
+    if previous_semantics == current_semantics:
+        refresh_paths = REFRESH.project_paths(paths["project"])
+        for refresh, action in (
+            (REFRESH.refresh_section_execution, "refresh-section-execution-bindings"),
+            (REFRESH.refresh_first_draft_entry, "refresh-first-draft-entry-bindings"),
+        ):
+            refresh_errors = refresh(refresh_paths)
+            if refresh_errors:
+                return print_flow_result("compile-outline", refresh_errors, actions, args.json)
+            actions.append(action)
+    elif paths["first_draft_entry"].is_file() or paths["section_execution_receipt"].is_file():
+        actions.append("invalidate-existing-draft-bindings-after-semantic-change")
+    return print_flow_result("compile-outline", [], actions, args.json)
+
+
+def section_review_semantics(review: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "checks": review.get("checks", {}),
+        "manual_judgment": review.get("manual_judgment", ""),
+        "gate_status": review.get("gate_status", "pending"),
+    }
+
+
+def export_section_review_task(paths: dict[str, Path], section_id: str) -> None:
+    review_path = paths["asset"] / "逐节首写停检" / f"第{section_id}节.json"
+    review = read_json(review_path)
+    semantic_path = paths["model_semantic_source"]
+    semantic = read_json(semantic_path) if semantic_path.is_file() else {
+        "version": "1.0",
+        "project": paths["project"].name,
+        "outline_compilation": {},
+        "section_reviews": {},
+    }
+    reviews = semantic.setdefault("section_reviews", {})
+    if not isinstance(reviews, dict):
+        raise ValueError("模型语义输入.section_reviews 必须是对象")
+    reviews[section_id] = section_review_semantics(review)
+    write_json(semantic_path, semantic)
+
+
+def compile_section_review(paths: dict[str, Path], section_id: str) -> list[str]:
+    semantic_path = paths["model_semantic_source"]
+    review_path = paths["asset"] / "逐节首写停检" / f"第{section_id}节.json"
+    try:
+        semantic = read_json(semantic_path)
+        review = read_json(review_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"逐节语义答案不可读取: {exc}"]
+    reviews = semantic.get("section_reviews")
+    answer = reviews.get(section_id) if isinstance(reviews, dict) else None
+    if not isinstance(answer, dict):
+        return [f"模型语义输入缺少 section_reviews.{section_id}"]
+    for field in ("checks", "manual_judgment", "gate_status"):
+        if field not in answer:
+            return [f"section_reviews.{section_id} 缺少字段: {field}"]
+        review[field] = answer[field]
+    write_json(review_path, review)
+    return []
+
+
+def command_write_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Open one section task or compile its semantic answer and close it."""
+    section_id = str(args.section)
+    if args.phase == "close":
+        errors = compile_section_review(paths, section_id)
+        if errors:
+            return print_flow_result("write-section", errors, [], args.json)
+        return SECTION_EXECUTION.close_section(
+            paths["section_execution_receipt"],
+            section_id,
+            paths["asset"] / "逐节首写停检" / f"第{section_id}节.json",
+        )
+
+    if not paths["first_draft_entry"].is_file():
+        prepare_args = argparse.Namespace(json=args.json)
+        result = command_prepare_draft(paths, prepare_args)
+        if result:
+            return result
+        init_args = argparse.Namespace(
+            force=False,
+            auto_refresh_legacy_bindings=False,
+            use_git_ledger_fallback=False,
+        )
+        result = command_init_first_draft(paths, init_args)
+        if result:
+            return result
+    else:
+        errors = FIRST_DRAFT.validate_entry(paths["first_draft_entry"], paths["draft"])
+        if errors:
+            return print_flow_result("write-section", errors, [], args.json)
+
+    result = SECTION_EXECUTION.open_section(
+        paths["section_execution_receipt"],
+        section_id,
+        args.read_judgment,
+    )
+    if result:
+        return result
+    try:
+        export_section_review_task(paths, section_id)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return print_flow_result("write-section", [f"生成逐节模型任务失败: {exc}"], [], args.json)
+    print(f"semantic task: {paths['model_semantic_source']}#section_reviews.{section_id}")
+    return 0
+
+
+def command_start_draft(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Run all draft gates and initialize the unique first-draft entry."""
+    result = command_prepare_draft(paths, argparse.Namespace(json=args.json))
+    if result:
+        return result
+    return command_init_first_draft(
+        paths,
+        argparse.Namespace(
+            force=args.force,
+            auto_refresh_legacy_bindings=args.auto_refresh_legacy_bindings,
+            use_git_ledger_fallback=args.use_git_ledger_fallback,
+        ),
+    )
+
+
+def command_rewrite_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Archive/reset the latest section, then reopen it with fresh source slices."""
+    result = SECTION_EXECUTION.reset_section(paths["section_execution_receipt"], str(args.section))
+    if result:
+        return result
+    return command_write_section(
+        paths,
+        argparse.Namespace(
+            section=str(args.section),
+            phase="open",
+            read_judgment=args.read_judgment,
+            json=args.json,
+        ),
+    )
 
 
 def command_prepare_prewrite(paths: dict[str, Path], args: argparse.Namespace) -> int:
@@ -268,16 +738,83 @@ def command_errors_for_opening(paths: dict[str, Path]) -> list[str]:
 
 def command_finish_draft_preview(paths: dict[str, Path], args: argparse.Namespace) -> int:
     actions: list[str] = []
-    checks = (
+    prerequisite_checks = (
         ("validate-first-draft-entry", lambda: FIRST_DRAFT.validate_entry(paths["first_draft_entry"], paths["draft"])),
         ("validate-section-execution", lambda: SECTION_EXECUTION.validate_receipt(paths["section_execution_receipt"], require_complete=True)[1]),
-        ("validate-first-draft-basic-review", lambda: FIRST_DRAFT_BASIC_REVIEW.validate_receipt(paths["first_draft_basic_review"], paths["draft"])),
     )
-    for action, validate in checks:
+    for action, validate in prerequisite_checks:
         errors = validate()
         if errors:
             return print_flow_result("finish-draft-preview", errors, actions, args.json)
         actions.append(action)
+
+    if not paths["first_draft_basic_review"].is_file():
+        execution = read_json(paths["section_execution_receipt"])
+        source_paths = sorted(
+            {
+                Path(str(record["source_path"])).resolve()
+                for section in execution.get("sections") or []
+                for record in section.get("source_read_records") or []
+                if str(record.get("source_path") or "").strip()
+            },
+            key=str,
+        )
+        result = FIRST_DRAFT_BASIC_REVIEW.init_receipt(
+            draft=paths["draft"],
+            receipt=paths["first_draft_basic_review"],
+            force=False,
+            imitation_mode=bool(source_paths),
+            source_paths=source_paths,
+            section_execution_receipt=paths["section_execution_receipt"] if source_paths else None,
+            draft_entry_receipt=paths["first_draft_entry"],
+        )
+        if result:
+            return result
+        actions.append("initialize-first-draft-basic-review")
+        return print_flow_result(
+            "finish-draft-preview",
+            [f"基础审计任务已生成，请人工填写后重跑: {paths['first_draft_basic_review']}"],
+            actions,
+            args.json,
+        )
+
+    errors = FIRST_DRAFT_BASIC_REVIEW.validate_receipt(
+        paths["first_draft_basic_review"],
+        paths["draft"],
+    )
+    if errors:
+        return print_flow_result("finish-draft-preview", errors, actions, args.json)
+    actions.append("validate-first-draft-basic-review")
+
+    if not paths["completion_state"].is_file():
+        result = SHORT_WRITE_COMPLETION.init_state(
+            paths["completion_state"],
+            paths["project"],
+            False,
+        )
+        if result:
+            return result
+        completion = read_json(paths["completion_state"])
+        preview_bindings = {
+            "writing_rule_gate": (paths["writing_receipt"], "gate_status"),
+            "source_read_gate": (paths["source_receipt"], "gate_status"),
+            "first_draft_entry": (paths["first_draft_entry"], "gate_status"),
+            "sequence_contract": (paths["sequence_receipt"], "gate_status"),
+            "opening_contract": (paths["opening_contract"], "gate_status"),
+            "section_draft_execution": (paths["section_execution_receipt"], "gate_status"),
+            "first_draft_basic_review": (paths["first_draft_basic_review"], "gate_status"),
+        }
+        for check in completion.get("checks") or []:
+            binding = preview_bindings.get(str(check.get("label") or ""))
+            if binding:
+                check["path"] = str(binding[0].resolve())
+                check["field"] = binding[1]
+        completion["imitation_mode"] = bool(
+            read_json(paths["first_draft_basic_review"]).get("imitation_mode")
+        )
+        SHORT_WRITE_COMPLETION.write_state(paths["completion_state"], completion)
+        actions.append("initialize-completion-state")
+
     result = command_mark_draft_preview(paths, args)
     return result
 
@@ -740,6 +1277,7 @@ def command_cold_start_from_source(paths: dict[str, Path], args: argparse.Namesp
         auxiliary_source_profiles=[Path(raw) for raw in args.aux_source_profile],
         target_words=args.target_words,
         force=args.force,
+        generate_legacy_scaffold=args.command == "cold-start-from-source",
     )
     if args.json:
         print_json(result)
@@ -884,11 +1422,32 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_outline = subparsers.add_parser("prepare-outline")
     prepare_outline.set_defaults(func=command_prepare_outline)
 
+    compile_outline = subparsers.add_parser("compile-outline")
+    compile_outline.add_argument(
+        "--legacy-data-module",
+        help="旧项目首次迁移使用的重建细纲与容量回执.data.mjs；迁移后不再需要",
+    )
+    compile_outline.add_argument(
+        "--from-existing-receipts",
+        action="store_true",
+        help="从当前已通过的细纲与容量回执反向导出语义源，适用于旧 scaffold 不完整的项目",
+    )
+    compile_outline.set_defaults(func=command_compile_outline)
+
     prepare_draft = subparsers.add_parser("prepare-draft")
     prepare_draft.set_defaults(func=command_prepare_draft)
 
+    start_draft = subparsers.add_parser("start-draft")
+    start_draft.add_argument("--force", action="store_true")
+    start_draft.add_argument("--auto-refresh-legacy-bindings", action="store_true")
+    start_draft.add_argument("--use-git-ledger-fallback", action="store_true")
+    start_draft.set_defaults(func=command_start_draft)
+
     finish_preview = subparsers.add_parser("finish-draft-preview")
     finish_preview.set_defaults(func=command_finish_draft_preview)
+
+    finish_preview_alias = subparsers.add_parser("finish-preview")
+    finish_preview_alias.set_defaults(func=command_finish_draft_preview)
 
     refresh = subparsers.add_parser("refresh-bindings")
     refresh.add_argument("--repair-ledger", action="store_true", default=True)
@@ -963,6 +1522,23 @@ def build_parser() -> argparse.ArgumentParser:
     reset_section.add_argument("--section", required=True)
     reset_section.set_defaults(func=command_reset_section)
 
+    write_section = subparsers.add_parser("write-section")
+    write_section.add_argument("section")
+    write_section.add_argument("--phase", choices=("open", "close"), default="open")
+    write_section.add_argument(
+        "--read-judgment",
+        default="已完整实读本节工具箱输出的全部原文切片，并将其作为本节首写基线。",
+    )
+    write_section.set_defaults(func=command_write_section)
+
+    rewrite_section = subparsers.add_parser("rewrite-section")
+    rewrite_section.add_argument("section")
+    rewrite_section.add_argument(
+        "--read-judgment",
+        default="已重新完整实读本节工具箱输出的全部原文切片，并将其作为本轮重写基线。",
+    )
+    rewrite_section.set_defaults(func=command_rewrite_section)
+
     wrappers = subparsers.add_parser("generate-wrappers")
     wrappers.add_argument("--use-git-ledger-fallback", action="store_true")
     wrappers.add_argument("--remove-legacy-sh", action="store_true")
@@ -974,6 +1550,13 @@ def build_parser() -> argparse.ArgumentParser:
     cold_start.add_argument("--target-words", type=int, default=10000)
     cold_start.add_argument("--force", action="store_true")
     cold_start.set_defaults(func=command_cold_start_from_source)
+
+    bootstrap_book = subparsers.add_parser("bootstrap-book")
+    bootstrap_book.add_argument("--primary-source-profile", required=True)
+    bootstrap_book.add_argument("--aux-source-profile", action="append", default=[])
+    bootstrap_book.add_argument("--target-words", type=int, default=10000)
+    bootstrap_book.add_argument("--force", action="store_true")
+    bootstrap_book.set_defaults(func=command_cold_start_from_source)
 
     promote_outline_rebuilder = subparsers.add_parser("promote-outline-rebuilder")
     promote_outline_rebuilder.add_argument("--force", action="store_true")

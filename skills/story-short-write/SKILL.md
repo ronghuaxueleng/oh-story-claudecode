@@ -560,14 +560,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 项目内默认优先使用 `写作资产/项目工具箱.py` 的阶段流程命令：
 
 ```bash
+python3 "{项目目录}/写作资产/项目工具箱.py" bootstrap-book --primary-source-profile "{主体 book.profile.json}" [--aux-source-profile "{辅助 book.profile.json}"]
 python3 "{项目目录}/写作资产/项目工具箱.py" prepare-prewrite
 python3 "{项目目录}/写作资产/项目工具箱.py" prepare-setting
-python3 "{项目目录}/写作资产/项目工具箱.py" prepare-outline
-python3 "{项目目录}/写作资产/项目工具箱.py" prepare-draft
-python3 "{项目目录}/写作资产/项目工具箱.py" finish-draft-preview
+python3 "{项目目录}/写作资产/项目工具箱.py" compile-outline
+python3 "{项目目录}/写作资产/项目工具箱.py" start-draft
+python3 "{项目目录}/写作资产/项目工具箱.py" write-section 1
+python3 "{项目目录}/写作资产/项目工具箱.py" write-section 1 --phase close
+python3 "{项目目录}/写作资产/项目工具箱.py" rewrite-section 1
+python3 "{项目目录}/写作资产/项目工具箱.py" finish-preview
 ```
 
-每个命令只编排可机械验证的步骤，首个门禁失败即停止；脚本不代填阅读证据、模型语义归并、顺序裁决或正文审查结论。
+新项目的细纲语义和逐节停检只维护一份创作语义源：`写作资产/模型语义输入.json`。模型只填写其中的 `outline_compilation` 和 `section_reviews`；SHA、路径、原文实读记录、正式回执外壳、逐节颗粒包及状态字段全部由脚本生成。规则来源、规则分类和模型复核批次仍独立由 `规则执行台账.json` 与模型复核计划管理，不能并入创作语义源，也不能宣称所有模型语义只有一个文件。已有通过回执的旧项目首次执行 `compile-outline --from-existing-receipts`，由脚本反向导出创作语义源；只有旧 `.data.mjs` 本身完整可重建时才使用 `--legacy-data-module`。迁移完成后不再维护 scaffold 数据文件。
+
+`bootstrap-book` 负责从主体、辅助拆书 profile 初始化项目和创作语义源；`compile-outline` 将紧凑细纲语义编译为细纲表演回执和首写容量回执，再统一验证开头、顺序并生成逐节原文颗粒包；`start-draft` 统一执行正文放行和首稿入口初始化。`write-section N` 负责完整输出本节原文、记录实读并生成紧凑停检任务；模型写完正文并填写同一创作语义源后，运行 `write-section N --phase close`，由脚本合并机械绑定并执行关节验收。需要重写时使用 `rewrite-section N` 重置并重新打开该节；全部小节关闭后使用 `finish-preview` 初始化基础审计、校验并停靠首稿预览。
+
+每个命令只编排可机械验证的步骤，首个门禁失败即停止；脚本不代填阅读证据、模型语义归并、顺序裁决或正文审查结论。底层命令继续保留为迁移兼容和定向调试入口，正常写作不要混用。
 
 常用入口只保留下面 10 个：
 

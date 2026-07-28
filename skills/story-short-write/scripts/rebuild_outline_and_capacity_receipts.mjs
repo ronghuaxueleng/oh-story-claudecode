@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const styleFields = [
   "narrative_voice_and_attitude",
@@ -334,6 +335,8 @@ export async function rebuildOutlineAndCapacityReceipts({
       .map((line) => line.trim())
       .filter(Boolean);
 
+  const planById = new Map(plans.map((plan) => [plan.id, plan]));
+
   const bulletLine = (id, prefix) => {
     const line = blockLines(id).find((item) => item.startsWith(prefix));
     if (!line) fail(`第 ${id} 节缺少 ${prefix}`);
@@ -341,6 +344,15 @@ export async function rebuildOutlineAndCapacityReceipts({
   };
 
   const outlineEvidence = (id) => {
+    const semanticEvidence = planById.get(id)?.targetOutlineEvidence;
+    if (Array.isArray(semanticEvidence) && semanticEvidence.length >= 2) {
+      for (const quote of semanticEvidence) {
+        if (typeof quote !== "string" || !quote.trim() || !sectionBlocks.get(id).includes(quote)) {
+          fail(`第 ${id} 节语义源大纲证据不在当前小节内`);
+        }
+      }
+      return semanticEvidence;
+    }
     const paragraphs = blockLines(id).filter((line) => !line.startsWith("-") && line.length > 28);
     if (paragraphs.length < 2) fail(`第 ${id} 节缺少两条场面原句`);
     return [paragraphs[0], paragraphs[1]];
@@ -600,4 +612,83 @@ export async function rebuildOutlineAndCapacityReceipts({
     bridges: performanceRoundTrip.source_bridge_flow_inventory.length,
     capacities: capacityRoundTrip.sections.length,
   };
+}
+
+const semanticFields = [
+  "plans",
+  "bridgeDefs",
+  "globalReview",
+  "factLedger",
+  "projectName",
+  "targetWords",
+  "sourceTextRelative",
+  "bridgeCatalogRelative",
+  "profileRelative",
+];
+
+function parseCliArgs(argv) {
+  const args = {};
+  for (let index = 0; index < argv.length; index += 1) {
+    const key = argv[index];
+    if (!key.startsWith("--")) fail(`无法识别的参数: ${key}`);
+    const value = argv[index + 1];
+    if (!value || value.startsWith("--")) fail(`参数缺少值: ${key}`);
+    args[key.slice(2)] = value;
+    index += 1;
+  }
+  return args;
+}
+
+function pickOutlineCompilation(source) {
+  const candidate = source.outline_compilation ?? source;
+  const result = {};
+  for (const field of semanticFields) {
+    if (!(field in candidate)) fail(`语义源缺少 outline_compilation.${field}`);
+    result[field] = candidate[field];
+  }
+  return result;
+}
+
+async function loadLegacyModule(path) {
+  const loaded = await import(`${pathToFileURL(path).href}?t=${Date.now()}`);
+  return pickOutlineCompilation(loaded);
+}
+
+async function runCli() {
+  const args = parseCliArgs(process.argv.slice(2));
+  const projectRoot = resolve(requireText(args.project, "--project"));
+  const semanticSourcePath = resolve(
+    requireText(args["semantic-source"], "--semantic-source"),
+  );
+  let outlineCompilation;
+  if (args["legacy-module"]) {
+    outlineCompilation = await loadLegacyModule(resolve(args["legacy-module"]));
+    const existing = await readJson(semanticSourcePath).catch(() => ({}));
+    const semanticSource = {
+      version: existing.version ?? "1.0",
+      project: existing.project ?? outlineCompilation.projectName,
+      outline_compilation: outlineCompilation,
+      section_reviews: existing.section_reviews ?? {},
+    };
+    await writeFile(semanticSourcePath, `${JSON.stringify(semanticSource, null, 2)}\n`, "utf8");
+  } else {
+    outlineCompilation = pickOutlineCompilation(await readJson(semanticSourcePath));
+  }
+  const result = await rebuildOutlineAndCapacityReceipts({
+    projectRoot,
+    projectName: outlineCompilation.projectName,
+    plans: outlineCompilation.plans,
+    bridgeDefs: outlineCompilation.bridgeDefs,
+    sourceTextPath: resolve(projectRoot, outlineCompilation.sourceTextRelative),
+    bridgeCatalogPath: resolve(projectRoot, outlineCompilation.bridgeCatalogRelative),
+    profilePath: resolve(projectRoot, outlineCompilation.profileRelative),
+    globalReview: outlineCompilation.globalReview,
+    factLedger: outlineCompilation.factLedger,
+    targetWords: outlineCompilation.targetWords,
+  });
+  console.log(JSON.stringify({ ok: true, semantic_source: semanticSourcePath, ...result }));
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  await runCli();
 }

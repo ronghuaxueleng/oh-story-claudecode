@@ -4,6 +4,38 @@ Command failures and integration errors.
 
 ---
 
+## [ERR-20260729-001] compile-outline-legacy-migration
+
+**Logged**: 2026-07-29T00:00:00+08:00
+**Priority**: medium
+**Status**: resolved
+**Area**: config
+
+### Summary
+旧项目细纲语义模块存在空的必填人工结论，首次迁移为统一 JSON 语义源时被编译器阻断。
+
+### Error
+```text
+Error: 缺少必填文本字段: globalReview.mechanism_transfer_boundary
+```
+
+### Context
+- `compile-outline --legacy-data-module` 已成功读取旧模块，但通用编译器在生成派生回执前发现必填语义为空。
+- 正式细纲表演回执中已有对应人工结论，旧数据源没有同步回写。
+
+### Suggested Fix
+从已通过且仍绑定当前大纲的正式回执回填旧语义源，再重新迁移；迁移完成后只维护 `模型语义输入.json`。
+
+### Metadata
+- Reproducible: yes
+- Related Files: skills/story-short-write/scripts/rebuild_outline_and_capacity_receipts.mjs, 写作资产/重建细纲与容量回执.data.mjs
+
+### Resolution
+- **Resolved**: 2026-07-29T00:00:00+08:00
+- **Notes**: 放弃修补不完整 scaffold，新增 `--from-existing-receipts`，从已通过正式回执确定性导出完整语义源后重编通过。
+
+---
+
 ## [ERR-20260728-001] unified-exec-session-wait
 
 **Logged**: 2026-07-28T00:00:00+08:00
