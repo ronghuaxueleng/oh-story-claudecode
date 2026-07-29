@@ -82,7 +82,12 @@ def draft_has_user_content(path: Path) -> bool:
     if not path.exists():
         return False
     text = path.read_text(encoding="utf-8")
-    return bool(text.strip())
+    meaningful_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    return bool(meaningful_lines)
 
 
 def init_entry(

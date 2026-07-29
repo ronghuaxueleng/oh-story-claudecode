@@ -58,7 +58,27 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.setting = self.root / "设定.md"
         self.outline = self.root / "大纲.md"
         self.setting.write_text("设定", encoding="utf-8")
-        self.outline.write_text("## 1. 起事\n\n动作一\n动作二\n", encoding="utf-8")
+        self.outline.write_text(
+            (
+                "## 1. 起事\n"
+                "- 情绪：先期待，再被公开刺痛。\n"
+                "- 读者新获知：丈夫已经把优先权让给第三人。\n"
+                "- 钩子：钥匙会不会真的交出去。\n"
+                "- 伏笔/物件：钥匙、挂件、门口站位。\n"
+                "- 动静：先僵住，再换手。\n"
+                "- 对话密度：偏低，错答压场。\n"
+                "- 目标字数：1000\n\n"
+                "动作一 动作二\n"
+                "丈夫刚改口时，她还想等一句补救，可手已经先在钥匙圈上松了一下。"
+                "她盯住那枚共同挑的挂件，真正想问的话在喉咙口拐了个弯，最后只剩一句钥匙是不是现在就得交。"
+                "那句错答没给她留面子，反而把她推到更低的位置，连旁边等着的人都默认下一步该由别人接手。\n\n"
+                "钥匙真正换手时，她掌心还留着硌出来的印子。"
+                "她没有继续闹，是因为更难堪的东西已经落到了明面上：不是谁替她做决定，而是她已经失去了原本默认属于自己的位置。"
+                "她退不开，也收不回，只能先把这一秒记住，让它在后场继续发作。"
+                "这一节必须把期待、停顿、改口和余痛压在同一口连续现场里，不能只写成交钥匙这件事。"
+            ),
+            encoding="utf-8",
+        )
         source_root = self.root / "拆文库" / "测试书"
         self.source_original = source_root / "原文" / "原文.txt"
         self.source_original.parent.mkdir(parents=True)
@@ -163,6 +183,8 @@ class WriteReleaseGateTest(unittest.TestCase):
                         }
                     ],
                 }
+            elif name == "profile":
+                payload = self.profile_payload()
             path.write_text(
                 json.dumps(payload),
                 encoding="utf-8",
@@ -350,6 +372,38 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "source_performance_excerpt": "原文场面",
                     "source_performance_evidence": ["原文动作", "原文余痛"],
                     "source_excerpt_reuse_reason": "",
+                    "source_style_granularity": {
+                        "narrative_voice_and_attitude": {
+                            "source_summary": "贴脸跟着当事人的即时注意走，不抢结论。",
+                            "source_evidence": ["原文场面", "原文动作"],
+                            "target_style_plan": "先落她看到的挂件和站位，再让判断慢半拍漏出来。",
+                        },
+                        "sentence_relation_and_rhythm": {
+                            "source_summary": "句子靠因果反冲和临时改口连起来。",
+                            "source_evidence": ["原文动作", "原文余痛"],
+                            "target_style_plan": "用原本、却、才、还把错答前后的反冲连起来。",
+                        },
+                        "paragraph_breath_and_cut_points": {
+                            "source_summary": "在说话人、控制权和余痛落点变化处断段。",
+                            "source_evidence": ["原文场面"],
+                            "target_style_plan": "改口、换手、余痛三处各自成段，不切成报账短段。",
+                        },
+                        "dialogue_misfire_or_avoidance": {
+                            "source_summary": "真正想问的话被更短的现场话顶掉。",
+                            "source_evidence": ["原文动作"],
+                            "target_style_plan": "先让她想追问，再只落一句钥匙何时交。",
+                        },
+                        "action_perception_emotion_weave": {
+                            "source_summary": "动作、物件触感和情绪反冲连成同一瞬间。",
+                            "source_evidence": ["原文场面", "原文余痛"],
+                            "target_style_plan": "把松手、看挂件、改口和掌心余感织成一口气。",
+                        },
+                        "narrator_interjection_and_roughness": {
+                            "source_summary": "场末收在身体余感和难堪上，不补作者总结。",
+                            "source_evidence": ["原文余痛"],
+                            "target_style_plan": "尾句只留掌心压痕和难堪，不替她解释大道理。",
+                        },
+                    },
                     "emotion_process": {
                         "entry_state": "她还在等丈夫给一个合理解释。",
                         "involuntary_body_response": "他开口偏护时，她的手先松开了钥匙。",
@@ -405,6 +459,47 @@ class WriteReleaseGateTest(unittest.TestCase):
             }
         ]
         return payload
+
+    def profile_payload(self) -> dict:
+        return {
+            "meta": {
+                "name": "测试融合稿",
+                "mode": "merged_profiles",
+                "source_count": 4,
+                "sources": ["a", "b", "c", "d"],
+            },
+            "bridge_rules": [{"bridge": f"BID-{index:02d}"} for index in range(1, 17)],
+            "causal_precondition_assets": [
+                {"causal_asset_id": f"CPA-{index:02d}", "name": f"因果资产{index}"}
+                for index in range(1, 17)
+            ],
+            "scene_assets": {
+                "public_explosion": [f"公开炸场{index}" for index in range(1, 9)],
+                "external_order": [f"外部秩序{index}" for index in range(1, 9)],
+                "consequence_chain": [f"后果链{index}" for index in range(1, 25)],
+            },
+            "style_assets": {
+                "opening_hooks": ["开头钩子"],
+                "misdirection": ["误判"],
+                "object_pressure": ["物件压力"],
+                "action_axis": ["动作轴"],
+                "micro_actions": ["微动作"],
+                "quiet_pressure": ["安静压迫"],
+                "character_bias": ["人物偏手"],
+                "meltdown_dialogue": ["失控说话"],
+                "rotten_relationship": ["烂关系漏出"],
+                "dialogue_bridges": ["对白衔接"],
+            },
+            "story_guardrails": {
+                "consequence_structure": {
+                    "pre_evidence_reality_consequences": ["先有现实后果"],
+                    "tail_entry_owner": ["尾声入口归女主"],
+                },
+                "character_face_split": {
+                    "different_face_evidence": ["男主对外和对女主不是一张脸"],
+                },
+            },
+        }
 
     @staticmethod
     def binding(path: Path) -> dict[str, str]:
@@ -531,6 +626,32 @@ class WriteReleaseGateTest(unittest.TestCase):
             section_source_bundle=self.files["section_bundle"],
         )
         self.assertEqual([], errors)
+
+    def test_draft_blocks_thin_merged_profile(self) -> None:
+        payload = self.profile_payload()
+        payload["meta"]["source_count"] = 3
+        payload["meta"]["sources"] = ["a", "b", "c"]
+        payload["bridge_rules"] = payload["bridge_rules"][:12]
+        payload["causal_precondition_assets"] = payload["causal_precondition_assets"][:13]
+        self.files["profile"].write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
+        )
+        self.assertTrue(any("source_count=3" in item for item in errors))
+        self.assertTrue(any("bridge_rules 厚度不足" in item for item in errors))
+        self.assertTrue(any("causal_precondition_assets 厚度不足" in item for item in errors))
 
     def test_draft_requires_outline_performance_contract(self) -> None:
         errors = GATE.validate_release(

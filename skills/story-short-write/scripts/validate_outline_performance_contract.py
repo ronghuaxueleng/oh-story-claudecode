@@ -139,6 +139,12 @@ def nonempty_list(value: Any, minimum: int = 1) -> bool:
     )
 
 
+def normalize_contract_line(value: Any) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"^[-*]\s*", "", text)
+    return re.sub(r"\s+", " ", text)
+
+
 def bridge_catalog_path(source: Path) -> Path:
     return source.parent.parent / "写作资产" / "桥段施工卡.md"
 
@@ -392,6 +398,38 @@ def create_receipt(
                     "source_slice_bindings": [],
                     "source_performance_excerpt": "",
                     "source_performance_evidence": [],
+                    "source_style_granularity": {
+                        "narrative_voice_and_attitude": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                        "sentence_relation_and_rhythm": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                        "paragraph_breath_and_cut_points": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                        "dialogue_misfire_or_avoidance": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                        "action_perception_emotion_weave": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                        "narrator_interjection_and_roughness": {
+                            "source_summary": "",
+                            "source_evidence": [],
+                            "target_style_plan": "",
+                        },
+                    },
                     "source_excerpt_reuse_reason": "",
                     "emotion_process": {
                         "entry_state": "",
@@ -541,6 +579,30 @@ def validate_scene_logic_contract(
     for field in ("exit_cause", "manual_judgment"):
         if not nonempty_text(value.get(field)):
             errors.append(f"{label} scene_logic_contract.{field} 不能为空")
+    target_entry_causes = [
+        normalize_contract_line(item)
+        for item in value.get("target_entry_causes") or []
+        if normalize_contract_line(item)
+    ]
+    if len(target_entry_causes) == 1 and target_entry_causes[0].startswith("读者新获知"):
+        errors.append(
+            f"{label} scene_logic_contract.target_entry_causes 不能只剩“读者新获知”式模板句，"
+            "必须写出人物为何此时同场的具体现实原因"
+        )
+    target_knowledge_state = [
+        normalize_contract_line(item)
+        for item in value.get("target_knowledge_state") or []
+        if normalize_contract_line(item)
+    ]
+    if (
+        len(target_entry_causes) == 1
+        and len(target_knowledge_state) == 1
+        and target_entry_causes[0] == target_knowledge_state[0]
+    ):
+        errors.append(
+            f"{label} scene_logic_contract.target_entry_causes 与 target_knowledge_state 不能写成同一句摘要，"
+            "到场原因和知情边界必须拆开写"
+        )
     dependency = value.get("external_rule_dependency")
     if not isinstance(dependency, dict):
         errors.append(f"{label} scene_logic_contract.external_rule_dependency 必须是对象")
@@ -862,6 +924,7 @@ def validate_source_emotion_parity(
 def validate_first_draft_generation_contract(
     value: Any,
     source_texts: dict[str, str],
+    original_scene_granularity: Any,
     label: str,
     errors: list[str],
     *,
@@ -930,6 +993,57 @@ def validate_first_draft_generation_contract(
             if not any(quote in text for text in source_texts.values()):
                 errors.append(f"{label} 原文表演证据不在选中原文中: {quote!r}")
 
+    style_granularity = value.get("source_style_granularity")
+    if not isinstance(style_granularity, dict):
+        errors.append(f"{label} first_draft_generation_contract.source_style_granularity 必须是对象")
+    else:
+        expected_fields = {
+            "narrative_voice_and_attitude",
+            "sentence_relation_and_rhythm",
+            "paragraph_breath_and_cut_points",
+            "dialogue_misfire_or_avoidance",
+            "action_perception_emotion_weave",
+            "narrator_interjection_and_roughness",
+        }
+        style_plan_texts: list[str] = []
+        style_evidence_sets: list[tuple[str, ...]] = []
+        if set(style_granularity) != expected_fields:
+            errors.append(f"{label} source_style_granularity 必须完整覆盖六类文风颗粒")
+        for field in expected_fields:
+            item = style_granularity.get(field)
+            if not isinstance(item, dict):
+                errors.append(f"{label} source_style_granularity.{field} 必须是对象")
+                continue
+            if not nonempty_text(item.get("source_summary")):
+                errors.append(f"{label} source_style_granularity.{field}.source_summary 不能为空")
+            if not nonempty_text(item.get("target_style_plan")):
+                errors.append(f"{label} source_style_granularity.{field}.target_style_plan 不能为空")
+            else:
+                style_plan_texts.append(str(item.get("target_style_plan")).strip())
+            evidence = item.get("source_evidence")
+            if not nonempty_list(evidence, minimum=1):
+                errors.append(f"{label} source_style_granularity.{field}.source_evidence 至少需要 1 条原文证据")
+            else:
+                normalized_quotes = tuple(
+                    sorted({str(quote).strip() for quote in evidence if str(quote).strip()})
+                )
+                style_evidence_sets.append(normalized_quotes)
+                for quote in normalized_quotes:
+                    if not any(quote in text for text in source_texts.values()):
+                        errors.append(
+                            f"{label} source_style_granularity.{field}.source_evidence 不在选中原文中: {quote!r}"
+                        )
+        if style_plan_texts and len(set(style_plan_texts)) <= 2:
+            errors.append(
+                f"{label} source_style_granularity.target_style_plan 过度重复，"
+                "不能用同一句模板覆盖六类文风颗粒"
+            )
+        if style_evidence_sets and len(set(style_evidence_sets)) <= 2:
+            errors.append(
+                f"{label} source_style_granularity.source_evidence 过度重复，"
+                "不能让六类文风颗粒共用同一组原文证据"
+            )
+
     emotion_process = value.get("emotion_process")
     if not isinstance(emotion_process, dict):
         errors.append(f"{label} first_draft_generation_contract.emotion_process 必须是对象")
@@ -938,6 +1052,20 @@ def validate_first_draft_generation_contract(
             if not nonempty_text(emotion_process.get(field)):
                 errors.append(
                     f"{label} first_draft_generation_contract.emotion_process.{field} 不能为空"
+                )
+        original = original_scene_granularity if isinstance(original_scene_granularity, dict) else {}
+        for emotion_field, original_field in (
+            ("involuntary_body_response", "body_object_space_control"),
+            ("speech_misfire_or_avoidance", "dialogue_forces_action"),
+            ("scene_afterpain", "scene_end_residue"),
+        ):
+            if normalize_contract_line(emotion_process.get(emotion_field)) and (
+                normalize_contract_line(emotion_process.get(emotion_field))
+                == normalize_contract_line(original.get(original_field))
+            ):
+                errors.append(
+                    f"{label} first_draft_generation_contract.emotion_process.{emotion_field} "
+                    "不能直接照抄 original_scene_granularity 概括句，必须展开成本节首写用的现场过程合同"
                 )
 
     for field, minimum, description in (
@@ -1471,6 +1599,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         validate_first_draft_generation_contract(
             entry.get("first_draft_generation_contract"),
             source_texts,
+            entry.get("original_scene_granularity"),
             label,
             errors,
             strong_emotion_required=strong_emotion_required,

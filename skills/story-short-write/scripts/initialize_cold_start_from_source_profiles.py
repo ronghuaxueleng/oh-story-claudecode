@@ -40,6 +40,26 @@ WRAPPERS = load_module(
 )
 
 
+def validate_source_stack(
+    primary_source_profile: Path,
+    auxiliary_source_profiles: list[Path],
+) -> None:
+    total_sources = 1 + len(auxiliary_source_profiles)
+    if total_sources < 4:
+        raise RuntimeError(
+            "直接仿写冷启动来源厚度不足："
+            f"当前 1 主 + {len(auxiliary_source_profiles)} 辅，共 {total_sources} 个来源；"
+            "至少需要 1 主 + 3 辅。否则主体骨架之外的场面颗粒、因果资产和辅助桥规则不够厚，"
+            "后面很容易把原文颗粒压成薄摘要。"
+        )
+    unique_profiles = {
+        str(primary_source_profile.expanduser().resolve()),
+        *(str(path.expanduser().resolve()) for path in auxiliary_source_profiles),
+    }
+    if len(unique_profiles) != total_sources:
+        raise RuntimeError("冷启动来源列表存在重复 profile，必须先去重再起书。")
+
+
 def project_paths(project: Path) -> dict[str, Path]:
     asset = project / "写作资产"
     return {
@@ -215,6 +235,8 @@ def initialize(
     if not paths["project"].is_dir():
         raise FileNotFoundError(f"项目目录不存在: {project}")
 
+    validate_source_stack(primary_source_profile, auxiliary_source_profiles)
+
     primary_root = infer_source_root(primary_source_profile)
     auxiliary_roots = [infer_source_root(path) for path in auxiliary_source_profiles]
     all_roots = [primary_root, *auxiliary_roots]
@@ -240,6 +262,9 @@ def initialize(
 
     actions["ledger"] = "blocked_until_receipts_passed"
     actions["ledger_hint"] = write_ledger_hint(paths["ledger_hint"], force=force)
+
+    # New projects need concrete placeholder targets before any receipt reads them.
+    touch_placeholders(paths)
 
     if force or not paths["setting_sequence_receipt"].exists():
         SEQUENCE.init_setting_receipt(paths["project"].name, paths["setting"], paths["setting_sequence_receipt"])

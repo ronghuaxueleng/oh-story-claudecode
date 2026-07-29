@@ -13,6 +13,107 @@ const styleFields = [
   "narrator_interjection_and_roughness",
 ];
 
+function uniqueNonEmpty(values) {
+  const seen = new Set();
+  const result = [];
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+function pickEvidence(evidence, ...preferredIndexes) {
+  const normalized = uniqueNonEmpty(evidence);
+  const picked = [];
+  for (const index of preferredIndexes) {
+    if (normalized[index]) picked.push(normalized[index]);
+  }
+  const uniquePicked = uniqueNonEmpty(picked);
+  if (uniquePicked.length >= 2) return uniquePicked;
+  return normalized.slice(0, Math.max(2, Math.min(4, normalized.length)));
+}
+
+function buildSourceStyleGranularity(plan, binding) {
+  const evidence = Array.isArray(binding.source_evidence) ? binding.source_evidence : [];
+  const baseStylePlan = requireText(
+    plan.capacityFirstDraftStylePlan,
+    `plans[${plan.id}].capacityFirstDraftStylePlan`,
+  );
+  const sentencePlan = uniqueNonEmpty([
+    ...requireArray(plan.sentencePlan, `plans[${plan.id}].sentencePlan`, 3),
+    requireText(plan.functionWordStrategy, `plans[${plan.id}].functionWordStrategy`),
+  ]).join(" / ");
+  const paragraphPlan = uniqueNonEmpty([
+    ...requireArray(plan.breaks, `plans[${plan.id}].breaks`, 2),
+    ...requireArray(plan.continuous, `plans[${plan.id}].continuous`, 2),
+  ]).join(" / ");
+  const actionPlan = uniqueNonEmpty([
+    requireText(plan.bodyControl, `plans[${plan.id}].bodyControl`),
+    requireText(
+      plan.memoryAssociationOrAttentionDrift,
+      `plans[${plan.id}].memoryAssociationOrAttentionDrift`,
+    ),
+    requireText(plan.contradictoryImpulse, `plans[${plan.id}].contradictoryImpulse`),
+    requireText(plan.residue, `plans[${plan.id}].residue`),
+  ]).join(" / ");
+  const roughnessPlan = uniqueNonEmpty([
+    ...requireArray(plan.shorthands, `plans[${plan.id}].shorthands`, 2),
+    requireText(plan.firstDraftManualJudgment, `plans[${plan.id}].firstDraftManualJudgment`),
+  ]).join(" / ");
+  return {
+    narrative_voice_and_attitude: {
+      source_summary: requireText(
+        plan.capacitySourceStyleGranularity,
+        `plans[${plan.id}].capacitySourceStyleGranularity`,
+      ),
+      source_evidence: pickEvidence(evidence, 0, 1),
+      target_style_plan: uniqueNonEmpty([
+        baseStylePlan,
+        `本节先落${requireText(plan.controllingObject, `plans[${plan.id}].controllingObject`)}，再让人物判断慢半拍出来。`,
+      ]).join(" / "),
+    },
+    sentence_relation_and_rhythm: {
+      source_summary: sentencePlan,
+      source_evidence: pickEvidence(evidence, 1, 2),
+      target_style_plan: sentencePlan,
+    },
+    paragraph_breath_and_cut_points: {
+      source_summary: paragraphPlan,
+      source_evidence: pickEvidence(evidence, 2, 3),
+      target_style_plan: paragraphPlan,
+    },
+    dialogue_misfire_or_avoidance: {
+      source_summary: requireText(plan.dialogueForce, `plans[${plan.id}].dialogueForce`),
+      source_evidence: pickEvidence(evidence, 3, 4),
+      target_style_plan: uniqueNonEmpty([
+        requireText(plan.dialogueForce, `plans[${plan.id}].dialogueForce`),
+        "本节对白先错答或回避，再逼出更难堪的现场动作，不抢着总结关系。",
+      ]).join(" / "),
+    },
+    action_perception_emotion_weave: {
+      source_summary: uniqueNonEmpty([
+        requireText(plan.bodyControl, `plans[${plan.id}].bodyControl`),
+        requireText(
+          plan.memoryAssociationOrAttentionDrift,
+          `plans[${plan.id}].memoryAssociationOrAttentionDrift`,
+        ),
+        requireText(plan.contradictoryImpulse, `plans[${plan.id}].contradictoryImpulse`),
+      ]).join(" / "),
+      source_evidence: pickEvidence(evidence, 4, 5),
+      target_style_plan: actionPlan,
+    },
+    narrator_interjection_and_roughness: {
+      source_summary: roughnessPlan,
+      source_evidence: pickEvidence(evidence, 5, 0),
+      target_style_plan: roughnessPlan,
+    },
+  };
+}
+
 const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
 const sha256 = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");
 
@@ -55,9 +156,79 @@ function requireNumber(value, label) {
   return value;
 }
 
+function asObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function asNonEmptyArray(value) {
+  return Array.isArray(value) && value.length ? value : null;
+}
+
+function asNonEmptyText(value) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function normalizeLine(value) {
+  return typeof value === "string" ? value.trim().replace(/^[-*]\s*/, "") : "";
+}
+
+function isTemplateEntryCause(value) {
+  const normalized = normalizeLine(value);
+  return normalized.startsWith("读者新获知");
+}
+
+function sameNormalizedText(left, right) {
+  return normalizeLine(left) && normalizeLine(left) === normalizeLine(right);
+}
+
+function shortenText(value, max = 28) {
+  const text = normalizeLine(value);
+  if (!text) return "";
+  return text.length <= max ? text : `${text.slice(0, max)}...`;
+}
+
+function synthesizeEntryCause(plan, targetEvidence) {
+  const firstEvidence = asNonEmptyText(targetEvidence?.[0]);
+  if (firstEvidence) return firstEvidence;
+  return `本节人物会因为${requireText(plan.controllingObject, `plans[${plan.id}].controllingObject`)}和眼前失位后果被迫同场。`;
+}
+
+function synthesizeKnowledgeState(plan, targetEvidence) {
+  const known = requireText(plan.entryKnown, `plans[${plan.id}].entryKnown`);
+  const secondEvidence = asNonEmptyText(targetEvidence?.[1]);
+  if (secondEvidence && !sameNormalizedText(secondEvidence, known)) {
+    return `她此时只先看到：${shortenText(secondEvidence, 34)}`;
+  }
+  return `她此时只知道：${known}`;
+}
+
+function synthesizeBodyResponse(plan, targetEvidence) {
+  const firstEvidence = asNonEmptyText(targetEvidence?.[0]);
+  const objectText = requireText(plan.controllingObject, `plans[${plan.id}].controllingObject`);
+  if (firstEvidence) {
+    return `她先被${objectText}和眼前那一下牵住动作，身体比判断更早僵住，随后才轮到情绪跟上。`;
+  }
+  return `她先被${objectText}牵住动作，身体反应比判断更早出来。`;
+}
+
+function synthesizeSpeechMisfire(plan, targetEvidence) {
+  const secondEvidence = asNonEmptyText(targetEvidence?.[1]) ?? asNonEmptyText(targetEvidence?.[0]);
+  if (secondEvidence) {
+    return `她原本想把真正的问题问穿，可一到现场只剩更短的回避句，先把难堪压在${shortenText(secondEvidence, 18)}这一拍里。`;
+  }
+  return "她原本想把关系问明白，开口却只剩更短的现场话，把真正的质问压后。";
+}
+
+function synthesizeSceneAfterpain(plan) {
+  const objectText = requireText(plan.controllingObject, `plans[${plan.id}].controllingObject`);
+  return `场末不补解释，只把${objectText}留下的余感和被公开打掉位置的难堪一起拖进下一场。`;
+}
+
 function parseSectionBlocks(outlineText) {
   const blocks = new Map();
-  for (const match of outlineText.matchAll(/^##\s+(\d+)\.[^\n]*\n([\s\S]*?)(?=^##\s+\d+\.|^##\s+全纲|^##\s+容量|\z)/gm)) {
+  // JS regex does not support `\z`; use a true end-of-input assertion so the final
+  // section is kept without truncating earlier sections at line endings.
+  for (const match of outlineText.matchAll(/^##\s+(\d+)\.[^\n]*\n([\s\S]*?)(?=^##\s+\d+\.|^##\s+全纲|^##\s+容量|(?![\s\S]))/gm)) {
     blocks.set(match[1], match[2].trim());
   }
   return blocks;
@@ -367,11 +538,17 @@ export async function rebuildOutlineAndCapacityReceipts({
       .filter((line) => line && !/^\d+$/.test(line) && line !== "……");
     if (candidates.length < 2) fail(`${range} 可用原文证据不足`);
     const mid = Math.max(1, Math.floor(candidates.length / 2));
+    const evidenceCount = Math.min(6, candidates.length);
+    const spreadEvidence = [];
+    for (let index = 0; index < evidenceCount; index += 1) {
+      const offset = Math.floor((index * (candidates.length - 1)) / Math.max(1, evidenceCount - 1));
+      spreadEvidence.push(candidates[offset]);
+    }
     return {
       source_path: sourcePath,
       source_sha256: sourceSha,
       source_range: range,
-      source_evidence: [candidates[0], candidates[mid]],
+      source_evidence: uniqueNonEmpty([candidates[0], candidates[mid], ...spreadEvidence]),
       style_fields_consumed: styleFields,
     };
   };
@@ -431,6 +608,37 @@ export async function rebuildOutlineAndCapacityReceipts({
     const binding = sliceBinding(plan.range);
     const targetEvidence = outlineEvidence(plan.id);
     const seq = makeEmotionSequences(plan, binding.source_evidence, targetEvidence);
+    const richOriginal = asObject(plan.richOriginalSceneGranularity);
+    const richLogic = asObject(plan.richSceneLogicContract);
+    const richParity = asObject(plan.richSourceEmotionParity);
+    const richGeneration = asObject(plan.richFirstDraftGenerationContract);
+    const richEmotionProcess = asObject(richGeneration?.emotion_process);
+    const targetEntryCauses = asNonEmptyArray(richLogic?.target_entry_causes);
+    const targetKnowledgeState = asNonEmptyArray(richLogic?.target_knowledge_state);
+    const resolvedEntryCause =
+      targetEntryCauses && !isTemplateEntryCause(targetEntryCauses[0])
+        ? targetEntryCauses
+        : [synthesizeEntryCause(plan, targetEvidence)];
+    const resolvedKnowledgeState =
+      targetKnowledgeState &&
+      !sameNormalizedText(targetKnowledgeState[0], resolvedEntryCause[0])
+        ? targetKnowledgeState
+        : [synthesizeKnowledgeState(plan, targetEvidence)];
+    const resolvedBodyResponse =
+      richEmotionProcess?.involuntary_body_response &&
+      !sameNormalizedText(richEmotionProcess.involuntary_body_response, richOriginal?.body_object_space_control ?? plan.bodyControl)
+        ? richEmotionProcess.involuntary_body_response
+        : synthesizeBodyResponse(plan, targetEvidence);
+    const resolvedSpeechMisfire =
+      richEmotionProcess?.speech_misfire_or_avoidance &&
+      !sameNormalizedText(richEmotionProcess.speech_misfire_or_avoidance, richOriginal?.dialogue_forces_action ?? plan.dialogueForce)
+        ? richEmotionProcess.speech_misfire_or_avoidance
+        : synthesizeSpeechMisfire(plan, targetEvidence);
+    const resolvedSceneAfterpain =
+      richEmotionProcess?.scene_afterpain &&
+      !sameNormalizedText(richEmotionProcess.scene_afterpain, richOriginal?.scene_end_residue ?? plan.residue)
+        ? richEmotionProcess.scene_afterpain
+        : synthesizeSceneAfterpain(plan);
     return {
       section_id: plan.id,
       verdict: "passed",
@@ -446,33 +654,40 @@ export async function rebuildOutlineAndCapacityReceipts({
         ),
       },
       original_scene_granularity: {
-        source_path: sourcePath,
-        source_sha256: sourceSha,
-        source_scene: plan.sourceScene,
-        action_sequence: plan.actionSequence,
-        body_object_space_control: plan.bodyControl,
-        dialogue_forces_action: plan.dialogueForce,
-        bystander_or_order_shift: plan.bystanderOrOrderShift,
-        scene_end_residue: plan.residue,
+        source_path: richOriginal?.source_path ?? sourcePath,
+        source_sha256: richOriginal?.source_sha256 ?? sourceSha,
+        source_scene: richOriginal?.source_scene ?? plan.sourceScene,
+        action_sequence: richOriginal?.action_sequence ?? plan.actionSequence,
+        body_object_space_control: richOriginal?.body_object_space_control ?? plan.bodyControl,
+        dialogue_forces_action: richOriginal?.dialogue_forces_action ?? plan.dialogueForce,
+        bystander_or_order_shift: richOriginal?.bystander_or_order_shift ?? plan.bystanderOrOrderShift,
+        scene_end_residue: richOriginal?.scene_end_residue ?? plan.residue,
       },
       scene_logic_contract: {
-        source_path: sourcePath,
-        source_sha256: sourceSha,
-        causal_asset_id: plan.cpa,
-        source_causal_preconditions: plan.sourceCausalPreconditions,
-        source_evidence: binding.source_evidence,
-        target_entry_causes: [bulletLine(plan.id, "- 读者新获知")],
-        target_knowledge_state: [plan.entryKnown],
-        key_object_lifecycle: requireArray(plan.keyObjectLifecycle, `plans[${plan.id}].keyObjectLifecycle`),
+        source_path: richLogic?.source_path ?? sourcePath,
+        source_sha256: richLogic?.source_sha256 ?? sourceSha,
+        causal_asset_id: richLogic?.causal_asset_id ?? plan.cpa,
+        source_causal_preconditions:
+          asNonEmptyArray(richLogic?.source_causal_preconditions) ?? plan.sourceCausalPreconditions,
+        source_evidence: asNonEmptyArray(richLogic?.source_evidence) ?? binding.source_evidence,
+        target_entry_causes: resolvedEntryCause,
+        target_knowledge_state: resolvedKnowledgeState,
+        key_object_lifecycle:
+          asNonEmptyArray(richLogic?.key_object_lifecycle) ??
+          requireArray(plan.keyObjectLifecycle, `plans[${plan.id}].keyObjectLifecycle`),
         external_rule_dependency: {
-          domain: plan.externalRuleDependency.domain,
-          verified: plan.externalRuleDependency.verified,
-          authoritative_basis: plan.externalRuleDependency.authoritative_basis,
+          domain: richLogic?.external_rule_dependency?.domain ?? plan.externalRuleDependency.domain,
+          verified:
+            richLogic?.external_rule_dependency?.verified ?? plan.externalRuleDependency.verified,
+          authoritative_basis:
+            richLogic?.external_rule_dependency?.authoritative_basis ??
+            plan.externalRuleDependency.authoritative_basis,
         },
-        obvious_alternative_blocker: plan.obviousAlternativeBlocker,
-        exit_cause: plan.residue,
-        target_outline_evidence: targetEvidence,
-        manual_judgment: plan.sceneLogicManualJudgment,
+        obvious_alternative_blocker:
+          asNonEmptyArray(richLogic?.obvious_alternative_blocker) ?? plan.obviousAlternativeBlocker,
+        exit_cause: richLogic?.exit_cause ?? plan.residue,
+        target_outline_evidence: asNonEmptyArray(richLogic?.target_outline_evidence) ?? targetEvidence,
+        manual_judgment: richLogic?.manual_judgment ?? plan.sceneLogicManualJudgment,
       },
       source_mechanism: {
         source_path: sourcePath,
@@ -515,52 +730,71 @@ export async function rebuildOutlineAndCapacityReceipts({
         relationship_first: true,
       },
       source_emotion_parity: {
-        source_excerpt: binding.source_evidence[0],
-        source_emotion_sequence: seq.source,
-        target_emotion_sequence: seq.target,
-        source_intensity_score: requireNumber(plan.score, `plans[${plan.id}].score`),
-        target_intensity_score: requireNumber(plan.score, `plans[${plan.id}].score`),
-        source_reversal_beat: requireNumber(plan.sourceReversalBeat, `plans[${plan.id}].sourceReversalBeat`),
-        target_reversal_beat: requireNumber(plan.targetReversalBeat, `plans[${plan.id}].targetReversalBeat`),
-        source_peak_beat: requireNumber(plan.sourcePeakBeat, `plans[${plan.id}].sourcePeakBeat`),
-        target_peak_beat: requireNumber(plan.targetPeakBeat, `plans[${plan.id}].targetPeakBeat`),
-        ending_afterpain_equivalent: requireBoolean(
-          plan.endingAfterpainEquivalent,
-          `plans[${plan.id}].endingAfterpainEquivalent`,
-        ),
-        reader_experience_equivalent: requireBoolean(
-          plan.readerExperienceEquivalent,
-          `plans[${plan.id}].readerExperienceEquivalent`,
-        ),
-        manual_judgment: plan.emotionParityManualJudgment,
-        parity_status: requireText(plan.emotionParityStatus, `plans[${plan.id}].emotionParityStatus`),
-        adaptation_boundary: plan.adaptationBoundary,
+        source_excerpt: richParity?.source_excerpt ?? binding.source_evidence[0],
+        source_emotion_sequence: asNonEmptyArray(richParity?.source_emotion_sequence) ?? seq.source,
+        target_emotion_sequence: asNonEmptyArray(richParity?.target_emotion_sequence) ?? seq.target,
+        source_intensity_score:
+          richParity?.source_intensity_score ?? requireNumber(plan.score, `plans[${plan.id}].score`),
+        target_intensity_score:
+          richParity?.target_intensity_score ?? requireNumber(plan.score, `plans[${plan.id}].score`),
+        source_reversal_beat:
+          richParity?.source_reversal_beat ??
+          requireNumber(plan.sourceReversalBeat, `plans[${plan.id}].sourceReversalBeat`),
+        target_reversal_beat:
+          richParity?.target_reversal_beat ??
+          requireNumber(plan.targetReversalBeat, `plans[${plan.id}].targetReversalBeat`),
+        source_peak_beat:
+          richParity?.source_peak_beat ??
+          requireNumber(plan.sourcePeakBeat, `plans[${plan.id}].sourcePeakBeat`),
+        target_peak_beat:
+          richParity?.target_peak_beat ??
+          requireNumber(plan.targetPeakBeat, `plans[${plan.id}].targetPeakBeat`),
+        ending_afterpain_equivalent:
+          richParity?.ending_afterpain_equivalent ??
+          requireBoolean(plan.endingAfterpainEquivalent, `plans[${plan.id}].endingAfterpainEquivalent`),
+        reader_experience_equivalent:
+          richParity?.reader_experience_equivalent ??
+          requireBoolean(plan.readerExperienceEquivalent, `plans[${plan.id}].readerExperienceEquivalent`),
+        manual_judgment: richParity?.manual_judgment ?? plan.emotionParityManualJudgment,
+        parity_status:
+          richParity?.parity_status ?? requireText(plan.emotionParityStatus, `plans[${plan.id}].emotionParityStatus`),
+        adaptation_boundary: richParity?.adaptation_boundary ?? plan.adaptationBoundary,
       },
       first_draft_generation_contract: {
-        source_slice_bindings: [binding],
-        source_performance_excerpt: binding.source_evidence[0],
-        source_performance_evidence: binding.source_evidence,
-        source_excerpt_reuse_reason: typeof plan.reuseReason === "string" ? plan.reuseReason : "",
+        source_slice_bindings: asNonEmptyArray(richGeneration?.source_slice_bindings) ?? [binding],
+        source_performance_excerpt:
+          asNonEmptyText(richGeneration?.source_performance_excerpt) ?? binding.source_evidence[0],
+        source_performance_evidence:
+          asNonEmptyArray(richGeneration?.source_performance_evidence) ?? binding.source_evidence,
+        source_style_granularity:
+          asObject(richGeneration?.source_style_granularity) ?? buildSourceStyleGranularity(plan, binding),
+        source_excerpt_reuse_reason:
+          typeof richGeneration?.source_excerpt_reuse_reason === "string"
+            ? richGeneration.source_excerpt_reuse_reason
+            : typeof plan.reuseReason === "string"
+              ? plan.reuseReason
+              : "",
         emotion_process: {
-          entry_state: requireText(plan.entryState, `plans[${plan.id}].entryState`),
-          involuntary_body_response: plan.bodyControl,
-          memory_association_or_attention_drift: requireText(
-            plan.memoryAssociationOrAttentionDrift,
-            `plans[${plan.id}].memoryAssociationOrAttentionDrift`,
-          ),
-          contradictory_impulse: plan.contradictoryImpulse,
-          speech_misfire_or_avoidance: plan.dialogueForce,
-          scene_afterpain: plan.residue,
+          entry_state: richEmotionProcess?.entry_state ?? requireText(plan.entryState, `plans[${plan.id}].entryState`),
+          involuntary_body_response: resolvedBodyResponse,
+          memory_association_or_attention_drift:
+            richEmotionProcess?.memory_association_or_attention_drift ??
+            requireText(plan.memoryAssociationOrAttentionDrift, `plans[${plan.id}].memoryAssociationOrAttentionDrift`),
+          contradictory_impulse: richEmotionProcess?.contradictory_impulse ?? plan.contradictoryImpulse,
+          speech_misfire_or_avoidance: resolvedSpeechMisfire,
+          scene_afterpain: resolvedSceneAfterpain,
         },
-        continuous_moment_groups: plan.continuous,
-        paragraph_break_reasons: plan.breaks,
-        sentence_relation_plan: plan.sentencePlan,
-        function_word_strategy: plan.functionWordStrategy,
-        telegraphic_risk: plan.telegraphicRisk,
-        emotion_shorthand_to_avoid: plan.shorthands,
-        target_emotion_landing_plan: plan.landings,
-        no_fixed_short_sentence_ratio: true,
-        manual_judgment: plan.firstDraftManualJudgment,
+        continuous_moment_groups: asNonEmptyArray(richGeneration?.continuous_moment_groups) ?? plan.continuous,
+        paragraph_break_reasons: asNonEmptyArray(richGeneration?.paragraph_break_reasons) ?? plan.breaks,
+        sentence_relation_plan: asNonEmptyArray(richGeneration?.sentence_relation_plan) ?? plan.sentencePlan,
+        function_word_strategy: richGeneration?.function_word_strategy ?? plan.functionWordStrategy,
+        telegraphic_risk: richGeneration?.telegraphic_risk ?? plan.telegraphicRisk,
+        emotion_shorthand_to_avoid:
+          asNonEmptyArray(richGeneration?.emotion_shorthand_to_avoid) ?? plan.shorthands,
+        target_emotion_landing_plan:
+          asNonEmptyArray(richGeneration?.target_emotion_landing_plan) ?? plan.landings,
+        no_fixed_short_sentence_ratio: richGeneration?.no_fixed_short_sentence_ratio ?? true,
+        manual_judgment: richGeneration?.manual_judgment ?? plan.firstDraftManualJudgment,
       },
       forbidden_items: plan.forbidden,
       outline_evidence: targetEvidence,

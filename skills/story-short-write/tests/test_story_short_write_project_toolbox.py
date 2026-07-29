@@ -271,10 +271,30 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             read_judgment="已完整实读原文。",
             json=True,
         )
-        with patch.object(TOOLBOX.FIRST_DRAFT, "validate_entry", return_value=[]), patch.object(
+        with patch.object(TOOLBOX, "sync_section_draft_tasks", return_value=[]), patch.object(
+            TOOLBOX.FIRST_DRAFT,
+            "validate_entry",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX.SECTION_EXECUTION,
+            "ensure_prewrite_review",
+            return_value=0,
+        ), patch.object(
             TOOLBOX.SECTION_EXECUTION,
             "open_section",
             side_effect=open_section,
+        ), patch.object(
+            TOOLBOX,
+            "export_section_draft_task",
+            return_value={
+                "path": str(self.paths["model_semantic_source"]),
+                "semantic_key": "section_draft_tasks.1",
+                "fingerprint": "fp-1",
+            },
+        ), patch.object(
+            TOOLBOX.SECTION_EXECUTION,
+            "bind_draft_task",
+            return_value=0,
         ):
             result = TOOLBOX.command_write_section(self.paths, args)
 
@@ -301,7 +321,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
 
         def export_review(_ledger: Path, output: Path, batch_size: int) -> dict[str, int]:
             self.assertEqual(20, batch_size)
-            output.write_text("{}\n", encoding="utf-8")
+            output.write_text(
+                json.dumps({"version": "1.1", "batches": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
             return {"entries": 0, "batches": 0, "cases": 0, "source_refs": 0}
 
         with patch.object(TOOLBOX.WRITING_RULE, "validate_receipt", return_value=([], {})), patch.object(
@@ -329,6 +352,36 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             json.loads(self.paths["ledger"].read_text(encoding="utf-8")),
         )
         self.assertTrue(self.paths["model_review_task"].is_file())
+        self.assertTrue(self.paths["model_group_plan"].is_file())
+        legacy_plan = json.loads(self.paths["model_group_plan"].read_text(encoding="utf-8"))
+        self.assertEqual([], legacy_plan["groups"])
+        completion = json.loads(self.paths["completion_state"].read_text(encoding="utf-8"))
+        self.assertEqual("active", completion["status"])
+        self.assertTrue(completion["checks"])
+
+    def test_seed_pending_section_reviews_populates_all_sections(self) -> None:
+        self.paths["section_execution_receipt"].write_text(
+            json.dumps(
+                {
+                    "sections": [
+                        {"section_id": "1", "status": "pending"},
+                        {"section_id": "2", "status": "pending"},
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.seed_pending_section_reviews(self.paths)
+
+        self.assertEqual([], errors)
+        semantic = json.loads(self.paths["model_semantic_source"].read_text(encoding="utf-8"))
+        self.assertEqual({"1", "2"}, set(semantic["section_reviews"]))
+        self.assertEqual(
+            "pending",
+            semantic["section_reviews"]["1"]["checks"]["style_granularity"]["status"],
+        )
 
     def test_prepare_draft_stops_before_bundle_when_outline_fails(self) -> None:
         args = argparse.Namespace(json=True)
@@ -392,18 +445,35 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
     def test_init_first_draft_passes_serializable_project_name(self) -> None:
         args = argparse.Namespace(
             force=False,
+            json=True,
             auto_refresh_legacy_bindings=False,
             use_git_ledger_fallback=False,
         )
-        with patch.object(TOOLBOX.FIRST_DRAFT, "init_entry", return_value=0) as init_entry:
+        with patch.object(TOOLBOX.FIRST_DRAFT, "init_entry", return_value=0) as init_entry, patch.object(
+            TOOLBOX,
+            "sync_section_draft_tasks",
+            return_value=[],
+        ) as sync_tasks, patch.object(
+            TOOLBOX,
+            "seed_pending_section_reviews",
+            return_value=[],
+        ) as seed_reviews, patch.object(
+            TOOLBOX,
+            "ensure_completion_state",
+            return_value=[],
+        ) as ensure_state:
             result = TOOLBOX.command_init_first_draft(self.paths, args)
 
         self.assertEqual(0, result)
         self.assertEqual(str(self.project), init_entry.call_args.kwargs["project"])
         self.assertIsInstance(init_entry.call_args.kwargs["project"], str)
+        sync_tasks.assert_called_once_with(self.paths)
+        seed_reviews.assert_called_once_with(self.paths)
+        ensure_state.assert_called_once_with(self.paths)
 
     def test_cold_start_generates_project_wrappers(self) -> None:
         source = self.root / "source"
+        aux_sources = [self.root / f"aux-{index}" for index in range(1, 4)]
         (source / "写作资产").mkdir(parents=True)
         (source / "原文").mkdir()
         profile = source / "book.profile.json"
@@ -415,6 +485,20 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             (source / "原文" / "source.txt", "source"),
         ):
             path.write_text(content, encoding="utf-8")
+        aux_profiles: list[Path] = []
+        for aux_source in aux_sources:
+            (aux_source / "写作资产").mkdir(parents=True)
+            (aux_source / "原文").mkdir()
+            aux_profile = aux_source / "book.profile.json"
+            for path, content in (
+                (aux_profile, "{}"),
+                (aux_source / "写作资产" / "仿写无损编译包.json", "{}"),
+                (aux_source / "写作资产" / "桥段施工卡.md", "# bridge"),
+                (aux_source / "可直接仿写_导语拆解表.md", "# opening"),
+                (aux_source / "原文" / f"{aux_source.name}.txt", "source"),
+            ):
+                path.write_text(content, encoding="utf-8")
+            aux_profiles.append(aux_profile)
 
         with patch.object(COLD_START.WRITING_RULE, "create_receipt", return_value=({}, [])), patch.object(
             COLD_START.SOURCE_READ,
@@ -439,7 +523,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             result = COLD_START.initialize(
                 project=self.project,
                 primary_source_profile=profile,
-                auxiliary_source_profiles=[],
+                auxiliary_source_profiles=aux_profiles,
                 target_words=10000,
                 force=False,
             )
@@ -458,6 +542,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
 
     def test_legacy_cold_start_can_generate_outline_scaffold(self) -> None:
         source = self.root / "legacy-source"
+        aux_sources = [self.root / f"legacy-aux-{index}" for index in range(1, 4)]
         (source / "写作资产").mkdir(parents=True)
         (source / "原文").mkdir()
         profile = source / "book.profile.json"
@@ -469,6 +554,20 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             (source / "原文" / "source.txt", "source"),
         ):
             path.write_text(content, encoding="utf-8")
+        aux_profiles: list[Path] = []
+        for aux_source in aux_sources:
+            (aux_source / "写作资产").mkdir(parents=True)
+            (aux_source / "原文").mkdir()
+            aux_profile = aux_source / "book.profile.json"
+            for path, content in (
+                (aux_profile, "{}"),
+                (aux_source / "写作资产" / "仿写无损编译包.json", "{}"),
+                (aux_source / "写作资产" / "桥段施工卡.md", "# bridge"),
+                (aux_source / "可直接仿写_导语拆解表.md", "# opening"),
+                (aux_source / "原文" / f"{aux_source.name}.txt", "source"),
+            ):
+                path.write_text(content, encoding="utf-8")
+            aux_profiles.append(aux_profile)
 
         with patch.object(COLD_START.WRITING_RULE, "create_receipt", return_value=({}, [])), patch.object(
             COLD_START.SOURCE_READ,
@@ -493,7 +592,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             result = COLD_START.initialize(
                 project=self.project,
                 primary_source_profile=profile,
-                auxiliary_source_profiles=[],
+                auxiliary_source_profiles=aux_profiles,
                 target_words=10000,
                 force=False,
                 generate_legacy_scaffold=True,
@@ -502,6 +601,104 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertTrue(
             (self.project / "写作资产" / "重建细纲与容量回执.scaffold.mjs").is_file()
+        )
+
+    def test_repair_source_stack_drops_invalid_existing_auxiliary_sources(self) -> None:
+        primary = self.root / "primary" / "book.profile.json"
+        keep_existing = self.root / "aux-keep" / "book.profile.json"
+        drop_existing = self.root / "aux-drop" / "book.profile.json"
+        appended_1 = self.root / "aux-new-1" / "book.profile.json"
+        appended_2 = self.root / "aux-new-2" / "book.profile.json"
+        appended_3 = self.root / "aux-new-3" / "book.profile.json"
+        for path in (primary, keep_existing, drop_existing, appended_1, appended_2, appended_3):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("{}", encoding="utf-8")
+
+        args = argparse.Namespace(
+            aux_source_profile=[str(appended_1), str(appended_2), str(appended_3)],
+            json=True,
+        )
+
+        def fake_validate(primary_profile: Path, _aux_profiles: list[Path]):
+            if primary_profile == drop_existing:
+                return (
+                    [
+                        {
+                            "role": "main",
+                            "profile": str(drop_existing),
+                            "root": str(drop_existing.parent),
+                            "ok": False,
+                            "errors": ["仿写编译包版本过期"],
+                        }
+                    ],
+                    ["aux-drop: 仿写编译包版本过期"],
+                )
+            return (
+                [
+                    {
+                        "role": "main",
+                        "profile": str(primary_profile),
+                        "root": str(primary_profile.parent),
+                        "ok": True,
+                        "errors": [],
+                    }
+                ],
+                [],
+            )
+
+        captured: dict[str, dict] = {}
+
+        def fake_write_json(path: Path, data: dict) -> None:
+            captured[str(path)] = data
+
+        with patch.object(
+            TOOLBOX,
+            "resolve_source_stack",
+            return_value=(primary, [keep_existing, drop_existing], 10000),
+        ), patch.object(
+            TOOLBOX,
+            "validate_source_profiles_for_direct_imitation",
+            side_effect=fake_validate,
+        ), patch.object(
+            TOOLBOX.COLD_START,
+            "validate_source_stack",
+        ) as validate_stack, patch.object(
+            TOOLBOX.COLD_START,
+            "infer_source_root",
+            side_effect=lambda path: path.parent,
+        ), patch.object(
+            TOOLBOX.COLD_START,
+            "source_original_path",
+            side_effect=lambda root: root / "原文.txt",
+        ), patch.object(
+            TOOLBOX.COLD_START,
+            "write_checklist",
+        ), patch.object(
+            TOOLBOX.PROFILE_GENERATOR,
+            "merge_profiles",
+            return_value={"meta": {"sources": []}},
+        ) as merge_profiles, patch.object(
+            TOOLBOX,
+            "archive_source_stack_receipts",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX,
+            "write_json",
+            side_effect=fake_write_json,
+        ):
+            result = TOOLBOX.command_repair_source_stack(self.paths, args)
+
+        self.assertEqual(0, result)
+        expected_aux = [keep_existing, appended_1, appended_2, appended_3]
+        validate_stack.assert_called_once_with(primary, expected_aux)
+        merge_profiles.assert_called_once_with(
+            [primary, *expected_aux],
+            self.paths["project"].name,
+        )
+        manifest = captured[str(self.paths["cold_start_manifest"])]
+        self.assertEqual(
+            [str(path) for path in expected_aux],
+            manifest["auxiliary_source_profiles"],
         )
 
 

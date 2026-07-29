@@ -222,6 +222,100 @@ def validate_sequence_bindings(
             errors.append(f"{label}绑定的 {key} SHA 已变化，必须重新审查")
 
 
+def _nonempty_list_count(value: Any) -> int:
+    if not isinstance(value, list):
+        return 0
+    return sum(1 for item in value if item)
+
+
+def validate_profile_thickness(
+    profile_path: Path,
+    *,
+    strong_emotion_required: bool,
+    errors: list[str],
+) -> None:
+    profile = load_json(profile_path, "正文写作放行所需 profile", errors)
+    if profile is None:
+        return
+    meta = profile.get("meta") if isinstance(profile.get("meta"), dict) else {}
+    source_count = int(meta.get("source_count") or 0)
+    is_merged_profile = meta.get("mode") == "merged_profiles" or source_count > 1
+    bridge_rules = profile.get("bridge_rules") if isinstance(profile.get("bridge_rules"), list) else []
+    causal_assets = (
+        profile.get("causal_precondition_assets")
+        if isinstance(profile.get("causal_precondition_assets"), list)
+        else []
+    )
+    scene_assets = profile.get("scene_assets") if isinstance(profile.get("scene_assets"), dict) else {}
+    story_guardrails = (
+        profile.get("story_guardrails") if isinstance(profile.get("story_guardrails"), dict) else {}
+    )
+
+    if not is_merged_profile:
+        return
+
+    public_explosion_count = _nonempty_list_count(scene_assets.get("public_explosion"))
+    external_order_count = _nonempty_list_count(scene_assets.get("external_order"))
+    consequence_chain_count = _nonempty_list_count(scene_assets.get("consequence_chain"))
+
+    consequence_guard = (
+        story_guardrails.get("consequence_structure")
+        if isinstance(story_guardrails.get("consequence_structure"), dict)
+        else {}
+    )
+    face_guard = (
+        story_guardrails.get("character_face_split")
+        if isinstance(story_guardrails.get("character_face_split"), dict)
+        else {}
+    )
+
+    bridge_floor = 16 if strong_emotion_required else 12
+    causal_floor = 16 if strong_emotion_required else 12
+    source_floor = 4 if strong_emotion_required else 3
+    consequence_floor = 24 if strong_emotion_required else 16
+
+    if source_count < source_floor:
+        errors.append(
+            "融合 profile 来源厚度不足："
+            f"source_count={source_count}，当前题型正文放行前至少需要 {source_floor} 个来源，"
+            "否则主体骨架和辅助颗粒不够厚，容易把原文颗粒写成薄摘要。"
+        )
+    if len(bridge_rules) < bridge_floor:
+        errors.append(
+            "融合 profile 的 bridge_rules 厚度不足："
+            f"{len(bridge_rules)} < {bridge_floor}；"
+            "桥段规则过薄时，正文前无法证明承重桥和辅助桥的迁移密度足够。"
+        )
+    if len(causal_assets) < causal_floor:
+        errors.append(
+            "融合 profile 的 causal_precondition_assets 厚度不足："
+            f"{len(causal_assets)} < {causal_floor}；"
+            "场景因果资产过薄时，scene_logic_contract 很容易退化成模板句。"
+        )
+    if public_explosion_count < 8:
+        errors.append(
+            "融合 profile 的 scene_assets.public_explosion 过薄："
+            f"{public_explosion_count} < 8；公开失位类场面资产不够。"
+        )
+    if external_order_count < 8:
+        errors.append(
+            "融合 profile 的 scene_assets.external_order 过薄："
+            f"{external_order_count} < 8；外部秩序接管类场面资产不够。"
+        )
+    if consequence_chain_count < consequence_floor:
+        errors.append(
+            "融合 profile 的 scene_assets.consequence_chain 厚度不足："
+            f"{consequence_chain_count} < {consequence_floor}；"
+            "长尾后果链不足，容易把强情绪后果压成单场伤害。"
+        )
+    if not consequence_guard.get("pre_evidence_reality_consequences"):
+        errors.append("融合 profile 缺少 story_guardrails.consequence_structure.pre_evidence_reality_consequences")
+    if not consequence_guard.get("tail_entry_owner"):
+        errors.append("融合 profile 缺少 story_guardrails.consequence_structure.tail_entry_owner")
+    if not face_guard.get("different_face_evidence"):
+        errors.append("融合 profile 缺少 story_guardrails.character_face_split.different_face_evidence")
+
+
 def validate_release(
     phase: str,
     writing_receipt: Path,
@@ -312,6 +406,7 @@ def validate_release(
                             )
                         )
     if phase == "draft":
+        strong_emotion_required = False
         if draft_capacity_contract is None:
             errors.append("正文写作放行必须提供首写容量契约")
         else:
@@ -386,6 +481,12 @@ def validate_release(
                 errors,
             )
             if outline_contract_data is not None:
+                global_review = (
+                    outline_contract_data.get("global_review")
+                    if isinstance(outline_contract_data.get("global_review"), dict)
+                    else {}
+                )
+                strong_emotion_required = bool(global_review.get("strong_emotion_required"))
                 binding = outline_contract_data.get("outline")
                 validate_sequence_bindings(
                     {"artifacts": {"outline": binding}},
@@ -406,6 +507,12 @@ def validate_release(
             errors.append("正文写作放行必须提供单书或融合 profile")
         elif not profile.is_file():
             errors.append(f"正文写作放行所需 profile 不存在: {profile}")
+        else:
+            validate_profile_thickness(
+                profile,
+                strong_emotion_required=strong_emotion_required,
+                errors=errors,
+            )
 
     if errors:
         return [

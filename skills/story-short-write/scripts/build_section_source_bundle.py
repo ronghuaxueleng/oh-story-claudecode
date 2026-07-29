@@ -154,6 +154,7 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
                     "source_sha256": current_sha,
                     "source_range": source_range,
                     "source_excerpt_sha256": hashlib.sha256(excerpt.encode("utf-8")).hexdigest(),
+                    "source_excerpt_text": excerpt,
                     "source_evidence": [str(term).strip() for term in (evidence or []) if str(term).strip()],
                     "style_fields_consumed": [str(term).strip() for term in (style_fields or []) if str(term).strip()],
                 }
@@ -162,6 +163,9 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
             "section_id": section_id,
             "source_slice_bindings": normalized_bindings,
             "source_performance_excerpt": contract.get("source_performance_excerpt"),
+            "source_performance_evidence": contract.get("source_performance_evidence"),
+            "source_style_granularity": contract.get("source_style_granularity"),
+            "source_excerpt_reuse_reason": contract.get("source_excerpt_reuse_reason"),
             "emotion_process": contract.get("emotion_process"),
             "continuous_moment_groups": contract.get("continuous_moment_groups"),
             "paragraph_break_reasons": contract.get("paragraph_break_reasons"),
@@ -169,6 +173,8 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
             "function_word_strategy": contract.get("function_word_strategy"),
             "telegraphic_risk": contract.get("telegraphic_risk"),
             "emotion_shorthand_to_avoid": contract.get("emotion_shorthand_to_avoid"),
+            "target_emotion_landing_plan": contract.get("target_emotion_landing_plan"),
+            "no_fixed_short_sentence_ratio": contract.get("no_fixed_short_sentence_ratio"),
             "manual_judgment": contract.get("manual_judgment"),
             "scene_logic_contract": section.get("scene_logic_contract"),
             "source_emotion_parity": section.get("source_emotion_parity"),
@@ -182,6 +188,29 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
         ):
             if not _nonempty_text(packet_payload.get(field)):
                 errors.append(f"第 {section_id} 节颗粒包缺少 {field}")
+        if not _nonempty_list(packet_payload.get("source_performance_evidence")):
+            errors.append(f"第 {section_id} 节颗粒包缺少 source_performance_evidence")
+        style_granularity = packet_payload.get("source_style_granularity")
+        if not isinstance(style_granularity, dict):
+            errors.append(f"第 {section_id} 节颗粒包缺少 source_style_granularity")
+        else:
+            for style_field in REQUIRED_STYLE_FIELDS:
+                item = style_granularity.get(style_field)
+                if not isinstance(item, dict):
+                    errors.append(f"第 {section_id} 节 source_style_granularity.{style_field} 必须是对象")
+                    continue
+                if not _nonempty_text(item.get("source_summary")):
+                    errors.append(
+                        f"第 {section_id} 节 source_style_granularity.{style_field}.source_summary 不能为空"
+                    )
+                if not _nonempty_text(item.get("target_style_plan")):
+                    errors.append(
+                        f"第 {section_id} 节 source_style_granularity.{style_field}.target_style_plan 不能为空"
+                    )
+                if not _nonempty_list(item.get("source_evidence")):
+                    errors.append(
+                        f"第 {section_id} 节 source_style_granularity.{style_field}.source_evidence 至少需要 1 条"
+                    )
         if not _nonempty_dict(packet_payload.get("original_scene_granularity")):
             errors.append(f"第 {section_id} 节颗粒包缺少 original_scene_granularity")
         for field in (
@@ -189,9 +218,12 @@ def create_bundle(outline_contract: Path, source_receipt: Path) -> tuple[dict[st
             "paragraph_break_reasons",
             "sentence_relation_plan",
             "emotion_shorthand_to_avoid",
+            "target_emotion_landing_plan",
         ):
             if not _nonempty_list(packet_payload.get(field)):
                 errors.append(f"第 {section_id} 节颗粒包缺少 {field}")
+        if packet_payload.get("no_fixed_short_sentence_ratio") is not True:
+            errors.append(f"第 {section_id} 节颗粒包缺少 no_fixed_short_sentence_ratio=true")
         packet_id = f"section-{section_id}"
         packet_ids.append(packet_id)
         packets.append(
@@ -293,6 +325,8 @@ def validate_bundle(bundle_path: Path) -> list[str]:
             excerpt_sha = hashlib.sha256(excerpt.encode("utf-8")).hexdigest()
             if binding.get("source_excerpt_sha256") != excerpt_sha:
                 errors.append(f"第 {section_id} 节原文精确行段 SHA 已变化: {source_path}")
+            if str(binding.get("source_excerpt_text") or "") != excerpt:
+                errors.append(f"第 {section_id} 节原文切片正文未完整绑定: {source_path}")
             if set(binding.get("style_fields_consumed") or []) != set(REQUIRED_STYLE_FIELDS):
                 errors.append(f"第 {section_id} 节未完整绑定六类文风颗粒")
             missing = [

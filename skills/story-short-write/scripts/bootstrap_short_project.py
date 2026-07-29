@@ -92,6 +92,21 @@ def build_profile(
     }
 
 
+def validate_source_stack(primary_source: str, auxiliary_sources: list[str], *, imitation_mode: bool) -> None:
+    if not imitation_mode:
+        return
+    total_sources = 1 + len(auxiliary_sources)
+    if total_sources < 4:
+        raise RuntimeError(
+            "直接仿写 bootstrap 来源厚度不足："
+            f"当前 1 主 + {len(auxiliary_sources)} 辅，共 {total_sources} 个来源；"
+            "至少需要 1 主 + 3 辅。否则项目会在正文前因为资料厚度不足被硬闸拦下。"
+        )
+    unique_sources = {primary_source, *auxiliary_sources}
+    if len(unique_sources) != total_sources:
+        raise RuntimeError("bootstrap 来源列表存在重复项，必须先去重再建项目。")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", required=True, help="项目根目录")
@@ -104,6 +119,12 @@ def main() -> int:
     parser.add_argument("--skip-source-cold-start", action="store_true", help="即使 primary/aux source 是本地拆书 profile，也不自动初始化颗粒度冷启动链")
     parser.add_argument("--use-git-ledger-fallback", action="store_true")
     args = parser.parse_args()
+
+    validate_source_stack(
+        args.primary_source,
+        args.aux_source,
+        imitation_mode=args.imitation_mode,
+    )
 
     workspace = Path(args.workspace).resolve()
     project_dir = workspace / args.project_name

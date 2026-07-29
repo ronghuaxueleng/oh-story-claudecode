@@ -21,6 +21,16 @@ STYLE_DIMENSIONS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+PREWRITE_CONFIRMATIONS = (
+    "source_style_granularity_read",
+    "emotion_process_understood",
+    "continuous_moment_groups_understood",
+    "paragraph_break_plan_understood",
+    "sentence_relation_plan_understood",
+    "function_word_strategy_understood",
+    "target_emotion_landing_plan_understood",
+    "forbidden_items_checked",
+)
 
 
 def now_iso() -> str:
@@ -33,6 +43,22 @@ def sha256(path: Path) -> str:
 
 def binding(path: Path) -> dict[str, str]:
     return {"path": str(path.resolve()), "sha256": sha256(path)}
+
+
+def semantic_fingerprint(data: Any) -> str:
+    def strip(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: strip(item)
+                for key, item in value.items()
+                if key not in {"path", "created_at"} and not key.endswith("sha256")
+            }
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+
+    encoded = json.dumps(strip(data), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -71,6 +97,10 @@ def source_excerpt(path: Path, source_range: str) -> tuple[str, list[tuple[int, 
 
 def section_review_path(receipt: Path, section_id: str) -> Path:
     return receipt.parent / "逐节首写停检" / f"第{section_id}节.json"
+
+
+def section_prewrite_path(receipt: Path, section_id: str) -> Path:
+    return receipt.parent / "逐节写前颗粒确认" / f"第{section_id}节.json"
 
 
 def review_check_template() -> dict[str, Any]:
@@ -113,7 +143,121 @@ def check_binding(value: Any, label: str, errors: list[str]) -> Path | None:
     return path
 
 
-def validate_receipt(path: Path, require_complete: bool = False) -> tuple[dict[str, Any], list[str]]:
+def summarize_prewrite_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_slice_excerpts": [
+            {
+                "source_path": item.get("source_path", ""),
+                "source_range": item.get("source_range", ""),
+                "source_excerpt_sha256": item.get("source_excerpt_sha256", ""),
+                "source_excerpt_text": item.get("source_excerpt_text", ""),
+                "source_evidence": item.get("source_evidence", []),
+                "style_fields_consumed": item.get("style_fields_consumed", []),
+            }
+            for item in payload.get("source_slice_bindings", [])
+            if isinstance(item, dict)
+        ],
+        "source_performance_excerpt": payload.get("source_performance_excerpt", []),
+        "source_performance_evidence": payload.get("source_performance_evidence", []),
+        "source_style_granularity": payload.get("source_style_granularity", {}),
+        "emotion_process": payload.get("emotion_process", {}),
+        "continuous_moment_groups": payload.get("continuous_moment_groups", []),
+        "paragraph_break_reasons": payload.get("paragraph_break_reasons", []),
+        "sentence_relation_plan": payload.get("sentence_relation_plan", []),
+        "function_word_strategy": payload.get("function_word_strategy", []),
+        "emotion_shorthand_to_avoid": payload.get("emotion_shorthand_to_avoid", []),
+        "target_emotion_landing_plan": payload.get("target_emotion_landing_plan", []),
+        "scene_logic_contract": payload.get("scene_logic_contract", {}),
+        "source_emotion_parity": payload.get("source_emotion_parity", {}),
+        "manual_judgment": payload.get("manual_judgment", ""),
+    }
+
+
+def prewrite_contract_matches(review: dict[str, Any], packet: dict[str, Any], draft: Path) -> bool:
+    payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+    return (
+        str(review.get("section_id") or "") == str(packet.get("section_id") or payload.get("section_id") or "")
+        and Path(str(review.get("draft_path") or "")).resolve() == draft.resolve()
+        and str(review.get("granularity_packet_id") or "") == str(packet.get("packet_id") or "")
+        and str(review.get("granularity_packet_sha256") or "") == str(packet.get("packet_sha256") or "")
+        and review.get("source_slice_bindings") == payload.get("source_slice_bindings")
+        and review.get("contract_summary") == summarize_prewrite_payload(payload)
+    )
+
+
+def init_prewrite_review(receipt: Path, section_id: str, draft: Path, packet: dict[str, Any]) -> Path:
+    payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+    path = section_prewrite_path(receipt, section_id)
+    data = {
+        "version": "1.0",
+        "gate": "section_prewrite_granularity_review",
+        "section_id": section_id,
+        "draft_path": str(draft.resolve()),
+        "granularity_packet_id": str(packet.get("packet_id") or ""),
+        "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
+        "source_slice_bindings": payload.get("source_slice_bindings", []),
+        "contract_summary": summarize_prewrite_payload(payload),
+        "confirmations": {name: False for name in PREWRITE_CONFIRMATIONS},
+        "manual_judgment": "",
+        "gate_status": "pending",
+    }
+    write_json(path, data)
+    return path
+
+
+def validate_prewrite_review(
+    review_path: Path,
+    section_id: str,
+    packet: dict[str, Any],
+    draft: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    try:
+        review = read_json(review_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {}, [f"写前颗粒确认回执不可读取: {exc}"]
+    if review.get("gate") != "section_prewrite_granularity_review":
+        errors.append("写前颗粒确认 gate 必须为 section_prewrite_granularity_review")
+    if str(review.get("section_id") or "") != section_id:
+        errors.append("写前颗粒确认 section_id 不一致")
+    if Path(str(review.get("draft_path") or "")).resolve() != draft.resolve():
+        errors.append("写前颗粒确认绑定的正文路径不一致")
+    if str(review.get("granularity_packet_id") or "") != str(packet.get("packet_id") or ""):
+        errors.append("写前颗粒确认绑定的颗粒包 ID 不一致")
+    if str(review.get("granularity_packet_sha256") or "") != str(packet.get("packet_sha256") or ""):
+        errors.append("写前颗粒确认绑定的颗粒包 SHA 不一致")
+    payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+    expected_bindings = payload.get("source_slice_bindings")
+    if review.get("source_slice_bindings") != expected_bindings:
+        errors.append("写前颗粒确认未完整继承本节原文切片绑定")
+    if review.get("contract_summary") != summarize_prewrite_payload(payload):
+        errors.append("写前颗粒确认的颗粒合同摘要已失效")
+    confirmations = review.get("confirmations")
+    if not isinstance(confirmations, dict) or set(confirmations) != set(PREWRITE_CONFIRMATIONS):
+        errors.append("写前颗粒确认 confirmations 必须完整覆盖全部前置确认项")
+    else:
+        for name in PREWRITE_CONFIRMATIONS:
+            if confirmations.get(name) is not True:
+                errors.append(f"写前颗粒确认 {name} 必须为 true")
+    if not str(review.get("manual_judgment") or "").strip():
+        errors.append("写前颗粒确认 manual_judgment 不能为空")
+    if review.get("gate_status") != "passed":
+        errors.append("写前颗粒确认 gate_status 必须为 passed")
+    return review, errors
+
+
+def print_prewrite_contract(section_id: str, packet: dict[str, Any]) -> None:
+    payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+    print(f"section_prewrite: section {section_id} contract")
+    print(json.dumps(summarize_prewrite_payload(payload), ensure_ascii=False, indent=2))
+
+
+def validate_receipt(
+    path: Path,
+    require_complete: bool = False,
+    *,
+    allow_open_with_content: bool = False,
+) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     try:
         data = read_json(path)
@@ -131,6 +275,33 @@ def validate_receipt(path: Path, require_complete: bool = False) -> tuple[dict[s
     expected_ids = [str(item.get("section_id") or "") for item in sections if isinstance(item, dict)]
     completed_ids: list[str] = []
     open_count = 0
+
+    def validate_draft_task_ref(value: Any, section_id: str) -> None:
+        if not isinstance(value, dict):
+            errors.append(f"第 {section_id} 节 draft_task_ref 必须是对象")
+            return
+        semantic_path = Path(str(value.get("path") or "")).expanduser().resolve()
+        semantic_key = str(value.get("semantic_key") or "")
+        fingerprint = str(value.get("fingerprint") or "")
+        if not semantic_path.is_file():
+            errors.append(f"第 {section_id} 节正文生成任务文件不存在: {semantic_path}")
+            return
+        if semantic_key != f"section_draft_tasks.{section_id}":
+            errors.append(f"第 {section_id} 节正文生成任务 key 不一致")
+            return
+        try:
+            semantic = read_json(semantic_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(f"第 {section_id} 节正文生成任务不可读取: {exc}")
+            return
+        tasks = semantic.get("section_draft_tasks")
+        task = tasks.get(section_id) if isinstance(tasks, dict) else None
+        if not isinstance(task, dict):
+            errors.append(f"第 {section_id} 节缺少 section_draft_tasks.{section_id}")
+            return
+        if fingerprint != semantic_fingerprint(task):
+            errors.append(f"第 {section_id} 节正文生成任务指纹已变化")
+
     for item in sections:
         if not isinstance(item, dict):
             errors.append("sections 含非对象")
@@ -139,6 +310,26 @@ def validate_receipt(path: Path, require_complete: bool = False) -> tuple[dict[s
         section_id = str(item.get("section_id") or "")
         if status == "completed":
             completed_ids.append(section_id)
+            validate_draft_task_ref(item.get("draft_task_ref"), section_id)
+            prewrite_path = check_binding(item.get("prewrite_review_receipt"), f"第 {section_id} 节 prewrite_review_receipt", errors)
+            if prewrite_path:
+                bundle_path = check_binding(data.get("section_source_bundle"), "section_source_bundle", errors)
+                packet = None
+                if bundle_path:
+                    bundle = read_json(bundle_path)
+                    packet = next(
+                        (
+                            packet_item
+                            for packet_item in bundle.get("packets", [])
+                            if isinstance(packet_item, dict) and str(packet_item.get("section_id") or "") == section_id
+                        ),
+                        None,
+                    )
+                    if not packet:
+                        errors.append(f"第 {section_id} 节缺少逐节原文颗粒包")
+                if packet:
+                    _, prewrite_errors = validate_prewrite_review(prewrite_path, section_id, packet, draft)
+                    errors.extend(prewrite_errors)
             for field in ("opened_at", "closed_at", "read_judgment", "manual_judgment", "section_sha256", "draft_sha256_after_close"):
                 if not str(item.get(field) or "").strip():
                     errors.append(f"第 {section_id} 节缺少 {field}")
@@ -152,6 +343,33 @@ def validate_receipt(path: Path, require_complete: bool = False) -> tuple[dict[s
             check_binding(item.get("review_receipt"), f"第 {section_id} 节 review_receipt", errors)
         elif status == "open":
             open_count += 1
+            validate_draft_task_ref(item.get("draft_task_ref"), section_id)
+            prewrite_path = check_binding(item.get("prewrite_review_receipt"), f"第 {section_id} 节 prewrite_review_receipt", errors)
+            if prewrite_path:
+                bundle_path = check_binding(data.get("section_source_bundle"), "section_source_bundle", errors)
+                packet = None
+                if bundle_path:
+                    bundle = read_json(bundle_path)
+                    packet = next(
+                        (
+                            packet_item
+                            for packet_item in bundle.get("packets", [])
+                            if isinstance(packet_item, dict) and str(packet_item.get("section_id") or "") == section_id
+                        ),
+                        None,
+                    )
+                    if not packet:
+                        errors.append(f"第 {section_id} 节缺少逐节原文颗粒包")
+                if packet:
+                    _, prewrite_errors = validate_prewrite_review(prewrite_path, section_id, packet, draft)
+                    errors.extend(prewrite_errors)
+            if not allow_open_with_content:
+                current_content = section_text(draft, section_id) if draft.is_file() else ""
+                if current_content:
+                    errors.append(
+                        f"第 {section_id} 节已有正文，但逐节停检尚未通过；"
+                        "禁止把未停检内容当作合格首写继续流程"
+                    )
         elif status != "pending":
             errors.append(f"第 {section_id} 节 status 无效: {status!r}")
     if open_count > 1:
@@ -222,6 +440,8 @@ def init_receipt(
             "status": "pending",
             "granularity_packet_id": str(packet.get("packet_id") or ""),
             "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
+            "draft_task_ref": {},
+            "prewrite_review_receipt": {},
             "source_slice_bindings": bindings,
             "source_read_records": [],
             "review_receipt": {},
@@ -252,7 +472,108 @@ def init_receipt(
     return 0
 
 
+def ensure_prewrite_review(receipt: Path, section_id: str) -> int:
+    data, errors = validate_receipt(receipt, allow_open_with_content=True)
+    ignored_prefixes = (
+        f"第 {section_id} 节 prewrite_review_receipt",
+        "写前颗粒确认 ",
+    )
+    filtered_errors = [
+        error
+        for error in errors
+        if not any(error.startswith(prefix) for prefix in ignored_prefixes)
+    ]
+    if filtered_errors:
+        print("section_draft_execution: blocked\n- " + "\n- ".join(filtered_errors))
+        return 2
+    sections = data["sections"]
+    target = next((item for item in sections if item["section_id"] == section_id), None)
+    if not target:
+        print("section_draft_execution: blocked\n- 目标小节不存在")
+        return 2
+    bundle_path = Path(str(data["section_source_bundle"]["path"])).resolve()
+    bundle = read_json(bundle_path)
+    packet = next(
+        (
+            item
+            for item in bundle.get("packets", [])
+            if isinstance(item, dict) and str(item.get("section_id") or "") == section_id
+        ),
+        None,
+    )
+    if not packet or packet.get("packet_sha256") != target.get("granularity_packet_sha256"):
+        print("section_draft_execution: blocked\n- 当前小节颗粒包不存在或 SHA 不一致")
+        return 2
+    draft = Path(str(data["draft_path"])).resolve()
+    prewrite_path = section_prewrite_path(receipt, section_id)
+    if not prewrite_path.is_file():
+        prewrite_path = init_prewrite_review(receipt, section_id, draft, packet)
+        target["prewrite_review_receipt"] = binding(prewrite_path)
+        write_json(receipt, data)
+        print("section_draft_execution: blocked")
+        print(f"- 第 {section_id} 节缺少写前颗粒确认，已初始化: {prewrite_path}")
+        print("- 必须先确认原文颗粒合同并通过 gate_status=passed，才能 open-section")
+        print_prewrite_contract(section_id, packet)
+        return 2
+    try:
+        existing_review = read_json(prewrite_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        existing_review = {}
+    if not prewrite_contract_matches(existing_review, packet, draft):
+        prewrite_path = init_prewrite_review(receipt, section_id, draft, packet)
+        target["prewrite_review_receipt"] = binding(prewrite_path)
+        write_json(receipt, data)
+        print("section_draft_execution: blocked")
+        print(f"- 第 {section_id} 节写前颗粒确认已按最新颗粒包重建: {prewrite_path}")
+        print("- 旧写前确认不得复用于新颗粒合同，必须重新逐项确认后才能 open-section")
+        print_prewrite_contract(section_id, packet)
+        return 2
+    target["prewrite_review_receipt"] = binding(prewrite_path)
+    write_json(receipt, data)
+    _, prewrite_errors = validate_prewrite_review(prewrite_path, section_id, packet, draft)
+    if prewrite_errors:
+        print("section_draft_execution: blocked")
+        for error in prewrite_errors:
+            print(f"- {error}")
+        print(f"- 请先完成写前颗粒确认: {prewrite_path}")
+        print_prewrite_contract(section_id, packet)
+        return 2
+    return 0
+
+
+def bind_draft_task(receipt: Path, section_id: str, draft_task_ref: dict[str, str]) -> int:
+    try:
+        data = read_json(receipt)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"section_draft_execution: blocked\n- 回执无法读取: {exc}")
+        return 2
+    sections = data.get("sections")
+    if not isinstance(sections, list):
+        print("section_draft_execution: blocked\n- sections 必须是数组")
+        return 2
+    target = next((item for item in sections if isinstance(item, dict) and item.get("section_id") == section_id), None)
+    if not target:
+        print("section_draft_execution: blocked\n- 目标小节不存在")
+        return 2
+    semantic_path = Path(str(draft_task_ref.get("path") or "")).expanduser().resolve()
+    semantic_key = str(draft_task_ref.get("semantic_key") or "")
+    fingerprint = str(draft_task_ref.get("fingerprint") or "")
+    if not semantic_path.is_file() or semantic_key != f"section_draft_tasks.{section_id}" or not fingerprint:
+        print("section_draft_execution: blocked\n- 正文生成任务绑定信息无效")
+        return 2
+    target["draft_task_ref"] = {
+        "path": str(semantic_path),
+        "semantic_key": semantic_key,
+        "fingerprint": fingerprint,
+    }
+    write_json(receipt, data)
+    return 0
+
+
 def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
+    prewrite_result = ensure_prewrite_review(receipt, section_id)
+    if prewrite_result:
+        return prewrite_result
     data, errors = validate_receipt(receipt)
     if errors:
         print("section_draft_execution: blocked\n- " + "\n- ".join(errors))
@@ -447,7 +768,7 @@ def validate_review(
 
 
 def close_section(receipt: Path, section_id: str, review_path: Path) -> int:
-    data, errors = validate_receipt(receipt)
+    data, errors = validate_receipt(receipt, allow_open_with_content=True)
     if errors:
         print("section_draft_execution: blocked\n- " + "\n- ".join(errors))
         return 2
@@ -544,6 +865,7 @@ def reset_section(receipt: Path, section_id: str) -> int:
     target.update(
         {
             "status": "pending",
+            "draft_task_ref": {},
             "source_read_records": [],
             "review_receipt": {},
             "opened_at": "",
@@ -579,6 +901,9 @@ def main() -> int:
     opening.add_argument("--receipt", required=True)
     opening.add_argument("--section", required=True)
     opening.add_argument("--read-judgment", required=True)
+    prewrite = sub.add_parser("ensure-prewrite-review")
+    prewrite.add_argument("--receipt", required=True)
+    prewrite.add_argument("--section", required=True)
     closing = sub.add_parser("close-section")
     closing.add_argument("--receipt", required=True)
     closing.add_argument("--section", required=True)
@@ -600,6 +925,8 @@ def main() -> int:
         )
     if args.command == "open-section":
         return open_section(receipt, args.section, args.read_judgment)
+    if args.command == "ensure-prewrite-review":
+        return ensure_prewrite_review(receipt, args.section)
     if args.command == "close-section":
         return close_section(receipt, args.section, Path(args.review).resolve())
     if args.command == "reset-section":

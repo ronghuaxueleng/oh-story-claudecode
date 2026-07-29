@@ -46,7 +46,39 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.outline = self.root / "小节大纲.md"
         self.outline.write_text(
-            "## 1. 起事\n\n动作一\n动作二\n\n## 2. 失位\n\n动作三\n动作四\n",
+            (
+                "## 1. 起事\n"
+                "- 情绪：先期待，再被公开刺痛。\n"
+                "- 读者新获知：丈夫已经把优先权让给第三人。\n"
+                "- 钩子：钥匙会不会真的交出去。\n"
+                "- 伏笔/物件：钥匙、门锁报警、挂件。\n"
+                "- 动静：先僵住，再换手。\n"
+                "- 对话密度：偏低，错答压场。\n"
+                "- 目标字数：1000\n\n"
+                "动作一 动作二\n"
+                "丈夫刚改口时，她还想等一句补救，可手已经先在钥匙圈上松了一下。"
+                "门锁报警的红灯一直闪，她盯着那枚两人一起挑的旧挂件，没把那口气顺出去。"
+                "她原本要问他到底把谁放在前面，话到了嘴边却只剩一句钥匙是不是现在就得交。"
+                "那句错答没救回脸面，反而把她逼进更低的位置，连旁边等着的人都默认下一步该由别人接手。\n\n"
+                "钥匙真正换到对方手里时，她掌心还留着金属硌出的印子。"
+                "她没有继续闹，只把这一秒的热和难堪记住，准备带到后场去算。"
+                "这一节必须把期待、停顿、错答和余痛压在同一连续现场里，不能只写成交钥匙这件事。\n\n"
+                "## 2. 失位\n"
+                "- 情绪：嘴上退一步，身份继续下沉。\n"
+                "- 读者新获知：旁观者已经默认她不再有现场决定权。\n"
+                "- 钩子：她还能不能把位置要回来。\n"
+                "- 伏笔/物件：门口站位、改口称呼、手机来电。\n"
+                "- 动静：外部秩序逼近，关系位置后撤。\n"
+                "- 对话密度：中，压着问句走。\n"
+                "- 目标字数：1000\n\n"
+                "动作三 动作四\n"
+                "她退开半步，本来只是想把场面先稳住，可旁边的人已经顺着丈夫的态度改了称呼。"
+                "那一下不是谁骂了她，而是所有人都默认该由别人站在里面。"
+                "她还想抓住一个解释口，可手机来电把丈夫直接带走，只留下她在原地接收已经发生的排除。"
+                "她说出口的话越来越短，像是不想让自己听见真正该问的那句。\n\n"
+                "等人群重新流动起来，她才发现自己连下一步该往哪边站都被安排好了。"
+                "这一节要把现实秩序怎么替关系补刀写清楚，不能压成一句她继续受伤。"
+            ),
             encoding="utf-8",
         )
         self.book_root = self.root / "拆文库" / "测试书"
@@ -230,6 +262,38 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 ],
                 "source_performance_excerpt": "原文场面",
                 "source_performance_evidence": ["原文动作", "原文余痛"],
+                "source_style_granularity": {
+                    "narrative_voice_and_attitude": {
+                        "source_summary": "贴脸跟着当事人的即时注意走，不先替她下结论。",
+                        "source_evidence": ["原文场面", "原文动作"],
+                        "target_style_plan": "先让她看见挂件和人群站位，再让判断慢半拍漏出来。",
+                    },
+                    "sentence_relation_and_rhythm": {
+                        "source_summary": "句子靠因果反冲和临时改口连起来，不走匀速摘要。",
+                        "source_evidence": ["原文动作", "原文余痛"],
+                        "target_style_plan": "用‘刚、却、才、还’把错答前后的反冲连起来。",
+                    },
+                    "paragraph_breath_and_cut_points": {
+                        "source_summary": "在说话人、控制权和余痛落点变化处断段。",
+                        "source_evidence": ["原文场面"],
+                        "target_style_plan": "改口、换手、余痛三处各自成段，不把连续瞬间拆成报账。",
+                    },
+                    "dialogue_misfire_or_avoidance": {
+                        "source_summary": "真正想问的话被更短的现场话顶掉。",
+                        "source_evidence": ["原文动作"],
+                        "target_style_plan": "先让她想追问，再只落一句钥匙什么时候交。",
+                    },
+                    "action_perception_emotion_weave": {
+                        "source_summary": "动作、物件触感和情绪反冲连成同一瞬间。",
+                        "source_evidence": ["原文场面", "原文余痛"],
+                        "target_style_plan": "把松手、看挂件、改口和掌心余感织成一口气。",
+                    },
+                    "narrator_interjection_and_roughness": {
+                        "source_summary": "场末收在身体余感和难堪上，不补作者总结。",
+                        "source_evidence": ["原文余痛"],
+                        "target_style_plan": "尾句只留掌心压痕和她记住这一秒，不替她解释大道理。",
+                    },
+                },
                 "source_excerpt_reuse_reason": (
                     "同一原文场面跨两节迁移；本节读取的是失位后的余痛，不是上一节的期待。"
                     if section["section_id"] == "2"
@@ -322,6 +386,16 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("target_entry_causes" in error for error in errors))
 
+    def test_scene_logic_template_entry_cause_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        contract = data["sections"][0]["scene_logic_contract"]
+        contract["target_entry_causes"] = ["- 读者新获知：丈夫已经偏向第三人"]
+        contract["target_knowledge_state"] = ["读者新获知：丈夫已经偏向第三人"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("读者新获知" in error for error in errors))
+        self.assertTrue(any("知情边界必须拆开写" in error for error in errors))
+
     def test_scene_logic_causal_asset_must_exist_in_source_profile(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
         data["sections"][0]["scene_logic_contract"]["causal_asset_id"] = "CPA-99"
@@ -396,6 +470,16 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("contradictory_impulse" in error for error in errors))
+
+    def test_first_draft_emotion_process_cannot_copy_scene_summary(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        section = data["sections"][0]
+        process = section["first_draft_generation_contract"]["emotion_process"]
+        original = section["original_scene_granularity"]
+        process["speech_misfire_or_avoidance"] = original["dialogue_forces_action"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不能直接照抄 original_scene_granularity 概括句" in error for error in errors))
 
     def test_first_draft_requires_continuous_moment_groups(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

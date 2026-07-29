@@ -23,9 +23,11 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +100,43 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def semantic_digest(data: Any) -> str:
+    def strip(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: strip(item)
+                for key, item in value.items()
+                if key not in {"path", "created_at"} and not key.endswith("sha256")
+            }
+        if isinstance(value, list):
+            return [strip(item) for item in value]
+        return value
+
+    encoded = json.dumps(strip(data), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def load_semantic_source(paths: dict[str, Path]) -> dict[str, Any]:
+    semantic_path = paths["model_semantic_source"]
+    semantic = read_json(semantic_path) if semantic_path.is_file() else {}
+    if not semantic:
+        semantic = {
+            "version": "1.0",
+            "project": paths["project"].name,
+            "outline_compilation": {},
+            "section_reviews": {},
+            "section_prewrite_reviews": {},
+            "section_draft_tasks": {},
+        }
+    semantic.setdefault("version", "1.0")
+    semantic.setdefault("project", paths["project"].name)
+    semantic.setdefault("outline_compilation", {})
+    semantic.setdefault("section_reviews", {})
+    semantic.setdefault("section_prewrite_reviews", {})
+    semantic.setdefault("section_draft_tasks", {})
+    return semantic
+
+
 def git_root(project: Path) -> Path | None:
     proc = subprocess.run(
         ["git", "-C", str(project), "rev-parse", "--show-toplevel"],
@@ -138,6 +177,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "source_receipt": asset / "拆文读取回执.json",
         "ledger": asset / "规则执行台账.json",
         "ledger_pre_reinit": asset / "规则执行台账.pre-reinit.json",
+        "model_semantic_source": asset / "模型语义输入.json",
         "opening_contract": asset / "开头承重契约回执_大纲.json",
         "outline_contract": asset / "细纲表演验收回执.json",
         "draft_capacity_contract": asset / "首写容量契约回执.json",
@@ -383,6 +423,94 @@ def refresh_section_execution(paths: dict[str, Path]) -> list[str]:
     data["outline_contract"] = binding(paths["outline_contract"])
     data["source_receipt"] = binding(paths["source_receipt"])
     data["section_source_bundle"] = binding(paths["section_source_bundle"])
+    semantic = load_semantic_source(paths)
+    tasks = semantic.setdefault("section_draft_tasks", {})
+    if not isinstance(tasks, dict):
+        return ["模型语义输入.section_draft_tasks 必须是对象"]
+    sections = data.get("sections")
+    if not isinstance(sections, list):
+        return ["逐节首写执行回执.sections 必须是数组"]
+    bundle = read_json(paths["section_source_bundle"])
+    packets = {
+        str(item.get("section_id") or ""): item
+        for item in bundle.get("packets", [])
+        if isinstance(item, dict)
+    }
+    outline_compilation = semantic.get("outline_compilation")
+    plans = outline_compilation.get("plans") if isinstance(outline_compilation, dict) else []
+    for item in sections:
+        if not isinstance(item, dict):
+            continue
+        section_id = str(item.get("section_id") or "")
+        if not section_id:
+            continue
+        packet = packets.get(section_id)
+        if packet:
+            payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+            item["granularity_packet_id"] = str(packet.get("packet_id") or "")
+            item["granularity_packet_sha256"] = str(packet.get("packet_sha256") or "")
+            item["source_slice_bindings"] = payload.get("source_slice_bindings", [])
+            plan = next(
+                (
+                    candidate
+                    for candidate in plans or []
+                    if isinstance(candidate, dict) and str(candidate.get("id") or "") == section_id
+                ),
+                {},
+            )
+            tasks[section_id] = {
+                "section_id": section_id,
+                "granularity_packet_id": str(packet.get("packet_id") or ""),
+                "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
+                "source_slice_bindings": payload.get("source_slice_bindings", []),
+                "source_performance_excerpt": payload.get("source_performance_excerpt"),
+                "source_performance_evidence": payload.get("source_performance_evidence", []),
+                "source_style_granularity": payload.get("source_style_granularity", {}),
+                "emotion_process": payload.get("emotion_process", {}),
+                "continuous_moment_groups": payload.get("continuous_moment_groups", []),
+                "paragraph_break_reasons": payload.get("paragraph_break_reasons", []),
+                "sentence_relation_plan": payload.get("sentence_relation_plan", []),
+                "function_word_strategy": payload.get("function_word_strategy"),
+                "telegraphic_risk": payload.get("telegraphic_risk"),
+                "emotion_shorthand_to_avoid": payload.get("emotion_shorthand_to_avoid", []),
+                "target_emotion_landing_plan": payload.get("target_emotion_landing_plan", []),
+                "scene_logic_contract": payload.get("scene_logic_contract", {}),
+                "source_emotion_parity": payload.get("source_emotion_parity", {}),
+                "original_scene_granularity": payload.get("original_scene_granularity", {}),
+                "first_draft_style_plan": {
+                    "section_manual_judgment": plan.get("sectionManualJudgment"),
+                    "first_draft_manual_judgment": plan.get("firstDraftManualJudgment"),
+                    "capacity_source_style_granularity": plan.get("capacitySourceStyleGranularity"),
+                    "capacity_first_draft_style_plan": plan.get("capacityFirstDraftStylePlan"),
+                    "scene_completion": plan.get("sceneCompletion"),
+                    "opening_or_turn": plan.get("openingOrTurn"),
+                    "planned_words": plan.get("plannedWords"),
+                    "target_outline_evidence": plan.get("targetOutlineEvidence", []),
+                },
+                "draft_instructions": [
+                    "先落动作、物件、站位或身体反应，再补主观判断，不得起手总结。",
+                    "同一连续瞬间里的动作、感知、误认、停顿和失手必须织在一起，不得拆成报账链。",
+                    "来电、目光、签字、门口站位、围观秩序等承重拍不能并句压扁，必须逐拍落地。",
+                    "对白后立刻接具体反应或错答，不得用解释句、主题句或作者判断接管现场。",
+                    "强情绪不能缩成动作标签库；至少保住注意偏移、身体失控、矛盾冲动、说话失手和场末余痛中的多个层次。",
+                    "段落只在控制权换主、注意对象切换、外部秩序压入或情绪阶段改变时断开，禁止一句一段。",
+                    "句间关系必须在首写时写实，优先用语序、停顿、重复和口语虚词带出承接，不得后补机械连词。",
+                    "结尾只留未结后果和余痛，不得收成结论句、说明句或道理句。",
+                ],
+                "manual_judgment": (
+                    plan.get("firstDraftManualJudgment")
+                    or payload.get("manual_judgment")
+                    or "正文首写必须完整消费本节原文颗粒，不得只按功能节点交付事件。"
+                ),
+            }
+        task = tasks.get(section_id)
+        if isinstance(task, dict):
+            item["draft_task_ref"] = {
+                "path": str(paths["model_semantic_source"].resolve()),
+                "semantic_key": f"section_draft_tasks.{section_id}",
+                "fingerprint": semantic_digest(task),
+            }
+    write_json(paths["model_semantic_source"], semantic)
     if paths["draft"].is_file() and data.get("final_draft_sha256"):
         data["final_draft_sha256"] = sha256(paths["draft"])
     write_json(receipt_path, data)
@@ -495,6 +623,35 @@ def rebuild_section_bundle(paths: dict[str, Path]) -> list[str]:
         return errors
     write_json(paths["section_source_bundle"], bundle)
     return []
+
+
+def invalidate_draft_bindings(paths: dict[str, Path], reason: str) -> list[str]:
+    asset = paths["asset"]
+    archive_dir = asset / "失效回执归档"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    actions: list[str] = []
+
+    def archive_path(path: Path) -> Path:
+        return archive_dir / f"{timestamp}-{path.name}"
+
+    for key in ("first_draft_entry", "section_execution_receipt"):
+        path = paths[key]
+        if path.is_file():
+            target = archive_path(path)
+            shutil.move(str(path), str(target))
+            actions.append(f"archive {path.name} -> {os.path.relpath(target, asset)}")
+
+    for dirname in ("逐节写前颗粒确认", "逐节首写停检"):
+        path = asset / dirname
+        if path.is_dir():
+            target = archive_dir / f"{timestamp}-{dirname}"
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.move(str(path), str(target))
+            actions.append(f"archive {dirname}/ -> {os.path.relpath(target, asset)}")
+
+    return [f"invalidate draft bindings: {reason}", *actions]
 
 
 def validate_all(paths: dict[str, Path]) -> dict[str, list[str]]:
