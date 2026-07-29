@@ -536,7 +536,7 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "原文证据",
         ],
         "rules": [
-            "每个 BID 至少下钻出一个完整 SF",
+            "每个承重桥 ID 至少下钻出一个完整 SF（含 OPEN/MID/BID）",
             "SF 是连续子流程，不是动作、物件或对白零件",
         ],
     },
@@ -937,6 +937,50 @@ def read_existing_source_path(out_dir: Path) -> Path:
     return fallback or out_dir / "原文" / "__MISSING_SOURCE__"
 
 
+def scan_uncovered_parent_bridges(out_dir: Path) -> tuple[list[str], list[str]]:
+    asset_dir = out_dir / "写作资产"
+    bridge_path = asset_dir / "桥段施工卡.md"
+    index_path = asset_dir / "子流程索引.jsonl"
+    if not bridge_path.is_file() or not index_path.is_file():
+        return [], []
+
+    bridge_text = read_text(bridge_path)
+    declared = {
+        item.upper()
+        for item in re.findall(
+            r"^\s*-\s*桥段ID[：:]\s*([A-Z]+-\d+)\s*$",
+            bridge_text,
+            flags=re.M,
+        )
+    }
+    declared.update(
+        item.upper()
+        for item in re.findall(
+            r"^##\s+\[?([A-Z]+-\d+)\]?\b",
+            bridge_text,
+            flags=re.M,
+        )
+    )
+
+    covered: set[str] = set()
+    diagnostics: list[str] = []
+    for line_number, raw in enumerate(read_text(index_path).splitlines(), start=1):
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            diagnostics.append(f"{index_path}:{line_number} JSON 无效：{exc}")
+            continue
+        if not isinstance(item, dict):
+            diagnostics.append(f"{index_path}:{line_number} 必须是 JSON 对象")
+            continue
+        parent_bridge_id = str(item.get("parent_bridge_id") or "").strip().upper()
+        if parent_bridge_id:
+            covered.add(parent_bridge_id)
+    return sorted(declared - covered), diagnostics
+
+
 def write_upgrade_plan(
     path: Path,
     book_name: str,
@@ -944,6 +988,8 @@ def write_upgrade_plan(
     missing_dirs: list[str],
     missing_files: list[str],
     refreshed_process_files: list[str],
+    uncovered_parent_bridge_ids: list[str],
+    bridge_scan_diagnostics: list[str],
 ) -> None:
     missing_model_files = [name for name in missing_files if name not in GENERATED_OUTPUTS]
     missing_generated_files = [name for name in missing_files if name in GENERATED_OUTPUTS]
@@ -967,6 +1013,7 @@ def write_upgrade_plan(
         f"- 缺失正式产物数：{len(missing_files)}",
         f"- 其中模型内容产物：{len(missing_model_files)}",
         f"- 其中 finalize 生成物：{len(missing_generated_files)}",
+        f"- 未下钻父桥段数：{len(uncovered_parent_bridge_ids)}",
         "",
         "## 过程文件已刷新",
         "",
@@ -980,7 +1027,7 @@ def write_upgrade_plan(
             "- [ ] `事实与推断台账.md` 已按原文补齐 FS 状态链、KS 知情链、OL 物件生命周期，且证据行可核验。",
             "- [ ] `情节节点.md` 每条节点已补齐入场前提、行动权限、替代方案阻断和离场因果。",
             "- [ ] `拆文报告.md / 写作手法.md / 样本分级与可学层.md` 已共同补齐六项全局成文形状审计，尤其是句段气口与镜头连续性；风险成立时同步写入 `仿写约束_禁写清单.md`。",
-            "- [ ] 每条 SF 已在施工卡和索引中补齐 `causal_preconditions` 七字段，且每个父 BID 至少有一条 SF。",
+            "- [ ] 每条 SF 已在施工卡和索引中补齐 `causal_preconditions` 七字段，且每个父桥段 ID 至少有一条 SF（含 OPEN/MID/BID）。",
             "- [ ] `profile_source.md` 已补齐 `## 13. 场景因果资产`，每张 CPA 含到场、知情、物件、制度、替代阻断、离场和原文证据。",
             "- [ ] 逐 BID 核对六拍情绪序列、烈度和原文证据是否贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
             "- [ ] 逐文件核对当前 first-write contract 新字段，不能只检查文件是否存在。",
@@ -998,6 +1045,22 @@ def write_upgrade_plan(
     )
     if missing_dirs:
         lines.extend(f"- [ ] `{name}/`" for name in missing_dirs)
+    else:
+        lines.append("- 无")
+
+    lines.extend(["", "## 未下钻父桥段", ""])
+    if uncovered_parent_bridge_ids:
+        lines.extend(
+            f"- [ ] `{bridge_id}`：必须补入 `子流程施工卡.md / 子流程索引.jsonl`，"
+            "并为每个新增 SF 固化逐场 `source_style_granularity`。"
+            for bridge_id in uncovered_parent_bridge_ids
+        )
+    else:
+        lines.append("- 无")
+
+    lines.extend(["", "## 父桥段扫描诊断", ""])
+    if bridge_scan_diagnostics:
+        lines.extend(f"- [ ] {item}" for item in bridge_scan_diagnostics)
     else:
         lines.append("- 无")
 
@@ -1025,7 +1088,7 @@ def write_upgrade_plan(
             "2. 对每个缺失文件，只读取 `output-templates.md` 中对应模板区段，不整份吞模板。",
             "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
-            "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
+            "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父桥段 ID 覆盖（含 OPEN/MID/BID）、`_finalize_human_review.json` 的增量复核闭环。",
             "6. 回填后更新 `_progress.md` 中对应项，再运行 finalize。",
             "7. 首次运行 validator/finalize 后，把 `human_review_items` 逐条裁决到 `_finalize_human_review.json`，并运行同步脚本生成当前 `_content_fingerprints.json`。",
             "8. 如果 finalize 继续报错，逐条补齐 `errors[]` 里的所有文件级、内容级和 profile 级缺项；禁止只补 `_upgrade_plan.md` 当前列出的文件。",
@@ -1580,7 +1643,7 @@ def write_execution_prompt(
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
         "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
-        "- 每个 BID 必须继续下钻成一个或多个完整 `SF-*`；`子流程施工卡.md / 子流程索引.jsonl` 保留进场状态、连续顺序、场景因果前提、信息延迟、控制权变化和场末状态，`causal_preconditions` 七字段必须齐全，禁止拆成零件池",
+        "- 每个承重桥 ID 都必须继续下钻成一个或多个完整 `SF-*`；这里的父桥段包括 `OPEN-* / MID-* / BID-*`。`子流程施工卡.md / 子流程索引.jsonl` 保留进场状态、连续顺序、场景因果前提、信息延迟、控制权变化和场末状态，`causal_preconditions` 七字段必须齐全，禁止拆成零件池",
         "- `profile_source.md` 必须首写 `## 13. 场景因果资产`，每张 CPA 保留到场、知情、物件、制度、替代阻断、离场和原文证据",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：全局结构、章尾收束、主角不规则性、专业细节功能性、全文对白模式、句段气口与镜头连续性；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
@@ -1692,6 +1755,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
             raise NotADirectoryError(f"必产目录位置已被文件占用：{directory}")
 
     missing_files = [rel for rel in required_output_paths(layout) if not (out_dir / rel).exists()]
+    uncovered_parent_bridge_ids, bridge_scan_diagnostics = scan_uncovered_parent_bridges(out_dir)
 
     source_text = read_text(source_path) if source_path.is_file() else ""
     if source_text:
@@ -1737,6 +1801,8 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         missing_dirs,
         missing_files,
         refreshed_process_files,
+        uncovered_parent_bridge_ids,
+        bridge_scan_diagnostics,
     )
     meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
 
@@ -1748,6 +1814,8 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "created_dirs": created_dirs,
         "missing_dirs": missing_dirs,
         "missing_files": missing_files,
+        "uncovered_parent_bridge_ids": uncovered_parent_bridge_ids,
+        "bridge_scan_diagnostics": bridge_scan_diagnostics,
         "meta_refreshed": meta_refreshed,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {

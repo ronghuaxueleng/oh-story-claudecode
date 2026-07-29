@@ -12,6 +12,10 @@ const styleFields = [
   "action_perception_emotion_weave",
   "narrator_interjection_and_roughness",
 ];
+const fileBufferCache = new Map();
+const fileTextCache = new Map();
+const fileJsonCache = new Map();
+const fileShaCache = new Map();
 
 function uniqueNonEmpty(values) {
   const seen = new Set();
@@ -114,8 +118,33 @@ function buildSourceStyleGranularity(plan, binding) {
   };
 }
 
-const readJson = async (path) => JSON.parse(await readFile(path, "utf8"));
-const sha256 = async (path) => createHash("sha256").update(await readFile(path)).digest("hex");
+async function readBufferCached(path) {
+  if (!fileBufferCache.has(path)) {
+    fileBufferCache.set(path, await readFile(path));
+  }
+  return fileBufferCache.get(path);
+}
+
+async function readTextCached(path) {
+  if (!fileTextCache.has(path)) {
+    fileTextCache.set(path, (await readBufferCached(path)).toString("utf8"));
+  }
+  return fileTextCache.get(path);
+}
+
+const readJson = async (path) => {
+  if (!fileJsonCache.has(path)) {
+    fileJsonCache.set(path, JSON.parse(await readTextCached(path)));
+  }
+  return fileJsonCache.get(path);
+};
+
+const sha256 = async (path) => {
+  if (!fileShaCache.has(path)) {
+    fileShaCache.set(path, createHash("sha256").update(await readBufferCached(path)).digest("hex"));
+  }
+  return fileShaCache.get(path);
+};
 
 function fail(message) {
   throw new Error(message);
@@ -224,12 +253,161 @@ function synthesizeSceneAfterpain(plan) {
   return `场末不补解释，只把${objectText}留下的余感和被公开打掉位置的难堪一起拖进下一场。`;
 }
 
+function isChapterMarker(line) {
+  return /^\d+$/.test(line.trim());
+}
+
+function buildSliceBindingFromRange(range, sourcePath, sourceSha, sourceLines) {
+  const match = /^L(\d+)-L(\d+)$/.exec(range);
+  if (!match) fail(`无效原文行段: ${range}`);
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const lines = sourceLines.slice(start - 1, end);
+  const candidates = lines
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\d+$/.test(line) && line !== "……");
+  if (candidates.length < 2) fail(`${range} 可用原文证据不足`);
+  const mid = Math.max(1, Math.floor(candidates.length / 2));
+  const evidenceCount = Math.min(6, candidates.length);
+  const spreadEvidence = [];
+  for (let index = 0; index < evidenceCount; index += 1) {
+    const offset = Math.floor((index * (candidates.length - 1)) / Math.max(1, evidenceCount - 1));
+    spreadEvidence.push(candidates[offset]);
+  }
+  return {
+    source_path: sourcePath,
+    source_sha256: sourceSha,
+    source_range: range,
+    source_evidence: uniqueNonEmpty([candidates[0], candidates[mid], ...spreadEvidence]),
+    style_fields_consumed: styleFields,
+  };
+}
+
+function splitRangeIntoBindings(range, sourcePath, sourceSha, sourceLines) {
+  const match = /^L(\d+)-L(\d+)$/.exec(range);
+  if (!match) fail(`无效原文行段: ${range}`);
+  const start = Number(match[1]);
+  const end = Number(match[2]);
+  const ranges = [];
+  let lineNo = start;
+  while (lineNo <= end) {
+    while (lineNo <= end && isChapterMarker(sourceLines[lineNo - 1] ?? "")) {
+      lineNo += 1;
+    }
+    if (lineNo > end) break;
+    const chunkStart = lineNo;
+    let chunkEnd = chunkStart;
+    while (chunkEnd + 1 <= end) {
+      const nextLine = sourceLines[chunkEnd] ?? "";
+      if (isChapterMarker(nextLine)) break;
+      if (chunkEnd - chunkStart + 1 >= 35) break;
+      chunkEnd += 1;
+    }
+    ranges.push([chunkStart, chunkEnd]);
+    lineNo = chunkEnd + 1;
+  }
+
+  const bindings = [];
+  for (const [chunkStart, chunkEnd] of ranges) {
+    try {
+      const binding = buildSliceBindingFromRange(
+        `L${chunkStart}-L${chunkEnd}`,
+        sourcePath,
+        sourceSha,
+        sourceLines,
+      );
+      if (binding.source_evidence.length >= 2) bindings.push(binding);
+    } catch (error) {
+      if (chunkStart !== chunkEnd) throw error;
+    }
+  }
+  if (!bindings.length) {
+    bindings.push(buildSliceBindingFromRange(range, sourcePath, sourceSha, sourceLines));
+  }
+  return bindings;
+}
+
+function buildTechniqueRecallContract(plan, sourceBindings, targetEvidence) {
+  const firstBinding = sourceBindings[0];
+  const secondBinding = sourceBindings[1] ?? firstBinding;
+  const thirdBinding = sourceBindings[2] ?? secondBinding;
+  return [
+    {
+      technique_name: "动作-感知-情绪同拍推进",
+      source_summary: requireText(plan.bodyControl, `plans[${plan.id}].bodyControl`),
+      target_execution: uniqueNonEmpty([
+        requireText(plan.capacityFirstDraftStylePlan, `plans[${plan.id}].capacityFirstDraftStylePlan`),
+        "首写时把动作、即时感知和情绪反应压在同一连续瞬间里，不拆成动作句、判断句、总结句三段。",
+      ]).join(" / "),
+      must_not_flatten_to: "不能写成动作报账、镜头清单或事后总结。",
+      linked_style_dimensions: ["action_perception_emotion_weave"],
+      source_evidence: firstBinding.source_evidence.slice(0, 2),
+      target_outline_evidence: targetEvidence.slice(0, 1),
+    },
+    {
+      technique_name: "句间承接与气口控制",
+      source_summary: uniqueNonEmpty([
+        ...requireArray(plan.sentencePlan, `plans[${plan.id}].sentencePlan`, 3),
+        requireText(plan.functionWordStrategy, `plans[${plan.id}].functionWordStrategy`),
+      ]).join(" / "),
+      target_execution: "先明确定时、因果、反冲，再决定用停顿、重复、虚词还是省略把句间关系接上，不机械撒连词。",
+      must_not_flatten_to: "不能把连续气口压成一串孤立短句。",
+      linked_style_dimensions: ["sentence_relation_and_rhythm", "paragraph_breath_and_cut_points"],
+      source_evidence: secondBinding.source_evidence.slice(0, 2),
+      target_outline_evidence: targetEvidence.slice(0, 2),
+    },
+    {
+      technique_name: "对白错答与回避反刀",
+      source_summary: requireText(plan.dialogueForce, `plans[${plan.id}].dialogueForce`),
+      target_execution: "对白先让人物答偏、回避或缩小范围，再由下一拍动作把真正的关系伤害顶出来。",
+      must_not_flatten_to: "不能把人物都写成会完整回答问题的解释器。",
+      linked_style_dimensions: ["dialogue_misfire_or_avoidance", "narrative_voice_and_attitude"],
+      source_evidence: thirdBinding.source_evidence.slice(0, 2),
+      target_outline_evidence: targetEvidence.slice(0, 2),
+    },
+  ];
+}
+
+function buildSceneWeaveContract(plan, sourceBindings, targetEvidence) {
+  const firstBinding = sourceBindings[0];
+  const secondBinding = sourceBindings[1] ?? firstBinding;
+  return [
+    {
+      moment_group_id: `${plan.id}-MG-01`,
+      source_trigger: firstBinding.source_evidence[0],
+      action: requireText(plan.actionSequence, `plans[${plan.id}].actionSequence`).split(" -> ")[0],
+      perception: requireText(
+        plan.memoryAssociationOrAttentionDrift,
+        `plans[${plan.id}].memoryAssociationOrAttentionDrift`,
+      ),
+      reaction: requireText(plan.contradictoryImpulse, `plans[${plan.id}].contradictoryImpulse`),
+      same_moment_requirement: "这一组必须在同一口气里完成，不许拆成动作后补心理说明。",
+      why_cannot_be_split: "一旦拆开，原文那种先被现场刺中、再轮到判断的颗粒度就会掉成功能节点。",
+      source_evidence: firstBinding.source_evidence.slice(0, 2),
+      target_outline_evidence: targetEvidence.slice(0, 1),
+    },
+    {
+      moment_group_id: `${plan.id}-MG-02`,
+      source_trigger: secondBinding.source_evidence[0],
+      action: requireText(plan.pressure, `plans[${plan.id}].pressure`),
+      perception: requireText(plan.dialogueForce, `plans[${plan.id}].dialogueForce`),
+      reaction: requireText(plan.residue, `plans[${plan.id}].residue`),
+      same_moment_requirement: "这一组要把错答、再选择和场末余痛写成同一波现场反应。",
+      why_cannot_be_split: "如果先写结果再补情绪，场末余痛会退化成总结句。",
+      source_evidence: secondBinding.source_evidence.slice(0, 2),
+      target_outline_evidence: targetEvidence.slice(-2),
+    },
+  ];
+}
+
 function parseSectionBlocks(outlineText) {
   const blocks = new Map();
   // JS regex does not support `\z`; use a true end-of-input assertion so the final
   // section is kept without truncating earlier sections at line endings.
-  for (const match of outlineText.matchAll(/^##\s+(\d+)\.[^\n]*\n([\s\S]*?)(?=^##\s+\d+\.|^##\s+全纲|^##\s+容量|(?![\s\S]))/gm)) {
-    blocks.set(match[1], match[2].trim());
+  for (const match of outlineText.matchAll(
+    /^##\s+(?:(\d+)\.|第(\d+)节)[^\n]*\n([\s\S]*?)(?=^##\s+(?:(?:\d+)\.|第(?:\d+)节)|^##\s+全纲|^##\s+容量|(?![\s\S]))/gm,
+  )) {
+    blocks.set(match[1] ?? match[2], match[3].trim());
   }
   return blocks;
 }
@@ -529,29 +707,7 @@ export async function rebuildOutlineAndCapacityReceipts({
     return [paragraphs[0], paragraphs[1]];
   };
 
-  const sliceBinding = (range) => {
-    const match = /^L(\d+)-L(\d+)$/.exec(range);
-    if (!match) fail(`无效原文行段: ${range}`);
-    const lines = sourceLines.slice(Number(match[1]) - 1, Number(match[2]));
-    const candidates = lines
-      .map((line) => line.trim())
-      .filter((line) => line && !/^\d+$/.test(line) && line !== "……");
-    if (candidates.length < 2) fail(`${range} 可用原文证据不足`);
-    const mid = Math.max(1, Math.floor(candidates.length / 2));
-    const evidenceCount = Math.min(6, candidates.length);
-    const spreadEvidence = [];
-    for (let index = 0; index < evidenceCount; index += 1) {
-      const offset = Math.floor((index * (candidates.length - 1)) / Math.max(1, evidenceCount - 1));
-      spreadEvidence.push(candidates[offset]);
-    }
-    return {
-      source_path: sourcePath,
-      source_sha256: sourceSha,
-      source_range: range,
-      source_evidence: uniqueNonEmpty([candidates[0], candidates[mid], ...spreadEvidence]),
-      style_fields_consumed: styleFields,
-    };
-  };
+  const sliceBinding = (range) => buildSliceBindingFromRange(range, sourcePath, sourceSha, sourceLines);
 
   performance.version = performance.version || "1.4";
   performance.project = projectName;
@@ -606,6 +762,7 @@ export async function rebuildOutlineAndCapacityReceipts({
 
   performance.sections = plans.map((plan) => {
     const binding = sliceBinding(plan.range);
+    const autoBindings = splitRangeIntoBindings(plan.range, sourcePath, sourceSha, sourceLines);
     const targetEvidence = outlineEvidence(plan.id);
     const seq = makeEmotionSequences(plan, binding.source_evidence, targetEvidence);
     const richOriginal = asObject(plan.richOriginalSceneGranularity);
@@ -761,13 +918,20 @@ export async function rebuildOutlineAndCapacityReceipts({
         adaptation_boundary: richParity?.adaptation_boundary ?? plan.adaptationBoundary,
       },
       first_draft_generation_contract: {
-        source_slice_bindings: asNonEmptyArray(richGeneration?.source_slice_bindings) ?? [binding],
+        source_slice_bindings: asNonEmptyArray(richGeneration?.source_slice_bindings) ?? autoBindings,
         source_performance_excerpt:
           asNonEmptyText(richGeneration?.source_performance_excerpt) ?? binding.source_evidence[0],
         source_performance_evidence:
           asNonEmptyArray(richGeneration?.source_performance_evidence) ?? binding.source_evidence,
+        technique_recall_contract:
+          asNonEmptyArray(richGeneration?.technique_recall_contract) ??
+          fail(`plans[${plan.id}].richFirstDraftGenerationContract.technique_recall_contract 缺失`),
+        scene_weave_contract:
+          asNonEmptyArray(richGeneration?.scene_weave_contract) ??
+          fail(`plans[${plan.id}].richFirstDraftGenerationContract.scene_weave_contract 缺失`),
         source_style_granularity:
-          asObject(richGeneration?.source_style_granularity) ?? buildSourceStyleGranularity(plan, binding),
+          asObject(richGeneration?.source_style_granularity) ??
+          fail(`plans[${plan.id}].richFirstDraftGenerationContract.source_style_granularity 缺失`),
         source_excerpt_reuse_reason:
           typeof richGeneration?.source_excerpt_reuse_reason === "string"
             ? richGeneration.source_excerpt_reuse_reason
@@ -926,3 +1090,5 @@ async function runCli() {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   await runCli();
 }
+
+export { parseSectionBlocks };

@@ -14,8 +14,10 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -69,6 +71,33 @@ PROFILE_GENERATOR = load_module(
     "generate_story_profile.py",
     "story_short_write_profile_generator_toolbox",
 )
+DRAFT_CAPACITY = load_module(
+    "validate_draft_capacity_contract.py",
+    "story_short_write_draft_capacity_toolbox",
+)
+OUTLINE_REBUILDER_SCAFFOLD = load_module(
+    "generate_project_outline_receipt_rebuilder_scaffold.py",
+    "story_short_write_outline_rebuilder_scaffold_toolbox",
+)
+
+OUTLINE_STYLE_DIMENSIONS = (
+    "narrative_voice_and_attitude",
+    "sentence_relation_and_rhythm",
+    "paragraph_breath_and_cut_points",
+    "dialogue_misfire_or_avoidance",
+    "action_perception_emotion_weave",
+    "narrator_interjection_and_roughness",
+)
+OUTLINE_BASELINE_PREFIXES = (
+    "- 情绪：",
+    "- 读者新获知：",
+    "- 钩子：",
+    "- 伏笔/物件：",
+    "- 动静：",
+    "- 对话密度：",
+    "- 目标字数：",
+)
+OUTLINE_SEMANTIC_TASK_VERSION = "1.1"
 
 
 def infer_project_root(start: Path) -> Path | None:
@@ -112,6 +141,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "section_source_bundle": asset / "逐节原文颗粒包.json",
         "setting_sequence_receipt": asset / "设定顺序契约回执.json",
         "sequence_receipt": asset / "顺序契约回执.json",
+        "compile_outline_cache": asset / "compile-outline.cache.json",
         "cold_start_manifest": asset / "冷启动来源清单.json",
         "cold_start_checklist": asset / "冷启动执行清单.md",
         "section_execution_receipt": asset / "逐节首写执行回执.json",
@@ -140,8 +170,24 @@ def print_flow_result(command: str, errors: list[str], actions: list[str], as_js
     return 0 if not errors else 2
 
 
+@lru_cache(maxsize=256)
+def _read_text_cached(path_text: str) -> str:
+    return Path(path_text).read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=256)
+def _sha256_cached(path_text: str) -> str:
+    return hashlib.sha256(Path(path_text).read_bytes()).hexdigest()
+
+
+def _invalidate_path_caches(path: Path) -> None:
+    path_text = str(path.resolve())
+    _read_text_cached.cache_pop(path_text) if hasattr(_read_text_cached, "cache_pop") else _read_text_cached.cache_clear()
+    _sha256_cached.cache_pop(path_text) if hasattr(_sha256_cached, "cache_pop") else _sha256_cached.cache_clear()
+
+
 def read_json(path: Path) -> dict[str, Any]:
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(_read_text_cached(str(path.resolve())))
     if not isinstance(data, dict):
         raise ValueError(f"JSON 顶层必须是对象: {path}")
     return data
@@ -151,7 +197,7 @@ def file_has_meaningful_content(path: Path) -> bool:
     if not path.is_file():
         return False
     try:
-        text = path.read_text(encoding="utf-8")
+        text = _read_text_cached(str(path.resolve()))
     except OSError:
         return False
     return bool(text.strip())
@@ -159,10 +205,12 @@ def file_has_meaningful_content(path: Path) -> bool:
 
 def detect_manual_bypass(paths: dict[str, Path], checks: dict[str, list[str]]) -> list[str]:
     errors: list[str] = []
-    if file_has_meaningful_content(paths["setting"]) and checks["draft_release"]:
-        errors.append("检测到手写设定绕过写前门禁：设定.md 已有实质内容，但写前回执链仍未通过")
-    if file_has_meaningful_content(paths["outline"]) and checks["outline"]:
-        errors.append("检测到手写细纲绕过验收：小节大纲.md 已有实质内容，但细纲表演验收仍未通过")
+    if file_has_meaningful_content(paths["setting"]) and checks["setting_release"]:
+        errors.append("检测到手写设定绕过写前门禁：设定.md 已有实质内容，但 setting_release 尚未通过")
+    if file_has_meaningful_content(paths["outline"]) and (
+        checks["setting_sequence"] or checks["outline_release"]
+    ):
+        errors.append("检测到手写细纲绕过写前门禁：小节大纲.md 已有实质内容，但 prepare-outline 前置门禁仍未通过")
     if file_has_meaningful_content(paths["draft"]):
         if not paths["first_draft_entry"].is_file():
             errors.append("检测到手写正文绕过首稿入口：正文.md 已有实质内容，但首稿入口回执不存在")
@@ -178,6 +226,201 @@ def detect_manual_bypass(paths: dict[str, Path], checks: dict[str, list[str]]) -
 def write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _invalidate_path_caches(path)
+
+
+def file_sha256(path: Path) -> str:
+    return _sha256_cached(str(path.resolve()))
+
+
+def _binding_matches(binding: Any, path: Path) -> bool:
+    if not isinstance(binding, dict) or not path.is_file():
+        return False
+    return (
+        Path(str(binding.get("path") or "")).resolve() == path.resolve()
+        and binding.get("sha256") == file_sha256(path)
+    )
+
+
+def outline_receipts_reusable(paths: dict[str, Path]) -> bool:
+    try:
+        outline = read_json(paths["outline_contract"])
+        capacity = read_json(paths["draft_capacity_contract"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if outline.get("gate_status") != "passed" or capacity.get("gate_status") != "passed":
+        return False
+    return _binding_matches(outline.get("outline"), paths["outline"]) and _binding_matches(
+        capacity.get("outline"), paths["outline"]
+    )
+
+
+def opening_receipt_reusable(paths: dict[str, Path]) -> bool:
+    try:
+        receipt = read_json(paths["opening_contract"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if receipt.get("gate_status") != "passed" or receipt.get("reviewed_by_current_model") is not True:
+        return False
+    if not _binding_matches(receipt.get("target_text"), paths["outline"]):
+        return False
+    primary = receipt.get("primary_source")
+    if not isinstance(primary, dict):
+        return False
+    primary_path = Path(str(primary.get("path") or "")).resolve()
+    return primary_path.is_file() and primary.get("sha256") == file_sha256(primary_path)
+
+
+def sequence_receipt_reusable(paths: dict[str, Path]) -> bool:
+    try:
+        receipt = read_json(paths["sequence_receipt"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if receipt.get("gate_status") != "passed" or receipt.get("status") != "completed":
+        return False
+    artifacts = receipt.get("artifacts")
+    if not isinstance(artifacts, dict):
+        return False
+    return _binding_matches(artifacts.get("setting"), paths["setting"]) and _binding_matches(
+        artifacts.get("outline"), paths["outline"]
+    )
+
+
+def section_bundle_reusable(paths: dict[str, Path]) -> bool:
+    try:
+        bundle = read_json(paths["section_source_bundle"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if bundle.get("gate_status") != "passed":
+        return False
+    return _binding_matches(bundle.get("outline_contract"), paths["outline_contract"]) and _binding_matches(
+        bundle.get("source_receipt"), paths["source_receipt"]
+    )
+
+
+def section_execution_bindings_reusable(paths: dict[str, Path]) -> bool:
+    receipt_path = paths["section_execution_receipt"]
+    if not receipt_path.is_file():
+        return True
+    try:
+        receipt = read_json(receipt_path)
+        bundle = read_json(paths["section_source_bundle"])
+        semantic = read_json(paths["model_semantic_source"])
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    if not (
+        _binding_matches(receipt.get("outline_contract"), paths["outline_contract"])
+        and _binding_matches(receipt.get("source_receipt"), paths["source_receipt"])
+        and _binding_matches(receipt.get("section_source_bundle"), paths["section_source_bundle"])
+    ):
+        return False
+    packets = {
+        str(item.get("section_id") or ""): item
+        for item in bundle.get("packets", [])
+        if isinstance(item, dict)
+    }
+    sections = receipt.get("sections")
+    if not isinstance(sections, list):
+        return False
+    for item in sections:
+        if not isinstance(item, dict):
+            return False
+        section_id = str(item.get("section_id") or "")
+        if not section_id:
+            return False
+        packet = packets.get(section_id)
+        task = tasks.get(section_id)
+        if not isinstance(packet, dict) or not isinstance(task, dict):
+            return False
+        payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+        if item.get("granularity_packet_id") != str(packet.get("packet_id") or ""):
+            return False
+        if item.get("granularity_packet_sha256") != str(packet.get("packet_sha256") or ""):
+            return False
+        if item.get("source_slice_bindings") != payload.get("source_slice_bindings", []):
+            return False
+    return True
+
+
+def first_draft_entry_bindings_reusable(paths: dict[str, Path]) -> bool:
+    receipt_path = paths["first_draft_entry"]
+    if not receipt_path.is_file():
+        return True
+    try:
+        receipt = read_json(receipt_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return False
+    required = {
+        "writing_receipt": paths["writing_receipt"],
+        "source_receipt": paths["source_receipt"],
+        "ledger": paths["ledger"],
+        "opening_contract": paths["opening_contract"],
+        "outline_contract": paths["outline_contract"],
+        "profile": paths["profile"],
+        "sequence_receipt": paths["sequence_receipt"],
+        "draft_capacity_contract": paths["draft_capacity_contract"],
+        "section_source_bundle": paths["section_source_bundle"],
+    }
+    for key, path in required.items():
+        if not _binding_matches(receipt.get(key), path):
+            return False
+    if Path(str(receipt.get("section_execution_receipt_path") or "")).resolve() != paths[
+        "section_execution_receipt"
+    ].resolve():
+        return False
+    return True
+
+
+def load_compile_outline_cache(paths: dict[str, Path]) -> dict[str, Any] | None:
+    cache_path = paths["compile_outline_cache"]
+    if not cache_path.is_file():
+        return None
+    try:
+        data = read_json(cache_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data
+
+
+def compile_outline_cache_reusable(paths: dict[str, Path]) -> bool:
+    cache = load_compile_outline_cache(paths)
+    if not isinstance(cache, dict):
+        return False
+    semantic_path = paths["model_semantic_source"]
+    if not semantic_path.is_file():
+        return False
+    if cache.get("semantic_source_sha256") != file_sha256(semantic_path):
+        return False
+    if cache.get("project") != paths["project"].name:
+        return False
+    return (
+        outline_receipts_reusable(paths)
+        and opening_receipt_reusable(paths)
+        and sequence_receipt_reusable(paths)
+        and section_bundle_reusable(paths)
+    )
+
+
+def write_compile_outline_cache(
+    paths: dict[str, Path],
+    *,
+    semantic_source_sha256: str,
+    current_semantics: str,
+) -> None:
+    payload = {
+        "version": "1.0",
+        "project": paths["project"].name,
+        "semantic_source_sha256": semantic_source_sha256,
+        "outline_semantics_digest": current_semantics,
+        "artifacts": {
+            "outline_contract": {"path": str(paths["outline_contract"].resolve()), "sha256": file_sha256(paths["outline_contract"])},
+            "draft_capacity_contract": {"path": str(paths["draft_capacity_contract"].resolve()), "sha256": file_sha256(paths["draft_capacity_contract"])},
+            "opening_contract": {"path": str(paths["opening_contract"].resolve()), "sha256": file_sha256(paths["opening_contract"])},
+            "sequence_receipt": {"path": str(paths["sequence_receipt"].resolve()), "sha256": file_sha256(paths["sequence_receipt"])},
+            "section_source_bundle": {"path": str(paths["section_source_bundle"].resolve()), "sha256": file_sha256(paths["section_source_bundle"])},
+        },
+    }
+    write_json(paths["compile_outline_cache"], payload)
 
 
 def archive_source_stack_receipts(paths: dict[str, Path], reason: str) -> list[str]:
@@ -188,16 +431,22 @@ def archive_source_stack_receipts(paths: dict[str, Path], reason: str) -> list[s
     actions = [f"invalidate source stack receipts: {reason}"]
     stale_files = [
         paths["source_receipt"],
-        paths["ledger"],
+        paths["model_review_task"],
+        paths["model_group_plan"],
+        paths["model_semantic_source"],
+        paths["setting_sequence_receipt"],
+        paths["sequence_receipt"],
         paths["outline_contract"],
         paths["opening_contract"],
         paths["draft_capacity_contract"],
         paths["section_source_bundle"],
+        paths["compile_outline_cache"],
         paths["first_draft_entry"],
         paths["section_execution_receipt"],
         paths["first_draft_basic_review"],
         paths["completion_state"],
         paths["local_stiffness_candidates"],
+        paths["audit_report"],
     ]
     for path in stale_files:
         if not path.exists():
@@ -206,6 +455,78 @@ def archive_source_stack_receipts(paths: dict[str, Path], reason: str) -> list[s
         path.rename(target)
         actions.append(f"archive {path.name} -> {os.path.relpath(target, asset)}")
     return actions
+
+
+def archive_source_derived_writing_artifacts(
+    paths: dict[str, Path],
+    reason: str,
+) -> list[str]:
+    asset = paths["asset"]
+    timestamp = SHORT_WRITE_COMPLETION.now_iso().replace("-", "").replace(":", "").replace("T", "-").split("+", 1)[0]
+    archive_dir = asset / f"旧稿归档-{timestamp}"
+    actions = [f"invalidate source-derived writing artifacts: {reason}"]
+    for path in (paths["setting"], paths["outline"], paths["draft"]):
+        if not path.exists():
+            continue
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        target = archive_dir / path.name
+        path.rename(target)
+        actions.append(f"archive {path.name} -> {os.path.relpath(target, asset)}")
+    return actions
+
+
+def load_preserved_auxiliary_subflow_selections(
+    receipt_path: Path,
+    auxiliary_roots: list[Path],
+) -> tuple[dict[str, set[str]], list[str]]:
+    if not receipt_path.is_file():
+        return {}, []
+    try:
+        receipt = read_json(receipt_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {}, [f"旧拆文读取回执不可读取，无法保留辅助 SF 选择: {exc}"]
+
+    sources = receipt.get("sources")
+    if not isinstance(sources, list):
+        return {}, ["旧拆文读取回执.sources 不是列表，无法保留辅助 SF 选择"]
+
+    by_root: dict[str, dict[str, Any]] = {}
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for item in sources:
+        if not isinstance(item, dict) or str(item.get("role") or "") != "auxiliary":
+            continue
+        raw_root = str(item.get("root") or "").strip()
+        name = str(item.get("name") or "").strip()
+        if raw_root:
+            by_root[str(Path(raw_root).expanduser().resolve())] = item
+        if name:
+            by_name.setdefault(name, []).append(item)
+
+    selections: dict[str, set[str]] = {}
+    errors: list[str] = []
+    for root in auxiliary_roots:
+        resolved = root.expanduser().resolve()
+        source = by_root.get(str(resolved))
+        if source is None:
+            same_name = by_name.get(resolved.name, [])
+            if len(same_name) == 1:
+                source = same_name[0]
+        if source is None:
+            continue
+        selected_ids = {
+            str(item).strip()
+            for item in source.get("selected_subflow_ids", [])
+            if str(item).strip()
+        }
+        if not selected_ids:
+            continue
+        if resolved.name in selections and selections[resolved.name] != selected_ids:
+            errors.append(
+                f"辅助来源目录同名且 SF 选择不同，无法安全刷新: {resolved.name}"
+            )
+            continue
+        selections[resolved.name] = selected_ids
+    return selections, errors
 
 
 def resolve_source_stack(paths: dict[str, Path]) -> tuple[Path, list[Path], int]:
@@ -219,8 +540,9 @@ def resolve_source_stack(paths: dict[str, Path]) -> tuple[Path, list[Path], int]
             if str(item).strip()
         ]
         target_words = int(manifest.get("target_words") or 10000)
-        if primary:
+        if primary.is_file():
             return primary, aux, target_words
+
     profile = read_json(paths["profile"])
     meta = profile.get("meta") if isinstance(profile.get("meta"), dict) else {}
     source_paths = [
@@ -231,6 +553,778 @@ def resolve_source_stack(paths: dict[str, Path]) -> tuple[Path, list[Path], int]
     if not source_paths:
         raise SystemExit("当前项目缺少可解析的来源栈；既没有冷启动来源清单，也没有 profile.meta.sources")
     return source_paths[0], source_paths[1:], 10000
+
+
+def cold_start_manifest_data(paths: dict[str, Path]) -> dict[str, Any]:
+    manifest_path = paths["cold_start_manifest"]
+    if not manifest_path.is_file():
+        raise FileNotFoundError(f"冷启动来源清单不存在: {manifest_path}")
+    return read_json(manifest_path)
+
+
+def source_originals_from_manifest(paths: dict[str, Path]) -> list[Path]:
+    manifest = cold_start_manifest_data(paths)
+    originals: list[Path] = []
+    for raw in [
+        str(manifest.get("primary_original") or "").strip(),
+        *[
+            str(item).strip()
+            for item in manifest.get("auxiliary_originals", [])
+            if str(item).strip()
+        ],
+    ]:
+        if not raw:
+            continue
+        path = Path(raw).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"来源原文不存在: {path}")
+        originals.append(path)
+    if not originals:
+        raise ValueError("冷启动来源清单缺少 primary_original/auxiliary_originals")
+    return originals
+
+
+def find_outline_line(lines: list[str], prefixes: tuple[str, ...]) -> str:
+    for line in lines:
+        for prefix in prefixes:
+            if line.startswith(prefix):
+                return line[len(prefix):].strip()
+    return ""
+
+
+def outline_source_bindings(lines: list[str]) -> list[str]:
+    try:
+        start = lines.index("来源绑定：") + 1
+    except ValueError:
+        return []
+    return [
+        line[1:].strip()
+        for line in lines[start:]
+        if line.startswith("-")
+    ]
+
+
+def split_outline_granularity(value: str) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"[、，；;]", value)
+        if item.strip()
+    ]
+
+
+def allocate_outline_words(section_count: int, target_words: int) -> list[int]:
+    if section_count <= 0:
+        return []
+    base, remainder = divmod(target_words, section_count)
+    return [base + (1 if index < remainder else 0) for index in range(section_count)]
+
+
+def build_outline_plan_scaffold(
+    section: dict[str, Any],
+    section_count: int,
+    planned_words: int,
+    source_originals: list[Path],
+) -> dict[str, Any]:
+    section_id = str(section["id"])
+    lines = [str(line).strip() for line in section.get("lines", []) if str(line).strip()]
+    guessed_bridge = "BID-01" if int(section_id) <= 3 else "BID-02" if int(section_id) <= 7 else "BID-03"
+    guessed_cpa = "CPA-01" if int(section_id) <= 3 else "CPA-02" if int(section_id) <= 7 else "CPA-03"
+    explicit_words = int(section.get("target_words") or 0)
+    end_hook = find_outline_line(lines, ("节末钩子：", "节末收口：", "- 钩子："))
+    new_info = find_outline_line(lines, ("- 读者新获知：", "- 读者新获知"))
+    required_granularity = split_outline_granularity(find_outline_line(lines, ("- 必保颗粒：",)))
+    return {
+        "id": section_id,
+        "title": str(section.get("title") or ""),
+        "plannedWords": explicit_words or planned_words,
+        "bridge": guessed_bridge,
+        "cpa": guessed_cpa,
+        "hook": end_hook,
+        "newInfo": new_info,
+        "outlineContext": str(section.get("block") or ""),
+        "sourceBindings": outline_source_bindings(lines),
+        "requiredGranularity": required_granularity,
+        "requiredSourceOriginals": [str(path) for path in source_originals],
+        "range": "",
+        "controllingObject": "",
+        "irreversibleAction": "",
+        "functionType": "",
+        "assetRule": "",
+        "sourceScene": "",
+        "actionSequence": "",
+        "bodyControl": "",
+        "dialogueForce": "",
+        "residue": "",
+        "sourceMechanism": "",
+        "adaptationBoundary": "",
+        "entryKnown": "",
+        "leaked": "",
+        "deferred": "",
+        "missteps": ["", ""],
+        "pressure": "",
+        "forced": "",
+        "visibleChange": "",
+        "plainInjury": "",
+        "pain": "",
+        "emotionalTurn": "",
+        "sourceBeatRoles": ["", "", "", "", ""],
+        "sourceBeatTriggers": ["", "", "", "", ""],
+        "targetBeatTriggers": ["", "", "", "", ""],
+        "beatPositions": ["", "", "", "", ""],
+        "beatEffects": ["", "", "", "", ""],
+        "intensities": [0, 0, 0, 0, 0],
+        "continuous": ["", ""],
+        "breaks": ["", ""],
+        "sentencePlan": ["", "", ""],
+        "functionWordStrategy": "",
+        "telegraphicRisk": "",
+        "shorthands": ["", ""],
+        "landings": ["", "", ""],
+        "contradictoryImpulse": "",
+        "forbidden": ["", ""],
+        "reuseReason": "仅当本节需重读与其他节相同原文切片时再填写；否则留空。" if int(section_id) in (10,) else "",
+        "whySelectedForThisSection": "",
+        "bystanderOrOrderShift": "",
+        "sourceCausalPreconditions": [""],
+        "externalRuleDependency": {
+            "domain": "",
+            "verified": True,
+            "authoritative_basis": "",
+        },
+        "obviousAlternativeBlocker": [""],
+        "sceneLogicManualJudgment": "",
+        "keyObjectLifecycle": [""],
+        "relationshipRoles": "",
+        "score": 0,
+        "escalationVsPrevious": "",
+        "professionalShellConflict": "",
+        "professionalShellFunction": "",
+        "sourceReversalBeat": 0,
+        "targetReversalBeat": 0,
+        "sourcePeakBeat": 0,
+        "targetPeakBeat": 0,
+        "endingAfterpainEquivalent": True,
+        "readerExperienceEquivalent": True,
+        "emotionParityManualJudgment": "",
+        "emotionParityStatus": "",
+        "entryState": "",
+        "memoryAssociationOrAttentionDrift": "",
+        "firstDraftManualJudgment": "",
+        "sectionManualJudgment": "",
+        "sceneCompletion": "",
+        "openingOrTurn": "",
+        "capacityEmotionEscalation": "",
+        "capacitySourceStyleGranularity": "",
+        "capacityFirstDraftStylePlan": "",
+        "sectionCountHint": section_count,
+    }
+
+
+def build_outline_bridge_scaffold(index: int, section_ids: list[str]) -> dict[str, Any]:
+    start = section_ids[0] if section_ids else ""
+    end = section_ids[-1] if section_ids else ""
+    return {
+        "id": f"BID-{index:02d}",
+        "name": "",
+        "range": "",
+        "sections": section_ids,
+        "requiredSequence": ["", "", ""],
+        "mustKeep": ["", ""],
+        "granularity": "",
+        "endState": "",
+        "cannotMergeOrDropReason": "",
+        "sourceReversalBeat": 0,
+        "targetReversalBeat": 0,
+        "sourcePeakBeat": 0,
+        "targetPeakBeat": 0,
+        "readerExperienceParity": True,
+        "emotionParityJudgment": "",
+        "parityStatus": "",
+        "adaptationReason": "",
+        "missingOrWeakenedRisk": "",
+        "manualJudgment": "",
+        "notes": f"默认按小节号粗分为 {start}-{end}，必须由当前模型重判，不得直接沿用。",
+    }
+
+
+def build_outline_bridge_scaffolds(section_count: int) -> list[dict[str, Any]]:
+    if section_count <= 0:
+        return []
+    groups = [
+        [str(i) for i in range(1, min(section_count, 3) + 1)],
+        [str(i) for i in range(4, min(section_count, 7) + 1)] if section_count >= 4 else [],
+        [str(i) for i in range(8, section_count + 1)] if section_count >= 8 else [],
+    ]
+    return [
+        build_outline_bridge_scaffold(index + 1, group)
+        for index, group in enumerate(groups)
+        if group
+    ]
+
+
+def build_outline_compilation_scaffold(
+    paths: dict[str, Path],
+    *,
+    originals: list[Path],
+    primary_root: Path,
+    target_words: int,
+) -> dict[str, Any]:
+    sections = OUTLINE_REBUILDER_SCAFFOLD.parse_sections(paths["outline"].read_text(encoding="utf-8"))
+    planned_words = allocate_outline_words(len(sections), target_words)
+    return {
+        "plans": [
+            build_outline_plan_scaffold(
+                section,
+                len(sections),
+                planned_words[index],
+                originals,
+            )
+            for index, section in enumerate(sections)
+        ],
+        "bridgeDefs": build_outline_bridge_scaffolds(len(sections)),
+        "globalReview": {
+            "full_source_mechanisms_reviewed": True,
+            "dual_track_function_and_scene_granularity_reviewed": True,
+            "scene_causality_reviewed_before_draft": True,
+            "source_bridge_flow_inventory_completed": True,
+            "outline_bridge_flow_parity_reviewed_before_draft": True,
+            "relationship_legibility_reviewed_before_draft": True,
+            "professional_shell_translation_reviewed_before_draft": True,
+            "source_emotion_flow_parity_reviewed_before_draft": True,
+            "first_draft_generation_contract_reviewed": True,
+            "paragraph_breath_reviewed_before_draft": True,
+            "sentence_relation_and_function_word_strategy_reviewed_before_draft": True,
+            "granularity_transfer_contract_reviewed": True,
+            "strong_emotion_required": True,
+            "mechanism_transfer_boundary": "",
+            "global_storyboard_or_process_list": False,
+            "manual_judgment": "",
+        },
+        "factLedger": [
+            {
+                "fact_id": "",
+                "initial_state": "",
+                "incompatible_states": [""],
+                "transitions": [
+                    {
+                        "from_state": "",
+                        "to_state": "",
+                        "section_id": "",
+                        "evidence_prefix": "- 读者新获知",
+                    }
+                ],
+            }
+        ],
+        "projectName": paths["project"].name,
+        "targetWords": target_words,
+        "sourceTextRelative": os.path.relpath(originals[0], paths["project"]),
+        "bridgeCatalogRelative": os.path.relpath(primary_root / "写作资产" / "桥段施工卡.md", paths["project"]),
+        "profileRelative": os.path.relpath(primary_root / "book.profile.json", paths["project"]),
+    }
+
+
+def sync_outline_plan_context(
+    paths: dict[str, Path],
+    semantic_source: dict[str, Any],
+    *,
+    originals: list[Path],
+    target_words: int,
+) -> bool:
+    outline_compilation = semantic_source.get("outline_compilation")
+    if not isinstance(outline_compilation, dict):
+        return False
+    plans = outline_compilation.get("plans")
+    if not isinstance(plans, list) or not plans:
+        return False
+    sections = OUTLINE_REBUILDER_SCAFFOLD.parse_sections(paths["outline"].read_text(encoding="utf-8"))
+    section_by_id = {str(section["id"]): section for section in sections}
+    allocated_words = allocate_outline_words(len(sections), target_words)
+    allocated_by_id = {
+        str(section["id"]): allocated_words[index]
+        for index, section in enumerate(sections)
+    }
+    changed = False
+    for plan in plans:
+        if not isinstance(plan, dict):
+            continue
+        section_id = str(plan.get("id") or "")
+        section = section_by_id.get(section_id)
+        if section is None:
+            continue
+        lines = [str(line).strip() for line in section.get("lines", []) if str(line).strip()]
+        explicit_words = int(section.get("target_words") or 0)
+        mechanical_context = {
+            "title": str(section.get("title") or ""),
+            "plannedWords": explicit_words or allocated_by_id[section_id],
+            "hook": find_outline_line(lines, ("节末钩子：", "节末收口：", "- 钩子：")),
+            "newInfo": find_outline_line(lines, ("- 读者新获知：", "- 读者新获知")),
+            "outlineContext": str(section.get("block") or ""),
+            "sourceBindings": outline_source_bindings(lines),
+            "requiredGranularity": split_outline_granularity(
+                find_outline_line(lines, ("- 必保颗粒：",))
+            ),
+            "requiredSourceOriginals": [str(path) for path in originals],
+        }
+        for key, value in mechanical_context.items():
+            if plan.get(key) != value:
+                plan[key] = value
+                changed = True
+    return changed
+
+
+def outline_source_descriptors(paths: dict[str, Path], originals: list[Path]) -> list[dict[str, Any]]:
+    manifest = cold_start_manifest_data(paths)
+    primary_path = Path(str(manifest.get("primary_original") or "")).expanduser().resolve()
+    descriptors: list[dict[str, Any]] = []
+    for path in originals:
+        descriptors.append(
+            {
+                "role": "primary" if path == primary_path else "auxiliary",
+                "source_name": path.parent.parent.name,
+                "path": str(path),
+                "sha256": file_sha256(path),
+            }
+        )
+    return descriptors
+
+
+def required_sources_for_plan(
+    plan: dict[str, Any],
+    source_descriptors: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    bindings = "\n".join(str(item) for item in plan.get("sourceBindings", []))
+    selected = [
+        source
+        for source in source_descriptors
+        if (
+            source["role"] == "primary" and ("主体" in bindings or not bindings)
+        ) or (
+            source["role"] == "auxiliary" and source["source_name"] in bindings
+        )
+    ]
+    if not selected:
+        selected = [source for source in source_descriptors if source["role"] == "primary"]
+    return selected
+
+
+def outline_semantic_task_fingerprint(
+    paths: dict[str, Path],
+    plans: list[dict[str, Any]],
+    source_descriptors: list[dict[str, Any]],
+) -> str:
+    payload = {
+        "task_schema_version": OUTLINE_SEMANTIC_TASK_VERSION,
+        "outline": {
+            "path": str(paths["outline"].resolve()),
+            "sha256": file_sha256(paths["outline"]),
+        },
+        "sources": source_descriptors,
+        "plans": [
+            {
+                "id": plan.get("id"),
+                "title": plan.get("title"),
+                "outlineContext": plan.get("outlineContext"),
+                "sourceBindings": plan.get("sourceBindings"),
+                "requiredGranularity": plan.get("requiredGranularity"),
+            }
+            for plan in plans
+            if isinstance(plan, dict)
+        ],
+    }
+    encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def build_outline_semantic_task(
+    paths: dict[str, Path],
+    semantic_source: dict[str, Any],
+    originals: list[Path],
+) -> dict[str, Any]:
+    outline_compilation = semantic_source.get("outline_compilation")
+    plans = outline_compilation.get("plans") if isinstance(outline_compilation, dict) else []
+    valid_plans = [plan for plan in plans if isinstance(plan, dict)]
+    source_descriptors = outline_source_descriptors(paths, originals)
+    source_reads = [
+        {
+            **source,
+            "read_scope": "full_text",
+            "read_status": "pending",
+            "evidence": [],
+            "manual_judgment": "",
+        }
+        for source in source_descriptors
+    ]
+    section_tasks: dict[str, Any] = {}
+    for plan in valid_plans:
+        section_id = str(plan.get("id") or "")
+        required_sources = required_sources_for_plan(plan, source_descriptors)
+        section_tasks[section_id] = {
+            "section_id": section_id,
+            "title": plan.get("title", ""),
+            "outline_context": plan.get("outlineContext", ""),
+            "source_bindings": plan.get("sourceBindings", []),
+            "required_granularity": plan.get("requiredGranularity", []),
+            "source_slice_reviews": [
+                {
+                    **source,
+                    "source_range": "",
+                    "source_evidence": [],
+                    "style_dimension_reviews": {
+                        dimension: {
+                            "source_observation": "",
+                            "source_evidence": [],
+                            "target_transfer": "",
+                            "status": "pending",
+                        }
+                        for dimension in OUTLINE_STYLE_DIMENSIONS
+                    },
+                    "manual_judgment": "",
+                    "status": "pending",
+                }
+                for source in required_sources
+            ],
+            "completion_status": "pending",
+            "manual_judgment": "",
+        }
+    return {
+        "version": OUTLINE_SEMANTIC_TASK_VERSION,
+        "status": "pending",
+        "reviewed_by_current_model": False,
+        "input_fingerprint": outline_semantic_task_fingerprint(
+            paths,
+            valid_plans,
+            source_descriptors,
+        ),
+        "instructions": [
+            "每节细纲必须先写齐情绪、读者新获知、钩子、伏笔/物件、动静、对话密度、目标字数七项基准字段；缺字段时不得开始人工语义回填。",
+            "完整实读 global_source_reads 中每份原文，不得只读 profile、拆文报告或文风摘要。",
+            "逐节按 source_slice_reviews 重新定位 L起始-L结束 精确原文切片，所有证据必须位于该切片内。",
+            "六项 style_dimension_reviews 必须逐项填写原文观察、切片内证据、目标迁移方式和完成状态，不得只勾布尔值。",
+            "把原文切片、情绪流程、场景因果、连续气口、句间关系和文风颗粒写回 outline_compilation 对应 plan。",
+            "不得复制原人物、职业、物件、原句或完整桥壳；只迁移经人工裁决的机制和颗粒度。",
+            "所有 section_tasks 完成后再把 reviewed_by_current_model 与 status 改为完成态，然后运行 compile-outline。",
+        ],
+        "required_output": "outline_compilation",
+        "global_source_reads": source_reads,
+        "section_tasks": section_tasks,
+        "manual_judgment": "",
+    }
+
+
+def outline_baseline_field_errors(paths: dict[str, Path]) -> list[str]:
+    sections = OUTLINE_REBUILDER_SCAFFOLD.parse_sections(
+        paths["outline"].read_text(encoding="utf-8")
+    )
+    errors: list[str] = []
+    for section in sections:
+        lines = [str(line).strip() for line in section.get("lines", []) if str(line).strip()]
+        missing = [
+            prefix
+            for prefix in OUTLINE_BASELINE_PREFIXES
+            if not any(line.startswith(prefix) for line in lines)
+        ]
+        if missing:
+            errors.append(
+                f"第 {section['id']} 节缺少细纲基准字段: {', '.join(missing)}"
+            )
+    return errors
+
+
+def ensure_outline_semantic_task(
+    paths: dict[str, Path],
+    semantic_source: dict[str, Any],
+    originals: list[Path],
+) -> bool:
+    outline_compilation = semantic_source.get("outline_compilation")
+    plans = outline_compilation.get("plans") if isinstance(outline_compilation, dict) else []
+    valid_plans = [plan for plan in plans if isinstance(plan, dict)]
+    source_descriptors = outline_source_descriptors(paths, originals)
+    expected_fingerprint = outline_semantic_task_fingerprint(
+        paths,
+        valid_plans,
+        source_descriptors,
+    )
+    task = semantic_source.get("outline_semantic_task")
+    if not isinstance(task, dict) or task.get("input_fingerprint") != expected_fingerprint:
+        semantic_source["outline_semantic_task"] = build_outline_semantic_task(
+            paths,
+            semantic_source,
+            originals,
+        )
+        return True
+    return False
+
+
+def outline_source_slice(path: Path, source_range: str) -> tuple[str, str | None]:
+    match = re.fullmatch(r"L(\d+)-L(\d+)", source_range.strip())
+    if not match:
+        return "", "必须使用 L起始-L结束"
+    start, end = int(match.group(1)), int(match.group(2))
+    lines = _read_text_cached(str(path.resolve())).splitlines()
+    if start < 1 or end < start or end > len(lines):
+        return "", f"超出原文范围（原文共 {len(lines)} 行）"
+    if end - start + 1 > 35:
+        return "", f"过宽（{end - start + 1} 行，最多 35 行）"
+    return "\n".join(lines[start - 1 : end]), None
+
+
+def validate_outline_semantic_task(paths: dict[str, Path]) -> list[str]:
+    try:
+        semantic_source = read_json(paths["model_semantic_source"])
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"模型语义输入不可读取: {exc}"]
+    task = semantic_source.get("outline_semantic_task")
+    if not isinstance(task, dict):
+        return ["模型语义输入缺少 outline_semantic_task；先运行 prepare-outline"]
+    outline_compilation = semantic_source.get("outline_compilation")
+    plans = outline_compilation.get("plans") if isinstance(outline_compilation, dict) else []
+    valid_plans = [plan for plan in plans if isinstance(plan, dict)]
+    try:
+        originals = source_originals_from_manifest(paths)
+        source_descriptors = outline_source_descriptors(paths, originals)
+        expected_fingerprint = outline_semantic_task_fingerprint(
+            paths,
+            valid_plans,
+            source_descriptors,
+        )
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [f"无法复验 outline 模型任务来源绑定: {exc}"]
+    errors: list[str] = []
+    if task.get("input_fingerprint") != expected_fingerprint:
+        errors.append("outline_semantic_task 已过期；细纲、来源或机械上下文变化后必须重新运行 prepare-outline")
+    if task.get("status") != "completed":
+        errors.append("outline_semantic_task.status 必须为 completed")
+    if task.get("reviewed_by_current_model") is not True:
+        errors.append("outline_semantic_task 必须由当前执行模型完成人工复核")
+    if not str(task.get("manual_judgment") or "").strip():
+        errors.append("outline_semantic_task.manual_judgment 不能为空")
+    if errors:
+        return errors
+
+    errors.extend(outline_baseline_field_errors(paths))
+    if errors:
+        return errors
+
+    source_by_path = {source["path"]: source for source in source_descriptors}
+    global_reads = task.get("global_source_reads")
+    if not isinstance(global_reads, list):
+        errors.append("outline_semantic_task.global_source_reads 必须为列表")
+        global_reads = []
+    read_by_path = {
+        str(item.get("path") or ""): item
+        for item in global_reads
+        if isinstance(item, dict)
+    }
+    if len(read_by_path) != len(global_reads) or set(read_by_path) != set(source_by_path):
+        errors.append("outline 全文实读来源必须与当前选中原文完全一致，不能缺失、重复或混入额外来源")
+    for path_text, source in source_by_path.items():
+        read = read_by_path.get(path_text)
+        if read is None:
+            errors.append(f"outline 全文实读缺少来源: {path_text}")
+            continue
+        if read.get("sha256") != source["sha256"]:
+            errors.append(f"outline 全文实读来源 SHA 不一致: {path_text}")
+        if read.get("read_status") != "completed":
+            errors.append(f"outline 全文实读未完成: {path_text}")
+        evidence = [
+            str(item).strip()
+            for item in read.get("evidence", [])
+            if str(item).strip()
+        ]
+        if len(set(evidence)) < 2:
+            errors.append(f"outline 全文实读至少需要两条不同原文证据: {path_text}")
+        else:
+            source_text = _read_text_cached(str(Path(path_text).resolve()))
+            for quote in evidence:
+                if quote not in source_text:
+                    errors.append(f"outline 全文实读证据不在原文中: {path_text}: {quote[:30]}")
+        if not str(read.get("manual_judgment") or "").strip():
+            errors.append(f"outline 全文实读缺少人工判断: {path_text}")
+
+    section_tasks = task.get("section_tasks")
+    if not isinstance(section_tasks, dict):
+        errors.append("outline_semantic_task.section_tasks 必须为对象")
+        section_tasks = {}
+    expected_ids = [str(plan.get("id") or "") for plan in valid_plans]
+    if sorted(section_tasks) != sorted(expected_ids):
+        errors.append("outline_semantic_task.section_tasks 必须与 outline_compilation.plans 小节完全一致")
+    for plan in valid_plans:
+        section_id = str(plan.get("id") or "")
+        section_task = section_tasks.get(section_id)
+        if not isinstance(section_task, dict):
+            continue
+        if section_task.get("completion_status") != "completed":
+            errors.append(f"第 {section_id} 节 outline 语义任务未完成")
+        if not str(section_task.get("manual_judgment") or "").strip():
+            errors.append(f"第 {section_id} 节 outline 语义任务缺少人工判断")
+        expected_sources = required_sources_for_plan(plan, source_descriptors)
+        expected_paths = {source["path"] for source in expected_sources}
+        slice_reviews = section_task.get("source_slice_reviews")
+        if not isinstance(slice_reviews, list):
+            errors.append(f"第 {section_id} 节 source_slice_reviews 必须为列表")
+            continue
+        review_by_path = {
+            str(item.get("path") or ""): item
+            for item in slice_reviews
+            if isinstance(item, dict)
+        }
+        if len(review_by_path) != len(slice_reviews) or set(review_by_path) != expected_paths:
+            errors.append(f"第 {section_id} 节 source_slice_reviews 来源必须与细纲来源绑定完全一致")
+        for path_text in expected_paths:
+            review = review_by_path.get(path_text)
+            if review is None:
+                continue
+            if review.get("sha256") != source_by_path[path_text]["sha256"]:
+                errors.append(f"第 {section_id} 节原文切片 SHA 不一致: {path_text}")
+            source_range = str(review.get("source_range") or "").strip()
+            source_slice, range_error = outline_source_slice(Path(path_text), source_range)
+            if range_error:
+                errors.append(f"第 {section_id} 节原文精确切片范围{range_error}: {path_text}")
+            evidence = [
+                str(item).strip()
+                for item in review.get("source_evidence", [])
+                if str(item).strip()
+            ]
+            if len(set(evidence)) < 2:
+                errors.append(f"第 {section_id} 节每个来源至少需要两条不同原文切片证据: {path_text}")
+            elif not range_error:
+                for quote in evidence:
+                    if quote not in source_slice:
+                        errors.append(f"第 {section_id} 节切片证据不在精确行段内: {path_text}: {quote[:30]}")
+            dimension_reviews = review.get("style_dimension_reviews")
+            if not isinstance(dimension_reviews, dict):
+                errors.append(f"第 {section_id} 节缺少六项文风颗粒逐项复核: {path_text}")
+                dimension_reviews = {}
+            for dimension in OUTLINE_STYLE_DIMENSIONS:
+                dimension_review = dimension_reviews.get(dimension)
+                label = f"第 {section_id} 节文风颗粒 {dimension}: {path_text}"
+                if not isinstance(dimension_review, dict):
+                    errors.append(f"{label} 缺少逐项复核对象")
+                    continue
+                if not str(dimension_review.get("source_observation") or "").strip():
+                    errors.append(f"{label} 缺少原文观察")
+                if not str(dimension_review.get("target_transfer") or "").strip():
+                    errors.append(f"{label} 缺少目标迁移方式")
+                dimension_evidence = [
+                    str(item).strip()
+                    for item in dimension_review.get("source_evidence", [])
+                    if str(item).strip()
+                ]
+                if not dimension_evidence:
+                    errors.append(f"{label} 缺少原文证据")
+                elif not range_error:
+                    for quote in dimension_evidence:
+                        if quote not in source_slice:
+                            errors.append(f"{label} 证据不在精确行段内: {quote[:30]}")
+                if dimension_review.get("status") != "completed":
+                    errors.append(f"{label} 未完成")
+            if not str(review.get("manual_judgment") or "").strip():
+                errors.append(f"第 {section_id} 节原文切片缺少人工判断: {path_text}")
+            if review.get("status") != "completed":
+                errors.append(f"第 {section_id} 节原文切片复核未完成: {path_text}")
+    return errors
+
+
+def outline_compilation_is_thin(outline_compilation: Any) -> bool:
+    if not isinstance(outline_compilation, dict):
+        return True
+    plans = outline_compilation.get("plans")
+    bridge_defs = outline_compilation.get("bridgeDefs")
+    global_review = outline_compilation.get("globalReview")
+    fact_ledger = outline_compilation.get("factLedger")
+    return (
+        not isinstance(plans, list)
+        or not plans
+        or not isinstance(bridge_defs, list)
+        or not bridge_defs
+        or not isinstance(global_review, dict)
+        or not global_review
+        or not isinstance(fact_ledger, list)
+        or not fact_ledger
+    )
+
+
+def ensure_outline_phase_scaffolds(paths: dict[str, Path]) -> list[str]:
+    actions: list[str] = []
+    manifest = cold_start_manifest_data(paths)
+    primary_root = Path(str(manifest.get("primary_source_root") or "")).expanduser().resolve()
+    if not primary_root.is_dir():
+        raise FileNotFoundError(f"主体拆文目录不存在: {primary_root}")
+    originals = source_originals_from_manifest(paths)
+    target_words = int(manifest.get("target_words") or 10000)
+
+    if not paths["model_semantic_source"].is_file():
+        project = paths["project"]
+        semantic_source = {
+            "version": "1.0",
+            "project": project.name,
+            "outline_compilation": build_outline_compilation_scaffold(
+                paths,
+                originals=originals,
+                primary_root=primary_root,
+                target_words=target_words,
+            ),
+            "section_raw_source_first_tasks": {},
+            "section_reviews": {},
+            "section_prewrite_reviews": {},
+        }
+        write_json(paths["model_semantic_source"], semantic_source)
+        actions.append("initialize-model-semantic-source")
+    else:
+        semantic_source = load_semantic_source(paths)
+        if outline_compilation_is_thin(semantic_source.get("outline_compilation")):
+            semantic_source["outline_compilation"] = build_outline_compilation_scaffold(
+                paths,
+                originals=originals,
+                primary_root=primary_root,
+                target_words=target_words,
+            )
+            write_json(paths["model_semantic_source"], semantic_source)
+            actions.append("upgrade-model-semantic-source-outline-template")
+        elif sync_outline_plan_context(
+            paths,
+            semantic_source,
+            originals=originals,
+            target_words=target_words,
+        ):
+            write_json(paths["model_semantic_source"], semantic_source)
+            actions.append("sync-model-semantic-source-outline-context")
+
+    semantic_source = load_semantic_source(paths)
+    if ensure_outline_semantic_task(paths, semantic_source, originals):
+        write_json(paths["model_semantic_source"], semantic_source)
+        actions.append("initialize-outline-semantic-task")
+
+    if not paths["outline_contract"].is_file():
+        outline_receipt = OUTLINE.create_receipt(
+            paths["project"].name,
+            paths["outline"],
+            originals,
+            source_mode="full_bridge",
+        )
+        write_json(paths["outline_contract"], outline_receipt)
+        actions.append("initialize-outline-contract")
+
+    if not paths["opening_contract"].is_file():
+        opening_receipt = OPENING.create_receipt(
+            paths["project"].name,
+            primary_root / "可直接仿写_导语拆解表.md",
+            paths["outline"],
+            "outline",
+        )
+        write_json(paths["opening_contract"], opening_receipt)
+        actions.append("initialize-opening-contract")
+
+    if not paths["draft_capacity_contract"].is_file():
+        capacity_receipt = DRAFT_CAPACITY.init(
+            paths["project"].name,
+            paths["outline"],
+            target_words,
+        )
+        write_json(paths["draft_capacity_contract"], capacity_receipt)
+        actions.append("initialize-draft-capacity-contract")
+
+    return actions
 
 
 def validate_source_profiles_for_direct_imitation(
@@ -322,16 +1416,17 @@ def load_semantic_source(paths: dict[str, Path]) -> dict[str, Any]:
             "version": "1.0",
             "project": paths["project"].name,
             "outline_compilation": {},
+            "section_raw_source_first_tasks": {},
             "section_reviews": {},
             "section_prewrite_reviews": {},
-            "section_draft_tasks": {},
         }
     semantic.setdefault("version", "1.0")
     semantic.setdefault("project", paths["project"].name)
     semantic.setdefault("outline_compilation", {})
+    semantic.setdefault("section_raw_source_first_tasks", {})
     semantic.setdefault("section_reviews", {})
     semantic.setdefault("section_prewrite_reviews", {})
-    semantic.setdefault("section_draft_tasks", {})
+    semantic.pop("section_draft_tasks", None)
     return semantic
 
 
@@ -705,6 +1800,59 @@ def command_compile_outline(paths: dict[str, Path], args: argparse.Namespace) ->
             [],
             args.json,
         )
+    if legacy_module is None and not args.from_existing_receipts:
+        task_errors = validate_outline_semantic_task(paths)
+        if task_errors:
+            return print_flow_result("compile-outline", task_errors, [], args.json)
+    semantic_source_sha = file_sha256(semantic_source) if semantic_source.is_file() else ""
+    if (
+        legacy_module is None
+        and not args.from_existing_receipts
+        and semantic_source_sha
+        and compile_outline_cache_reusable(paths)
+    ):
+        actions = [
+            "reuse-compile-outline-cache",
+            "reuse-validate-outline",
+            "reuse-validate-opening",
+            "reuse-validate-sequence",
+            "reuse-section-source-bundle",
+        ]
+        refresh_paths = REFRESH.project_paths(paths["project"])
+        refresh_jobs = (
+            (
+                section_execution_bindings_reusable(paths),
+                REFRESH.refresh_section_execution,
+                "reuse-section-execution-bindings",
+                "refresh-section-execution-bindings",
+            ),
+            (
+                first_draft_entry_bindings_reusable(paths),
+                REFRESH.refresh_first_draft_entry,
+                "reuse-first-draft-entry-bindings",
+                "refresh-first-draft-entry-bindings",
+            ),
+        )
+        for reusable, refresh, reuse_action, refresh_action in refresh_jobs:
+            if reusable:
+                actions.append(reuse_action)
+                continue
+            refresh_errors = refresh(refresh_paths)
+            if refresh_errors:
+                return print_flow_result("compile-outline", refresh_errors, actions, args.json)
+            actions.append(refresh_action)
+        stale_errors: list[str] = []
+        if paths["section_execution_receipt"].is_file():
+            stale_errors.extend(SECTION_EXECUTION.validate_receipt(paths["section_execution_receipt"])[1])
+        if paths["first_draft_entry"].is_file():
+            stale_errors.extend(FIRST_DRAFT.validate_entry(paths["first_draft_entry"], paths["draft"]))
+        if stale_errors and (paths["first_draft_entry"].is_file() or paths["section_execution_receipt"].is_file()):
+            invalidate_actions = REFRESH.invalidate_draft_bindings(
+                refresh_paths,
+                "compile-outline cache reused but draft receipts still stale against current outline/section bundle",
+            )
+            actions.extend(invalidate_actions)
+        return print_flow_result("compile-outline", [], actions, args.json)
     previous_semantics = None
     if paths["outline_contract"].is_file() and paths["draft_capacity_contract"].is_file():
         try:
@@ -739,41 +1887,59 @@ def command_compile_outline(paths: dict[str, Path], args: argparse.Namespace) ->
         detail = (completed.stderr or completed.stdout or "未知编译错误").strip()
         return print_flow_result("compile-outline", [detail], [], args.json)
 
-    actions = ["compile-outline-performance-and-capacity"]
-    checks = (
-        ("validate-outline", lambda: OUTLINE.validate_receipt(paths["outline_contract"], paths["outline"])),
-        ("validate-opening", lambda: command_errors_for_opening(paths)),
-        (
-            "validate-sequence",
-            lambda: SEQUENCE.validate(
-                paths["sequence_receipt"],
-                paths["setting"],
-                paths["outline"],
-                None,
-            ),
-        ),
-    )
-    for action, validate in checks:
-        errors = validate()
-        if errors:
-            return print_flow_result("compile-outline", errors, actions, args.json)
-        actions.append(action)
-
-    bundle, errors = SECTION_SOURCE_BUNDLE.create_bundle(
-        paths["outline_contract"],
-        paths["source_receipt"],
-    )
-    if errors:
-        return print_flow_result("compile-outline", errors, actions, args.json)
-    SECTION_SOURCE_BUNDLE.write_json(paths["section_source_bundle"], bundle)
-    actions.append("compile-section-source-bundle")
     current_semantics = semantic_digest(
         {
             "outline": read_json(paths["outline_contract"]),
             "capacity": read_json(paths["draft_capacity_contract"]),
         }
     )
-    if previous_semantics == current_semantics:
+    semantics_unchanged = previous_semantics == current_semantics
+
+    actions = ["compile-outline-performance-and-capacity"]
+    outline_errors = (
+        []
+        if semantics_unchanged and outline_receipts_reusable(paths)
+        else OUTLINE.validate_receipt(paths["outline_contract"], paths["outline"])
+    )
+    if outline_errors:
+        return print_flow_result("compile-outline", outline_errors, actions, args.json)
+    actions.append("reuse-validate-outline" if semantics_unchanged and outline_receipts_reusable(paths) else "validate-outline")
+
+    opening_errors = (
+        []
+        if semantics_unchanged and opening_receipt_reusable(paths)
+        else command_errors_for_opening(paths)
+    )
+    if opening_errors:
+        return print_flow_result("compile-outline", opening_errors, actions, args.json)
+    actions.append("reuse-validate-opening" if semantics_unchanged and opening_receipt_reusable(paths) else "validate-opening")
+
+    sequence_errors = (
+        []
+        if semantics_unchanged and sequence_receipt_reusable(paths)
+        else SEQUENCE.validate(
+            paths["sequence_receipt"],
+            paths["setting"],
+            paths["outline"],
+            None,
+        )
+    )
+    if sequence_errors:
+        return print_flow_result("compile-outline", sequence_errors, actions, args.json)
+    actions.append("reuse-validate-sequence" if semantics_unchanged and sequence_receipt_reusable(paths) else "validate-sequence")
+
+    if semantics_unchanged and section_bundle_reusable(paths):
+        actions.append("reuse-section-source-bundle")
+    else:
+        bundle, errors = SECTION_SOURCE_BUNDLE.create_bundle(
+            paths["outline_contract"],
+            paths["source_receipt"],
+        )
+        if errors:
+            return print_flow_result("compile-outline", errors, actions, args.json)
+        SECTION_SOURCE_BUNDLE.write_json(paths["section_source_bundle"], bundle)
+        actions.append("compile-section-source-bundle")
+    if semantics_unchanged:
         refresh_paths = REFRESH.project_paths(paths["project"])
         for refresh, action in (
             (REFRESH.refresh_section_execution, "refresh-section-execution-bindings"),
@@ -800,6 +1966,20 @@ def command_compile_outline(paths: dict[str, Path], args: argparse.Namespace) ->
             "outline/capacity semantics changed after compile-outline",
         )
         actions.extend(invalidate_actions)
+    if (
+        semantic_source_sha
+        and paths["outline_contract"].is_file()
+        and paths["draft_capacity_contract"].is_file()
+        and paths["opening_contract"].is_file()
+        and paths["sequence_receipt"].is_file()
+        and paths["section_source_bundle"].is_file()
+    ):
+        write_compile_outline_cache(
+            paths,
+            semantic_source_sha256=semantic_source_sha,
+            current_semantics=current_semantics,
+        )
+        actions.append("write-compile-outline-cache")
     return print_flow_result("compile-outline", [], actions, args.json)
 
 
@@ -821,6 +2001,41 @@ def export_section_review_task(paths: dict[str, Path], section_id: str) -> None:
         raise ValueError("模型语义输入.section_reviews 必须是对象")
     reviews[section_id] = section_review_semantics(review)
     write_json(semantic_path, semantic)
+
+
+def export_section_raw_source_first_task(paths: dict[str, Path], section_id: str) -> dict[str, str]:
+    bundle = read_json(paths["section_source_bundle"])
+    packet = next(
+        (
+            item
+            for item in bundle.get("packets", [])
+            if isinstance(item, dict) and str(item.get("section_id") or "") == section_id
+        ),
+        None,
+    )
+    if not packet:
+        raise ValueError(f"逐节原文颗粒包缺少 section_id={section_id}")
+    payload = packet.get("payload")
+    if not isinstance(payload, dict):
+        raise ValueError(f"逐节原文颗粒包 section_id={section_id} 缺少 payload")
+    semantic_path = paths["model_semantic_source"]
+    semantic = load_semantic_source(paths)
+    tasks = semantic.setdefault("section_raw_source_first_tasks", {})
+    if not isinstance(tasks, dict):
+        raise ValueError("模型语义输入.section_raw_source_first_tasks 必须是对象")
+    task = SECTION_EXECUTION.build_section_raw_source_first_task(
+        section_id,
+        str(packet.get("packet_id") or ""),
+        str(packet.get("packet_sha256") or ""),
+        payload,
+    )
+    tasks[section_id] = task
+    write_json(semantic_path, semantic)
+    return {
+        "path": str(semantic_path.resolve()),
+        "semantic_key": f"section_raw_source_first_tasks.{section_id}",
+        "fingerprint": SECTION_EXECUTION.task_fingerprint(task),
+    }
 
 
 def section_prewrite_semantics(review: dict[str, Any]) -> dict[str, Any]:
@@ -847,111 +2062,18 @@ def export_section_prewrite_task(paths: dict[str, Path], section_id: str) -> Non
     write_json(semantic_path, semantic)
 
 
-def section_draft_task_semantics(
-    packet: dict[str, Any],
-    plan: dict[str, Any] | None,
-) -> dict[str, Any]:
-    payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
-    section_id = str(packet.get("section_id") or payload.get("section_id") or "")
-    plan = plan or {}
-    draft_instructions = [
-        "先落动作、物件、站位或身体反应，再补主观判断，不得起手总结。",
-        "同一连续瞬间里的动作、感知、误认、停顿和失手必须织在一起，不得拆成报账链。",
-        "来电、目光、签字、门口站位、围观秩序等承重拍不能并句压扁，必须逐拍落地。",
-        "对白后立刻接具体反应或错答，不得用解释句、主题句或作者判断接管现场。",
-        "强情绪不能缩成动作标签库；至少保住注意偏移、身体失控、矛盾冲动、说话失手和场末余痛中的多个层次。",
-        "段落只在控制权换主、注意对象切换、外部秩序压入或情绪阶段改变时断开，禁止一句一段。",
-        "句间关系必须在首写时写实，优先用语序、停顿、重复和口语虚词带出承接，不得后补机械连词。",
-        "结尾只留未结后果和余痛，不得收成结论句、说明句或道理句。",
-    ]
-    return {
-        "section_id": section_id,
-        "granularity_packet_id": str(packet.get("packet_id") or ""),
-        "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
-        "source_slice_bindings": payload.get("source_slice_bindings", []),
-        "source_slice_excerpts": [
-            {
-                "source_path": item.get("source_path", ""),
-                "source_range": item.get("source_range", ""),
-                "source_excerpt_sha256": item.get("source_excerpt_sha256", ""),
-                "source_excerpt_text": item.get("source_excerpt_text", ""),
-                "source_evidence": item.get("source_evidence", []),
-                "style_fields_consumed": item.get("style_fields_consumed", []),
-            }
-            for item in payload.get("source_slice_bindings", [])
-            if isinstance(item, dict)
-        ],
-        "source_performance_excerpt": payload.get("source_performance_excerpt"),
-        "source_performance_evidence": payload.get("source_performance_evidence", []),
-        "source_style_granularity": payload.get("source_style_granularity", {}),
-        "emotion_process": payload.get("emotion_process", {}),
-        "continuous_moment_groups": payload.get("continuous_moment_groups", []),
-        "paragraph_break_reasons": payload.get("paragraph_break_reasons", []),
-        "sentence_relation_plan": payload.get("sentence_relation_plan", []),
-        "function_word_strategy": payload.get("function_word_strategy"),
-        "telegraphic_risk": payload.get("telegraphic_risk"),
-        "emotion_shorthand_to_avoid": payload.get("emotion_shorthand_to_avoid", []),
-        "target_emotion_landing_plan": payload.get("target_emotion_landing_plan", []),
-        "scene_logic_contract": payload.get("scene_logic_contract", {}),
-        "source_emotion_parity": payload.get("source_emotion_parity", {}),
-        "original_scene_granularity": payload.get("original_scene_granularity", {}),
-        "first_draft_style_plan": {
-            "section_manual_judgment": plan.get("sectionManualJudgment"),
-            "first_draft_manual_judgment": plan.get("firstDraftManualJudgment"),
-            "capacity_source_style_granularity": plan.get("capacitySourceStyleGranularity"),
-            "capacity_first_draft_style_plan": plan.get("capacityFirstDraftStylePlan"),
-            "scene_completion": plan.get("sceneCompletion"),
-            "opening_or_turn": plan.get("openingOrTurn"),
-            "planned_words": plan.get("plannedWords"),
-            "target_outline_evidence": plan.get("targetOutlineEvidence", []),
-        },
-        "draft_instructions": draft_instructions,
-        "manual_judgment": (
-            plan.get("firstDraftManualJudgment")
-            or payload.get("manual_judgment")
-            or "正文首写必须完整消费本节原文颗粒，不得只按功能节点交付事件。"
-        ),
-    }
-
-
-def export_section_draft_task(paths: dict[str, Path], section_id: str) -> dict[str, str]:
-    bundle = read_json(paths["section_source_bundle"])
-    packet = next(
-        (
-            item
-            for item in bundle.get("packets", [])
-            if isinstance(item, dict) and str(item.get("section_id") or "") == section_id
-        ),
-        None,
-    )
-    if not packet:
-        raise ValueError(f"逐节原文颗粒包缺少第 {section_id} 节")
-    semantic_path = paths["model_semantic_source"]
-    semantic = load_semantic_source(paths)
-    outline_compilation = semantic.get("outline_compilation")
-    plans = outline_compilation.get("plans") if isinstance(outline_compilation, dict) else None
-    plan = next(
-        (
-            item
-            for item in plans or []
-            if isinstance(item, dict) and str(item.get("id") or "") == section_id
-        ),
-        None,
-    )
-    tasks = semantic.setdefault("section_draft_tasks", {})
-    if not isinstance(tasks, dict):
-        raise ValueError("模型语义输入.section_draft_tasks 必须是对象")
-    task = section_draft_task_semantics(packet, plan)
-    tasks[section_id] = task
-    write_json(semantic_path, semantic)
-    return {
-        "path": str(semantic_path.resolve()),
-        "semantic_key": f"section_draft_tasks.{section_id}",
-        "fingerprint": semantic_digest(task),
-    }
-
-
 def sync_section_draft_tasks(paths: dict[str, Path]) -> list[str]:
+    changed = False
+    semantic_path = paths["model_semantic_source"]
+    if semantic_path.is_file():
+        try:
+            semantic = read_json(semantic_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            return [f"模型语义输入不可读取: {exc}"]
+        if "section_draft_tasks" in semantic:
+            semantic.pop("section_draft_tasks", None)
+            write_json(semantic_path, semantic)
+            changed = True
     receipt_path = paths["section_execution_receipt"]
     if not receipt_path.is_file():
         return []
@@ -962,26 +2084,13 @@ def sync_section_draft_tasks(paths: dict[str, Path]) -> list[str]:
     sections = receipt.get("sections")
     if not isinstance(sections, list):
         return ["逐节首写执行回执.sections 必须是数组"]
-    errors: list[str] = []
     for item in sections:
-        if not isinstance(item, dict):
-            continue
-        section_id = str(item.get("section_id") or "")
-        if not section_id:
-            continue
-        try:
-            draft_task_ref = export_section_draft_task(paths, section_id)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            errors.append(f"第 {section_id} 节正文生成任务同步失败: {exc}")
-            continue
-        bind_result = SECTION_EXECUTION.bind_draft_task(
-            receipt_path,
-            section_id,
-            draft_task_ref,
-        )
-        if bind_result:
-            errors.append(f"第 {section_id} 节正文生成任务绑定失败")
-    return errors
+        if isinstance(item, dict) and "draft_task_ref" in item:
+            item.pop("draft_task_ref", None)
+            changed = True
+    if changed:
+        write_json(receipt_path, receipt)
+    return []
 
 
 def compile_section_prewrite(paths: dict[str, Path], section_id: str) -> list[str]:
@@ -1058,7 +2167,7 @@ def command_write_section(paths: dict[str, Path], args: argparse.Namespace) -> i
             return result
         init_args = argparse.Namespace(
             force=False,
-            auto_refresh_legacy_bindings=False,
+            auto_refresh_legacy_bindings=True,
             use_git_ledger_fallback=False,
         )
         result = command_init_first_draft(paths, init_args)
@@ -1088,18 +2197,18 @@ def command_write_section(paths: dict[str, Path], args: argparse.Namespace) -> i
     if result:
         return result
     try:
-        draft_task_ref = export_section_draft_task(paths, section_id)
-        bind_result = SECTION_EXECUTION.bind_draft_task(
+        raw_task_ref = export_section_raw_source_first_task(paths, section_id)
+        bind_result = SECTION_EXECUTION.bind_raw_source_first_task(
             paths["section_execution_receipt"],
             section_id,
-            draft_task_ref,
+            raw_task_ref,
         )
         if bind_result:
             return bind_result
         export_section_review_task(paths, section_id)
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return print_flow_result("write-section", [f"生成逐节模型任务失败: {exc}"], [], args.json)
-    print(f"semantic task: {paths['model_semantic_source']}#section_draft_tasks.{section_id}")
+    print(f"semantic task: {paths['model_semantic_source']}#section_raw_source_first_tasks.{section_id}")
     print(f"semantic task: {paths['model_semantic_source']}#section_reviews.{section_id}")
     return 0
 
@@ -1213,6 +2322,11 @@ def command_prepare_outline(paths: dict[str, Path], args: argparse.Namespace) ->
     )
     if not errors:
         actions.append("validate-outline-release")
+        try:
+            scaffold_actions = ensure_outline_phase_scaffolds(paths)
+        except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError) as exc:
+            return print_flow_result("prepare-outline", [f"初始化 outline 阶段壳文件失败: {exc}"], actions, args.json)
+        actions.extend(scaffold_actions)
     return print_flow_result("prepare-outline", errors, actions, args.json)
 
 
@@ -1889,6 +3003,24 @@ def command_repair_source_stack(paths: dict[str, Path], args: argparse.Namespace
             )
         primary_root = COLD_START.infer_source_root(primary_profile)
         auxiliary_roots = [COLD_START.infer_source_root(path) for path in deduped_aux]
+        preserved_subflows, preservation_errors = load_preserved_auxiliary_subflow_selections(
+            paths["source_receipt"],
+            auxiliary_roots,
+        )
+        if preservation_errors:
+            raise RuntimeError("\n- ".join(preservation_errors))
+        rebuilt_source_receipt, source_receipt_errors = SOURCE_READ.create_receipt(
+            paths["project"].name,
+            [primary_root, *auxiliary_roots],
+            "compiled",
+            "direct_imitation",
+            preserved_subflows,
+        )
+        if source_receipt_errors:
+            raise RuntimeError(
+                "来源栈无法生成新的待确认拆文读取回执：\n- "
+                + "\n- ".join(source_receipt_errors)
+            )
         merged_profile = PROFILE_GENERATOR.merge_profiles(
             [primary_profile, *deduped_aux],
             paths["project"].name,
@@ -1937,10 +3069,18 @@ def command_repair_source_stack(paths: dict[str, Path], args: argparse.Namespace
         reason="source stack changed; source-bound receipts must be rebuilt",
     )
     actions.extend(
+        archive_source_derived_writing_artifacts(
+            paths,
+            reason="source stack changed; setting, outline, and draft must be regenerated after source reading",
+        )
+    )
+    write_json(paths["source_receipt"], rebuilt_source_receipt)
+    actions.extend(
         [
             f"rewrite profile -> {paths['profile']}",
             f"rewrite manifest -> {paths['cold_start_manifest']}",
             f"rewrite checklist -> {paths['cold_start_checklist']}",
+            f"initialize pending source receipt -> {paths['source_receipt']}",
             f"source_count -> {1 + len(deduped_aux)}",
         ]
     )
@@ -2057,6 +3197,22 @@ def compute_file_statuses(paths: dict[str, Path], checks: dict[str, list[str]]) 
 
 def command_audit_project(paths: dict[str, Path], args: argparse.Namespace) -> int:
     checks = {
+        "setting_release": WRITE_RELEASE.validate_release(
+            "setting",
+            paths["writing_receipt"],
+            paths["source_receipt"],
+            paths["ledger"],
+        ),
+        "setting_sequence": SEQUENCE.validate_setting(paths["setting_sequence_receipt"], paths["setting"])
+        if paths["setting_sequence_receipt"].is_file()
+        else ["设定顺序契约回执不存在"],
+        "outline_release": WRITE_RELEASE.validate_release(
+            "outline",
+            paths["writing_receipt"],
+            paths["source_receipt"],
+            paths["ledger"],
+            setting_sequence_receipt=paths["setting_sequence_receipt"],
+        ),
         "outline": OUTLINE.validate_receipt(paths["outline_contract"], paths["outline"]),
         "draft_release": WRITE_RELEASE.validate_release(
             "draft",
@@ -2151,6 +3307,7 @@ def build_parser() -> argparse.ArgumentParser:
     start_draft.add_argument("--force", action="store_true")
     start_draft.add_argument("--auto-refresh-legacy-bindings", action="store_true")
     start_draft.add_argument("--use-git-ledger-fallback", action="store_true")
+    start_draft.set_defaults(auto_refresh_legacy_bindings=True)
     start_draft.set_defaults(func=command_start_draft)
 
     finish_preview = subparsers.add_parser("finish-draft-preview")
@@ -2192,6 +3349,7 @@ def build_parser() -> argparse.ArgumentParser:
     release = subparsers.add_parser("draft-release")
     release.add_argument("--auto-refresh-legacy-bindings", action="store_true")
     release.add_argument("--use-git-ledger-fallback", action="store_true")
+    release.set_defaults(auto_refresh_legacy_bindings=True)
     release.set_defaults(func=command_draft_release)
 
     sync_sources = subparsers.add_parser("sync-sources")
@@ -2201,6 +3359,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_first.add_argument("--force", action="store_true")
     init_first.add_argument("--auto-refresh-legacy-bindings", action="store_true")
     init_first.add_argument("--use-git-ledger-fallback", action="store_true")
+    init_first.set_defaults(auto_refresh_legacy_bindings=True)
     init_first.set_defaults(func=command_init_first_draft)
 
     validate_first = subparsers.add_parser("validate-first-draft")
@@ -2266,7 +3425,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--aux-source-profile",
         action="append",
         default=[],
-        required=True,
         help="追加的辅助来源 book.profile.json；可重复传入",
     )
     repair_source_stack.set_defaults(func=command_repair_source_stack)

@@ -30,6 +30,10 @@ SEQUENCE = load_module("validate_sequence_contract.py", "story_short_write_cold_
 OUTLINE = load_module("validate_outline_performance_contract.py", "story_short_write_cold_start_outline")
 OPENING = load_module("validate_opening_contract.py", "story_short_write_cold_start_opening")
 DRAFT_CAPACITY = load_module("validate_draft_capacity_contract.py", "story_short_write_cold_start_capacity")
+PROFILE_GENERATOR = load_module(
+    "generate_story_profile.py",
+    "story_short_write_cold_start_profile_generator",
+)
 OUTLINE_REBUILDER_SCAFFOLD = load_module(
     "generate_project_outline_receipt_rebuilder_scaffold.py",
     "story_short_write_outline_rebuilder_scaffold",
@@ -241,8 +245,13 @@ def initialize(
     auxiliary_roots = [infer_source_root(path) for path in auxiliary_source_profiles]
     all_roots = [primary_root, *auxiliary_roots]
     originals = [source_original_path(root) for root in all_roots]
+    merged_profile = PROFILE_GENERATOR.merge_profiles(
+        [primary_source_profile, *auxiliary_source_profiles],
+        paths["project"].name,
+    )
 
     actions: dict[str, str] = {}
+    actions["profile"] = write_json_if_allowed(paths["profile"], merged_profile, force)
 
     writing_receipt, writing_errors = WRITING_RULE.create_receipt(paths["project"].name)
     if writing_errors:

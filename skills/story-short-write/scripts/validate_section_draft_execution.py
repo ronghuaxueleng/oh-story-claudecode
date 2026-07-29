@@ -22,7 +22,11 @@ STYLE_DIMENSIONS = (
     "narrator_interjection_and_roughness",
 )
 PREWRITE_CONFIRMATIONS = (
+    "source_performance_evidence_read",
+    "technique_recall_contract_understood",
+    "scene_weave_contract_understood",
     "source_style_granularity_read",
+    "source_style_reference_assets_read",
     "emotion_process_understood",
     "continuous_moment_groups_understood",
     "paragraph_break_plan_understood",
@@ -43,22 +47,6 @@ def sha256(path: Path) -> str:
 
 def binding(path: Path) -> dict[str, str]:
     return {"path": str(path.resolve()), "sha256": sha256(path)}
-
-
-def semantic_fingerprint(data: Any) -> str:
-    def strip(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                key: strip(item)
-                for key, item in value.items()
-                if key not in {"path", "created_at"} and not key.endswith("sha256")
-            }
-        if isinstance(value, list):
-            return [strip(item) for item in value]
-        return value
-
-    encoded = json.dumps(strip(data), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -112,6 +100,58 @@ def review_check_template() -> dict[str, Any]:
     }
 
 
+def task_fingerprint(data: dict[str, Any]) -> str:
+    encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def validate_complete_granularity_payload(payload: Any, section_id: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(payload, dict):
+        return [f"第 {section_id} 节颗粒包 payload 必须是对象"]
+    for field in (
+        "source_performance_evidence",
+        "technique_recall_contract",
+        "scene_weave_contract",
+        "source_style_reference_assets",
+        "continuous_moment_groups",
+        "paragraph_break_reasons",
+        "sentence_relation_plan",
+        "emotion_shorthand_to_avoid",
+        "target_emotion_landing_plan",
+    ):
+        value = payload.get(field)
+        if not isinstance(value, list) or not value:
+            errors.append(f"第 {section_id} 节颗粒包缺少完整 {field}")
+    for field in (
+        "source_performance_excerpt",
+        "function_word_strategy",
+        "telegraphic_risk",
+        "manual_judgment",
+    ):
+        if not str(payload.get(field) or "").strip():
+            errors.append(f"第 {section_id} 节颗粒包缺少完整 {field}")
+    style = payload.get("source_style_granularity")
+    if not isinstance(style, dict) or set(style) != set(STYLE_DIMENSIONS):
+        errors.append(f"第 {section_id} 节 source_style_granularity 必须完整覆盖六类文风颗粒")
+    else:
+        for dimension in STYLE_DIMENSIONS:
+            item = style.get(dimension)
+            if not isinstance(item, dict):
+                errors.append(f"第 {section_id} 节 source_style_granularity.{dimension} 必须是对象")
+                continue
+            if not str(item.get("source_summary") or "").strip():
+                errors.append(f"第 {section_id} 节 source_style_granularity.{dimension}.source_summary 不能为空")
+            if not str(item.get("target_style_plan") or "").strip():
+                errors.append(f"第 {section_id} 节 source_style_granularity.{dimension}.target_style_plan 不能为空")
+            evidence = item.get("source_evidence")
+            if not isinstance(evidence, list) or not evidence:
+                errors.append(f"第 {section_id} 节 source_style_granularity.{dimension}.source_evidence 不能为空")
+    if payload.get("no_fixed_short_sentence_ratio") is not True:
+        errors.append(f"第 {section_id} 节颗粒包缺少 no_fixed_short_sentence_ratio=true")
+    return errors
+
+
 
 def draft_section_ids(path: Path) -> list[str]:
     if not path.is_file():
@@ -159,7 +199,10 @@ def summarize_prewrite_payload(payload: dict[str, Any]) -> dict[str, Any]:
         ],
         "source_performance_excerpt": payload.get("source_performance_excerpt", []),
         "source_performance_evidence": payload.get("source_performance_evidence", []),
+        "technique_recall_contract": payload.get("technique_recall_contract", []),
+        "scene_weave_contract": payload.get("scene_weave_contract", []),
         "source_style_granularity": payload.get("source_style_granularity", {}),
+        "source_style_reference_assets": payload.get("source_style_reference_assets", []),
         "emotion_process": payload.get("emotion_process", {}),
         "continuous_moment_groups": payload.get("continuous_moment_groups", []),
         "paragraph_break_reasons": payload.get("paragraph_break_reasons", []),
@@ -167,9 +210,102 @@ def summarize_prewrite_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "function_word_strategy": payload.get("function_word_strategy", []),
         "emotion_shorthand_to_avoid": payload.get("emotion_shorthand_to_avoid", []),
         "target_emotion_landing_plan": payload.get("target_emotion_landing_plan", []),
+        "no_fixed_short_sentence_ratio": payload.get("no_fixed_short_sentence_ratio"),
         "scene_logic_contract": payload.get("scene_logic_contract", {}),
         "source_emotion_parity": payload.get("source_emotion_parity", {}),
         "manual_judgment": payload.get("manual_judgment", ""),
+    }
+
+
+def build_raw_source_first_contract(payload: dict[str, Any]) -> dict[str, Any]:
+    original_scene = payload.get("original_scene_granularity")
+    return {
+        "must_write_from_raw_excerpts_first": True,
+        "read_order": [
+            "source_slice_excerpts",
+            "source_performance_excerpt",
+            "source_performance_evidence",
+            "technique_recall_contract",
+            "scene_weave_contract",
+            "source_style_granularity",
+            "source_style_reference_assets",
+            "original_scene_granularity.action_sequence",
+            "emotion_process",
+            "target_emotion_landing_plan",
+            "sentence_relation_plan",
+            "continuous_moment_groups",
+            "paragraph_break_reasons",
+        ],
+        "hard_fail_if_skipped": [
+            "不得脱离原文切片和原场动作顺序，改按抽象摘要首写正文。",
+            "不得把原文切片压成更完整、更会解释的顺滑稿。",
+            "不得先写功能节点，再靠写后扩写补颗粒。",
+        ],
+        "source_slice_excerpts": summarize_prewrite_payload(payload).get("source_slice_excerpts", []),
+        "source_performance_excerpt": payload.get("source_performance_excerpt"),
+        "source_performance_evidence": payload.get("source_performance_evidence", []),
+        "technique_recall_contract": payload.get("technique_recall_contract", []),
+        "scene_weave_contract": payload.get("scene_weave_contract", []),
+        "source_style_granularity": payload.get("source_style_granularity", {}),
+        "source_style_reference_assets": payload.get("source_style_reference_assets", []),
+        "required_action_sequence": original_scene.get("action_sequence", "") if isinstance(original_scene, dict) else "",
+        "required_body_object_space_control": (
+            original_scene.get("body_object_space_control", "") if isinstance(original_scene, dict) else ""
+        ),
+        "required_dialogue_misfire": (
+            original_scene.get("dialogue_forces_action", "") if isinstance(original_scene, dict) else ""
+        ),
+        "required_scene_end_residue": original_scene.get("scene_end_residue", "") if isinstance(original_scene, dict) else "",
+        "emotion_process": payload.get("emotion_process", {}),
+        "target_emotion_landing_plan": payload.get("target_emotion_landing_plan", []),
+        "sentence_relation_plan": payload.get("sentence_relation_plan", []),
+        "continuous_moment_groups": payload.get("continuous_moment_groups", []),
+        "paragraph_break_reasons": payload.get("paragraph_break_reasons", []),
+        "function_word_strategy": payload.get("function_word_strategy"),
+        "telegraphic_risk": payload.get("telegraphic_risk"),
+        "emotion_shorthand_to_avoid": payload.get("emotion_shorthand_to_avoid", []),
+    }
+
+
+def build_section_raw_source_first_task(
+    section_id: str,
+    packet_id: str,
+    packet_sha256: str,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    payload_errors = validate_complete_granularity_payload(payload, section_id)
+    if payload_errors:
+        raise ValueError("; ".join(payload_errors))
+    summary = summarize_prewrite_payload(payload)
+    raw_source_first_contract = payload.get("raw_source_first_contract")
+    if not isinstance(raw_source_first_contract, dict) or not raw_source_first_contract:
+        raw_source_first_contract = build_raw_source_first_contract(payload)
+    return {
+        "section_id": section_id,
+        "granularity_packet_id": packet_id,
+        "granularity_packet_sha256": packet_sha256,
+        "writing_priority": [
+            "source_slice_excerpts",
+            "source_performance_evidence",
+            "technique_recall_contract",
+            "scene_weave_contract",
+            "source_style_granularity",
+            "source_style_reference_assets",
+            "emotion_process",
+            "target_emotion_landing_plan",
+            "raw_source_first_contract",
+            "source_slice_bindings",
+        ],
+        "source_slice_bindings": payload.get("source_slice_bindings", []),
+        "source_slice_excerpts": summary.get("source_slice_excerpts", []),
+        "source_performance_evidence": summary.get("source_performance_evidence", []),
+        "technique_recall_contract": summary.get("technique_recall_contract", []),
+        "scene_weave_contract": summary.get("scene_weave_contract", []),
+        "source_style_granularity": summary.get("source_style_granularity", {}),
+        "source_style_reference_assets": summary.get("source_style_reference_assets", []),
+        "emotion_process": summary.get("emotion_process", {}),
+        "target_emotion_landing_plan": summary.get("target_emotion_landing_plan", []),
+        "raw_source_first_contract": raw_source_first_contract,
     }
 
 
@@ -227,6 +363,7 @@ def validate_prewrite_review(
     if str(review.get("granularity_packet_sha256") or "") != str(packet.get("packet_sha256") or ""):
         errors.append("写前颗粒确认绑定的颗粒包 SHA 不一致")
     payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
+    errors.extend(validate_complete_granularity_payload(payload, section_id))
     expected_bindings = payload.get("source_slice_bindings")
     if review.get("source_slice_bindings") != expected_bindings:
         errors.append("写前颗粒确认未完整继承本节原文切片绑定")
@@ -250,6 +387,46 @@ def print_prewrite_contract(section_id: str, packet: dict[str, Any]) -> None:
     payload = packet.get("payload") if isinstance(packet.get("payload"), dict) else {}
     print(f"section_prewrite: section {section_id} contract")
     print(json.dumps(summarize_prewrite_payload(payload), ensure_ascii=False, indent=2))
+
+
+def validate_raw_task_ref(value: Any, section_id: str, packet: dict[str, Any], errors: list[str]) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"第 {section_id} 节 raw_task_ref 必须是对象")
+        return
+    semantic_path = Path(str(value.get("path") or "")).expanduser().resolve()
+    semantic_key = str(value.get("semantic_key") or "")
+    fingerprint = str(value.get("fingerprint") or "")
+    if not semantic_path.is_file():
+        errors.append(f"第 {section_id} 节 raw_task_ref.path 不存在: {semantic_path}")
+        return
+    expected_key = f"section_raw_source_first_tasks.{section_id}"
+    if semantic_key != expected_key:
+        errors.append(f"第 {section_id} 节 raw_task_ref.semantic_key 必须为 {expected_key}")
+        return
+    try:
+        semantic = read_json(semantic_path)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        errors.append(f"第 {section_id} 节 raw_task_ref 指向的模型语义输入不可读取: {exc}")
+        return
+    tasks = semantic.get("section_raw_source_first_tasks")
+    task = tasks.get(section_id) if isinstance(tasks, dict) else None
+    if not isinstance(task, dict):
+        errors.append(f"第 {section_id} 节缺少 section_raw_source_first_tasks.{section_id}")
+        return
+    try:
+        expected_task = build_section_raw_source_first_task(
+            section_id,
+            str(packet.get("packet_id") or ""),
+            str(packet.get("packet_sha256") or ""),
+            packet.get("payload") if isinstance(packet.get("payload"), dict) else {},
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+        return
+    if task != expected_task:
+        errors.append(f"第 {section_id} 节首写原文任务已失效，必须重新导出")
+    if fingerprint != task_fingerprint(task):
+        errors.append(f"第 {section_id} 节 raw_task_ref.fingerprint 已失效")
 
 
 def validate_receipt(
@@ -276,32 +453,6 @@ def validate_receipt(
     completed_ids: list[str] = []
     open_count = 0
 
-    def validate_draft_task_ref(value: Any, section_id: str) -> None:
-        if not isinstance(value, dict):
-            errors.append(f"第 {section_id} 节 draft_task_ref 必须是对象")
-            return
-        semantic_path = Path(str(value.get("path") or "")).expanduser().resolve()
-        semantic_key = str(value.get("semantic_key") or "")
-        fingerprint = str(value.get("fingerprint") or "")
-        if not semantic_path.is_file():
-            errors.append(f"第 {section_id} 节正文生成任务文件不存在: {semantic_path}")
-            return
-        if semantic_key != f"section_draft_tasks.{section_id}":
-            errors.append(f"第 {section_id} 节正文生成任务 key 不一致")
-            return
-        try:
-            semantic = read_json(semantic_path)
-        except (OSError, json.JSONDecodeError, ValueError) as exc:
-            errors.append(f"第 {section_id} 节正文生成任务不可读取: {exc}")
-            return
-        tasks = semantic.get("section_draft_tasks")
-        task = tasks.get(section_id) if isinstance(tasks, dict) else None
-        if not isinstance(task, dict):
-            errors.append(f"第 {section_id} 节缺少 section_draft_tasks.{section_id}")
-            return
-        if fingerprint != semantic_fingerprint(task):
-            errors.append(f"第 {section_id} 节正文生成任务指纹已变化")
-
     for item in sections:
         if not isinstance(item, dict):
             errors.append("sections 含非对象")
@@ -310,11 +461,10 @@ def validate_receipt(
         section_id = str(item.get("section_id") or "")
         if status == "completed":
             completed_ids.append(section_id)
-            validate_draft_task_ref(item.get("draft_task_ref"), section_id)
             prewrite_path = check_binding(item.get("prewrite_review_receipt"), f"第 {section_id} 节 prewrite_review_receipt", errors)
+            packet = None
             if prewrite_path:
                 bundle_path = check_binding(data.get("section_source_bundle"), "section_source_bundle", errors)
-                packet = None
                 if bundle_path:
                     bundle = read_json(bundle_path)
                     packet = next(
@@ -330,10 +480,19 @@ def validate_receipt(
                 if packet:
                     _, prewrite_errors = validate_prewrite_review(prewrite_path, section_id, packet, draft)
                     errors.extend(prewrite_errors)
+            if packet:
+                validate_raw_task_ref(item.get("raw_task_ref"), section_id, packet, errors)
             for field in ("opened_at", "closed_at", "read_judgment", "manual_judgment", "section_sha256", "draft_sha256_after_close"):
                 if not str(item.get(field) or "").strip():
                     errors.append(f"第 {section_id} 节缺少 {field}")
-            for field in ("event_flow", "emotion_flow", "style_granularity", "telegraphic_and_relation_check"):
+            for field in (
+                "event_flow",
+                "emotion_flow",
+                "technique_recall_check",
+                "scene_weave_check",
+                "style_granularity",
+                "telegraphic_and_relation_check",
+            ):
                 if item.get(field) != "passed":
                     errors.append(f"第 {section_id} 节 {field} 必须为 passed")
             records = item.get("source_read_records")
@@ -343,11 +502,10 @@ def validate_receipt(
             check_binding(item.get("review_receipt"), f"第 {section_id} 节 review_receipt", errors)
         elif status == "open":
             open_count += 1
-            validate_draft_task_ref(item.get("draft_task_ref"), section_id)
             prewrite_path = check_binding(item.get("prewrite_review_receipt"), f"第 {section_id} 节 prewrite_review_receipt", errors)
+            packet = None
             if prewrite_path:
                 bundle_path = check_binding(data.get("section_source_bundle"), "section_source_bundle", errors)
-                packet = None
                 if bundle_path:
                     bundle = read_json(bundle_path)
                     packet = next(
@@ -363,6 +521,8 @@ def validate_receipt(
                 if packet:
                     _, prewrite_errors = validate_prewrite_review(prewrite_path, section_id, packet, draft)
                     errors.extend(prewrite_errors)
+            if packet:
+                validate_raw_task_ref(item.get("raw_task_ref"), section_id, packet, errors)
             if not allow_open_with_content:
                 current_content = section_text(draft, section_id) if draft.is_file() else ""
                 if current_content:
@@ -375,9 +535,14 @@ def validate_receipt(
     if open_count > 1:
         errors.append("同时只能打开一个小节")
     actual_ids = draft_section_ids(draft)
-    allowed_ids = completed_ids + [
-        str(item.get("section_id")) for item in sections if isinstance(item, dict) and item.get("status") == "open"
-    ]
+    allowed_ids = list(completed_ids)
+    for item in sections:
+        if not isinstance(item, dict) or item.get("status") != "open":
+            continue
+        open_section_id = str(item.get("section_id") or "")
+        open_content = section_text(draft, open_section_id) if draft.is_file() else ""
+        if open_content:
+            allowed_ids.append(open_section_id)
     if actual_ids != allowed_ids:
         errors.append(
             "正文小节与逐节执行状态不一致；禁止先批量写完再补回执: "
@@ -435,13 +600,17 @@ def init_receipt(
         if not packet:
             print(f"section_draft_execution: blocked\n- 第 {section_id} 节缺少逐节原文颗粒包")
             return 2
+        payload_errors = validate_complete_granularity_payload(packet.get("payload"), section_id)
+        if payload_errors:
+            print("section_draft_execution: blocked\n- " + "\n- ".join(payload_errors))
+            return 2
         sections.append({
             "section_id": section_id,
             "status": "pending",
             "granularity_packet_id": str(packet.get("packet_id") or ""),
             "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
-            "draft_task_ref": {},
             "prewrite_review_receipt": {},
+            "raw_task_ref": {},
             "source_slice_bindings": bindings,
             "source_read_records": [],
             "review_receipt": {},
@@ -451,6 +620,8 @@ def init_receipt(
             "manual_judgment": "",
             "event_flow": "pending",
             "emotion_flow": "pending",
+            "technique_recall_check": "pending",
+            "scene_weave_check": "pending",
             "style_granularity": "pending",
             "telegraphic_and_relation_check": "pending",
             "section_sha256": "",
@@ -541,35 +712,6 @@ def ensure_prewrite_review(receipt: Path, section_id: str) -> int:
     return 0
 
 
-def bind_draft_task(receipt: Path, section_id: str, draft_task_ref: dict[str, str]) -> int:
-    try:
-        data = read_json(receipt)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
-        print(f"section_draft_execution: blocked\n- 回执无法读取: {exc}")
-        return 2
-    sections = data.get("sections")
-    if not isinstance(sections, list):
-        print("section_draft_execution: blocked\n- sections 必须是数组")
-        return 2
-    target = next((item for item in sections if isinstance(item, dict) and item.get("section_id") == section_id), None)
-    if not target:
-        print("section_draft_execution: blocked\n- 目标小节不存在")
-        return 2
-    semantic_path = Path(str(draft_task_ref.get("path") or "")).expanduser().resolve()
-    semantic_key = str(draft_task_ref.get("semantic_key") or "")
-    fingerprint = str(draft_task_ref.get("fingerprint") or "")
-    if not semantic_path.is_file() or semantic_key != f"section_draft_tasks.{section_id}" or not fingerprint:
-        print("section_draft_execution: blocked\n- 正文生成任务绑定信息无效")
-        return 2
-    target["draft_task_ref"] = {
-        "path": str(semantic_path),
-        "semantic_key": semantic_key,
-        "fingerprint": fingerprint,
-    }
-    write_json(receipt, data)
-    return 0
-
-
 def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
     prewrite_result = ensure_prewrite_review(receipt, section_id)
     if prewrite_result:
@@ -609,6 +751,10 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
         print("section_draft_execution: blocked\n- 当前小节颗粒包不存在或 SHA 不一致")
         return 2
     payload = packet.get("payload")
+    payload_errors = validate_complete_granularity_payload(payload, section_id)
+    if payload_errors:
+        print("section_draft_execution: blocked\n- " + "\n- ".join(payload_errors))
+        return 2
     packet_bindings = payload.get("source_slice_bindings") if isinstance(payload, dict) else None
     if not isinstance(packet_bindings, list) or not packet_bindings:
         print("section_draft_execution: blocked\n- 当前小节颗粒包缺少原文切片")
@@ -656,6 +802,8 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
         "checks": {
             "event_flow": review_check_template(),
             "emotion_flow": review_check_template(),
+            "technique_recall_check": review_check_template(),
+            "scene_weave_check": review_check_template(),
             "style_granularity": {
                 "status": "pending",
                 "dimensions": {name: review_check_template() for name in STYLE_DIMENSIONS},
@@ -671,6 +819,7 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
     target["opened_at"] = now_iso()
     target["read_judgment"] = judgment
     target["source_read_records"] = read_records
+    target["raw_task_ref"] = {}
     target["review_receipt"] = {"path": str(review_path.resolve()), "sha256": sha256(review_path)}
     write_json(receipt, data)
     print(f"section_draft_execution: section {section_id} open")
@@ -679,6 +828,80 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
         print(f"--- source slice {index}: {item['source_path']} {item['source_range']} ---")
         print(excerpt)
         print(f"--- end source slice {index} ---")
+    print("--- raw source first contract ---")
+    raw_source_first_contract = payload.get("raw_source_first_contract")
+    if not isinstance(raw_source_first_contract, dict) or not raw_source_first_contract:
+        raw_source_first_contract = build_raw_source_first_contract(payload)
+    print(
+        json.dumps(
+            {
+                "writing_priority": [
+                    "source_slice_excerpts",
+                    "source_performance_evidence",
+                    "technique_recall_contract",
+                    "scene_weave_contract",
+                    "source_style_granularity",
+                    "source_style_reference_assets",
+                    "emotion_process",
+                    "target_emotion_landing_plan",
+                    "raw_source_first_contract",
+                    "source_slice_bindings",
+                    "draft_instructions",
+                ],
+                "raw_source_first_contract": raw_source_first_contract,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
+def bind_raw_source_first_task(receipt: Path, section_id: str, raw_task_ref: dict[str, str]) -> int:
+    try:
+        data = read_json(receipt)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"section_draft_execution: blocked\n- 回执无法读取: {exc}")
+        return 2
+    binding_errors: list[str] = []
+    for key in ("outline_contract", "source_receipt", "section_source_bundle"):
+        check_binding(data.get(key), key, binding_errors)
+    if binding_errors:
+        print("section_draft_execution: blocked\n- " + "\n- ".join(binding_errors))
+        return 2
+    sections = data.get("sections")
+    if not isinstance(sections, list):
+        print("section_draft_execution: blocked\n- sections 必须是数组")
+        return 2
+    target = next((item for item in sections if isinstance(item, dict) and item.get("section_id") == section_id), None)
+    if not target or target["status"] != "open":
+        print("section_draft_execution: blocked\n- 目标小节尚未 open")
+        return 2
+    bundle_path = Path(str(data["section_source_bundle"]["path"])).resolve()
+    bundle = read_json(bundle_path)
+    packet = next(
+        (
+            item
+            for item in bundle.get("packets", [])
+            if isinstance(item, dict) and str(item.get("section_id") or "") == section_id
+        ),
+        None,
+    )
+    if not packet:
+        print("section_draft_execution: blocked\n- 当前小节缺少逐节原文颗粒包")
+        return 2
+    binding_errors = []
+    validate_raw_task_ref(raw_task_ref, section_id, packet, binding_errors)
+    if binding_errors:
+        print("section_draft_execution: blocked\n- " + "\n- ".join(binding_errors))
+        return 2
+    target["raw_task_ref"] = {
+        "path": str(Path(str(raw_task_ref["path"])).expanduser().resolve()),
+        "semantic_key": str(raw_task_ref["semantic_key"]),
+        "fingerprint": str(raw_task_ref["fingerprint"]),
+    }
+    write_json(receipt, data)
+    print(f"section_draft_execution: section {section_id} raw-source task bound")
     return 0
 
 
@@ -745,6 +968,8 @@ def validate_review(
         return review, errors + ["逐节停检 checks 必须是对象"]
     validate_check("event_flow", checks.get("event_flow"))
     validate_check("emotion_flow", checks.get("emotion_flow"))
+    validate_check("technique_recall_check", checks.get("technique_recall_check"))
+    validate_check("scene_weave_check", checks.get("scene_weave_check"))
     validate_check("telegraphic_and_relation_check", checks.get("telegraphic_and_relation_check"))
     style = checks.get("style_granularity")
     if not isinstance(style, dict):
@@ -806,6 +1031,8 @@ def close_section(receipt: Path, section_id: str, review_path: Path) -> int:
         "manual_judgment": review["manual_judgment"].strip(),
         "event_flow": checks["event_flow"]["status"],
         "emotion_flow": checks["emotion_flow"]["status"],
+        "technique_recall_check": checks["technique_recall_check"]["status"],
+        "scene_weave_check": checks["scene_weave_check"]["status"],
         "style_granularity": checks["style_granularity"]["status"],
         "telegraphic_and_relation_check": checks["telegraphic_and_relation_check"]["status"],
         "review_receipt": binding(review_path),
@@ -849,24 +1076,35 @@ def reset_section(receipt: Path, section_id: str) -> int:
     text = draft.read_text(encoding="utf-8") if draft.is_file() else ""
     matches = list(SECTION_RE.finditer(text))
     target_match = next((match for match in matches if match.group(1) == section_id), None)
-    if not target_match or target_match != matches[-1]:
-        print("section_draft_execution: blocked\n- 目标小节不是正文最后一个小节")
-        return 2
+    can_reset_without_archive = (
+        target.get("status") == "open"
+        and not target_match
+        and not text.strip()
+    )
+    if not can_reset_without_archive:
+        if not target_match or target_match != matches[-1]:
+            print("section_draft_execution: blocked\n- 目标小节不是正文最后一个小节")
+            return 2
     timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
     archive_dir = receipt.parent / "首稿小节归档"
     archive_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = archive_dir / f"第{section_id}节-{timestamp}.md"
-    archive_path.write_text(text[target_match.start() :].rstrip() + "\n", encoding="utf-8")
-    retained = text[: target_match.start()].rstrip()
-    draft.write_text((retained + "\n") if retained else "", encoding="utf-8")
+    archive_path: Path | None = None
+    if target_match:
+        archive_path = archive_dir / f"第{section_id}节-{timestamp}.md"
+        archive_path.write_text(text[target_match.start() :].rstrip() + "\n", encoding="utf-8")
+        retained = text[: target_match.start()].rstrip()
+        draft.write_text((retained + "\n") if retained else "", encoding="utf-8")
+    elif can_reset_without_archive:
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("", encoding="utf-8")
     old_review = section_review_path(receipt, section_id)
     if old_review.is_file():
         old_review.replace(archive_dir / f"第{section_id}节停检-{timestamp}.json")
     target.update(
         {
             "status": "pending",
-            "draft_task_ref": {},
             "source_read_records": [],
+            "raw_task_ref": {},
             "review_receipt": {},
             "opened_at": "",
             "closed_at": "",
@@ -874,6 +1112,8 @@ def reset_section(receipt: Path, section_id: str) -> int:
             "manual_judgment": "",
             "event_flow": "pending",
             "emotion_flow": "pending",
+            "technique_recall_check": "pending",
+            "scene_weave_check": "pending",
             "style_granularity": "pending",
             "telegraphic_and_relation_check": "pending",
             "section_sha256": "",
@@ -884,7 +1124,8 @@ def reset_section(receipt: Path, section_id: str) -> int:
     data["gate_status"] = "active"
     write_json(receipt, data)
     print(f"section_draft_execution: section {section_id} reset")
-    print(f"archive: {archive_path}")
+    if archive_path is not None:
+        print(f"archive: {archive_path}")
     return 0
 
 
@@ -901,6 +1142,12 @@ def main() -> int:
     opening.add_argument("--receipt", required=True)
     opening.add_argument("--section", required=True)
     opening.add_argument("--read-judgment", required=True)
+    bind_task = sub.add_parser("bind-raw-task")
+    bind_task.add_argument("--receipt", required=True)
+    bind_task.add_argument("--section", required=True)
+    bind_task.add_argument("--path", required=True)
+    bind_task.add_argument("--semantic-key", required=True)
+    bind_task.add_argument("--fingerprint", required=True)
     prewrite = sub.add_parser("ensure-prewrite-review")
     prewrite.add_argument("--receipt", required=True)
     prewrite.add_argument("--section", required=True)
@@ -925,6 +1172,16 @@ def main() -> int:
         )
     if args.command == "open-section":
         return open_section(receipt, args.section, args.read_judgment)
+    if args.command == "bind-raw-task":
+        return bind_raw_source_first_task(
+            receipt,
+            args.section,
+            {
+                "path": args.path,
+                "semantic_key": args.semantic_key,
+                "fingerprint": args.fingerprint,
+            },
+        )
     if args.command == "ensure-prewrite-review":
         return ensure_prewrite_review(receipt, args.section)
     if args.command == "close-section":

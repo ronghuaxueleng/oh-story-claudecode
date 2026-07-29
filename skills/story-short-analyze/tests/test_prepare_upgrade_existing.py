@@ -22,6 +22,55 @@ SPEC.loader.exec_module(PREPARE)
 
 
 class PrepareUpgradeExistingTest(unittest.TestCase):
+    def test_upgrade_plan_lists_uncovered_parent_bridges(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "拆文库" / "旧书"
+            asset_dir = root / "写作资产"
+            original_dir = root / "原文"
+            asset_dir.mkdir(parents=True)
+            original_dir.mkdir()
+            source = original_dir / "旧书.txt"
+            source.write_text("第一行\n第二行", encoding="utf-8")
+            (asset_dir / "桥段施工卡.md").write_text(
+                "- 桥段ID：OPEN-01\n\n## BID-01 已覆盖桥段\n",
+                encoding="utf-8",
+            )
+            (asset_dir / "子流程索引.jsonl").write_text(
+                json.dumps(
+                    {
+                        "subflow_id": "SF-01",
+                        "parent_bridge_id": "BID-01",
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (root / "_source_manifest.json").write_text(
+                json.dumps(
+                    {
+                        "source_file": str(source),
+                        "copied_to": str(source),
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            payload = PREPARE.upgrade_existing(
+                argparse.Namespace(
+                    upgrade_existing=str(root),
+                    source=None,
+                    name=None,
+                )
+            )
+
+            self.assertEqual(["OPEN-01"], payload["uncovered_parent_bridge_ids"])
+            plan = (root / "_upgrade_plan.md").read_text(encoding="utf-8")
+            self.assertIn("## 未下钻父桥段", plan)
+            self.assertIn("`OPEN-01`", plan)
+            self.assertIn("source_style_granularity", plan)
+
     def test_upgrade_existing_keeps_existing_outputs_and_writes_backfill_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "拆文库" / "旧书"

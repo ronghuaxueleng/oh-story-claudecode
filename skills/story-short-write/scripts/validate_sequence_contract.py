@@ -29,17 +29,28 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    value = json.loads(read_text(path))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} 必须是 JSON 对象")
+    return value
+
+
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
     if not path.is_file():
         errors.append(f"{label}不存在: {path}")
         return None
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
+        value = _load_json(path)
     except json.JSONDecodeError as exc:
         errors.append(f"{label}不是有效 JSON: {exc}")
         return None
-    if not isinstance(value, dict):
-        errors.append(f"{label}必须是 JSON 对象")
+    except ValueError as exc:
+        errors.append(str(exc))
         return None
     return value
 
@@ -127,7 +138,7 @@ def validate_setting(
     elif binding.get("sha256") != sha256(setting_path):
         errors.append("设定 SHA 已变化，必须重新审查设定内部顺序")
 
-    text = setting_path.read_text(encoding="utf-8") if setting_path.is_file() else ""
+    text = read_text(setting_path) if setting_path.is_file() else ""
     setting_offsets: list[int] = []
     for index, item in enumerate(sequence, 1):
         if not isinstance(item, dict):
@@ -202,7 +213,7 @@ def validate(
             continue
         if binding.get("sha256") != sha256(path):
             errors.append(f"顺序契约 {key} SHA 已变化，必须重新审查")
-        texts[key] = path.read_text(encoding="utf-8")
+        texts[key] = read_text(path)
 
     conflict_review = data.get("conflict_review")
     if not isinstance(conflict_review, dict):
@@ -280,7 +291,7 @@ def init_receipt(project: str, setting: Path, outline: Path, draft: Path | None,
     for key, path in (("setting", setting), ("outline", outline), ("draft", draft)):
         if path is None:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = read_text(path)
         artifacts[key] = {
             "path": str(path.resolve()),
             "sha256": sha256(path.resolve()),
@@ -353,7 +364,7 @@ def extend_setting_receipt(
     outline_path = outline.resolve()
     if not outline_path.is_file():
         return [f"大纲不存在: {outline_path}"]
-    outline_text = outline_path.read_text(encoding="utf-8")
+    outline_text = read_text(outline_path)
     sequence = []
     for node in data.get("canonical_sequence", []):
         if isinstance(node, dict):
@@ -413,7 +424,7 @@ def extend_draft_receipt(receipt: Path, draft: Path) -> list[str]:
     draft_path = draft.resolve()
     if not draft_path.is_file():
         return [f"正文不存在: {draft_path}"]
-    draft_text = draft_path.read_text(encoding="utf-8")
+    draft_text = read_text(draft_path)
     data.setdefault("artifacts", {})["draft"] = {
         "path": str(draft_path),
         "sha256": sha256(draft_path),

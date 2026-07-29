@@ -105,11 +105,25 @@ class SubflowAssetTest(unittest.TestCase):
 
     def test_uncovered_bridge_blocks(self) -> None:
         card = self.root / "写作资产" / "桥段施工卡.md"
-        card.write_text("## BID-01 公开失位\n\n## BID-02 私域换主\n", encoding="utf-8")
+        card.write_text(
+            "- 桥段ID：BID-01\n\n- 桥段ID：BID-02\n",
+            encoding="utf-8",
+        )
         self.write_entries([subflow()])
         errors: list[str] = []
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
-        self.assertTrue(any("未覆盖全部父 BID" in error for error in errors))
+        self.assertTrue(any("未覆盖全部父桥段" in error for error in errors))
+
+    def test_open_and_mid_bridge_must_also_be_covered(self) -> None:
+        card = self.root / "写作资产" / "桥段施工卡.md"
+        card.write_text(
+            "- 桥段ID：OPEN-01\n\n- 桥段ID：BID-01\n\n- 桥段ID：MID-02\n",
+            encoding="utf-8",
+        )
+        self.write_entries([subflow(bridge_id="BID-01")])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("OPEN-01" in error and "MID-02" in error for error in errors))
 
     def test_fake_source_evidence_blocks(self) -> None:
         entry = subflow()

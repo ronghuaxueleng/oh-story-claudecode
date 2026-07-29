@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-SECTION_PATTERN = re.compile(r"^##\s+(\d+)[.、．]")
+SECTION_PATTERN = re.compile(r"^##\s+(?:第)?(\d+)(?:[.、．]|节)")
 BRIDGE_HEADING_PATTERN = re.compile(r"^##\s+\[?(BID-\d+)\]?", re.MULTILINE)
 OUTLINE_METADATA_PREFIXES = (
     "- 情绪：",
@@ -398,38 +398,6 @@ def create_receipt(
                     "source_slice_bindings": [],
                     "source_performance_excerpt": "",
                     "source_performance_evidence": [],
-                    "source_style_granularity": {
-                        "narrative_voice_and_attitude": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                        "sentence_relation_and_rhythm": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                        "paragraph_breath_and_cut_points": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                        "dialogue_misfire_or_avoidance": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                        "action_perception_emotion_weave": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                        "narrator_interjection_and_roughness": {
-                            "source_summary": "",
-                            "source_evidence": [],
-                            "target_style_plan": "",
-                        },
-                    },
                     "source_excerpt_reuse_reason": "",
                     "emotion_process": {
                         "entry_state": "",
@@ -959,6 +927,21 @@ def validate_first_draft_generation_contract(
             if start < 1 or end < start or end > len(source_lines):
                 errors.append(f"{binding_label}.source_range 超出原文范围")
                 continue
+            if end - start + 1 > 35:
+                errors.append(
+                    f"{binding_label}.source_range 过宽（{end - start + 1} 行）；"
+                    "正文首写不得绑定跨场大切片"
+                )
+            excerpt_lines = source_lines[start - 1 : end]
+            chapter_markers = [
+                line.strip()
+                for line in excerpt_lines
+                if re.fullmatch(r"(?:第?\d+[章节节]?|[0-9]+[.、]?)", line.strip())
+            ]
+            if chapter_markers:
+                errors.append(
+                    f"{binding_label}.source_range 疑似跨自然节/章节标记: {' / '.join(chapter_markers[:3])}"
+                )
             source_slice = "\n".join(source_lines[start - 1 : end])
             evidence = binding.get("source_evidence")
             quotes = [str(quote).strip() for quote in evidence if str(quote).strip()] if isinstance(evidence, list) else []
@@ -992,57 +975,6 @@ def validate_first_draft_generation_contract(
         for quote in distinct_source_evidence:
             if not any(quote in text for text in source_texts.values()):
                 errors.append(f"{label} 原文表演证据不在选中原文中: {quote!r}")
-
-    style_granularity = value.get("source_style_granularity")
-    if not isinstance(style_granularity, dict):
-        errors.append(f"{label} first_draft_generation_contract.source_style_granularity 必须是对象")
-    else:
-        expected_fields = {
-            "narrative_voice_and_attitude",
-            "sentence_relation_and_rhythm",
-            "paragraph_breath_and_cut_points",
-            "dialogue_misfire_or_avoidance",
-            "action_perception_emotion_weave",
-            "narrator_interjection_and_roughness",
-        }
-        style_plan_texts: list[str] = []
-        style_evidence_sets: list[tuple[str, ...]] = []
-        if set(style_granularity) != expected_fields:
-            errors.append(f"{label} source_style_granularity 必须完整覆盖六类文风颗粒")
-        for field in expected_fields:
-            item = style_granularity.get(field)
-            if not isinstance(item, dict):
-                errors.append(f"{label} source_style_granularity.{field} 必须是对象")
-                continue
-            if not nonempty_text(item.get("source_summary")):
-                errors.append(f"{label} source_style_granularity.{field}.source_summary 不能为空")
-            if not nonempty_text(item.get("target_style_plan")):
-                errors.append(f"{label} source_style_granularity.{field}.target_style_plan 不能为空")
-            else:
-                style_plan_texts.append(str(item.get("target_style_plan")).strip())
-            evidence = item.get("source_evidence")
-            if not nonempty_list(evidence, minimum=1):
-                errors.append(f"{label} source_style_granularity.{field}.source_evidence 至少需要 1 条原文证据")
-            else:
-                normalized_quotes = tuple(
-                    sorted({str(quote).strip() for quote in evidence if str(quote).strip()})
-                )
-                style_evidence_sets.append(normalized_quotes)
-                for quote in normalized_quotes:
-                    if not any(quote in text for text in source_texts.values()):
-                        errors.append(
-                            f"{label} source_style_granularity.{field}.source_evidence 不在选中原文中: {quote!r}"
-                        )
-        if style_plan_texts and len(set(style_plan_texts)) <= 2:
-            errors.append(
-                f"{label} source_style_granularity.target_style_plan 过度重复，"
-                "不能用同一句模板覆盖六类文风颗粒"
-            )
-        if style_evidence_sets and len(set(style_evidence_sets)) <= 2:
-            errors.append(
-                f"{label} source_style_granularity.source_evidence 过度重复，"
-                "不能让六类文风颗粒共用同一组原文证据"
-            )
 
     emotion_process = value.get("emotion_process")
     if not isinstance(emotion_process, dict):

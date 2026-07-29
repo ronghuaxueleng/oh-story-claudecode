@@ -96,17 +96,20 @@ _REFRESH_LEGACY_BINDINGS_PATH = Path(__file__).with_name(
 def auto_refresh_legacy_bindings(
     project: Path,
     use_git_ledger_fallback: bool,
+    *,
+    repair_ledger: bool = False,
 ) -> list[str]:
     cmd = [
         sys.executable,
         str(_REFRESH_LEGACY_BINDINGS_PATH),
         "--project",
         str(project),
-        "--repair-ledger",
         "--refresh-bindings",
         "--rebuild-section-bundle",
         "--validate",
     ]
+    if repair_ledger:
+        cmd.append("--repair-ledger")
     if use_git_ledger_fallback:
         cmd.append("--use-git-ledger-fallback")
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -339,6 +342,7 @@ def validate_release(
         refresh_errors = auto_refresh_legacy_bindings(
             project,
             use_git_ledger_fallback=use_git_ledger_fallback,
+            repair_ledger=False,
         )
         if refresh_errors:
             return refresh_errors

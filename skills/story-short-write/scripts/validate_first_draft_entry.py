@@ -55,17 +55,23 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def auto_refresh_legacy_bindings(project: Path, use_git_ledger_fallback: bool) -> list[str]:
+def auto_refresh_legacy_bindings(
+    project: Path,
+    use_git_ledger_fallback: bool,
+    *,
+    repair_ledger: bool = False,
+) -> list[str]:
     cmd = [
         sys.executable,
         str(_REFRESH_LEGACY_BINDINGS_PATH),
         "--project",
         str(project),
-        "--repair-ledger",
         "--refresh-bindings",
         "--rebuild-section-bundle",
         "--validate",
     ]
+    if repair_ledger:
+        cmd.append("--repair-ledger")
     if use_git_ledger_fallback:
         cmd.append("--use-git-ledger-fallback")
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -105,8 +111,8 @@ def init_entry(
     section_source_bundle: Path,
     section_execution_receipt: Path,
     force: bool,
-    auto_refresh_legacy_bindings_enabled: bool,
-    use_git_ledger_fallback: bool,
+    auto_refresh_legacy_bindings_enabled: bool = False,
+    use_git_ledger_fallback: bool = False,
 ) -> int:
     if receipt.exists() and not force:
         print(f"首稿入口回执已存在，拒绝覆盖: {receipt}")
@@ -115,6 +121,7 @@ def init_entry(
         refresh_errors = auto_refresh_legacy_bindings(
             Path(project).resolve(),
             use_git_ledger_fallback=use_git_ledger_fallback,
+            repair_ledger=False,
         )
         if refresh_errors:
             print("first_draft_entry: blocked")

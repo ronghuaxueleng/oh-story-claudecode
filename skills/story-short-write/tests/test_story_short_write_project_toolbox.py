@@ -32,6 +32,19 @@ assert COLD_START_SPEC and COLD_START_SPEC.loader
 COLD_START = importlib.util.module_from_spec(COLD_START_SPEC)
 COLD_START_SPEC.loader.exec_module(COLD_START)
 
+REGISTRY_SCRIPT = (
+    Path(__file__).resolve().parents[1]
+    / "scripts"
+    / "project_tool_wrapper_registry.py"
+)
+REGISTRY_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_project_tool_wrapper_registry_test",
+    REGISTRY_SCRIPT,
+)
+assert REGISTRY_SPEC and REGISTRY_SPEC.loader
+REGISTRY = importlib.util.module_from_spec(REGISTRY_SPEC)
+REGISTRY_SPEC.loader.exec_module(REGISTRY)
+
 
 class StoryShortWriteProjectToolboxTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -66,6 +79,71 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         ):
             self.assertIn(command, subparser_action.choices)
 
+    def test_parser_enables_legacy_refresh_by_default_for_draft_entrypoints(self) -> None:
+        parser = TOOLBOX.build_parser()
+        start_args = parser.parse_args(["start-draft"])
+        release_args = parser.parse_args(["draft-release"])
+        init_args = parser.parse_args(["init-first-draft"])
+
+        self.assertTrue(start_args.auto_refresh_legacy_bindings)
+        self.assertTrue(release_args.auto_refresh_legacy_bindings)
+        self.assertTrue(init_args.auto_refresh_legacy_bindings)
+
+    def test_repair_source_stack_can_refresh_without_appending_auxiliary_sources(self) -> None:
+        args = TOOLBOX.build_parser().parse_args(["repair-source-stack"])
+
+        self.assertEqual([], args.aux_source_profile)
+
+    def test_project_audit_wrapper_forwards_global_args_before_fixed_subcommand(self) -> None:
+        fake_skill = self.root / "story_short_write_project_toolbox.py"
+        fake_skill.write_text(
+            "import json, sys\nprint(json.dumps(sys.argv[1:], ensure_ascii=False))\n",
+            encoding="utf-8",
+        )
+        wrapper = self.root / "项目总诊断.py"
+        wrapper.write_text(
+            REGISTRY.build_project_audit_wrapper(
+                script_dir=self.root,
+                paths=self.paths,
+                use_git_ledger_fallback=False,
+            ),
+            encoding="utf-8",
+        )
+
+        completed = __import__("subprocess").run(
+            ["python3", str(wrapper), "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, completed.returncode)
+        self.assertEqual(
+            [
+                "--project",
+                str(self.project),
+                "--json",
+                "audit-project",
+                "--write-report",
+            ],
+            json.loads(completed.stdout),
+        )
+
+    def test_archive_source_stack_receipts_preserves_rule_ledger(self) -> None:
+        self.paths["source_receipt"].write_text("{}\n", encoding="utf-8")
+        self.paths["ledger"].write_text('{"gate_status":"pending"}\n', encoding="utf-8")
+        self.paths["model_review_task"].write_text("{}\n", encoding="utf-8")
+
+        actions = TOOLBOX.archive_source_stack_receipts(
+            self.paths,
+            "source stack changed",
+        )
+
+        self.assertTrue(self.paths["ledger"].is_file())
+        self.assertFalse(self.paths["source_receipt"].exists())
+        self.assertFalse(self.paths["model_review_task"].exists())
+        self.assertFalse(any("规则执行台账.json" in action for action in actions))
+
     def test_start_draft_stops_before_init_when_prepare_fails(self) -> None:
         args = argparse.Namespace(
             json=True,
@@ -96,6 +174,24 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual(0, result)
         reset.assert_called_once_with(self.paths["section_execution_receipt"], "1")
         self.assertEqual("open", reopen.call_args.args[1].phase)
+
+    def test_write_section_bootstrap_enables_legacy_refresh(self) -> None:
+        args = argparse.Namespace(
+            section="1",
+            phase="open",
+            read_judgment="已完整实读。",
+            json=True,
+        )
+        with patch.object(TOOLBOX, "command_prepare_draft", return_value=0), patch.object(
+            TOOLBOX,
+            "command_init_first_draft",
+            return_value=2,
+        ) as initialize:
+            result = TOOLBOX.command_write_section(self.paths, args)
+
+        self.assertEqual(2, result)
+        self.assertTrue(initialize.call_args.args[1].auto_refresh_legacy_bindings)
+        self.assertFalse(initialize.call_args.args[1].use_git_ledger_fallback)
 
     def test_finish_preview_initializes_basic_review_task_when_missing(self) -> None:
         source = self.root / "source.txt"
@@ -181,7 +277,11 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             from_existing_receipts=False,
         )
         completed = __import__("subprocess").CompletedProcess([], 0, stdout="{}\n", stderr="")
-        with patch.object(TOOLBOX.subprocess, "run", return_value=completed) as run, patch.object(
+        with patch.object(
+            TOOLBOX,
+            "validate_outline_semantic_task",
+            return_value=[],
+        ), patch.object(TOOLBOX.subprocess, "run", return_value=completed) as run, patch.object(
             TOOLBOX.OUTLINE,
             "validate_receipt",
             return_value=[],
@@ -208,6 +308,69 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         write_bundle.assert_called_once_with(
             self.paths["section_source_bundle"],
             {"gate_status": "passed"},
+        )
+
+    def test_compile_outline_stops_before_node_when_outline_semantic_task_is_pending(self) -> None:
+        self.paths["model_semantic_source"].write_text("{}\n", encoding="utf-8")
+        args = argparse.Namespace(
+            json=True,
+            legacy_data_module=None,
+            from_existing_receipts=False,
+        )
+        with patch.object(
+            TOOLBOX,
+            "validate_outline_semantic_task",
+            return_value=["outline_semantic_task.status 必须为 completed"],
+        ), patch.object(TOOLBOX.subprocess, "run") as run:
+            result = TOOLBOX.command_compile_outline(self.paths, args)
+
+        self.assertEqual(2, result)
+        run.assert_not_called()
+
+    def test_outline_rebuilder_parses_chinese_section_headers(self) -> None:
+        rebuilder = (
+            Path(__file__).resolve().parents[1]
+            / "scripts"
+            / "rebuild_outline_and_capacity_receipts.mjs"
+        )
+        program = (
+            f'import {{ parseSectionBlocks }} from "{rebuilder.as_uri()}";\n'
+            'const blocks = parseSectionBlocks("## 第1节 起事\\n甲\\n\\n## 第2节 反刀\\n乙\\n");\n'
+            "console.log(JSON.stringify(Object.fromEntries(blocks)));\n"
+        )
+
+        completed = __import__("subprocess").run(
+            ["node", "--input-type=module", "--eval", program],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertEqual({"1": "甲", "2": "乙"}, json.loads(completed.stdout))
+
+    def test_pending_outline_semantic_task_returns_only_top_level_blockers(self) -> None:
+        _, semantic = self.build_completed_outline_semantic_task()
+        task = semantic["outline_semantic_task"]
+        task["status"] = "pending"
+        task["reviewed_by_current_model"] = False
+        task["manual_judgment"] = ""
+        task["global_source_reads"][0]["read_status"] = "pending"
+        task["section_tasks"]["1"]["completion_status"] = "pending"
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.validate_outline_semantic_task(self.paths)
+
+        self.assertEqual(
+            [
+                "outline_semantic_task.status 必须为 completed",
+                "outline_semantic_task 必须由当前执行模型完成人工复核",
+                "outline_semantic_task.manual_judgment 不能为空",
+            ],
+            errors,
         )
 
     def test_compile_section_review_preserves_script_generated_bindings(self) -> None:
@@ -244,7 +407,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual(answer["checks"], compiled["checks"])
         self.assertEqual("passed", compiled["gate_status"])
 
-    def test_write_section_open_exports_compact_semantic_task(self) -> None:
+    def test_write_section_open_exports_raw_source_first_semantic_task(self) -> None:
         self.paths["first_draft_entry"].write_text("{}\n", encoding="utf-8")
         review_path = self.project / "写作资产" / "逐节首写停检" / "第1节.json"
 
@@ -285,15 +448,15 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             side_effect=open_section,
         ), patch.object(
             TOOLBOX,
-            "export_section_draft_task",
+            "export_section_raw_source_first_task",
             return_value={
                 "path": str(self.paths["model_semantic_source"]),
-                "semantic_key": "section_draft_tasks.1",
+                "semantic_key": "section_raw_source_first_tasks.1",
                 "fingerprint": "fp-1",
             },
         ), patch.object(
             TOOLBOX.SECTION_EXECUTION,
-            "bind_draft_task",
+            "bind_raw_source_first_task",
             return_value=0,
         ):
             result = TOOLBOX.command_write_section(self.paths, args)
@@ -359,6 +522,46 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual("active", completion["status"])
         self.assertTrue(completion["checks"])
 
+    def test_detect_manual_bypass_allows_setting_and_outline_after_valid_prewrite_gates(self) -> None:
+        self.paths["setting"].write_text("设定内容\n", encoding="utf-8")
+        self.paths["outline"].write_text("大纲内容\n", encoding="utf-8")
+
+        errors = TOOLBOX.detect_manual_bypass(
+            self.paths,
+            {
+                "setting_release": [],
+                "setting_sequence": [],
+                "outline_release": [],
+                "outline": ["细纲表演验收缺失"],
+                "draft_release": ["正文放行未通过"],
+                "first_draft": ["首稿入口回执不存在"],
+                "section_execution": ["逐节首写执行回执不存在"],
+            },
+        )
+
+        self.assertEqual([], errors)
+
+    def test_detect_manual_bypass_blocks_outline_when_prepare_outline_prerequisites_fail(self) -> None:
+        self.paths["outline"].write_text("大纲内容\n", encoding="utf-8")
+
+        errors = TOOLBOX.detect_manual_bypass(
+            self.paths,
+            {
+                "setting_release": [],
+                "setting_sequence": ["设定顺序契约未通过"],
+                "outline_release": ["outline_release 未通过"],
+                "outline": ["细纲表演验收缺失"],
+                "draft_release": [],
+                "first_draft": [],
+                "section_execution": [],
+            },
+        )
+
+        self.assertEqual(
+            ["检测到手写细纲绕过写前门禁：小节大纲.md 已有实质内容，但 prepare-outline 前置门禁仍未通过"],
+            errors,
+        )
+
     def test_seed_pending_section_reviews_populates_all_sections(self) -> None:
         self.paths["section_execution_receipt"].write_text(
             json.dumps(
@@ -397,6 +600,430 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual(2, result)
         validate_opening.assert_not_called()
         create_bundle.assert_not_called()
+
+    def test_prepare_outline_initializes_outline_phase_scaffolds_when_missing(self) -> None:
+        primary_root = self.root / "source-main"
+        (primary_root / "写作资产").mkdir(parents=True)
+        original = primary_root / "原文" / "source.txt"
+        original.parent.mkdir()
+        original.write_text("source", encoding="utf-8")
+        (primary_root / "写作资产" / "桥段施工卡.md").write_text("# bridge", encoding="utf-8")
+        (primary_root / "book.profile.json").write_text("{}", encoding="utf-8")
+        (primary_root / "可直接仿写_导语拆解表.md").write_text("# opening", encoding="utf-8")
+        self.paths["outline"].write_text(
+            "## 第1节 开头\n- 钩子：抓人\n- 读者新获知：关系异常\n- 目标字数：1200\n",
+            encoding="utf-8",
+        )
+        self.paths["cold_start_manifest"].write_text(
+            json.dumps(
+                {
+                    "primary_source_root": str(primary_root),
+                    "primary_original": str(original),
+                    "auxiliary_originals": [],
+                    "target_words": 10000,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(json=True)
+        outline_receipt = {"gate_status": "pending"}
+        opening_receipt = {"gate_status": "pending"}
+        capacity_receipt = {"gate_status": "pending"}
+        with patch.object(TOOLBOX.SEQUENCE, "validate_setting", return_value=[]), patch.object(
+            TOOLBOX.WRITE_RELEASE,
+            "validate_release",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX.OUTLINE,
+            "create_receipt",
+            return_value=outline_receipt,
+        ) as create_outline, patch.object(
+            TOOLBOX.OPENING,
+            "create_receipt",
+            return_value=opening_receipt,
+        ) as create_opening, patch.object(
+            TOOLBOX.DRAFT_CAPACITY,
+            "init",
+            return_value=capacity_receipt,
+        ) as init_capacity:
+            result = TOOLBOX.command_prepare_outline(self.paths, args)
+
+        self.assertEqual(0, result)
+        self.assertEqual(outline_receipt, json.loads(self.paths["outline_contract"].read_text(encoding="utf-8")))
+        self.assertEqual(opening_receipt, json.loads(self.paths["opening_contract"].read_text(encoding="utf-8")))
+        self.assertEqual(
+            capacity_receipt,
+            json.loads(self.paths["draft_capacity_contract"].read_text(encoding="utf-8")),
+        )
+        semantic = json.loads(self.paths["model_semantic_source"].read_text(encoding="utf-8"))
+        self.assertEqual(self.project.name, semantic["project"])
+        self.assertEqual("1", semantic["outline_compilation"]["plans"][0]["id"])
+        self.assertEqual("BID-01", semantic["outline_compilation"]["plans"][0]["bridge"])
+        self.assertTrue(semantic["outline_compilation"]["bridgeDefs"])
+        self.assertIn("manual_judgment", semantic["outline_compilation"]["globalReview"])
+        self.assertTrue(semantic["outline_compilation"]["factLedger"])
+        task = semantic["outline_semantic_task"]
+        self.assertEqual("pending", task["status"])
+        self.assertFalse(task["reviewed_by_current_model"])
+        self.assertEqual([str(original.resolve())], [item["path"] for item in task["global_source_reads"]])
+        self.assertEqual({"1"}, set(task["section_tasks"]))
+        self.assertEqual(
+            [str(original.resolve())],
+            [item["path"] for item in task["section_tasks"]["1"]["source_slice_reviews"]],
+        )
+        style_reviews = task["section_tasks"]["1"]["source_slice_reviews"][0]["style_dimension_reviews"]
+        self.assertEqual(set(TOOLBOX.OUTLINE_STYLE_DIMENSIONS), set(style_reviews))
+        self.assertTrue(
+            all(
+                review == {
+                    "source_observation": "",
+                    "source_evidence": [],
+                    "target_transfer": "",
+                    "status": "pending",
+                }
+                for review in style_reviews.values()
+            )
+        )
+        create_outline.assert_called_once_with(
+            self.project.name,
+            self.paths["outline"],
+            [original.resolve()],
+            source_mode="full_bridge",
+        )
+        create_opening.assert_called_once_with(
+            self.project.name,
+            (primary_root / "可直接仿写_导语拆解表.md").resolve(),
+            self.paths["outline"],
+            "outline",
+        )
+        init_capacity.assert_called_once_with(self.project.name, self.paths["outline"], 10000)
+
+    def test_prepare_outline_keeps_existing_outline_phase_scaffolds(self) -> None:
+        primary_root = self.root / "source-main"
+        (primary_root / "写作资产").mkdir(parents=True)
+        original = primary_root / "原文" / "source.txt"
+        original.parent.mkdir()
+        original.write_text("source", encoding="utf-8")
+        (primary_root / "写作资产" / "桥段施工卡.md").write_text("# bridge", encoding="utf-8")
+        (primary_root / "book.profile.json").write_text("{}", encoding="utf-8")
+        (primary_root / "可直接仿写_导语拆解表.md").write_text("# opening", encoding="utf-8")
+        self.paths["outline"].write_text(
+            "## 第1节 已有语义\n"
+            "这一节只同步机械上下文。\n\n"
+            "节末钩子：已有人工判断不能被覆盖。\n\n"
+            "来源绑定：\n"
+            "- 主体：`SF-01`\n"
+            "- 必保颗粒：动作先行、判断慢半拍\n",
+            encoding="utf-8",
+        )
+        self.paths["cold_start_manifest"].write_text(
+            json.dumps(
+                {
+                    "primary_source_root": str(primary_root),
+                    "primary_original": str(original),
+                    "auxiliary_originals": [],
+                    "target_words": 9800,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        semantic_payload = {
+            "project": "keep",
+            "outline_compilation": {
+                "plans": [{"id": "1", "semanticDecision": "keep"}],
+                "bridgeDefs": [{"id": "BID-01"}],
+                "globalReview": {"manual_judgment": "keep"},
+                "factLedger": [{"fact_id": "F-01"}],
+            },
+        }
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic_payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        self.paths["outline_contract"].write_text('{"keep":"outline"}\n', encoding="utf-8")
+        self.paths["opening_contract"].write_text('{"keep":"opening"}\n', encoding="utf-8")
+        self.paths["draft_capacity_contract"].write_text('{"keep":"capacity"}\n', encoding="utf-8")
+
+        args = argparse.Namespace(json=True)
+        with patch.object(TOOLBOX.SEQUENCE, "validate_setting", return_value=[]), patch.object(
+            TOOLBOX.WRITE_RELEASE,
+            "validate_release",
+            return_value=[],
+        ), patch.object(TOOLBOX.OUTLINE, "create_receipt") as create_outline, patch.object(
+            TOOLBOX.OPENING,
+            "create_receipt",
+        ) as create_opening, patch.object(TOOLBOX.DRAFT_CAPACITY, "init") as init_capacity:
+            result = TOOLBOX.command_prepare_outline(self.paths, args)
+
+        self.assertEqual(0, result)
+        semantic = json.loads(self.paths["model_semantic_source"].read_text(encoding="utf-8"))
+        self.assertEqual("keep", semantic["outline_compilation"]["plans"][0]["semanticDecision"])
+        self.assertEqual("keep", semantic["outline_compilation"]["globalReview"]["manual_judgment"])
+        self.assertEqual("已有语义", semantic["outline_compilation"]["plans"][0]["title"])
+        self.assertEqual(
+            ["动作先行", "判断慢半拍"],
+            semantic["outline_compilation"]["plans"][0]["requiredGranularity"],
+        )
+        self.assertEqual("pending", semantic["outline_semantic_task"]["status"])
+        self.assertEqual({"keep": "outline"}, json.loads(self.paths["outline_contract"].read_text(encoding="utf-8")))
+        self.assertEqual({"keep": "opening"}, json.loads(self.paths["opening_contract"].read_text(encoding="utf-8")))
+        self.assertEqual(
+            {"keep": "capacity"},
+            json.loads(self.paths["draft_capacity_contract"].read_text(encoding="utf-8")),
+        )
+        create_outline.assert_not_called()
+        create_opening.assert_not_called()
+        init_capacity.assert_not_called()
+
+    def test_prepare_outline_upgrades_thin_semantic_source_template(self) -> None:
+        primary_root = self.root / "source-main"
+        (primary_root / "写作资产").mkdir(parents=True)
+        original = primary_root / "原文" / "source.txt"
+        original.parent.mkdir()
+        original.write_text("source", encoding="utf-8")
+        (primary_root / "写作资产" / "桥段施工卡.md").write_text("# bridge", encoding="utf-8")
+        (primary_root / "book.profile.json").write_text("{}", encoding="utf-8")
+        (primary_root / "可直接仿写_导语拆解表.md").write_text("# opening", encoding="utf-8")
+        self.paths["outline"].write_text(
+            "## 第1节 开头\n"
+            "这一节先把公开失位打穿。\n\n"
+            "节末钩子：他当众喊她妻子，却是为了替别人求情。\n\n"
+            "来源绑定：\n"
+            "- 主体：`SF-12`\n"
+            "- 必保颗粒：正式场先控秩序、抓制服求情、女主改用正式称呼\n"
+            "- 目标字数：1200\n\n"
+            "## 第2节 升级\n- 钩子：逼近\n- 读者新获知：旧账翻出\n- 目标字数：1300\n",
+            encoding="utf-8",
+        )
+        self.paths["cold_start_manifest"].write_text(
+            json.dumps(
+                {
+                    "primary_source_root": str(primary_root),
+                    "primary_original": str(original),
+                    "auxiliary_originals": [],
+                    "target_words": 10000,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "project": self.project.name,
+                    "outline_compilation": {
+                        "plans": [],
+                        "bridgeDefs": [],
+                        "globalReview": {},
+                        "factLedger": [],
+                        "projectName": self.project.name,
+                        "targetWords": 10000,
+                        "sourceTextRelative": "",
+                        "bridgeCatalogRelative": "",
+                        "profileRelative": "",
+                    },
+                    "section_raw_source_first_tasks": {},
+                    "section_reviews": {"1": {"gate_status": "pending"}},
+                    "section_prewrite_reviews": {},
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        args = argparse.Namespace(json=True)
+        with patch.object(TOOLBOX.SEQUENCE, "validate_setting", return_value=[]), patch.object(
+            TOOLBOX.WRITE_RELEASE,
+            "validate_release",
+            return_value=[],
+        ), patch.object(TOOLBOX.OUTLINE, "create_receipt", return_value={"gate_status": "pending"}), patch.object(
+            TOOLBOX.OPENING,
+            "create_receipt",
+            return_value={"gate_status": "pending"},
+        ), patch.object(TOOLBOX.DRAFT_CAPACITY, "init", return_value={"gate_status": "pending"}):
+            result = TOOLBOX.command_prepare_outline(self.paths, args)
+
+        self.assertEqual(0, result)
+        semantic = json.loads(self.paths["model_semantic_source"].read_text(encoding="utf-8"))
+        self.assertEqual({"gate_status": "pending"}, semantic["section_reviews"]["1"])
+        self.assertEqual(["1", "2"], [item["id"] for item in semantic["outline_compilation"]["plans"]])
+        first_plan = semantic["outline_compilation"]["plans"][0]
+        self.assertEqual("开头", first_plan["title"])
+        self.assertEqual("他当众喊她妻子，却是为了替别人求情。", first_plan["hook"])
+        self.assertEqual("", first_plan["newInfo"])
+        self.assertIn("这一节先把公开失位打穿。", first_plan["outlineContext"])
+        self.assertEqual(
+            [
+                "主体：`SF-12`",
+                "必保颗粒：正式场先控秩序、抓制服求情、女主改用正式称呼",
+                "目标字数：1200",
+            ],
+            first_plan["sourceBindings"],
+        )
+        self.assertEqual(
+            ["正式场先控秩序", "抓制服求情", "女主改用正式称呼"],
+            first_plan["requiredGranularity"],
+        )
+        self.assertEqual([str(original.resolve())], first_plan["requiredSourceOriginals"])
+        self.assertEqual(1200, first_plan["plannedWords"])
+        self.assertTrue(semantic["outline_compilation"]["bridgeDefs"])
+        self.assertTrue(semantic["outline_compilation"]["factLedger"])
+        self.assertEqual("", semantic["outline_compilation"]["globalReview"]["manual_judgment"])
+        self.assertEqual({"1", "2"}, set(semantic["outline_semantic_task"]["section_tasks"]))
+
+    def build_completed_outline_semantic_task(self) -> tuple[Path, dict]:
+        primary_root = self.root / "source-main"
+        (primary_root / "写作资产").mkdir(parents=True)
+        original = primary_root / "原文" / "source.txt"
+        original.parent.mkdir()
+        original.write_text(
+            "第一句原文动作。\n"
+            "第二句原文错答。\n"
+            "第三句原文感知。\n"
+            "第四句原文余痛。\n",
+            encoding="utf-8",
+        )
+        (primary_root / "写作资产" / "桥段施工卡.md").write_text("# bridge", encoding="utf-8")
+        (primary_root / "book.profile.json").write_text("{}", encoding="utf-8")
+        self.paths["outline"].write_text(
+            "## 第1节 开头\n"
+            "这一节迁移原文的情绪和文风颗粒。\n\n"
+            "- 情绪：被现场动作刺中的错愕与强压。\n"
+            "- 读者新获知：关系先在动作里失位。\n"
+            "- 钩子：下一场会继续核验。\n"
+            "- 伏笔/物件：被夺走的记录。\n"
+            "- 动静：动作先快，判断后到。\n"
+            "- 对话密度：短问短答，避免解释。\n"
+            "- 目标字数：1200\n\n"
+            "来源绑定：\n"
+            "- 主体：`SF-01`\n"
+            "- 必保颗粒：动作先行、错答、余痛\n",
+            encoding="utf-8",
+        )
+        self.paths["cold_start_manifest"].write_text(
+            json.dumps(
+                {
+                    "primary_source_root": str(primary_root),
+                    "primary_original": str(original),
+                    "auxiliary_originals": [],
+                    "target_words": 1200,
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        semantic = {
+            "version": "1.0",
+            "project": self.project.name,
+            "outline_compilation": TOOLBOX.build_outline_compilation_scaffold(
+                self.paths,
+                originals=[original.resolve()],
+                primary_root=primary_root.resolve(),
+                target_words=1200,
+            ),
+            "section_reviews": {},
+        }
+        task = TOOLBOX.build_outline_semantic_task(
+            self.paths,
+            semantic,
+            [original.resolve()],
+        )
+        task["status"] = "completed"
+        task["reviewed_by_current_model"] = True
+        task["manual_judgment"] = "已完整实读原文并逐节完成颗粒迁移。"
+        task["global_source_reads"][0].update(
+            {
+                "read_status": "completed",
+                "evidence": ["第一句原文动作。", "第四句原文余痛。"],
+                "manual_judgment": "已完整读取四行原文。",
+            }
+        )
+        section_task = task["section_tasks"]["1"]
+        section_task["completion_status"] = "completed"
+        section_task["manual_judgment"] = "本节按原文的动作、错答和余痛顺序迁移。"
+        slice_review = section_task["source_slice_reviews"][0]
+        slice_review.update(
+            {
+                "source_range": "L1-L4",
+                "source_evidence": ["第一句原文动作。", "第二句原文错答。"],
+                "manual_judgment": "该切片覆盖本节需要的完整表演和文风颗粒。",
+                "status": "completed",
+            }
+        )
+        for dimension, review in slice_review["style_dimension_reviews"].items():
+            review.update(
+                {
+                    "source_observation": f"{dimension} 的原文表现已逐句确认。",
+                    "source_evidence": ["第一句原文动作。"],
+                    "target_transfer": f"本节迁移 {dimension} 的功能和节奏，不复制原句。",
+                    "status": "completed",
+                }
+            )
+        semantic["outline_semantic_task"] = task
+        return original, semantic
+
+    def test_validate_outline_semantic_task_requires_evidence_inside_exact_slice(self) -> None:
+        _, semantic = self.build_completed_outline_semantic_task()
+        review = semantic["outline_semantic_task"]["section_tasks"]["1"]["source_slice_reviews"][0]
+        review["source_range"] = "L1-L1"
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.validate_outline_semantic_task(self.paths)
+
+        self.assertTrue(any("切片证据不在精确行段内" in error for error in errors))
+
+    def test_validate_outline_semantic_task_requires_outline_baseline_fields(self) -> None:
+        _, semantic = self.build_completed_outline_semantic_task()
+        self.paths["outline"].write_text(
+            "## 第1节 开头\n\n"
+            "这一节迁移原文的情绪和文风颗粒。\n\n"
+            "来源绑定：\n"
+            "- 主体：`SF-01`\n",
+            encoding="utf-8",
+        )
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.validate_outline_semantic_task(self.paths)
+
+        self.assertTrue(any("缺少细纲基准字段" in error for error in errors))
+
+    def test_validate_outline_semantic_task_rejects_boolean_only_style_review(self) -> None:
+        _, semantic = self.build_completed_outline_semantic_task()
+        review = semantic["outline_semantic_task"]["section_tasks"]["1"]["source_slice_reviews"][0]
+        review.pop("style_dimension_reviews")
+        review["style_dimensions_reviewed"] = {
+            dimension: True
+            for dimension in TOOLBOX.OUTLINE_STYLE_DIMENSIONS
+        }
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.validate_outline_semantic_task(self.paths)
+
+        self.assertTrue(any("缺少六项文风颗粒逐项复核" in error for error in errors))
+
+    def test_validate_outline_semantic_task_accepts_complete_source_granularity_task(self) -> None:
+        _, semantic = self.build_completed_outline_semantic_task()
+        self.paths["model_semantic_source"].write_text(
+            json.dumps(semantic, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors = TOOLBOX.validate_outline_semantic_task(self.paths)
+
+        self.assertEqual([], errors)
 
     def test_validate_opening_reads_receipt_bindings(self) -> None:
         source = self.root / "opening-source.md"
@@ -504,6 +1131,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             COLD_START.SOURCE_READ,
             "create_receipt",
             return_value=({}, []),
+        ), patch.object(
+            COLD_START.PROFILE_GENERATOR,
+            "merge_profiles",
+            return_value={"meta": {"mode": "merged_profiles", "sources": ["a", "b", "c", "d"]}},
         ), patch.object(COLD_START.SEQUENCE, "init_setting_receipt"), patch.object(
             COLD_START.SEQUENCE,
             "init_receipt",
@@ -531,6 +1162,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual("generated:1", result["actions"]["project_wrappers"])
         self.assertTrue((self.project / "写作资产" / "模型语义输入.json").is_file())
+        self.assertTrue(self.paths["profile"].is_file())
         checklist = (self.project / "写作资产" / "冷启动执行清单.md").read_text(encoding="utf-8")
         self.assertIn("compile-outline", checklist)
         self.assertIn("start-draft", checklist)
@@ -573,6 +1205,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             COLD_START.SOURCE_READ,
             "create_receipt",
             return_value=({}, []),
+        ), patch.object(
+            COLD_START.PROFILE_GENERATOR,
+            "merge_profiles",
+            return_value={"meta": {"mode": "merged_profiles", "sources": ["a", "b", "c", "d"]}},
         ), patch.object(COLD_START.SEQUENCE, "init_setting_receipt"), patch.object(
             COLD_START.SEQUENCE,
             "init_receipt",
@@ -617,6 +1253,34 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         args = argparse.Namespace(
             aux_source_profile=[str(appended_1), str(appended_2), str(appended_3)],
             json=True,
+        )
+        self.paths["source_receipt"].write_text(
+            json.dumps(
+                {
+                    "sources": [
+                        {
+                            "name": "primary",
+                            "role": "main",
+                            "root": str(primary.parent),
+                            "selected_subflow_ids": ["SF-01"],
+                        },
+                        {
+                            "name": "aux-keep",
+                            "role": "auxiliary",
+                            "root": str(keep_existing.parent),
+                            "selected_subflow_ids": ["SF-04"],
+                        },
+                        {
+                            "name": "aux-drop",
+                            "role": "auxiliary",
+                            "root": str(drop_existing.parent),
+                            "selected_subflow_ids": ["SF-09"],
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
         )
 
         def fake_validate(primary_profile: Path, _aux_profiles: list[Path]):
@@ -678,6 +1342,18 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "merge_profiles",
             return_value={"meta": {"sources": []}},
         ) as merge_profiles, patch.object(
+            TOOLBOX.SOURCE_READ,
+            "create_receipt",
+            return_value=(
+                {
+                    "gate_status": "pending",
+                    "confirmed_before_outline": False,
+                    "confirmed_before_draft": False,
+                    "sources": [],
+                },
+                [],
+            ),
+        ) as create_receipt, patch.object(
             TOOLBOX,
             "archive_source_stack_receipts",
             return_value=[],
@@ -695,11 +1371,47 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             [primary, *expected_aux],
             self.paths["project"].name,
         )
+        create_receipt.assert_called_once_with(
+            self.paths["project"].name,
+            [
+                primary.parent,
+                keep_existing.parent,
+                appended_1.parent,
+                appended_2.parent,
+                appended_3.parent,
+            ],
+            "compiled",
+            "direct_imitation",
+            {"aux-keep": {"SF-04"}},
+        )
         manifest = captured[str(self.paths["cold_start_manifest"])]
         self.assertEqual(
             [str(path) for path in expected_aux],
             manifest["auxiliary_source_profiles"],
         )
+        rebuilt_receipt = captured[str(self.paths["source_receipt"])]
+        self.assertEqual("pending", rebuilt_receipt["gate_status"])
+        self.assertFalse(rebuilt_receipt["confirmed_before_outline"])
+        self.assertFalse(rebuilt_receipt["confirmed_before_draft"])
+
+    def test_archive_source_derived_writing_artifacts_clears_stage_outputs(self) -> None:
+        for key in ("setting", "outline", "draft"):
+            self.paths[key].write_text(f"{key}\n", encoding="utf-8")
+
+        actions = TOOLBOX.archive_source_derived_writing_artifacts(
+            self.paths,
+            "source stack changed",
+        )
+
+        for key in ("setting", "outline", "draft"):
+            self.assertFalse(self.paths[key].exists())
+        archive_dirs = list(self.paths["asset"].glob("旧稿归档-*"))
+        self.assertEqual(1, len(archive_dirs))
+        self.assertEqual(
+            {"设定.md", "小节大纲.md", "正文.md"},
+            {path.name for path in archive_dirs[0].iterdir()},
+        )
+        self.assertTrue(any("invalidate source-derived writing artifacts" in item for item in actions))
 
 
 if __name__ == "__main__":

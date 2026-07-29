@@ -111,7 +111,7 @@ class RuleExecutionLedgerTest(unittest.TestCase):
             source_files.append(
                 {
                     "path": path.relative_to(self.source).as_posix(),
-                    "sha256": GATE.sha256(path),
+                    "sha256": GATE.source_asset_sha256(path),
                     "status": "read",
                 }
             )
@@ -276,6 +276,20 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertGreater(summary["skill_rules"], 0)
         self.assertEqual(4, summary["source_assets"])
         self.assertGreater(summary["asset_rules"], 0)
+
+    def test_outline_semantic_compile_gate_is_an_independent_rule_family(self) -> None:
+        families = GATE.extract_markdown_rule_families(GATE.SKILL_ROOT / "SKILL.md")
+        family_by_name = {
+            family["rule_text"]: family
+            for family in families
+        }
+
+        gate = family_by_name["SKILL.md::细纲语义编译硬闸"]
+        self.assertTrue(any("style_dimension_reviews" in item for item in gate["variants"]))
+        execution_rules = family_by_name["SKILL.md::执行规则"]
+        self.assertFalse(
+            any("style_dimension_reviews" in item for item in execution_rules["variants"])
+        )
 
     def test_critical_source_contract_requires_per_source_review(self) -> None:
         ledger = self._write_completed_ledger()
@@ -650,6 +664,40 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertIn(first["case_ids"][0], payload["case_registry"])
         self.assertNotIn("cases", first)
 
+    def test_model_review_export_only_includes_unclassified_cards(self) -> None:
+        ledger = self._create_ledger()
+        classified = ledger["skill_rules"][0]
+        classified.update(
+            {
+                "classification_confirmed": True,
+                "classification_method": "model_semantic_review",
+                "mode_confirmed": True,
+                "canonical_rule_text": "已完成语义分类，但尚未进入最终执行。",
+                "applicability": "applicable",
+                "status": "pending",
+                "outcome": "pending",
+            }
+        )
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        output = self.project / "写作资产" / "模型分类批次.json"
+
+        summary = GATE.export_model_review(self.ledger_path, output, batch_size=30)
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        exported_ids = {
+            item["id"]
+            for batch in payload["batches"]
+            for item in batch["items"]
+        }
+
+        self.assertNotIn(classified["id"], exported_ids)
+        self.assertEqual(
+            summary["entries"],
+            sum(len(batch["items"]) for batch in payload["batches"]),
+        )
+
     def test_empty_ledger_is_not_prewrite_ready(self) -> None:
         ledger = self._create_ledger()
         self.ledger_path.write_text(
@@ -729,6 +777,54 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertEqual("同类检查只执行一次，案例分别留证。", canonical["canonical_rule_text"])
         self.assertGreaterEqual(len(canonical["cases"]), 2)
         self.assertEqual(canonical["id"], duplicate["merged_into"])
+
+    def test_model_group_plan_allows_prewrite_pending_applicable_group(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        plan = self.project / "写作资产" / "写前归并计划.json"
+        plan.write_text(
+            json.dumps(
+                {
+                    "groups": [
+                        {
+                            "canonical_id": candidate["id"],
+                            "canonical_rule_text": "正文首写前必须按本条规则完成对应阶段的准备与自检。",
+                            "member_ids": [candidate["id"]],
+                            "rule_role": "draft_constraint",
+                            "remediation_target": "draft",
+                            "execution_mode": "human",
+                            "classification_notes": "写前阶段先锁定为独立 canonical，待正文绑定后再补最终证据。",
+                            "applicability": "applicable",
+                            "status": "pending",
+                            "outcome": "pending",
+                            "decision_reason": "该规则属于正文首写前必须生效的约束，当前阶段先完成分类与适用性确认。",
+                            "target_stage": "draft",
+                            "target_scene": "正文首写 / 逐节首写",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        errors, results = GATE.apply_model_group_plan(self.ledger_path, plan)
+        self.assertEqual([], errors)
+        self.assertEqual(1, results[0]["members"])
+        updated = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+        entry = next(
+            item for item in updated["skill_rules"] if item["id"] == candidate["id"]
+        )
+        self.assertTrue(entry["classification_confirmed"])
+        self.assertEqual("model_semantic_review", entry["classification_method"])
+        self.assertEqual("applicable", entry["applicability"])
+        self.assertEqual("pending", entry["status"])
+        self.assertEqual("pending", entry["outcome"])
+        self.assertEqual("draft", entry["target_stage"])
+        self.assertEqual("正文首写 / 逐节首写", entry["target_scene"])
 
     def test_missing_merge_canonical_is_blocked(self) -> None:
         ledger = self._write_completed_ledger()

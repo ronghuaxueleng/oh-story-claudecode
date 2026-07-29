@@ -3365,8 +3365,22 @@ def check_subflow_assets(
         errors.append(f"{index_path} 没有有效子流程")
         return
 
-    bridge_ids = set(
-        re.findall(r"^##\s+\[?(BID-\d+)\]?", read_text(asset_dir / "桥段施工卡.md"), flags=re.M)
+    bridge_card_text = read_text(asset_dir / "桥段施工卡.md")
+    bridge_ids = {
+        item.upper()
+        for item in re.findall(
+            r"^\s*-\s*桥段ID[：:]\s*([A-Z]+-\d+)\s*$",
+            bridge_card_text,
+            flags=re.M,
+        )
+    }
+    bridge_ids.update(
+        item.upper()
+        for item in re.findall(
+            r"^##\s+\[?([A-Z]+-\d+)\]?\b",
+            bridge_card_text,
+            flags=re.M,
+        )
     )
 
     def build_source_slice(source_range: str) -> tuple[str, str | None]:
@@ -3406,7 +3420,7 @@ def check_subflow_assets(
         if not re.search(rf"^##\s+\[?{re.escape(subflow_id)}\]?\b", card_text, flags=re.M):
             errors.append(f"{label} 未在 {card_path.name} 找到同名施工卡")
 
-        parent_bridge_id = str(entry.get("parent_bridge_id") or "").strip()
+        parent_bridge_id = str(entry.get("parent_bridge_id") or "").strip().upper()
         if parent_bridge_id not in bridge_ids:
             errors.append(f"{label}.parent_bridge_id 不在桥段施工卡中：{parent_bridge_id}")
         else:
@@ -3495,7 +3509,7 @@ def check_subflow_assets(
     missing_bridges = sorted(bridge_ids - covered_bridges)
     if missing_bridges:
         errors.append(
-            f"{index_path} 未覆盖全部父 BID：{', '.join(missing_bridges)}"
+            f"{index_path} 未覆盖全部父桥段：{', '.join(missing_bridges)}"
         )
 
 

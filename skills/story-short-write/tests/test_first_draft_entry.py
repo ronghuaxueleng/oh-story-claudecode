@@ -83,7 +83,28 @@ class FirstDraftEntryTest(unittest.TestCase):
                                         "source_evidence": ["原文场面"],
                                         "style_fields_consumed": ["a", "b", "c", "d", "e", "f"],
                                     }
-                                ]
+                                ],
+                                "source_performance_excerpt": "原文场面。",
+                                "source_performance_evidence": ["原文场面", "原文动作"],
+                                "technique_recall_contract": [{"name": "先动作后判断"}],
+                                "scene_weave_contract": [{"moment_group_id": "MG-1"}],
+                                "source_style_granularity": {
+                                    key: {
+                                        "source_summary": f"{key} summary",
+                                        "source_evidence": ["原文场面"],
+                                        "target_style_plan": f"{key} target",
+                                    }
+                                    for key in GATE._SECTION_EXECUTION_MODULE.STYLE_DIMENSIONS
+                                },
+                                "continuous_moment_groups": ["同一口气"],
+                                "paragraph_break_reasons": ["控制权变化"],
+                                "sentence_relation_plan": ["先顺承再反冲"],
+                                "function_word_strategy": "少解释，多停顿",
+                                "telegraphic_risk": "不要一句一动",
+                                "emotion_shorthand_to_avoid": ["我心如死灰"],
+                                "target_emotion_landing_plan": ["先误认", "再反刀", "留余痛"],
+                                "no_fixed_short_sentence_ratio": True,
+                                "manual_judgment": "首稿必须完整消费原文颗粒。",
                             },
                         }
                     ],
@@ -109,7 +130,49 @@ class FirstDraftEntryTest(unittest.TestCase):
                                         "source_evidence": ["原文场面"],
                                         "style_fields_consumed": ["a", "b", "c", "d", "e", "f"],
                                     }
-                                ]
+                                ],
+                                "source_performance_excerpt": "原文场面。",
+                                "source_performance_evidence": ["原文场面", "原文动作"],
+                                "technique_recall_contract": [{"name": "先动作后判断"}],
+                                "scene_weave_contract": [{"moment_group_id": "MG-1"}],
+                                "source_style_granularity": {
+                                    key: {
+                                        "source_summary": f"{key} summary",
+                                        "source_evidence": ["原文场面"],
+                                        "target_style_plan": f"{key} target",
+                                    }
+                                    for key in GATE._SECTION_EXECUTION_MODULE.STYLE_DIMENSIONS
+                                },
+                                "source_style_reference_assets": [
+                                    {
+                                        "book_root": str(self.root),
+                                        "style_assets": {"opening_hooks": ["原文场面"]},
+                                        "style_assets_source": {
+                                            "path": str(self.source_original.resolve()),
+                                            "sha256": self.sha(self.source_original),
+                                        },
+                                        "voice_references": [
+                                            {
+                                                "path": str(self.source_original.resolve()),
+                                                "sha256": self.sha(self.source_original),
+                                                "text": "角色压力越大，话越短。",
+                                            }
+                                        ],
+                                    }
+                                ],
+                                "emotion_process": {"entry_state": "a"},
+                                "continuous_moment_groups": ["同一口气"],
+                                "paragraph_break_reasons": ["控制权变化"],
+                                "sentence_relation_plan": ["先顺承再反冲"],
+                                "function_word_strategy": "少解释，多停顿",
+                                "telegraphic_risk": "不要一句一动",
+                                "emotion_shorthand_to_avoid": ["我心如死灰"],
+                                "target_emotion_landing_plan": ["先误认", "再反刀", "留余痛"],
+                                "no_fixed_short_sentence_ratio": True,
+                                "manual_judgment": "首稿必须完整消费原文颗粒。",
+                                "scene_logic_contract": {"ok": True},
+                                "source_emotion_parity": {"ok": True},
+                                "original_scene_granularity": {"action_sequence": "先动作后反刀"},
                             },
                         }
                     ],

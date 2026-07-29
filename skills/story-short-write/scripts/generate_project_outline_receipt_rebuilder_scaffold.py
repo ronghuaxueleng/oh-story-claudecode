@@ -27,7 +27,7 @@ from pathlib import Path
 
 
 SECTION_RE = re.compile(
-    r"^##\s+(\d+)\.[^\n]*\n([\s\S]*?)(?=^##\s+\d+\.|^##\s+全纲|^##\s+容量|\Z)",
+    r"^##\s+(?:第)?(\d+)(?:[.、．]|节)\s*([^\n]*)\n([\s\S]*?)(?=^##\s+(?:第)?\d+(?:[.、．]|节)|^##\s+全纲|^##\s+容量|\Z)",
     re.M,
 )
 
@@ -40,9 +40,9 @@ def parse_sections(outline_text: str) -> list[dict[str, object]]:
     sections: list[dict[str, object]] = []
     for match in SECTION_RE.finditer(outline_text):
         section_id = match.group(1)
-        block = match.group(2).strip()
+        title = match.group(2).strip()
+        block = match.group(3).strip()
         lines = [line.strip() for line in block.splitlines() if line.strip()]
-        title = next((line for line in lines if not line.startswith("-")), "")
         target_words = 0
         for line in lines:
             if line.startswith("- 目标字数："):
@@ -53,6 +53,7 @@ def parse_sections(outline_text: str) -> list[dict[str, object]]:
             {
                 "id": section_id,
                 "title": title,
+                "block": block,
                 "target_words": target_words,
                 "lines": lines,
             }

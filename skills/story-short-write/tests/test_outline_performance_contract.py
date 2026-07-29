@@ -137,6 +137,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "manual_judgment": "两节连续完成施压、失位和状态变化。",
             }
         ]
+
         for section in data["sections"]:
             section.update(
                 {
@@ -262,6 +263,35 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 ],
                 "source_performance_excerpt": "原文场面",
                 "source_performance_evidence": ["原文动作", "原文余痛"],
+                "technique_recall_contract": [
+                    {
+                        "technique_name": "先动作后判断",
+                        "source_summary": "原文先落动作与物件，再让人物判断慢半拍漏出来。",
+                        "source_evidence": ["原文场面"],
+                        "linked_style_dimensions": ["action_perception_emotion_weave"],
+                        "target_execution": "先让她看挂件和钥匙，再漏出受伤判断。",
+                        "must_not_flatten_to": "不能压成一句她很难受。",
+                        "target_outline_evidence": section["outline_evidence"],
+                    },
+                    {
+                        "technique_name": "句间反冲",
+                        "source_summary": "句子靠改口、停顿和反冲接起来，不走均匀摘要。",
+                        "source_evidence": ["原文动作", "原文余痛"],
+                        "linked_style_dimensions": ["sentence_relation_and_rhythm"],
+                        "target_execution": "用改口前后的反冲把错答和余痛连在一起。",
+                        "must_not_flatten_to": "不能拆成独立动作清单。",
+                        "target_outline_evidence": section["outline_evidence"],
+                    },
+                    {
+                        "technique_name": "错答压场",
+                        "source_summary": "原文用更短的现场问句顶掉真正想问的话。",
+                        "source_evidence": ["原文动作"],
+                        "linked_style_dimensions": ["dialogue_misfire_or_avoidance"],
+                        "target_execution": "她本来要问关系，最终只落一句钥匙怎么交。",
+                        "must_not_flatten_to": "不能改成解释型对白。",
+                        "target_outline_evidence": section["outline_evidence"],
+                    },
+                ],
                 "source_style_granularity": {
                     "narrative_voice_and_attitude": {
                         "source_summary": "贴脸跟着当事人的即时注意走，不先替她下结论。",
@@ -307,6 +337,30 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                     "speech_misfire_or_avoidance": "她本来要问关系，开口却只问钥匙要不要现在交。",
                     "scene_afterpain": "钥匙换手后，她的手心还保留着金属压痕。",
                 },
+                "scene_weave_contract": [
+                    {
+                        "moment_group_id": "MG-1",
+                        "source_trigger": "丈夫当众改口",
+                        "source_evidence": ["原文场面"],
+                        "action": "手先松开钥匙",
+                        "perception": "她意识到自己的位置正在被换主",
+                        "reaction": "视线只剩挂件，不敢立刻追问",
+                        "same_moment_requirement": "动作、注意偏移和误认必须写在同一连续瞬间里",
+                        "why_cannot_be_split": "一旦拆开就会退化成先动作后总结的施工稿",
+                        "target_outline_evidence": section["outline_evidence"],
+                    },
+                    {
+                        "moment_group_id": "MG-2",
+                        "source_trigger": "钥匙真正换手",
+                        "source_evidence": ["原文余痛"],
+                        "action": "钥匙交出去",
+                        "perception": "她明白公开失位已经成事实",
+                        "reaction": "余痛落在掌心压痕和场末记住这一秒上",
+                        "same_moment_requirement": "换手、认知反冲和余痛必须连写",
+                        "why_cannot_be_split": "否则只剩交钥匙这一个功能节点",
+                        "target_outline_evidence": section["outline_evidence"],
+                    },
+                ],
                 "continuous_moment_groups": [
                     "听到改口、手松钥匙、看见挂件属于同一反应瞬间。",
                     "想追问、临时改口、交出钥匙属于同一选择瞬间。",
@@ -372,6 +426,17 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             }
         ]
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+    def test_outline_sections_accepts_di_section_headings(self) -> None:
+        text = (
+            "## 第1节 起事\n"
+            "- 钩子：抓人\n\n"
+            "## 第2节 失位\n"
+            "- 钩子：再压一刀\n"
+        )
+
+        self.assertEqual(["1", "2"], GATE.outline_sections(text))
+        self.assertEqual({"1": "- 钩子：抓人", "2": "- 钩子：再压一刀"}, GATE.outline_section_blocks(text))
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()

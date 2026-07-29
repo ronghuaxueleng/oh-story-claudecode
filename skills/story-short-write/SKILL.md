@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.8.1
+  version: 1.8.3
 ---
 
 # story-short-write：短篇网文写作
@@ -236,11 +236,25 @@ metadata:
 112. **首写逐节重读、逐节停检**：仿写正文每一节落笔前，当前模型必须重新读取该节绑定的主体原文切片和全部选中辅助 SF 对应切片；写完该节、进入下一节前，必须同时检查事件流程、情绪拍和文风颗粒是否与绑定原文同级。任何一项被压成“发生 -> 判断 -> 决定”、解释段、动作标签清单或统一 AI 句长，立即在当前节整场重写；禁止写完整篇后用扩写、润色或去味补回原文颗粒。
 113. **逐 SF 文风颗粒必须在拆书 finalize 前固化**：`仿写无损编译包.json` 中每个 SF 必须包含 `source_style_granularity`，逐项覆盖叙述者态度、句间关系与节奏、段落气口与切点、对白错答/回避、动作感知情绪织法、即时插嘴与粗粝度；每项至少绑定两条位于该 SF 精确行段内的原文证据。写作读取门禁只能继承这些上游锁定字段，禁止临场用“贴脸叙述、长短句结合”等通用五条回填。
 114. **仿写首稿必须从唯一入口开写，禁止人工直写绕闸**：正文落笔前必须先运行 `validate_first_draft_entry.py init`，它会实时复验 `write_release_gate draft`、初始化 `逐节首写执行回执.json`，并拒绝任何已含正文内容或数字小节的目标文件。没有 `首稿入口回执.json`，不得创建或填写 `正文.md`，也不得把人工直接写出的正文补登记为合格首稿。
-115. **仿写首稿必须使用逐节执行回执**：正文不存在数字小节时由首稿入口初始化 `逐节首写执行回执.json`；每节严格执行 `open-section -> 只写当前节 -> close-section`。`open-section` 本身不得直接放正文，必须先通过当前节的 `逐节写前颗粒确认/第N节.json`，确认 `source_style_granularity_read / emotion_process_understood / continuous_moment_groups_understood / paragraph_break_plan_understood / sentence_relation_plan_understood / function_word_strategy_understood / target_emotion_landing_plan_understood / forbidden_items_checked` 全为 `true`，且 `manual_judgment` 非空、`gate_status=passed`，才允许真正开节。开节成功后，必须立刻导出并绑定 `模型语义输入.json#section_draft_tasks.N`，把本节 `source_performance_excerpt / emotion_process / continuous_moment_groups / paragraph_break_reasons / sentence_relation_plan / function_word_strategy / telegraphic_risk / emotion_shorthand_to_avoid / target_emotion_landing_plan / scene_logic_contract / source_emotion_parity / original_scene_granularity / first_draft_style_plan` 压成唯一正文首写任务；没有该任务或任务指纹未绑定，`close-section` 不得通过。正文提前出现未放行节号、上一节未关闭、写前颗粒确认缺失、来源切片未绑定或四项停检未通过时立即阻断。仿写模式的 `first_draft_basic_review init` 必须同时绑定已通过的 `首稿入口回执.json` 与正文 SHA 一致的逐节执行回执，禁止批量写完后倒填。
+115. **仿写首稿必须使用逐节执行回执**：正文不存在数字小节时由首稿入口初始化 `逐节首写执行回执.json`；每节严格执行 `open-section -> 只写当前节 -> close-section`。`open-section` 本身不得直接放正文，必须先通过当前节的 `逐节写前颗粒确认/第N节.json`，确认 `emotion_process_understood / continuous_moment_groups_understood / paragraph_break_plan_understood / sentence_relation_plan_understood / function_word_strategy_understood / forbidden_items_checked` 全为 `true`，且 `manual_judgment` 非空、`gate_status=passed`，才允许真正开节。开节成功后，正文首写只允许绑定当前节的 `逐节原文颗粒包.json` 与写前颗粒确认合同，不再额外生成或依赖 `模型语义输入.json#section_draft_tasks.N` 这类摘要任务层；首写主输入必须直接来自 `source_slice_bindings / source_performance_excerpt / emotion_process / continuous_moment_groups / paragraph_break_reasons / sentence_relation_plan / function_word_strategy / telegraphic_risk / emotion_shorthand_to_avoid / scene_logic_contract / source_emotion_parity / original_scene_granularity`。`close-section` 只认当前节正文与 `模型语义输入.json#section_reviews.N` 的逐项停检证据。正文提前出现未放行节号、上一节未关闭、写前颗粒确认缺失、来源切片未绑定或四项停检未通过时立即阻断。仿写模式的 `first_draft_basic_review init` 必须同时绑定已通过的 `首稿入口回执.json` 与正文 SHA 一致的逐节执行回执，禁止批量写完后倒填。
 116. **首写生成契约不得跨节套模板**：三节及以上复用相同的矛盾冲动、注意漂移、说话失手、连续瞬间分组、断段理由、句间计划、虚词策略、情绪禁例或落点计划，视为未逐节读取原文，细纲表演闸必须失败。只替换物件名、目标权力名或节号仍算同一模板。
 117. **没有逐节证据链，不得声称“已按原文颗粒度首写”**：仿写任务只有同时满足以下条件，才允许在项目内或对外声称“正文首稿已经按原文颗粒度完成”：`拆文读取回执 passed（direct_imitation）`、`细纲表演验收回执 passed`、`首写容量契约回执 passed`、`首稿入口回执 passed`、`逐节首写执行回执 passed`，且每节都绑定主体原文切片与全部选中辅助 SF 切片。缺任一项，必须明确定性为“未按 skill 完整颗粒链执行的草稿/测试稿”，禁止用“已经参考原文颗粒度”或“效果上等同”代替。
 118. **仿写正文必须先编译逐节原文颗粒包**：通过 `outline_performance_contract` 后、正文放行前，必须先运行 `build_section_source_bundle.py`，把每节 `source_slice_bindings / source_performance_excerpt / emotion_process / scene_logic_contract / source_emotion_parity / sentence_relation_plan` 编译成 `逐节原文颗粒包.json`。正文放行、首稿入口和 `open-section` 都只认这个颗粒包；没有颗粒包或颗粒包 SHA 失效时，不得开任何一节。
-119. **写前颗粒确认必须打印完整合同，不得只给原文摘录**：生成 `逐节写前颗粒确认/第N节.json` 时，当前节至少要同时暴露 `source_performance_excerpt / emotion_process / continuous_moment_groups / paragraph_break_reasons / sentence_relation_plan / function_word_strategy / emotion_shorthand_to_avoid / target_emotion_landing_plan / scene_logic_contract / source_emotion_parity`。只输出原文切片、不输出“本节怎么按原文颗粒落笔”的合同摘要，视为写前步骤未完成，不得开节。
+119. **写前颗粒确认必须打印完整合同，不得只给原文摘录**：生成 `逐节写前颗粒确认/第N节.json` 时，当前节至少要同时暴露 `source_performance_excerpt / emotion_process / continuous_moment_groups / paragraph_break_reasons / sentence_relation_plan / function_word_strategy / emotion_shorthand_to_avoid / scene_logic_contract / source_emotion_parity / original_scene_granularity`。只输出原文切片、不输出“本节怎么按原文颗粒落笔”的合同摘要，视为写前步骤未完成，不得开节。
+### 细纲语义编译硬闸
+
+写完 `小节大纲.md` 后先运行 `prepare-outline`。脚本必须在 `模型语义输入.json#outline_semantic_task` 中绑定当前细纲 SHA、全部选中原文 SHA、逐节来源绑定和必保颗粒。
+
+当前执行模型必须完整实读 `global_source_reads` 中每份原文，并逐节完成 `source_slice_reviews`：
+
+- 每个来源的 `source_range` 必须使用精确 `L起始-L结束`
+- 至少两条真实证据必须位于该切片内
+- 六项 `style_dimension_reviews` 必须分别填写原文观察、切片内证据、目标迁移方式和完成状态
+- 禁止只勾布尔值
+
+随后把对应因果、情绪、表演、句间与文风字段写入 `outline_compilation`。只有任务与全部小节均为 `completed`、`reviewed_by_current_model=true` 时才能运行 `compile-outline`。
+
+任务缺失、pending、证据位于切片外、范围越界、文风维度空填、SHA 失效或只填摘要时，脚本必须在 Node 编译前阻断。禁止跳过 `prepare-outline` 直接手填薄壳，也禁止用 `--help` 探测参数代替阶段命令。
 
 ---
 
@@ -572,9 +586,9 @@ python3 "{项目目录}/写作资产/项目工具箱.py" rewrite-section 1
 python3 "{项目目录}/写作资产/项目工具箱.py" finish-preview
 ```
 
-新项目的细纲语义和逐节停检只维护一份创作语义源：`写作资产/模型语义输入.json`。模型只填写其中的 `outline_compilation` 和 `section_reviews`；SHA、路径、原文实读记录、正式回执外壳、逐节颗粒包及状态字段全部由脚本生成。规则来源、规则分类和模型复核批次仍独立由 `规则执行台账.json` 与模型复核计划管理，不能并入创作语义源，也不能宣称所有模型语义只有一个文件。已有通过回执的旧项目首次执行 `compile-outline --from-existing-receipts`，由脚本反向导出创作语义源；只有旧 `.data.mjs` 本身完整可重建时才使用 `--legacy-data-module`。迁移完成后不再维护 scaffold 数据文件。
+新项目的细纲语义和逐节停检只维护一份创作语义源：`写作资产/模型语义输入.json`。写完细纲后先运行 `prepare-outline`，由脚本生成或刷新 `outline_semantic_task`；当前模型完成该任务后再填写对应 `outline_compilation`，正文阶段填写 `section_reviews`。SHA、路径、任务机械上下文、正式回执外壳、逐节颗粒包及状态字段由脚本生成；原文实读证据、逐节切片裁决和模型人工结论必须由当前模型填写。规则来源、规则分类和模型复核批次仍独立由 `规则执行台账.json` 与模型复核计划管理，不能并入创作语义源，也不能宣称所有模型语义只有一个文件。已有通过回执的旧项目首次执行 `compile-outline --from-existing-receipts`，由脚本反向导出创作语义源；只有旧 `.data.mjs` 本身完整可重建时才使用 `--legacy-data-module`。迁移完成后不再维护 scaffold 数据文件。
 
-`bootstrap-book` 负责从主体、辅助拆书 profile 初始化项目和创作语义源；`compile-outline` 将紧凑细纲语义编译为细纲表演回执和首写容量回执，再统一验证开头、顺序并生成逐节原文颗粒包；`start-draft` 统一执行正文放行和首稿入口初始化。`write-section N` 负责完整输出本节原文、记录实读并生成紧凑停检任务；模型写完正文并填写同一创作语义源后，运行 `write-section N --phase close`，由脚本合并机械绑定并执行关节验收。需要重写时使用 `rewrite-section N` 重置并重新打开该节；全部小节关闭后使用 `finish-preview` 初始化基础审计、校验并停靠首稿预览。
+`bootstrap-book` 负责从主体、辅助拆书 profile 初始化项目和创作语义源；`prepare-outline` 负责补齐 outline 阶段壳文件、同步细纲机械上下文并生成原文实读任务；`compile-outline` 先校验该任务已经由当前模型完成，再将紧凑细纲语义编译为细纲表演回执和首写容量回执，统一验证开头、顺序并生成逐节原文颗粒包；`start-draft` 统一执行正文放行和首稿入口初始化。`write-section N` 负责完整输出本节原文、记录实读并生成紧凑停检任务；模型写完正文并填写同一创作语义源后，运行 `write-section N --phase close`，由脚本合并机械绑定并执行关节验收。需要重写时使用 `rewrite-section N` 重置并重新打开该节；全部小节关闭后使用 `finish-preview` 初始化基础审计、校验并停靠首稿预览。
 
 每个命令只编排可机械验证的步骤，首个门禁失败即停止；脚本不代填阅读证据、模型语义归并、顺序裁决或正文审查结论。底层命令继续保留为迁移兼容和定向调试入口，正常写作不要混用。
 

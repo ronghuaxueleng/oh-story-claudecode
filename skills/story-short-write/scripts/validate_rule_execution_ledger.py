@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import re
 from datetime import datetime
@@ -200,6 +201,28 @@ def read_text(path: Path) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def load_content_fingerprints():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "story-short-analyze"
+        / "scripts"
+        / "content_fingerprints.py"
+    )
+    spec = importlib.util.spec_from_file_location("rule_ledger_content_fingerprints", path)
+    if not spec or not spec.loader:
+        raise RuntimeError(f"无法加载内容指纹模块：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+CONTENT_FINGERPRINTS = load_content_fingerprints()
+
+
+def source_asset_sha256(path: Path) -> str:
+    return CONTENT_FINGERPRINTS.asset_sha256(path)
 
 
 def resolve_skill_rule_path(path: Path, skill_root: Path = SKILL_ROOT) -> Path:
@@ -724,7 +747,7 @@ def create_ledger(
                 errors.append(f"拆文读取回执仍有未读文件: {root / str(item.get('path') or '')}")
                 continue
             path = root / str(item.get("path") or "")
-            if not path.is_file() or item.get("sha256") != sha256(path):
+            if not path.is_file() or item.get("sha256") != source_asset_sha256(path):
                 errors.append(f"拆文读取回执已过期，必须重新读取: {path}")
     if errors:
         return {}, errors
@@ -1220,7 +1243,10 @@ def export_model_review(
     entries = [
         entry
         for entry in iter_execution_entries(data)
-        if not str(entry.get("merged_into") or "").strip()
+        if (
+            not str(entry.get("merged_into") or "").strip()
+            and entry_requires_model_review(entry)
+        )
     ]
     case_registry: dict[str, dict[str, Any]] = {}
     source_ref_registry: dict[str, dict[str, Any]] = {}
@@ -1309,6 +1335,19 @@ def export_model_review(
         "cases": len(case_registry),
         "source_refs": len(source_ref_registry),
     }
+
+
+def entry_requires_model_review(entry: dict[str, Any]) -> bool:
+    """Return whether a canonical rule still needs semantic classification."""
+    return not (
+        entry.get("classification_confirmed") is True
+        and str(entry.get("classification_method") or "")
+        in {"model_semantic_review", "exact_duplicate"}
+        and entry.get("mode_confirmed") is True
+        and bool(str(entry.get("canonical_rule_text") or "").strip())
+        and str(entry.get("applicability") or "")
+        in {"applicable", "rejected", "not_applicable"}
+    )
 
 
 ALLOWED_PLAN_FIELDS = {
@@ -1560,7 +1599,7 @@ def apply_model_group_plan(
             errors.append(f"group[{index}] applicability 必须为 applicable / rejected / not_applicable，不能为空或 merged")
             continue
         if status not in VALID_STATUSES:
-            errors.append(f"group[{index}] status 必须为 completed，归并计划不能留下 pending")
+            errors.append(f"group[{index}] status 必须为 pending / completed")
             continue
         if status == "pending" and outcome != "pending":
             errors.append(f"group[{index}] pending 规则的 outcome 必须为 pending")
@@ -1569,16 +1608,19 @@ def apply_model_group_plan(
             errors.append(f"group[{index}] completed 规则不能保留 pending outcome")
             continue
         if outcome not in VALID_OUTCOMES:
-            errors.append(f"group[{index}] outcome 必须为 passed / failed / not_applicable，不能为 pending")
+            errors.append(f"group[{index}] outcome 必须为 pending / passed / failed / not_applicable")
             continue
         if applicability in {"rejected", "not_applicable"} and outcome != "not_applicable":
             errors.append(f"group[{index}] rejected / not_applicable 的 outcome 必须为 not_applicable")
+            continue
+        if applicability in {"rejected", "not_applicable"} and status != "completed":
+            errors.append(f"group[{index}] rejected / not_applicable 规则必须直接 completed")
             continue
         if (
             applicability == "applicable"
             and outcome not in {"pending", "passed", "failed"}
         ):
-            errors.append(f"group[{index}] applicable 的 outcome 必须为 passed 或 failed")
+            errors.append(f"group[{index}] applicable 的 outcome 必须为 pending / passed / failed")
             continue
         if not decision_reason:
             errors.append(f"group[{index}] decision_reason 不能为空")

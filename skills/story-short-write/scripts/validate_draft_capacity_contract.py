@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 
-SECTION_RE = re.compile(r"^##\s+(\d+)[.、．]")
+SECTION_RE = re.compile(r"^##\s+(?:第)?(\d+)(?:[.、．]|节)")
 
 
 def digest(path: Path) -> str:

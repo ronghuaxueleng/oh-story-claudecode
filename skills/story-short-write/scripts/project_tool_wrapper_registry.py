@@ -215,19 +215,37 @@ def build_project_audit_wrapper(
 ) -> str:
     del use_git_ledger_fallback
     skill_script = script_dir / "story_short_write_project_toolbox.py"
-    argv_lines = [
-        "sys.executable,",
-        "str(SKILL_SCRIPT),",
-        '"--project",',
-        f"{str(paths['project'])!r},",
-        '"audit-project",',
-        '"--write-report",',
+    project_path = str(paths["project"])
+    lines = [
+        "#!/usr/bin/env python3",
+        "from __future__ import annotations",
+        "",
+        "import subprocess",
+        "import sys",
+        "from pathlib import Path",
+        "",
+        "",
+        f"SKILL_SCRIPT = Path({str(skill_script)!r})",
+        "",
+        "",
+        "def main() -> int:",
+        "    cmd = [",
+        "        sys.executable,",
+        "        str(SKILL_SCRIPT),",
+        '        "--project",',
+        f"        {project_path!r},",
+        "    ]",
+        "    cmd.extend(sys.argv[1:])",
+        '    cmd.extend(["audit-project", "--write-report"])',
+        "    proc = subprocess.run(cmd, check=False)",
+        "    return proc.returncode",
+        "",
+        "",
+        'if __name__ == "__main__":',
+        "    raise SystemExit(main())",
+        "",
     ]
-    return build_wrapper(
-        skill_script=skill_script,
-        argv_lines=argv_lines,
-        append_argv=True,
-    )
+    return "\n".join(lines)
 
 
 def build_first_draft_basic_review_init_wrapper(

@@ -529,7 +529,7 @@ N2 | L25-L31 | 锚点：我默然抽回了手 | **自我认知** | 类型：转�
 
 ### 子流程施工卡与索引硬模板
 
-每个 BID 必须继续下钻成一个或多个完整 `SF-*`。`SF-*` 不是动作零件，而是能独立迁移的连续子流程；不得把整座 BID 只概括成“公开掉位、补救失败、公开反噬”。
+每个承重桥 ID 都必须继续下钻成一个或多个完整 `SF-*`。这里的父桥段不限于 `BID-*`，也包括桥段施工卡中显式声明的 `OPEN-* / MID-*` 等承重桥。`SF-*` 不是动作零件，而是能独立迁移的连续子流程；不得把整座父桥段只概括成“公开掉位、补救失败、公开反噬”。
 
 ```md
 ## SF-01 {子流程名}
@@ -570,10 +570,10 @@ embeddable_after / incompatible_with / source_evidence
 硬规则：
 
 - `required_sequence` 不得少于两步，`emotion_sequence` 不得少于三拍。
-- 每个 BID 至少被一个 `SF-*` 覆盖；原文确有多个连续子流程时必须拆开，不得为了少写索引而合并。
+- 每个父桥段至少被一个 `SF-*` 覆盖；原文确有多个连续子流程时必须拆开，不得为了少写索引而合并。
 - `source_evidence` 至少两条且必须能在原文逐字找到。
 - `causal_preconditions` 必须完整包含 `arrival_causes / knowledge_boundaries / object_lifecycle / institutional_constraints / obvious_alternative_blockers / exit_cause / source_evidence`；不得用“剧情需要”代替因果。
-- JSONL 必须能回指同名施工卡和父 BID；不得只写功能摘要。
+- JSONL 必须能回指同名施工卡和父桥段 ID；不得只写功能摘要。
 
 ### `写作手法.md` 硬模板补充
 
