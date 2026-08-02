@@ -561,18 +561,20 @@ N2 | L25-L31 | 锚点：我默然抽回了手 | **自我认知** | 类型：转�
 `子流程索引.jsonl` 每行一条 JSON，字段必须完整包含：
 
 ```text
-subflow_id / source_book / parent_bridge_id / name / source_range /
+subflow_id / source_book / parent_bridge_id / name / source_excerpt / source_range /
 function_tags / entry_state / required_sequence / scene_granularity / causal_preconditions /
 information_delay / control_changes / emotion_sequence / end_state /
-embeddable_after / incompatible_with / source_evidence
+embeddable_after / incompatible_with / source_evidence / source_style_granularity
 ```
 
 硬规则：
 
 - `required_sequence` 不得少于两步，`emotion_sequence` 不得少于三拍。
 - 每个 BID 至少被一个 `SF-*` 覆盖；原文确有多个连续子流程时必须拆开，不得为了少写索引而合并。
+- `source_excerpt` 必须与 `source_range` 对应原文精确切片完全一致；不得只留锚点句、摘要句或压缩版摘录。
 - `source_evidence` 至少两条且必须能在原文逐字找到。
 - `causal_preconditions` 必须完整包含 `arrival_causes / knowledge_boundaries / object_lifecycle / institutional_constraints / obvious_alternative_blockers / exit_cause / source_evidence`；不得用“剧情需要”代替因果。
+- `source_style_granularity` 六项必须全部存在；每项至少两条范围内证据，六项合计至少四条不同原文证据，同一证据组不得覆盖四个及以上字段。
 - JSONL 必须能回指同名施工卡和父 BID；不得只写功能摘要。
 
 ### `写作手法.md` 硬模板补充

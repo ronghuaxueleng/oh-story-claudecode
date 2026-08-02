@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Any
 
 
-SECTION_RE = re.compile(r"^##\s+(\d+)[.、．]")
+SECTION_RE = re.compile(r"^##\s+(?:第\s*)?(\d+)(?:\s*节)?[.、．]?(?:\s+(.*))?$")
+SUBHEADING_RE = re.compile(r"^###\s+(.+?)\s*$")
+BULLET_HEADING_RE = re.compile(r"^\s*-\s+(.+?)[：:](?:\s*(.*))?$")
 
 
 def digest(path: Path) -> str:
@@ -22,6 +24,120 @@ def digest(path: Path) -> str:
 def sections(path: Path) -> list[str]:
     return [match.group(1) for line in path.read_text(encoding="utf-8").splitlines()
             if (match := SECTION_RE.match(line))]
+
+
+def section_blocks(path: Path) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        if match := SECTION_RE.match(raw_line):
+            if current is not None:
+                blocks.append(current)
+            current = {
+                "id": match.group(1),
+                "title": str(match.group(2) or "").strip(),
+                "lines": [raw_line],
+            }
+            continue
+        if current is not None:
+            current["lines"].append(raw_line)
+    if current is not None:
+        blocks.append(current)
+    return blocks
+
+
+def subsection_map(lines: list[str]) -> dict[str, list[str]]:
+    result: dict[str, list[str]] = {}
+    current = ""
+    for raw_line in lines[1:]:
+        stripped = raw_line.strip()
+        if match := SUBHEADING_RE.match(raw_line):
+            current = match.group(1).strip()
+            result.setdefault(current, [])
+            continue
+        if match := BULLET_HEADING_RE.match(stripped):
+            current = match.group(1).strip()
+            result.setdefault(current, [])
+            inline_value = str(match.group(2) or "").strip()
+            if inline_value:
+                result[current].append(inline_value)
+            continue
+        if current:
+            result[current].append(raw_line)
+    return result
+
+
+def compact_lines(lines: list[str], *, limit: int = 2) -> list[str]:
+    result: list[str] = []
+    for raw_line in lines:
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith(("-", "*", ">")):
+            line = line[1:].strip()
+        line = re.sub(r"^\d+\.\s*", "", line)
+        if not line:
+            continue
+        result.append(line)
+        if len(result) >= limit:
+            break
+    return result
+
+
+def join_summary(lines: list[str], *, limit: int = 2) -> str:
+    values = compact_lines(lines, limit=limit)
+    return "；".join(values)
+
+
+def allocated_words(section_count: int, target_words: int, index: int) -> int:
+    if section_count <= 0:
+        return 0
+    minimum = 800
+    allocated = [minimum] * section_count
+    delta = target_words - minimum * section_count
+    if delta > 0:
+        position = 0
+        while delta > 0:
+            allocated[position % section_count] += 1
+            delta -= 1
+            position += 1
+    return allocated[index]
+
+
+def build_section_entry(
+    block: dict[str, Any],
+    *,
+    section_count: int,
+    target_words: int,
+    index: int,
+) -> dict[str, Any]:
+    lines = block.get("lines") if isinstance(block.get("lines"), list) else []
+    parts = subsection_map(lines)
+    title = str(block.get("title") or "").strip()
+    opening = join_summary(parts.get("首段开口", []) or parts.get("本节开口", []), limit=1)
+    source_binding = join_summary(parts.get("来源绑定", []) or parts.get("对应来源", []), limit=2)
+    events = join_summary(
+        parts.get("主事件与子事件", [])
+        or parts.get("子事件", [])
+        or parts.get("本节主事件", []),
+        limit=3,
+    )
+    emotion = join_summary(parts.get("情绪过程", []), limit=2)
+    hook = join_summary(parts.get("节尾钩子", []), limit=1)
+    exit_state = join_summary(parts.get("出口状态", []) or parts.get("相邻节交接", []), limit=1)
+    performance = join_summary(parts.get("表演与对白", []) or parts.get("叙述者嘴感", []), limit=2)
+    control = join_summary(parts.get("控制权变化", []) or parts.get("冲突载体", []), limit=2)
+    return {
+        "id": str(block.get("id") or ""),
+        "planned_words": allocated_words(section_count, target_words, index),
+        "scene_completion": events or title or "待按本节主事件完成首写",
+        "opening_or_turn": opening or title or "待按本节开口起事",
+        "emotion_escalation": emotion or control or "待按本节情绪过程推进",
+        "end_change": hook or exit_state or "待按本节出口状态收束",
+        "source_mechanism": source_binding or "待按来源绑定迁移机制",
+        "source_style_granularity": performance or emotion or "待按本节表演与气口执行",
+        "first_draft_style_plan": performance or hook or "待按本节首写计划执行",
+    }
 
 
 def nonempty(value: Any) -> bool:
@@ -39,6 +155,7 @@ def count_story_chars(path: Path) -> int:
 def init(project: str, outline: Path, target_words: int) -> dict[str, Any]:
     if not outline.is_file():
         raise FileNotFoundError(f"细纲不存在: {outline}")
+    blocks = section_blocks(outline)
     return {
         "version": "1.0",
         "project": project,
@@ -47,28 +164,31 @@ def init(project: str, outline: Path, target_words: int) -> dict[str, Any]:
         "target_words": target_words,
         "outline": {"path": str(outline.resolve()), "sha256": digest(outline)},
         "sections": [
-            {
-                "id": section,
-                "planned_words": 0,
-                "scene_completion": "",
-                "opening_or_turn": "",
-                "emotion_escalation": "",
-                "end_change": "",
-                "source_mechanism": "",
-                "source_style_granularity": "",
-                "first_draft_style_plan": "",
-            }
-            for section in sections(outline)
+            build_section_entry(
+                block,
+                section_count=len(blocks),
+                target_words=target_words,
+                index=index,
+            )
+            for index, block in enumerate(blocks)
         ],
     }
 
 
 def validate(receipt_path: Path, draft: Path | None = None) -> list[str]:
-    errors: list[str] = []
     try:
         data = json.loads(receipt_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return [f"容量契约不可读取: {exc}"]
+    return validate_data(data, receipt_path, draft)
+
+
+def validate_data(
+    data: dict[str, Any],
+    receipt_path: Path,
+    draft: Path | None = None,
+) -> list[str]:
+    errors: list[str] = []
     if data.get("gate_status") != "passed":
         errors.append("容量契约 gate_status 必须为 passed")
     target = data.get("target_words")

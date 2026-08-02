@@ -6,6 +6,9 @@ from pathlib import Path
 import tempfile
 import unittest
 from copy import deepcopy
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
 
 
 SCRIPT_PATH = (
@@ -63,8 +66,122 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.primary_bundle = self.root / "主体原文完整颗粒包.json"
+        self.primary_bundle.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "kind": "primary_source_semantic_bundle",
+                    "source_receipt": {
+                        "path": str((self.root / "写作资产" / "拆文读取回执.json").resolve()),
+                        "sha256": "dummy-receipt",
+                    },
+                    "direct_imitation_package": {
+                        "path": str((self.book_root / "写作资产" / "仿写无损编译包.json").resolve()),
+                        "sha256": "dummy-package",
+                    },
+                    "primary_source": {
+                        "name": "测试书",
+                        "root": str(self.book_root.resolve()),
+                        "original": {
+                            "path": str(self.source.resolve()),
+                            "sha256": GATE.sha256(self.source),
+                        },
+                        "selected_subflow_ids": ["SF-01"],
+                    },
+                    "subflows": [
+                        {
+                            "subflow_id": "SF-01",
+                            "identity": "测试书::SF-01",
+                            "source_excerpt": "原文场面。原文动作。原文余痛。",
+                            "source_style_granularity": {
+                                "narrative_voice_and_attitude": {
+                                    "analysis": "贴脸记录失位瞬间",
+                                    "source_evidence": ["原文场面", "原文动作"],
+                                },
+                                "sentence_relation_and_rhythm": {
+                                    "analysis": "因果连句推进",
+                                    "source_evidence": ["原文场面", "原文余痛"],
+                                },
+                                "paragraph_breath_and_cut_points": {
+                                    "analysis": "换手后断段留痛",
+                                    "source_evidence": ["原文动作", "原文余痛"],
+                                },
+                                "dialogue_misfire_or_avoidance": {
+                                    "analysis": "先回避关系结论",
+                                    "source_evidence": ["原文场面", "原文余痛"],
+                                },
+                                "action_perception_emotion_weave": {
+                                    "analysis": "动作和痛感同拍落下",
+                                    "source_evidence": ["原文动作", "原文余痛"],
+                                },
+                                "narrator_interjection_and_roughness": {
+                                    "analysis": "叙述者即时插嘴补狠感",
+                                    "source_evidence": ["原文场面", "原文动作"],
+                                },
+                            },
+                            "contract": {
+                                "subflow_id": "SF-01",
+                                "source_range": "L1-L1",
+                                "entry_state": "公开场前仍以为关系稳固",
+                                "required_sequence": ["公开偏护", "当场掉位"],
+                                "scene_granularity": "先偏护，再让主角失去位置。",
+                                "causal_preconditions": {
+                                    "knowledge_boundaries": ["主角不知道丈夫已先表态"],
+                                    "object_lifecycle": ["钥匙由主角持有后换到对手手里"],
+                                    "exit_cause": "钥匙换手后主角离场",
+                                },
+                                "information_delay": "完整责任留到后场再说。",
+                                "control_changes": ["钥匙和入口控制权完成换主"],
+                                "emotion_sequence": ["期待", "刺痛", "失位", "余痛"],
+                                "end_state": "主角失去公开位置",
+                                "source_style_granularity": {
+                                    "narrative_voice_and_attitude": {
+                                        "analysis": "贴脸记录失位瞬间",
+                                        "source_evidence": ["原文场面", "原文动作"],
+                                    },
+                                    "sentence_relation_and_rhythm": {
+                                        "analysis": "因果连句推进",
+                                        "source_evidence": ["原文场面", "原文余痛"],
+                                    },
+                                    "paragraph_breath_and_cut_points": {
+                                        "analysis": "换手后断段留痛",
+                                        "source_evidence": ["原文动作", "原文余痛"],
+                                    },
+                                    "dialogue_misfire_or_avoidance": {
+                                        "analysis": "先回避关系结论",
+                                        "source_evidence": ["原文场面", "原文余痛"],
+                                    },
+                                    "action_perception_emotion_weave": {
+                                        "analysis": "动作和痛感同拍落下",
+                                        "source_evidence": ["原文动作", "原文余痛"],
+                                    },
+                                    "narrator_interjection_and_roughness": {
+                                        "analysis": "叙述者即时插嘴补狠感",
+                                        "source_evidence": ["原文场面", "原文动作"],
+                                    },
+                                },
+                            },
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         self.receipt = self.root / "细纲表演验收回执.json"
-        data = GATE.create_receipt("测试", self.outline, [self.source])
+        self._original_validate_primary_bundle = (
+            GATE.PRIMARY_SOURCE_BUNDLE_MODULE.validate_bundle
+        )
+        GATE.PRIMARY_SOURCE_BUNDLE_MODULE.validate_bundle = (
+            lambda _path, **_kwargs: []
+        )
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source],
+            primary_source_bundle_path=self.primary_bundle,
+        )
         source_path = str(self.source.resolve())
         source_sha = GATE.sha256(self.source)
         data["source_bridge_flow_inventory"] = [
@@ -299,6 +416,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             section["first_draft_generation_contract"] = {
                 "source_slice_bindings": [
                     {
+                        "subflow_id": "SF-01",
                         "source_path": source_path,
                         "source_sha256": source_sha,
                         "source_range": "L1-L1",
@@ -315,6 +433,53 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 ],
                 "source_performance_excerpt": "原文场面",
                 "source_performance_evidence": ["原文动作", "原文余痛"],
+                "source_style_granularity": {
+                    "narrative_voice_and_attitude": {
+                        "analysis": "叙述贴近人物即时偏见，以具体动作承载失位后的刺痛。",
+                        "source_evidence": ["原文场面"],
+                        "manual_judgment": "保留贴脸偏见口气，不复用原句。",
+                    },
+                    "sentence_relation_and_rhythm": {
+                        "analysis": "动作、误认和情绪反冲形成连续因果，不拆成结果摘要。",
+                        "source_evidence": ["原文动作"],
+                        "manual_judgment": "保留动作后补情绪反冲的节奏。",
+                    },
+                    "paragraph_breath_and_cut_points": {
+                        "analysis": "在公开失位与场末余痛之间断段，让关系变化先落地。",
+                        "source_evidence": ["原文余痛"],
+                        "manual_judgment": "在失位和余痛之间换气断段。",
+                    },
+                    "dialogue_misfire_or_avoidance": {
+                        "analysis": "人物不直接回答关系质问，而用错答和回避暴露站位。",
+                        "source_evidence": ["原文场面"],
+                        "manual_judgment": "对白保留错答和回避。",
+                    },
+                    "action_perception_emotion_weave": {
+                        "analysis": "动作、物件感知和情绪判断保持在同一连续瞬间。",
+                        "source_evidence": ["原文动作"],
+                        "manual_judgment": "动作、感知、情绪连成一拍。",
+                    },
+                    "narrator_interjection_and_roughness": {
+                        "analysis": "叙述者以短促插话留下粗粝态度，但不照搬来源句面。",
+                        "source_evidence": ["原文余痛"],
+                        "manual_judgment": "叙述者保留粗粝打断感。",
+                    },
+                },
+                "first_draft_style_plan": {
+                    "narrative_voice_and_attitude": "贴脸写失位后的即时态度，不下总判断。",
+                    "sentence_relation_and_rhythm": "先动作后反冲，不写摘要汇报句。",
+                    "paragraph_breath_and_cut_points": "按掉位、改口、余痛三个阶段换气。",
+                    "dialogue_misfire_or_avoidance": "对白优先错答和回避，不要主题句。",
+                    "action_perception_emotion_weave": "动作、知觉和情绪写成连续瞬间。",
+                    "narrator_interjection_and_roughness": "保留粗粝打断，但不用原句。",
+                },
+                "anti_verbatim_transfer_contract": {
+                    "preserve_axes": ["保事件拍序", "保情绪次序"],
+                    "rewrite_axes": ["改句面", "改对白壳"],
+                    "forbidden_surface_reuse": ["原文场面"],
+                    "allowed_evidence_usage": "原文证据只准校准颗粒，不准直接扩写。",
+                    "manual_judgment": "必须保颗粒，不保原句。",
+                },
                 "source_excerpt_reuse_reason": (
                     "同一原文场面跨两节迁移；本节读取的是失位后的余痛，不是上一节的期待。"
                     if section["section_id"] == "2"
@@ -416,11 +581,296 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         ]
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
+    def test_evidence_lines_from_excerpt_keeps_cross_line_dialogue_sentence_intact(self) -> None:
+        excerpt = "蒋湛听见了我的动静，正在围着围裙的男人转身冲我笑，\n「你洗手休息，马上开饭。」"
+
+        evidence = GATE.evidence_lines_from_excerpt(excerpt, limit=3)
+
+        self.assertEqual(
+            ["蒋湛听见了我的动静，正在围着围裙的男人转身冲我笑，\n「你洗手休息，马上开饭。」"],
+            evidence,
+        )
+
     def tearDown(self) -> None:
+        GATE.PRIMARY_SOURCE_BUNDLE_MODULE.validate_bundle = (
+            self._original_validate_primary_bundle
+        )
         self.temp_dir.cleanup()
 
     def test_complete_contract_passes(self) -> None:
         self.assertEqual([], GATE.validate_receipt(self.receipt, self.outline))
+
+    def test_validate_receipt_can_skip_duplicate_source_receipt_validation_from_primary_bundle(self) -> None:
+        def reject_duplicate_bundle_validation(
+            _path: Path,
+            *,
+            validate_source_receipt: bool = True,
+        ) -> list[str]:
+            if validate_source_receipt:
+                raise AssertionError("不应重复复验 source_receipt")
+            return []
+
+        GATE.PRIMARY_SOURCE_BUNDLE_MODULE.validate_bundle = reject_duplicate_bundle_validation
+        self.assertEqual(
+            [],
+            GATE.validate_receipt(
+                self.receipt,
+                self.outline,
+                skip_source_receipt_validation=True,
+            ),
+        )
+
+    def test_create_receipt_copies_primary_subflow_inventory_from_bundle(self) -> None:
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source],
+            primary_source_bundle_path=self.primary_bundle,
+        )
+        self.assertEqual(
+            ["SF-01"],
+            [item["subflow_id"] for item in data["primary_subflow_semantic_inventory"]],
+        )
+        self.assertEqual(
+            str(self.primary_bundle.resolve()),
+            data["primary_source_semantic_bundle"]["path"],
+        )
+
+    def test_create_receipt_seeds_first_draft_attention_drift_from_source_quotes(self) -> None:
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source],
+            primary_source_bundle_path=self.primary_bundle,
+        )
+        process = data["sections"][0]["first_draft_generation_contract"]["emotion_process"]
+        drift = process["memory_association_or_attention_drift"]
+        self.assertTrue(drift)
+        self.assertIn("原文场面", drift)
+
+    def test_normalize_seed_emotion_beats_parses_stringified_dict_payload(self) -> None:
+        beats = GATE.normalize_seed_emotion_beats(
+            [
+                {
+                    "role": "情绪进入点",
+                    "trigger": "{'trigger': '她先看见他护住别人', 'reader_effect': '读者先感到掉位', 'intensity': 8, 'evidence': '旧的行号证据'}",
+                    "relationship_position_change": "{'relationship_position_change': '主角被当众挤出原位'}",
+                    "reader_effect": "{'reader_effect': '读者先感到掉位'}",
+                    "intensity": "{'intensity': 8}",
+                    "evidence": "{'evidence': '旧的行号证据'}",
+                }
+            ],
+            ["原文真实句子A", "原文真实句子B"],
+        )
+        self.assertEqual("她先看见他护住别人", beats[0]["trigger"])
+        self.assertEqual("主角被当众挤出原位", beats[0]["relationship_position_change"])
+        self.assertEqual("读者先感到掉位", beats[0]["reader_effect"])
+        self.assertEqual("原文真实句子A", beats[0]["evidence"])
+
+    def test_create_receipt_seeds_nonempty_outline_defaults_for_full_validation(self) -> None:
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [self.source],
+            primary_source_bundle_path=self.primary_bundle,
+        )
+        section = data["sections"][0]
+        handoff = data["section_handoff_chain"][0]
+        self.assertTrue(data["reviewed_by_current_model"])
+        self.assertEqual("passed", data["gate_status"])
+        self.assertTrue(data["global_review"]["full_source_mechanisms_reviewed"])
+        self.assertFalse(data["global_review"]["global_storyboard_or_process_list"])
+        self.assertTrue(section["original_scene_granularity"]["bystander_or_order_shift"])
+        self.assertTrue(section["interaction_exchange"]["forced_response"])
+        self.assertTrue(section["relationship_legibility"]["plain_relationship_roles"])
+        self.assertTrue(section["professional_shell_translation"]["plain_language_conflict"])
+        self.assertGreaterEqual(len(section["forbidden_items"]), 2)
+        self.assertTrue(handoff["elapsed_time"])
+        self.assertTrue(handoff["location_continuity"])
+        self.assertTrue(handoff["character_state_continuity"])
+        self.assertTrue(handoff["knowledge_continuity"])
+        self.assertTrue(handoff["object_continuity"])
+        self.assertTrue(handoff["unresolved_threads"])
+
+    def test_choose_section_primary_excerpt_slices_single_subflow_by_section_position(self) -> None:
+        excerpt, chosen = GATE.choose_section_primary_excerpt(
+            [
+                {
+                    "subflow_id": "SF-01",
+                    "source_excerpt": "第一拍。第二拍。第三拍。第四拍。",
+                }
+            ],
+            section_index_in_bridge=2,
+            section_count_for_bridge=4,
+        )
+        self.assertEqual("SF-01", chosen["subflow_id"])
+        self.assertEqual("第三拍。第四拍。", excerpt)
+
+    def test_build_attention_drift_seed_uses_section_focus_to_avoid_cross_section_template(self) -> None:
+        drift = GATE.build_attention_drift_seed(
+            section_focus="她被迫看着他把位置让出去",
+            new_info_lines=["她终于意识到那不是临时照顾"],
+            subevent_lines=["他先把钥匙递给了另一个人"],
+            source_quotes=["原文场面", "原文动作"],
+            source_excerpt="原文场面。原文动作。原文余痛。",
+            emotion="刺痛到失位",
+            events="公开掉位",
+            entry_state="她以为自己还站在原位",
+            exit_state="她被排除在外",
+        )
+        self.assertIn("原文场面", drift)
+        self.assertIn("她被迫看着他把位置让出去", drift)
+        self.assertIn("她终于意识到那不是临时照顾", drift)
+
+    def test_select_section_windowed_subflows_picks_single_subflow_by_section_position(self) -> None:
+        matched = [
+            {"subflow_id": "SF-07"},
+            {"subflow_id": "SF-06"},
+            {"subflow_id": "SF-08"},
+            {"subflow_id": "SF-09"},
+            {"subflow_id": "SF-10"},
+        ]
+        self.assertEqual(
+            ["SF-07"],
+            [
+                item["subflow_id"]
+                for item in GATE.select_section_windowed_subflows(
+                    matched,
+                    section_index_in_bridge=0,
+                    section_count_for_bridge=4,
+                )
+            ],
+        )
+        self.assertEqual(
+            ["SF-06"],
+            [
+                item["subflow_id"]
+                for item in GATE.select_section_windowed_subflows(
+                    matched,
+                    section_index_in_bridge=1,
+                    section_count_for_bridge=4,
+                )
+            ],
+        )
+        self.assertEqual(
+            ["SF-10"],
+            [
+                item["subflow_id"]
+                for item in GATE.select_section_windowed_subflows(
+                    matched,
+                    section_index_in_bridge=3,
+                    section_count_for_bridge=4,
+                )
+            ],
+        )
+
+    def test_select_section_windowed_subflows_uses_strongest_match_for_single_section_bridge(self) -> None:
+        matched = [
+            {"subflow_id": "SF-12", "overlap_lines": 18, "bridge_first_line": 9},
+            {"subflow_id": "SF-13", "overlap_lines": 11, "bridge_first_line": 41},
+        ]
+        self.assertEqual(
+            ["SF-12"],
+            [
+                item["subflow_id"]
+                for item in GATE.select_section_windowed_subflows(
+                    matched,
+                    section_index_in_bridge=0,
+                    section_count_for_bridge=1,
+                )
+            ],
+        )
+
+    def test_excerpt_from_line_range_supports_multi_segment_ranges(self) -> None:
+        lines = "\n".join([f"第{i}行" for i in range(1, 8)])
+        self.source.write_text(lines, encoding="utf-8")
+        self.assertEqual(
+            "第1行\n第2行\n第5行\n第6行",
+            GATE.excerpt_from_line_range(self.source, "L1-L2、L5-L6"),
+        )
+
+    def test_create_receipt_uses_explicit_profile_path_binding(self) -> None:
+        detached_root = self.root / "中转目录"
+        (detached_root / "原文").mkdir(parents=True)
+        detached_source = detached_root / "原文" / "主体.txt"
+        detached_source.write_text("原文场面。原文动作。原文余痛。", encoding="utf-8")
+        detached_catalog = detached_root / "写作资产" / "桥段施工卡.md"
+        detached_catalog.parent.mkdir(parents=True)
+        detached_catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+
+        data = GATE.create_receipt(
+            "测试",
+            self.outline,
+            [detached_source],
+            primary_source_bundle_path=self.primary_bundle,
+            source_profile_paths=[self.book_root / "book.profile.json"],
+        )
+
+        self.assertEqual(
+            str((self.book_root / "book.profile.json").resolve()),
+            data["selected_source_originals"][0]["causal_asset_profile"]["path"],
+        )
+        self.assertEqual(
+            ["CPA-01"],
+            data["selected_source_originals"][0]["available_causal_asset_ids"],
+        )
+
+    def test_first_draft_binding_must_trace_back_to_primary_bundle(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertEqual(
+            "SF-01",
+            data["sections"][0]["first_draft_generation_contract"]["source_slice_bindings"][0][
+                "subflow_id"
+            ],
+        )
+        data["sections"][0]["first_draft_generation_contract"]["source_slice_bindings"][0][
+            "source_evidence"
+        ] = ["并不存在的主体证据", "原文动作"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("超出绑定主体 SF 的原文证据范围" in error for error in errors))
+
+    def test_first_draft_binding_allows_quotes_from_primary_subflow_excerpt(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        bundle = json.loads(self.primary_bundle.read_text(encoding="utf-8"))
+        bundle["subflows"][0]["source_excerpt"] = "原文场面。原文动作。原文余痛。原文额外短句。"
+        self.primary_bundle.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+        data["primary_subflow_semantic_inventory"][0]["source_excerpt"] = (
+            "原文场面。原文动作。原文余痛。原文额外短句。"
+        )
+        data["sections"][0]["first_draft_generation_contract"]["source_slice_bindings"][0][
+            "source_evidence"
+        ] = ["原文额外短句", "原文动作"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+
+        self.assertFalse(any("超出绑定主体 SF 的原文证据范围" in error for error in errors))
+
+    def test_emit_validation_failure_writes_summary_and_full_report(self) -> None:
+        output = StringIO()
+        errors = [
+            "story_fact_state_ledger 第 1 条.transitions[1].trigger_evidence 不在细纲中: '动作一'",
+            "主体来源桥段库存缺失: /tmp/source -> BID-02",
+            "小节交接 1->2.outline_evidence 至少引用前后两节各一条原句",
+        ]
+
+        with redirect_stdout(output):
+            GATE.emit_validation_failure(
+                self.receipt,
+                errors,
+                full_errors=False,
+                max_errors_per_group=1,
+            )
+
+        text = output.getvalue()
+        self.assertIn("summary: 3 个错误，3 个分组", text)
+        self.assertIn("summary[story_fact_state_ledger]: 1", text)
+        self.assertIn("summary[source_bridge_flow_inventory]: 1", text)
+        self.assertIn("summary[section_handoff_chain]: 1", text)
+        report = self.receipt.with_name("细纲表演验收回执.validate-errors.txt")
+        self.assertTrue(report.is_file())
+        self.assertIn("主体来源桥段库存缺失", report.read_text(encoding="utf-8"))
 
     def test_scene_logic_missing_arrival_cause_blocks(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

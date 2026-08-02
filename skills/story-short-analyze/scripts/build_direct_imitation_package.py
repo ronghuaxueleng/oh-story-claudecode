@@ -25,6 +25,7 @@ PROFILE_ASSET_KEYS = (
     "banned_regex",
 )
 SUBFLOW_REQUIRED_FIELDS = (
+    "source_excerpt",
     "source_range",
     "entry_state",
     "required_sequence",
@@ -45,6 +46,14 @@ STYLE_GRANULARITY_FIELDS = (
     "narrator_interjection_and_roughness",
 )
 LEGACY_STYLE_TEMPLATE_MARKER = "本 SF 的叙述口气不先替人物下总判断"
+
+
+def same_location(left: Path, right: Path) -> bool:
+    """Compare filesystem identity before falling back to resolved path text."""
+    try:
+        return left.samefile(right)
+    except (FileNotFoundError, OSError):
+        return left.resolve() == right.resolve()
 
 
 def source_slice_for_range(original_text: str, source_range: str) -> tuple[str, str | None]:
@@ -80,6 +89,8 @@ def validate_style_granularity(
         return [f"{subflow_id}.source_range 超出完整原文行号范围"]
     if range_error:
         return [f"{subflow_id}.source_range {range_error}"]
+    evidence_groups: dict[tuple[str, ...], list[str]] = {}
+    unique_quotes: set[str] = set()
     for field in STYLE_GRANULARITY_FIELDS:
         item = value.get(field)
         label = f"{subflow_id}.source_style_granularity.{field}"
@@ -101,6 +112,21 @@ def validate_style_granularity(
         for quote in quotes:
             if quote not in source_slice:
                 errors.append(f"{label}.source_evidence 不在该 SF 精确行段内: {quote!r}")
+        normalized_quotes = tuple(sorted(set(quotes)))
+        if normalized_quotes:
+            evidence_groups.setdefault(normalized_quotes, []).append(field)
+            unique_quotes.update(normalized_quotes)
+    if len(unique_quotes) < 4:
+        errors.append(
+            f"{subflow_id}.source_style_granularity 六类字段合计至少覆盖四条不同原文证据"
+        )
+    for quotes, fields in evidence_groups.items():
+        if len(fields) >= 4:
+            errors.append(
+                f"{subflow_id}.source_style_granularity 同一证据组复用过多字段："
+                + ", ".join(fields)
+                + f" -> {quotes!r}"
+            )
     return errors
 
 
@@ -152,12 +178,21 @@ def load_subflows(
         missing = [field for field in SUBFLOW_REQUIRED_FIELDS if not item.get(field)]
         if missing:
             errors.append(f"{subflow_id} 缺少无损编译字段：{', '.join(missing)}")
+        source_range = str(item.get("source_range") or "")
+        source_excerpt = str(item.get("source_excerpt") or "")
+        current_excerpt, range_error = source_slice_for_range(original_text, source_range)
+        if range_error == "超出完整原文行号范围":
+            errors.append(f"{subflow_id}.source_range 超出完整原文行号范围")
+        elif range_error:
+            errors.append(f"{subflow_id}.source_range {range_error}")
+        elif source_excerpt != current_excerpt:
+            errors.append(f"{subflow_id}.source_excerpt 与 source_range 对应原文精确切片不一致")
         errors.extend(
             validate_style_granularity(
                 subflow_id,
                 item.get("source_style_granularity"),
                 original_text,
-                str(item.get("source_range") or ""),
+                source_range,
             )
         )
         entries.append(item)
@@ -186,11 +221,14 @@ def current_manifest(profile: dict[str, Any], root: Path) -> dict[str, Any] | No
     for item in profile.get("source_asset_coverage", []):
         if not isinstance(item, dict):
             continue
+        raw_root = str(item.get("root") or "").strip()
+        if not raw_root:
+            continue
         try:
-            item_root = Path(str(item.get("root") or "")).resolve()
+            item_root = Path(raw_root).resolve()
         except OSError:
             continue
-        if item_root == root.resolve():
+        if same_location(item_root, root):
             return item
     return None
 
@@ -300,6 +338,8 @@ def validate_package(root: Path) -> list[str]:
     errors = list(input_errors)
     try:
         package = json.loads(read_text(path))
+    except FileNotFoundError:
+        return errors + [f"缺少仿写无损编译包：{path}；请重新运行 story-short-analyze finalize"]
     except json.JSONDecodeError as exc:
         return errors + [f"仿写无损编译包不是合法 JSON：{exc}"]
     if not isinstance(package, dict) or package.get("kind") != "direct_imitation_semantic_package":

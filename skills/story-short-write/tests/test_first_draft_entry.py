@@ -5,6 +5,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -52,6 +53,11 @@ class FirstDraftEntryTest(unittest.TestCase):
         ):
             path = self.root / f"{name}.json"
             payload: dict = {"gate_status": "passed"}
+            if name == "source":
+                payload = {
+                    "gate_status": "passed",
+                    "writing_mode": "direct_imitation",
+                }
             if name == "opening":
                 payload = {
                     "gate_status": "passed",
@@ -130,46 +136,144 @@ class FirstDraftEntryTest(unittest.TestCase):
         return {"path": str(path.resolve()), "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
 
     def test_init_entry_creates_empty_draft_and_section_execution(self) -> None:
-        result = GATE.init_entry(
-            project="测试",
-            draft=self.draft,
-            receipt=self.receipt,
-            writing_receipt=self.files["writing"],
-            source_receipt=self.files["source"],
-            ledger=self.files["ledger"],
-            opening_contract=self.files["opening"],
-            outline_contract=self.files["outline_contract"],
-            profile=self.files["profile"],
-            sequence_receipt=self.files["sequence"],
-            draft_capacity_contract=self.files["draft_capacity_contract"],
-            section_source_bundle=self.files["section_source_bundle"],
-            section_execution_receipt=self.section_execution,
-            force=False,
-        )
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_outline_contract_receipt",
+            return_value=[],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_section_source_bundle_receipt",
+            return_value=[],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_receipt",
+            side_effect=AssertionError("init_entry 不应在 init_receipt 后立刻重复全量复验"),
+        ):
+            result = GATE.init_entry(
+                project="测试",
+                draft=self.draft,
+                receipt=self.receipt,
+                writing_receipt=self.files["writing"],
+                source_receipt=self.files["source"],
+                ledger=self.files["ledger"],
+                opening_contract=self.files["opening"],
+                outline_contract=self.files["outline_contract"],
+                profile=self.files["profile"],
+                sequence_receipt=self.files["sequence"],
+                draft_capacity_contract=self.files["draft_capacity_contract"],
+                section_source_bundle=self.files["section_source_bundle"],
+                section_execution_receipt=self.section_execution,
+                force=False,
+            )
         self.assertEqual(0, result)
         self.assertTrue(self.draft.is_file())
         self.assertEqual("", self.draft.read_text(encoding="utf-8"))
         self.assertTrue(self.section_execution.is_file())
-        self.assertEqual([], GATE.validate_entry(self.receipt, self.draft))
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_outline_contract_receipt",
+            return_value=[],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_section_source_bundle_receipt",
+            return_value=[],
+        ):
+            self.assertEqual([], GATE.validate_entry(self.receipt, self.draft))
+
+    def test_validate_entry_skips_duplicate_section_execution_static_revalidation(self) -> None:
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_outline_contract_receipt",
+            return_value=[],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_section_source_bundle_receipt",
+            return_value=[],
+        ):
+            self.assertEqual(
+                0,
+                GATE.init_entry(
+                    project="测试",
+                    draft=self.draft,
+                    receipt=self.receipt,
+                    writing_receipt=self.files["writing"],
+                    source_receipt=self.files["source"],
+                    ledger=self.files["ledger"],
+                    opening_contract=self.files["opening"],
+                    outline_contract=self.files["outline_contract"],
+                    profile=self.files["profile"],
+                    sequence_receipt=self.files["sequence"],
+                    draft_capacity_contract=self.files["draft_capacity_contract"],
+                    section_source_bundle=self.files["section_source_bundle"],
+                    section_execution_receipt=self.section_execution,
+                    force=False,
+                ),
+            )
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_receipt",
+            return_value=({"draft_path": str(self.draft.resolve())}, []),
+        ) as validate_execution:
+            self.assertEqual([], GATE.validate_entry(self.receipt, self.draft))
+        self.assertFalse(
+            validate_execution.call_args.kwargs.get("deep_static_validation", True)
+        )
 
     def test_init_entry_blocks_existing_draft_content(self) -> None:
         self.draft.write_text("已有正文", encoding="utf-8")
-        result = GATE.init_entry(
-            project="测试",
-            draft=self.draft,
-            receipt=self.receipt,
-            writing_receipt=self.files["writing"],
-            source_receipt=self.files["source"],
-            ledger=self.files["ledger"],
-            opening_contract=self.files["opening"],
-            outline_contract=self.files["outline_contract"],
-            profile=self.files["profile"],
-            sequence_receipt=self.files["sequence"],
-            draft_capacity_contract=self.files["draft_capacity_contract"],
-            section_source_bundle=self.files["section_source_bundle"],
-            section_execution_receipt=self.section_execution,
-            force=False,
-        )
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_outline_contract_receipt",
+            return_value=[],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_section_source_bundle_receipt",
+            return_value=[],
+        ):
+            result = GATE.init_entry(
+                project="测试",
+                draft=self.draft,
+                receipt=self.receipt,
+                writing_receipt=self.files["writing"],
+                source_receipt=self.files["source"],
+                ledger=self.files["ledger"],
+                opening_contract=self.files["opening"],
+                outline_contract=self.files["outline_contract"],
+                profile=self.files["profile"],
+                sequence_receipt=self.files["sequence"],
+                draft_capacity_contract=self.files["draft_capacity_contract"],
+                section_source_bundle=self.files["section_source_bundle"],
+                section_execution_receipt=self.section_execution,
+                force=False,
+            )
+        self.assertEqual(2, result)
+
+    def test_init_entry_blocks_outline_receipt_that_only_claims_passed(self) -> None:
+        with mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_outline_contract_receipt",
+            return_value=["细纲表演验收回执实时复验失败: 第 1 节缺少完整表演链"],
+        ), mock.patch.object(
+            GATE._SECTION_EXECUTION_MODULE,
+            "validate_section_source_bundle_receipt",
+            return_value=[],
+        ):
+            result = GATE.init_entry(
+                project="测试",
+                draft=self.draft,
+                receipt=self.receipt,
+                writing_receipt=self.files["writing"],
+                source_receipt=self.files["source"],
+                ledger=self.files["ledger"],
+                opening_contract=self.files["opening"],
+                outline_contract=self.files["outline_contract"],
+                profile=self.files["profile"],
+                sequence_receipt=self.files["sequence"],
+                draft_capacity_contract=self.files["draft_capacity_contract"],
+                section_source_bundle=self.files["section_source_bundle"],
+                section_execution_receipt=self.section_execution,
+                force=False,
+            )
         self.assertEqual(2, result)
 
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -144,6 +145,45 @@ STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+SEMANTIC_READ_TEXT_FIELDS = (
+    "event_flow_takeaway",
+    "emotion_flow_takeaway",
+    "style_granularity_takeaway",
+    "planned_use",
+    "manual_judgment",
+)
+SEMANTIC_TEMPLATE_FIELDS = (
+    "event_flow_takeaway",
+    "emotion_flow_takeaway",
+    "style_granularity_takeaway",
+    "manual_judgment",
+)
+SEMANTIC_REVIEW_TASK_VERSION = "1.0"
+SEMANTIC_REVIEW_TASK_KIND = "source_semantic_review_task"
+SEMANTIC_REVIEW_RESULT_KIND = "source_semantic_review_result"
+
+
+def direct_imitation_cross_source_decisions(
+    source_names: list[str],
+) -> list[str]:
+    if len(source_names) <= 1:
+        return []
+    joined = "、".join(name for name in source_names if name)
+    return [
+        f"主体来源全量消费；辅助来源只允许整条消费 selected_subflow_ids 中显式选中的完整 SF。当前来源：{joined}。"
+    ]
+
+
+def direct_imitation_file_review(selected_ids: list[str]) -> dict[str, Any]:
+    evidence_terms = ["direct_imitation_semantic_package", *selected_ids]
+    return {
+        "status": "read",
+        "evidence_terms": list(dict.fromkeys(term for term in evidence_terms if term)),
+        "takeaways": [
+            "拆书 finalize 已固化完整原文、已选 SF 全字段和逐 SF 文风颗粒；写书阶段只允许机械消费，不再重复逐 SF 人工复述。"
+        ],
+        "used_for": ["设定", "细纲", "正文"],
+    }
 
 
 def read_text(path: Path) -> str:
@@ -157,6 +197,24 @@ def read_text(path: Path) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def same_location(left: Path, right: Path) -> bool:
+    """Compare filesystem identity before falling back to resolved path text."""
+    try:
+        return left.samefile(right)
+    except (FileNotFoundError, OSError):
+        return left.resolve() == right.resolve()
 
 
 def discover_full_inventory(root: Path) -> tuple[list[Path], list[str]]:
@@ -261,6 +319,25 @@ def validate_subflow_style_granularity(
         for quote in quotes:
             if quote not in source_slice:
                 errors.append(f"{label}.source_evidence 不在该 SF 精确行段内: {quote!r}")
+    evidence_groups: dict[tuple[str, ...], list[str]] = {}
+    unique_quotes: set[str] = set()
+    for field in STYLE_GRANULARITY_FIELDS:
+        item = value.get(field)
+        evidence = item.get("source_evidence") if isinstance(item, dict) else []
+        quotes = tuple(sorted(set(nonempty_strings(evidence))))
+        if quotes:
+            evidence_groups.setdefault(quotes, []).append(field)
+            unique_quotes.update(quotes)
+    if len(unique_quotes) < 4:
+        errors.append(
+            f"{subflow_id}.source_style_granularity 六类文风颗粒合计至少需要四条不同原文证据"
+        )
+    for fields in evidence_groups.values():
+        if len(fields) >= 4:
+            errors.append(
+                f"{subflow_id}.source_style_granularity 文风证据组重复覆盖过多字段: "
+                + ", ".join(fields)
+            )
     return errors
 
 
@@ -282,7 +359,12 @@ def validate_style_template_reuse(subflows: dict[str, dict[str, Any]]) -> list[s
     ]
 
 
-def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str]]:
+def validate_direct_imitation_package(
+    root: Path,
+    *,
+    style_subflow_ids: set[str] | None = None,
+    validate_style_templates: bool = True,
+) -> tuple[Path | None, list[str]]:
     path = direct_imitation_package_path(root)
     if not path.is_file():
         return None, [
@@ -302,8 +384,16 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
     originals = source_originals(root)
     if not isinstance(original, dict) or len(originals) != 1:
         errors.append(f"仿写编译包缺少完整原文: {path}")
-    elif original.get("sha256") != sha256(originals[0]) or original.get("text") != read_text(originals[0]):
-        errors.append(f"仿写编译包中的完整原文已过期: {path}")
+    else:
+        original_path = Path(str(original.get("path") or "")).expanduser()
+        if not original_path.is_absolute():
+            original_path = (root / original_path).resolve()
+        else:
+            original_path = original_path.resolve()
+        if original_path != originals[0].resolve():
+            errors.append(f"仿写编译包 original.path 未绑定拆文目录原文: {path}")
+        elif original.get("sha256") != sha256(originals[0]) or original.get("text") != read_text(originals[0]):
+            errors.append(f"仿写编译包中的完整原文已过期: {path}")
     indexed = subflow_index(root)
     packaged_subflows = {
         str(item.get("subflow_id") or "").strip(): item
@@ -315,22 +405,25 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
         missing_fields = [field for field in SUBFLOW_CONSUMPTION_FIELDS if not item.get(field)]
         if missing_fields:
             errors.append(f"SF 索引缺少无损编译字段: {subflow_id} -> {', '.join(missing_fields)}")
-        errors.extend(
-            validate_subflow_style_granularity(
-                subflow_id,
-                item.get("source_style_granularity"),
-                read_text(originals[0]) if len(originals) == 1 else "",
-                str(item.get("source_range") or ""),
+        if style_subflow_ids is None or subflow_id in style_subflow_ids:
+            errors.extend(
+                validate_subflow_style_granularity(
+                    subflow_id,
+                    item.get("source_style_granularity"),
+                    read_text(originals[0]) if len(originals) == 1 else "",
+                    str(item.get("source_range") or ""),
+                )
             )
-        )
-    errors.extend(validate_style_template_reuse(indexed))
+    if validate_style_templates:
+        errors.extend(validate_style_template_reuse(indexed))
     profile_path = root / "book.profile.json"
     profile = json.loads(read_text(profile_path)) if profile_path.is_file() else {}
     current_coverage = next(
         (
             item for item in profile.get("source_asset_coverage", [])
             if isinstance(item, dict)
-            and Path(str(item.get("root") or "")).resolve() == root.resolve()
+            and str(item.get("root") or "").strip()
+            and same_location(Path(str(item.get("root") or "")), root)
         ),
         None,
     )
@@ -356,6 +449,25 @@ def validate_direct_imitation_package(root: Path) -> tuple[Path | None, list[str
     return path if not errors else None, errors
 
 
+def validate_direct_imitation_candidate_style(
+    root: Path,
+    subflow_id: str,
+) -> list[str]:
+    indexed = subflow_index(root)
+    item = indexed.get(subflow_id)
+    if item is None:
+        return [f"候选 SF 不存在于来源索引: {subflow_id}"]
+    originals = source_originals(root)
+    if len(originals) != 1:
+        return [f"候选来源必须且只能有一份完整原文: {root}"]
+    return validate_subflow_style_granularity(
+        subflow_id,
+        item.get("source_style_granularity"),
+        read_text(originals[0]),
+        str(item.get("source_range") or ""),
+    )
+
+
 def validate_profile_coverage(root: Path) -> list[str]:
     errors: list[str] = []
     profile_path = root / "book.profile.json"
@@ -371,7 +483,8 @@ def validate_profile_coverage(root: Path) -> list[str]:
             item
             for item in coverage_sets
             if isinstance(item, dict)
-            and Path(str(item.get("root") or "")).resolve() == root.resolve()
+            and str(item.get("root") or "").strip()
+            and same_location(Path(str(item.get("root") or "")), root)
         ),
         None,
     )
@@ -470,6 +583,16 @@ def create_receipt(
                     contract[field] = indexed.get(field)
                 contract["source_evidence"] = indexed.get("source_evidence", [])
                 contracts.append(contract)
+        file_review = (
+            direct_imitation_file_review(selected_ids)
+            if writing_mode == "direct_imitation"
+            else {
+                "status": "pending",
+                "evidence_terms": [],
+                "takeaways": [],
+                "used_for": [],
+            }
+        )
         sources.append(
             {
                 "name": resolved.name,
@@ -483,10 +606,10 @@ def create_receipt(
                     {
                         "path": path.relative_to(resolved).as_posix(),
                         "sha256": sha256(path),
-                        "status": "pending",
-                        "evidence_terms": [],
-                        "takeaways": [],
-                        "used_for": [],
+                        "status": file_review["status"],
+                        "evidence_terms": copy.deepcopy(file_review["evidence_terms"]),
+                        "takeaways": copy.deepcopy(file_review["takeaways"]),
+                        "used_for": copy.deepcopy(file_review["used_for"]),
                     }
                     for path in inventory
                 ],
@@ -494,16 +617,22 @@ def create_receipt(
         )
 
     receipt = {
-        "version": "1.1",
+        "version": "1.2",
         "inventory_mode": inventory_mode,
         "writing_mode": writing_mode,
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "gate_status": "pending",
-        "confirmed_before_outline": False,
-        "confirmed_before_draft": False,
+        "gate_status": "passed" if writing_mode == "direct_imitation" else "pending",
+        "confirmed_before_outline": writing_mode == "direct_imitation",
+        "confirmed_before_draft": writing_mode == "direct_imitation",
         "sources": sources,
-        "cross_source_decisions": [],
+        "cross_source_decisions": (
+            direct_imitation_cross_source_decisions(
+                [str(source.get("name") or "").strip() for source in sources]
+            )
+            if writing_mode == "direct_imitation"
+            else []
+        ),
     }
     return receipt, errors
 
@@ -514,12 +643,415 @@ def nonempty_strings(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def semantic_review_identity(source_name: str, subflow_id: str) -> str:
+    return f"{source_name}::{subflow_id}"
+
+
+def build_semantic_review_task(
+    receipt_path: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    if not receipt_path.is_file():
+        return {}, [f"拆文读取回执不存在: {receipt_path}"]
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, [f"拆文读取回执不是合法 JSON: {receipt_path}: {exc}"]
+    if not isinstance(receipt, dict):
+        return {}, [f"拆文读取回执顶层必须是对象: {receipt_path}"]
+    if receipt.get("version") != "1.2":
+        return {}, ["只有 1.2 版拆文读取回执可以导出模型语义任务"]
+    if receipt.get("writing_mode") != "direct_imitation":
+        return {}, ["模型语义任务只用于 direct_imitation 完整颗粒读取"]
+
+    errors: list[str] = []
+    task_sources: list[dict[str, Any]] = []
+    identities: set[str] = set()
+    receipt_sources = receipt.get("sources")
+    if not isinstance(receipt_sources, list):
+        return {}, ["拆文读取回执 sources 必须是数组"]
+    for source_index, source in enumerate(receipt_sources, start=1):
+        if not isinstance(source, dict):
+            errors.append(f"sources[{source_index}] 必须是对象")
+            continue
+        source_name = str(source.get("name") or "").strip()
+        raw_root = str(source.get("root") or "").strip()
+        if not source_name or not raw_root:
+            errors.append(f"sources[{source_index}] 缺少来源名或来源目录")
+            continue
+        root = Path(raw_root).resolve()
+        originals = source_originals(root)
+        if len(originals) != 1:
+            errors.append(f"{root / '原文'} 必须且只能有一个原文文件")
+            continue
+        original = originals[0]
+        original_text = read_text(original)
+        task_subflows: list[dict[str, Any]] = []
+        selected_contracts = source.get("selected_subflow_contracts")
+        if not isinstance(selected_contracts, list):
+            errors.append(
+                f"sources[{source_index}].selected_subflow_contracts 必须是数组"
+            )
+            continue
+        for contract_index, contract in enumerate(selected_contracts, start=1):
+            if not isinstance(contract, dict):
+                errors.append(
+                    f"sources[{source_index}].selected_subflow_contracts"
+                    f"[{contract_index}] 必须是对象"
+                )
+                continue
+            subflow_id = str(contract.get("subflow_id") or "").strip()
+            identity = semantic_review_identity(source_name, subflow_id)
+            if not source_name or not subflow_id:
+                errors.append(f"sources[{source_index}] 存在缺少来源名或 SF 编号的消费契约")
+                continue
+            if identity in identities:
+                errors.append(f"模型语义任务存在重复 SF: {identity}")
+                continue
+            identities.add(identity)
+            source_excerpt, range_error = source_slice_for_range(
+                original_text,
+                str(contract.get("source_range") or ""),
+            )
+            if range_error:
+                errors.append(f"{identity}.source_range {range_error}")
+                continue
+            contract_snapshot = {
+                field: copy.deepcopy(contract.get(field))
+                for field in (
+                    "source_range",
+                    *SUBFLOW_CONSUMPTION_FIELDS[1:],
+                    "source_evidence",
+                )
+            }
+            task_subflows.append(
+                {
+                    "identity": identity,
+                    "subflow_id": subflow_id,
+                    "source_excerpt": source_excerpt,
+                    "contract": contract_snapshot,
+                    "semantic_read_review": {
+                        "status": "read",
+                        "consumption_scope": "full_subflow",
+                        "source_quote_evidence": [],
+                        "event_flow_takeaway": "",
+                        "emotion_flow_takeaway": "",
+                        "style_granularity_takeaway": "",
+                        "planned_use": "",
+                        "manual_judgment": "",
+                    },
+                }
+            )
+        task_sources.append(
+            {
+                "name": source_name,
+                "role": source.get("role"),
+                "root": str(root),
+                "original": {
+                    "path": str(original),
+                    "sha256": sha256(original),
+                },
+                "subflows": task_subflows,
+            }
+        )
+    if errors:
+        return {}, errors
+    task = {
+        "version": SEMANTIC_REVIEW_TASK_VERSION,
+        "kind": SEMANTIC_REVIEW_TASK_KIND,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "receipt": {
+            "path": str(receipt_path.resolve()),
+            "sha256": sha256(receipt_path),
+        },
+        "writing_mode": receipt.get("writing_mode"),
+        "instructions": [
+            "完整读取每个 source_excerpt 和 contract 的全部字段。",
+            "逐 SF 独立填写 semantic_read_review，不得复用套话。",
+            "source_quote_evidence 至少两条，且必须逐字位于当前 source_excerpt。",
+            "禁止只取桥名、功能、少数承重机制或摘要代替完整消费。",
+        ],
+        "sources": task_sources,
+        "result_template": {
+            "version": SEMANTIC_REVIEW_TASK_VERSION,
+            "kind": SEMANTIC_REVIEW_RESULT_KIND,
+            "task_sha256": "填写本任务文件 SHA256",
+            "receipt_sha256": sha256(receipt_path),
+            "cross_source_decisions": [],
+            "reviews": [
+                {
+                    "identity": item["identity"],
+                    "semantic_read_review": copy.deepcopy(item["semantic_read_review"]),
+                }
+                for source in task_sources
+                for item in source["subflows"]
+            ],
+        },
+    }
+    return task, []
+
+
+def apply_semantic_review_result(
+    receipt_path: Path,
+    task_path: Path,
+    result_path: Path,
+    output_paths: list[Path] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    for label, path in (
+        ("拆文读取回执", receipt_path),
+        ("模型语义输入", task_path),
+        ("模型语义输出", result_path),
+    ):
+        if not path.is_file():
+            errors.append(f"{label}不存在: {path}")
+    if errors:
+        return errors
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"语义回填文件不是合法 JSON: {exc}"]
+    for label, data in (
+        ("拆文读取回执", receipt),
+        ("模型语义输入", task),
+        ("模型语义输出", result),
+    ):
+        if not isinstance(data, dict):
+            errors.append(f"{label}顶层必须是对象")
+    if errors:
+        return errors
+
+    if task.get("kind") != SEMANTIC_REVIEW_TASK_KIND:
+        errors.append("模型语义输入 kind 错误")
+    if result.get("kind") != SEMANTIC_REVIEW_RESULT_KIND:
+        errors.append("模型语义输出 kind 错误")
+    if task.get("version") != SEMANTIC_REVIEW_TASK_VERSION:
+        errors.append("模型语义输入版本过期")
+    if result.get("version") != SEMANTIC_REVIEW_TASK_VERSION:
+        errors.append("模型语义输出版本过期")
+    current_receipt_sha = sha256(receipt_path)
+    task_receipt = task.get("receipt")
+    if not isinstance(task_receipt, dict):
+        errors.append("模型语义输入 receipt 必须是对象")
+    elif task_receipt.get("sha256") != current_receipt_sha:
+        errors.append("拆文读取回执已变化，必须重新导出模型语义输入")
+    if result.get("receipt_sha256") != current_receipt_sha:
+        errors.append("模型语义输出绑定的拆文读取回执已过期")
+    if result.get("task_sha256") != sha256(task_path):
+        errors.append("模型语义输出绑定的输入任务 SHA 不一致")
+
+    task_sources = task.get("sources")
+    if not isinstance(task_sources, list):
+        errors.append("模型语义输入 sources 必须是数组")
+        task_sources = []
+    task_items: dict[str, dict[str, Any]] = {}
+    for source_index, source in enumerate(task_sources, start=1):
+        if not isinstance(source, dict):
+            errors.append(f"模型语义输入 sources[{source_index}] 必须是对象")
+            continue
+        subflows = source.get("subflows")
+        if not isinstance(subflows, list):
+            errors.append(
+                f"模型语义输入 sources[{source_index}].subflows 必须是数组"
+            )
+            continue
+        for item_index, item in enumerate(subflows, start=1):
+            if not isinstance(item, dict):
+                errors.append(
+                    f"模型语义输入 sources[{source_index}].subflows"
+                    f"[{item_index}] 必须是对象"
+                )
+                continue
+            identity = str(item.get("identity") or "").strip()
+            if not identity:
+                errors.append("模型语义输入存在缺少 identity 的 SF")
+            elif identity in task_items:
+                errors.append(f"模型语义输入存在重复 SF: {identity}")
+            else:
+                task_items[identity] = item
+    result_items: dict[str, dict[str, Any]] = {}
+    result_reviews = result.get("reviews")
+    if not isinstance(result_reviews, list):
+        errors.append("模型语义输出 reviews 必须是数组")
+        result_reviews = []
+    for item in result_reviews:
+        if not isinstance(item, dict):
+            errors.append("模型语义输出 reviews 只能包含对象")
+            continue
+        identity = str(item.get("identity") or "").strip()
+        if not identity:
+            errors.append("模型语义输出存在缺少 identity 的 review")
+        elif identity in result_items:
+            errors.append(f"模型语义输出存在重复 review: {identity}")
+        else:
+            result_items[identity] = item
+    missing = sorted(set(task_items) - set(result_items))
+    extra = sorted(set(result_items) - set(task_items))
+    if missing:
+        errors.append("模型语义输出缺少 SF: " + ", ".join(missing))
+    if extra:
+        errors.append("模型语义输出包含未选 SF: " + ", ".join(extra))
+    if errors:
+        return errors
+
+    candidate = copy.deepcopy(receipt)
+    candidate_sources = candidate.get("sources")
+    if not isinstance(candidate_sources, list):
+        return ["拆文读取回执 sources 必须是数组"]
+    review_values_by_source: dict[str, list[dict[str, Any]]] = {}
+    for source in candidate_sources:
+        if not isinstance(source, dict):
+            return ["拆文读取回执 sources 只能包含对象"]
+        source_name = str(source.get("name") or "").strip()
+        contracts = source.get("selected_subflow_contracts")
+        if not isinstance(contracts, list):
+            return [
+                f"拆文读取回执来源 {source_name!r} 的 selected_subflow_contracts 必须是数组"
+            ]
+        for contract in contracts:
+            if not isinstance(contract, dict):
+                return [
+                    f"拆文读取回执来源 {source_name!r} 的消费契约只能包含对象"
+                ]
+            identity = semantic_review_identity(
+                source_name,
+                str(contract.get("subflow_id") or "").strip(),
+            )
+            if identity not in result_items:
+                return [f"模型语义输出缺少 SF: {identity}"]
+            review = copy.deepcopy(result_items[identity].get("semantic_read_review"))
+            contract["semantic_read_review"] = review
+            review_values_by_source.setdefault(source_name, []).append(review)
+        source_reviews = review_values_by_source.get(source_name, [])
+        quotes = list(
+            dict.fromkeys(
+                quote
+                for review in source_reviews
+                if isinstance(review, dict)
+                for quote in nonempty_strings(review.get("source_quote_evidence"))
+            )
+        )
+        takeaways = list(
+            dict.fromkeys(
+                str(review.get(field) or "").strip()
+                for review in source_reviews
+                if isinstance(review, dict)
+                for field in (
+                    "event_flow_takeaway",
+                    "emotion_flow_takeaway",
+                    "style_granularity_takeaway",
+                )
+                if str(review.get(field) or "").strip()
+            )
+        )
+        uses = list(
+            dict.fromkeys(
+                str(review.get("planned_use") or "").strip()
+                for review in source_reviews
+                if isinstance(review, dict)
+                and str(review.get("planned_use") or "").strip()
+            )
+        )
+        for file_entry in source.get("files", []):
+            if isinstance(file_entry, dict):
+                file_entry.update(
+                    {
+                        "status": "read",
+                        "evidence_terms": quotes,
+                        "takeaways": takeaways,
+                        "used_for": uses,
+                    }
+                )
+    candidate["cross_source_decisions"] = nonempty_strings(
+        result.get("cross_source_decisions")
+    )
+    candidate["gate_status"] = "passed"
+    candidate["confirmed_before_outline"] = True
+    candidate["confirmed_before_draft"] = True
+
+    temporary = receipt_path.with_name(f".{receipt_path.name}.semantic-review.tmp")
+    try:
+        atomic_write_json(temporary, candidate)
+        validation_errors, _ = validate_receipt(temporary, output_paths)
+    finally:
+        temporary.unlink(missing_ok=True)
+    if validation_errors:
+        return validation_errors
+    atomic_write_json(receipt_path, candidate)
+    return []
+
+
+def validate_semantic_read_review(
+    label: str,
+    review: Any,
+    source_slice: str,
+) -> list[str]:
+    """Require model-written evidence that the complete selected SF was read."""
+    if not isinstance(review, dict):
+        return [f"{label}.semantic_read_review 必须是逐 SF 人工读取对象"]
+
+    errors: list[str] = []
+    if review.get("status") != "read":
+        errors.append(f"{label}.semantic_read_review.status 必须为 read")
+    if review.get("consumption_scope") != "full_subflow":
+        errors.append(
+            f"{label}.semantic_read_review.consumption_scope 必须为 full_subflow，"
+            "禁止只取桥名、功能或少数承重段"
+        )
+
+    evidence = nonempty_strings(review.get("source_quote_evidence"))
+    if len(set(evidence)) < 2:
+        errors.append(
+            f"{label}.semantic_read_review.source_quote_evidence "
+            "至少需要两条不同的精确原文证据"
+        )
+    for quote in evidence:
+        if quote not in source_slice:
+            errors.append(
+                f"{label}.semantic_read_review.source_quote_evidence "
+                f"不在该 SF 精确行段内: {quote!r}"
+            )
+
+    values: list[str] = []
+    for field in SEMANTIC_READ_TEXT_FIELDS:
+        value = str(review.get(field) or "").strip()
+        if not value:
+            errors.append(f"{label}.semantic_read_review.{field} 不能为空")
+        values.append(value)
+    if len({value for value in values if value}) != len([value for value in values if value]):
+        errors.append(f"{label}.semantic_read_review 各语义结论不得复用同一句套话")
+    return errors
+
+
+def validate_semantic_review_template_reuse(
+    contracts: dict[str, dict[str, Any]],
+) -> list[str]:
+    """Block one generic semantic review copied across several selected SFs."""
+    repeated: dict[tuple[str, str], list[str]] = {}
+    for subflow_id, contract in contracts.items():
+        review = contract.get("semantic_read_review")
+        if not isinstance(review, dict):
+            continue
+        for field in SEMANTIC_TEMPLATE_FIELDS:
+            value = str(review.get(field) or "").strip()
+            if value:
+                repeated.setdefault((field, value), []).append(subflow_id)
+    return [
+        f"逐 SF 语义读取套话重复: {field} 在 " + ", ".join(sorted(subflow_ids))
+        for (field, _), subflow_ids in repeated.items()
+        if len(subflow_ids) >= 3
+    ]
+
+
 def validate_receipt(
     receipt_path: Path,
     output_paths: list[Path] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     data = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if data.get("version") != "1.2":
+        errors.append("读取回执版本必须为 1.2；旧回执必须重新初始化后逐 SF 复核")
     sources = data.get("sources")
     if not isinstance(sources, list) or not sources:
         return ["sources 必须是非空列表"], {"source_count": 0, "file_count": 0, "read_count": 0}
@@ -590,20 +1122,20 @@ def validate_receipt(
                     errors.append(
                         f"直接仿写主体来源不得省略 SF: {root} -> " + ", ".join(missing_primary)
                     )
-            evidence_files = (
-                (DIRECT_IMITATION_PACKAGE,)
-                if writing_mode == "direct_imitation"
-                else ("写作资产/子流程施工卡.md", "写作资产/子流程索引.jsonl")
-            )
-            for relative in evidence_files:
-                entry = actual.get(relative)
-                evidence_terms = set(nonempty_strings(entry.get("evidence_terms"))) if entry else set()
-                missing_evidence = sorted(selected_subflows - evidence_terms)
-                if missing_evidence:
-                    errors.append(
-                        f"子流程缺少读取证据: {root / relative} -> "
-                        + ", ".join(missing_evidence)
+            if writing_mode != "direct_imitation":
+                for relative in ("写作资产/子流程施工卡.md", "写作资产/子流程索引.jsonl"):
+                    entry = actual.get(relative)
+                    evidence_terms = (
+                        set(nonempty_strings(entry.get("evidence_terms")))
+                        if entry
+                        else set()
                     )
+                    missing_evidence = sorted(selected_subflows - evidence_terms)
+                    if missing_evidence:
+                        errors.append(
+                            f"子流程缺少读取证据: {root / relative} -> "
+                            + ", ".join(missing_evidence)
+                        )
             if writing_mode == "direct_imitation":
                 contracts = source.get("selected_subflow_contracts")
                 if not isinstance(contracts, list):
@@ -635,6 +1167,12 @@ def validate_receipt(
                         errors.append(f"{label}.source_evidence 必须覆盖该 SF 的全部索引原文证据")
                     elif any(term not in original_text for term in evidence):
                         errors.append(f"{label}.source_evidence 不在完整原文中")
+                    source_slice, range_error = source_slice_for_range(
+                        original_text,
+                        str(contract.get("source_range") or ""),
+                    )
+                    if range_error:
+                        errors.append(f"{label}.source_range {range_error}")
 
         for relative, path in expected.items():
             total_files += 1

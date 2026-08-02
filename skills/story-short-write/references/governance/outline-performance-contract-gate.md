@@ -58,18 +58,30 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
   --source-original "拆文库/{辅助书一}/原文/{辅助书一}.txt" \
   --source-original "拆文库/{辅助书二}/原文/{辅助书二}.txt" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --primary-source-bundle "{项目目录}/写作资产/主体原文完整颗粒包.json" \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
 
-当前模型完整读取选中原文及细纲后，逐节回填结构验收和首写生成契约，再运行：
+`--primary-source-bundle` 是主体原文完整颗粒硬绑定入口。它必须由 `prepare-setting` 先生成并通过校验，且内容来自主体来源 `仿写无损编译包.json + 拆文读取回执.json` 的当前项目落地副本。细纲初始化后，回执中的 `primary_subflow_semantic_inventory` 必须与该包逐条一致；后续每节 `source_slice_bindings / source_performance_excerpt / source_performance_evidence / style_fields_consumed` 都要能回溯到这份主体包里的明确 `SF-*`，不能只写“像原文颗粒”的人工总结。
+
+当前模型完整读取选中原文、主体原文完整颗粒包及细纲后，逐节回填结构验收和首写生成契约。修闸阶段先用工具箱做快速预检，禁止每改一小块就直接全量跑正式校验：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" validate \
-  --outline "{项目目录}/小节大纲.md" \
-  --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
+python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only sections
+python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only handoff
+python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only bridges
+python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only first-draft
 ```
 
-输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲、任一选中原文或拆文读取回执 SHA 变化后，旧回执立即失效。1.4 及更早回执不具备节内逐拍链、跨节交接链和辅助 SF 全流程对齐，必须重新 `init` 并由当前模型人工回填。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文或概括后的细纲开写。
+局部预检通过后，再运行：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" outline-validate
+```
+
+`outline-validate` 会先执行快速预检；预检未过时直接阻断并跳过正式全量 `validate_outline_performance_contract.py validate`。输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲、任一选中原文、主体原文完整颗粒包或拆文读取回执 SHA 变化后，旧回执立即失效。1.4 及更早回执不具备节内逐拍链、跨节交接链和辅助 SF 全流程对齐，必须重新 `init` 并由当前模型人工回填。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文、`模型语义输出.json` 概括结论或压缩后的细纲开写。
+
+`outline-precheck` 或 `outline-validate` 一旦失败，工具箱会自动刷新 `当前细纲修闸包.json + 当前细纲修闸回填.json`。失败后禁止继续用 `cat / sed / jq` 逐层探测整张回执，也禁止为了“摸字段”去读旧项目同名文件。唯一允许的修闸闭环是：编辑当前回填模板 -> `outline-repair-apply --packet-sha ...` -> 立刻重跑刚才被阻断的命令。
 
 ### 颗粒度原创模式
 

@@ -103,6 +103,91 @@ class WritingRuleGateTest(unittest.TestCase):
         )
         self.assertTrue(any("事后补填" in error for error in validation_errors))
 
+    def test_rule_review_task_contains_complete_rule_content(self) -> None:
+        receipt, errors = GATE.create_receipt("测试项目", self.skill_root)
+        self.assertEqual([], errors)
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        GATE.atomic_write_json(self.receipt_path, receipt)
+
+        task, task_errors = GATE.build_rule_review_task(
+            self.receipt_path,
+            self.skill_root,
+        )
+
+        self.assertEqual([], task_errors)
+        self.assertEqual(
+            set(GATE.REQUIRED_RULES),
+            {item["path"] for item in task["files"]},
+        )
+        self.assertTrue(
+            all("规则证据" in item["content"] for item in task["files"])
+        )
+
+    def test_rule_review_result_atomically_completes_receipt(self) -> None:
+        receipt, errors = GATE.create_receipt("测试项目", self.skill_root)
+        self.assertEqual([], errors)
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        GATE.atomic_write_json(self.receipt_path, receipt)
+        task, task_errors = GATE.build_rule_review_task(
+            self.receipt_path,
+            self.skill_root,
+        )
+        self.assertEqual([], task_errors)
+        task_path = self.receipt_path.with_name("规则语义输入.json")
+        GATE.atomic_write_json(task_path, task)
+        result = task["result_template"]
+        result["task_sha256"] = GATE.sha256(task_path)
+        for item in result["reviews"]:
+            item["review"] = {
+                "status": "read",
+                "evidence_terms": ["规则证据"],
+                "takeaways": ["已读取当前规则并提取写前约束"],
+                "used_for": ["设定、大纲与正文"],
+            }
+        result_path = self.receipt_path.with_name("规则语义输出.json")
+        GATE.atomic_write_json(result_path, result)
+
+        apply_errors = GATE.apply_rule_review_result(
+            self.receipt_path,
+            task_path,
+            result_path,
+            skill_root=self.skill_root,
+        )
+
+        self.assertEqual([], apply_errors)
+        applied = json.loads(self.receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual("passed", applied["gate_status"])
+        self.assertTrue(applied["confirmed_before_outline"])
+        self.assertTrue(applied["confirmed_before_draft"])
+
+    def test_rule_review_rejects_stale_task_without_changing_receipt(self) -> None:
+        receipt, errors = GATE.create_receipt("测试项目", self.skill_root)
+        self.assertEqual([], errors)
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        GATE.atomic_write_json(self.receipt_path, receipt)
+        task, task_errors = GATE.build_rule_review_task(
+            self.receipt_path,
+            self.skill_root,
+        )
+        self.assertEqual([], task_errors)
+        task_path = self.receipt_path.with_name("规则语义输入.json")
+        GATE.atomic_write_json(task_path, task)
+        result = task["result_template"]
+        result["task_sha256"] = "stale"
+        result_path = self.receipt_path.with_name("规则语义输出.json")
+        GATE.atomic_write_json(result_path, result)
+
+        apply_errors = GATE.apply_rule_review_result(
+            self.receipt_path,
+            task_path,
+            result_path,
+            skill_root=self.skill_root,
+        )
+
+        self.assertTrue(any("任务 SHA" in error for error in apply_errors))
+        unchanged = json.loads(self.receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual("pending", unchanged["gate_status"])
+
 
 if __name__ == "__main__":
     unittest.main()

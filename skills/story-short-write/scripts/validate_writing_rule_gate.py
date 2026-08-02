@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 from datetime import datetime
@@ -18,6 +19,9 @@ REQUIRED_RULES = (
     "references/anti-ai-writing.md",
     "references/craft/narrator-voice.md",
 )
+RULE_REVIEW_TASK_VERSION = "1.0"
+RULE_REVIEW_TASK_KIND = "writing_rule_review_task"
+RULE_REVIEW_RESULT_KIND = "writing_rule_review_result"
 
 
 def read_text(path: Path) -> str:
@@ -31,6 +35,16 @@ def read_text(path: Path) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
 
 
 def discover_rules(skill_root: Path = SKILL_ROOT) -> tuple[list[Path], list[str]]:
@@ -78,6 +92,211 @@ def nonempty_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def build_rule_review_task(
+    receipt_path: Path,
+    skill_root: Path = SKILL_ROOT,
+) -> tuple[dict[str, Any], list[str]]:
+    if not receipt_path.is_file():
+        return {}, [f"写作规则读取回执不存在: {receipt_path}"]
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return {}, [f"写作规则读取回执不是合法 JSON: {receipt_path}: {exc}"]
+    if not isinstance(receipt, dict):
+        return {}, [f"写作规则读取回执顶层必须是对象: {receipt_path}"]
+
+    resolved_root = skill_root.resolve()
+    rules, errors = discover_rules(resolved_root)
+    if errors:
+        return {}, errors
+    receipt_entries = {
+        str(item.get("path") or ""): item
+        for item in receipt.get("files", [])
+        if isinstance(item, dict)
+    }
+    task_files: list[dict[str, Any]] = []
+    for path in rules:
+        relative = path.relative_to(resolved_root).as_posix()
+        entry = receipt_entries.get(relative)
+        if not entry:
+            errors.append(f"写作规则读取回执缺少文件项: {path}")
+            continue
+        current_sha = sha256(path)
+        if entry.get("sha256") != current_sha:
+            errors.append(f"规则文件已变化，必须重新初始化读取回执: {path}")
+            continue
+        task_files.append(
+            {
+                "path": relative,
+                "sha256": current_sha,
+                "content": read_text(path),
+                "review": {
+                    "status": "read",
+                    "evidence_terms": [],
+                    "takeaways": [],
+                    "used_for": [],
+                },
+            }
+        )
+    if errors:
+        return {}, errors
+    task = {
+        "version": RULE_REVIEW_TASK_VERSION,
+        "kind": RULE_REVIEW_TASK_KIND,
+        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        "receipt": {
+            "path": str(receipt_path.resolve()),
+            "sha256": sha256(receipt_path),
+        },
+        "instructions": [
+            "完整读取每个 content，逐文件填写 review。",
+            "evidence_terms 必须逐字存在于当前文件，不得凭记忆改写。",
+            "takeaways 和 used_for 必须结合当前写作任务，不得留空。",
+            "只填写独立输出文件，禁止直接修改正式写作规则读取回执。",
+        ],
+        "files": task_files,
+        "result_template": {
+            "version": RULE_REVIEW_TASK_VERSION,
+            "kind": RULE_REVIEW_RESULT_KIND,
+            "task_sha256": "填写本任务文件 SHA256",
+            "receipt_sha256": sha256(receipt_path),
+            "reviews": [
+                {
+                    "path": item["path"],
+                    "review": copy.deepcopy(item["review"]),
+                }
+                for item in task_files
+            ],
+        },
+    }
+    return task, []
+
+
+def apply_rule_review_result(
+    receipt_path: Path,
+    task_path: Path,
+    result_path: Path,
+    output_paths: list[Path] | None = None,
+    skill_root: Path = SKILL_ROOT,
+) -> list[str]:
+    errors: list[str] = []
+    for label, path in (
+        ("写作规则读取回执", receipt_path),
+        ("规则语义输入", task_path),
+        ("规则语义输出", result_path),
+    ):
+        if not path.is_file():
+            errors.append(f"{label}不存在: {path}")
+    if errors:
+        return errors
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        task = json.loads(task_path.read_text(encoding="utf-8"))
+        result = json.loads(result_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"规则语义回填文件不是合法 JSON: {exc}"]
+    for label, data in (
+        ("写作规则读取回执", receipt),
+        ("规则语义输入", task),
+        ("规则语义输出", result),
+    ):
+        if not isinstance(data, dict):
+            errors.append(f"{label}顶层必须是对象")
+    if errors:
+        return errors
+    if task.get("kind") != RULE_REVIEW_TASK_KIND:
+        errors.append("规则语义输入 kind 错误")
+    if result.get("kind") != RULE_REVIEW_RESULT_KIND:
+        errors.append("规则语义输出 kind 错误")
+    if task.get("version") != RULE_REVIEW_TASK_VERSION:
+        errors.append("规则语义输入版本过期")
+    if result.get("version") != RULE_REVIEW_TASK_VERSION:
+        errors.append("规则语义输出版本过期")
+    current_receipt_sha = sha256(receipt_path)
+    task_receipt = task.get("receipt")
+    if not isinstance(task_receipt, dict):
+        errors.append("规则语义输入 receipt 必须是对象")
+    elif task_receipt.get("sha256") != current_receipt_sha:
+        errors.append("写作规则读取回执已变化，必须重新导出规则语义输入")
+    if result.get("receipt_sha256") != current_receipt_sha:
+        errors.append("规则语义输出绑定的写作规则读取回执已过期")
+    if result.get("task_sha256") != sha256(task_path):
+        errors.append("规则语义输出绑定的输入任务 SHA 不一致")
+
+    task_items = {
+        str(item.get("path") or ""): item
+        for item in task.get("files", [])
+        if isinstance(item, dict) and str(item.get("path") or "")
+    }
+    raw_reviews = result.get("reviews")
+    if not isinstance(raw_reviews, list):
+        errors.append("规则语义输出 reviews 必须是数组")
+        raw_reviews = []
+    result_items: dict[str, dict[str, Any]] = {}
+    for item in raw_reviews:
+        if not isinstance(item, dict):
+            errors.append("规则语义输出 reviews 只能包含对象")
+            continue
+        relative = str(item.get("path") or "").strip()
+        if not relative:
+            errors.append("规则语义输出存在缺少 path 的 review")
+        elif relative in result_items:
+            errors.append(f"规则语义输出存在重复 review: {relative}")
+        else:
+            result_items[relative] = item
+    missing = sorted(set(task_items) - set(result_items))
+    extra = sorted(set(result_items) - set(task_items))
+    if missing:
+        errors.append("规则语义输出缺少文件: " + ", ".join(missing))
+    if extra:
+        errors.append("规则语义输出包含未选文件: " + ", ".join(extra))
+    if errors:
+        return errors
+
+    candidate = copy.deepcopy(receipt)
+    candidate_entries = {
+        str(item.get("path") or ""): item
+        for item in candidate.get("files", [])
+        if isinstance(item, dict)
+    }
+    resolved_root = skill_root.resolve()
+    for relative, task_item in task_items.items():
+        entry = candidate_entries.get(relative)
+        if not entry:
+            errors.append(f"写作规则读取回执缺少文件项: {relative}")
+            continue
+        path = resolved_root / relative
+        if not path.is_file():
+            errors.append(f"规则文件不存在: {path}")
+            continue
+        if task_item.get("sha256") != sha256(path):
+            errors.append(f"规则文件已变化，必须重新导出规则语义输入: {path}")
+            continue
+        review = result_items[relative].get("review")
+        if not isinstance(review, dict):
+            errors.append(f"规则语义输出 review 必须是对象: {relative}")
+            continue
+        entry.update(copy.deepcopy(review))
+    if errors:
+        return errors
+    candidate["gate_status"] = "passed"
+    candidate["confirmed_before_outline"] = True
+    candidate["confirmed_before_draft"] = True
+
+    temporary = receipt_path.with_name(f".{receipt_path.name}.review.tmp")
+    atomic_write_json(temporary, candidate)
+    validation_errors, _ = validate_receipt(
+        temporary,
+        output_paths,
+        resolved_root,
+    )
+    if validation_errors:
+        temporary.unlink(missing_ok=True)
+        return validation_errors
+    temporary.replace(receipt_path)
+    return []
 
 
 def validate_receipt(

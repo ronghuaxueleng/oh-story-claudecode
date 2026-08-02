@@ -218,6 +218,127 @@ class FirstDraftBasicReviewTest(unittest.TestCase):
         errors = GATE.validate_receipt(self.receipt, self.draft)
         self.assertTrue(any("不在当前正文中" in error for error in errors))
 
+    def test_finalize_rebinds_only_after_dual_baseline_review_passes(self) -> None:
+        data = self.passed_receipt()
+        data["review_items"][0]["issue_found"] = True
+        data["review_items"][0]["fixes_applied"] = ["恢复动作后的停顿"]
+        data["basic_revision_performed"] = True
+        revised_sentence = "她本来想问为什么。看见钥匙，她改了口。"
+        self.draft.write_text(
+            f"1.\n\n{revised_sentence}\n\n钥匙交出去，她低头看着掌心那道红痕。\n",
+            encoding="utf-8",
+        )
+        for item in data["review_items"]:
+            item["draft_evidence"] = [revised_sentence]
+        data["revision_blocks"] = [
+            {
+                "target_block": "第1节钥匙换手",
+                "source_path": str(self.source.resolve()),
+                "source_sha256": GATE.sha256(self.source),
+                "source_evidence": [
+                    "她看着那把钥匙，原本想问，话到嘴边却换成了别的。",
+                    "钥匙落进别人掌心，她低头看了很久，什么也没解释。",
+                ],
+                "base_draft_evidence": ["她原本想问他为什么，却在看见那把钥匙时改了口。"],
+                "revised_draft_evidence": [revised_sentence],
+                "preserved_source_granularity": "保留改口、动作和停顿。",
+                "removed_draft_extra_ai_shell": "删去解释性连接。",
+                "no_added_explanation_density": True,
+                "no_source_rhythm_regularization": True,
+                "surface_copy_check": True,
+                "manual_judgment": "迁移运行方式，不复制原句。",
+            }
+        ]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        old_sha = json.loads(
+            self.section_execution.read_text(encoding="utf-8")
+        )["final_draft_sha256"]
+        self.section_execution.write_text(
+            json.dumps(
+                {
+                    "gate": "section_draft_execution",
+                    "gate_status": "passed",
+                    "draft_path": str(self.draft.resolve()),
+                    "final_draft_sha256": old_sha,
+                    "sections": [
+                        {
+                            "section_id": "1",
+                            "status": "completed",
+                            "opened_at": "before",
+                            "closed_at": "before",
+                            "read_judgment": "已读完整原文切片",
+                            "manual_judgment": "四项停检通过",
+                            "event_flow": "passed",
+                            "emotion_flow": "passed",
+                            "style_granularity": "passed",
+                            "telegraphic_and_relation_check": "passed",
+                            "section_sha256": old_sha,
+                            "draft_sha256_after_close": old_sha,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["section_execution_receipt"] = GATE.source_binding(self.section_execution)
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        original_validate_receipt = GATE.validate_receipt
+        validate_calls: list[Path] = []
+
+        def record_validate_receipt(
+            receipt: Path,
+            draft_override: Path | None = None,
+        ) -> list[str]:
+            validate_calls.append(receipt)
+            return original_validate_receipt(receipt, draft_override)
+
+        GATE.validate_receipt = record_validate_receipt
+        try:
+            self.assertEqual(
+                [],
+                GATE.finalize_after_revision(
+                    self.receipt,
+                    self.draft,
+                    self.section_execution,
+                ),
+            )
+        finally:
+            GATE.validate_receipt = original_validate_receipt
+
+        execution = json.loads(self.section_execution.read_text(encoding="utf-8"))
+        self.assertEqual(GATE.sha256(self.draft), execution["final_draft_sha256"])
+        self.assertEqual(old_sha, execution["first_draft_sha256"])
+        self.assertEqual(1, len(validate_calls))
+        self.assertNotEqual(self.receipt, validate_calls[0])
+        self.assertEqual([], GATE.validate_receipt(self.receipt, self.draft))
+
+    def test_finalize_refuses_missing_revision_evidence(self) -> None:
+        data = self.passed_receipt()
+        data["review_items"][0]["issue_found"] = True
+        data["review_items"][0]["fixes_applied"] = ["声称已修改"]
+        data["basic_revision_performed"] = True
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        self.section_execution.write_text(
+            json.dumps(
+                {
+                    "gate": "section_draft_execution",
+                    "gate_status": "passed",
+                    "final_draft_sha256": GATE.sha256(self.draft),
+                    "sections": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+        errors = GATE.finalize_after_revision(
+            self.receipt,
+            self.draft,
+            self.section_execution,
+        )
+        self.assertTrue(any("revision_blocks" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

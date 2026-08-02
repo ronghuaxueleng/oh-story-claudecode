@@ -13,6 +13,10 @@ from typing import Any
 
 
 WINDOW_SIZES = (20, 60, 80, 120)
+OUTLINE_SECTION_RE = re.compile(r"^##\s+(?:第\s*)?\d+(?:\s*节)?[.、．]?(?:\s+.*)?$")
+PURE_SECTION_MARKER_RE = re.compile(r"^(?:###\s*)?(?:第\s*)?(?:\d+|[一二三四五六七八九十百千]+)(?:章|节)?[.、．]?\s*$")
+OPENING_PREVIEW_RE = re.compile(r"^(?:[-*]\s*)?前(?:\d+)(?:字)?[：:]\s*(.+?)\s*$")
+BULLET_HEADING_RE = re.compile(r"^\s*-\s+(.+?)[：:](?:\s*(.*))?$")
 REQUIRED_CHECKS = (
     "relationship_anchor_in_first_20_60",
     "relationship_conflict_or_abnormal_position_in_first_60",
@@ -50,15 +54,74 @@ def canonical_body(text: str) -> str:
             if stripped == "---":
                 in_frontmatter = False
             continue
-        if not stripped or stripped.startswith("#"):
+        if not stripped or stripped.startswith("#") or PURE_SECTION_MARKER_RE.match(stripped):
             continue
         lines.append(stripped)
     return re.sub(r"\s+", "", "".join(lines))
 
 
+def opening_slice(text: str) -> str:
+    lines = text.splitlines()
+    for index, raw_line in enumerate(lines):
+        if OUTLINE_SECTION_RE.match(raw_line.strip()):
+            section_lines = lines[index:]
+            preview_lines: list[str] = []
+            current_bullet = ""
+            opening_block_lines: list[str] = []
+            event_block_lines: list[str] = []
+            for line in section_lines[1:]:
+                stripped = line.strip()
+                if OUTLINE_SECTION_RE.match(stripped):
+                    break
+                match = OPENING_PREVIEW_RE.match(stripped)
+                if match:
+                    preview = match.group(1).strip()
+                    if preview:
+                        preview_lines.append(preview)
+                    continue
+                bullet_match = BULLET_HEADING_RE.match(stripped)
+                if bullet_match:
+                    current_bullet = str(bullet_match.group(1) or "").strip()
+                    inline_value = str(bullet_match.group(2) or "").strip()
+                    if inline_value:
+                        if current_bullet in {"本节开口", "首段开口"}:
+                            opening_block_lines.append(inline_value)
+                        elif current_bullet in {"本节主事件", "主事件与子事件", "子事件"}:
+                            event_block_lines.append(inline_value)
+                    continue
+                if current_bullet in {"本节开口", "首段开口"} and stripped:
+                    cleaned = normalize_outline_preview_line(stripped)
+                    if cleaned:
+                        opening_block_lines.append(cleaned)
+                    continue
+                if current_bullet in {"本节主事件", "主事件与子事件", "子事件"} and stripped:
+                    cleaned = normalize_outline_preview_line(stripped)
+                    if cleaned:
+                        event_block_lines.append(cleaned)
+            if opening_block_lines:
+                return "\n".join(opening_block_lines)
+            if preview_lines:
+                return "\n".join(preview_lines)
+            if event_block_lines:
+                return "\n".join(event_block_lines)
+            return "\n".join(section_lines)
+    return text
+
+
 def opening_windows(text: str) -> dict[str, str]:
-    body = canonical_body(text)
+    body = canonical_body(opening_slice(text))
     return {str(size): body[:size] for size in WINDOW_SIZES}
+
+
+def opening_quote_preview(path: Path, *, limit: int = 120) -> str:
+    return canonical_body(read_text(path))[:limit]
+
+
+def normalize_outline_preview_line(text: str) -> str:
+    value = str(text or "").strip()
+    value = re.sub(r"^[-*]\s*", "", value)
+    value = re.sub(r"^\d+\.\s*", "", value)
+    return value.strip()
 
 
 def create_receipt(
@@ -66,6 +129,7 @@ def create_receipt(
     source_path: Path,
     target_path: Path,
     artifact_kind: str,
+    selected_source_paths: list[Path] | None = None,
 ) -> dict[str, Any]:
     resolved_source = source_path.resolve()
     resolved_target = target_path.resolve()
@@ -75,6 +139,23 @@ def create_receipt(
         raise FileNotFoundError(f"目标文本不存在: {resolved_target}")
 
     target_text = read_text(resolved_target)
+    selected_sources = (
+        [path.resolve() for path in selected_source_paths]
+        if selected_source_paths
+        else [resolved_source]
+    )
+    samples: list[dict[str, Any]] = []
+    for sample_path in selected_sources:
+        if not sample_path.is_file():
+            continue
+        samples.append(
+            {
+                "path": str(sample_path),
+                "sha256": sha256(sample_path),
+                "opening_quote": opening_quote_preview(sample_path),
+                "opening_pattern": "机械预填：待当前模型补充开口机制判断",
+            }
+        )
     return {
         "version": "1.0",
         "project": project,
@@ -99,7 +180,7 @@ def create_receipt(
         },
         "original_opening_comparison": {
             "all_selected_sources_reviewed": False,
-            "samples": [],
+            "samples": samples,
             "common_patterns": [],
             "target_opening_application": [],
             "exposition_removed_or_deferred": [],
@@ -122,6 +203,13 @@ def nonempty_strings(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item).strip() for item in value if str(item).strip()]
+
+
+def normalized_contains(text: str, quote: str) -> bool:
+    normalized_quote = re.sub(r"\s+", "", str(quote or ""))
+    if not normalized_quote:
+        return False
+    return normalized_quote in canonical_body(text)
 
 
 def evidence_map(value: Any) -> dict[str, dict[str, Any]]:
@@ -203,7 +291,7 @@ def validate_opening_flow_review(data: dict[str, Any], errors: list[str]) -> Non
     if len(symptoms) < 2:
         errors.append("必须检查至少两类分镜/施工单症状")
     symptom_text = " / ".join(symptoms)
-    required_symptom_terms = ("一句一个动作", "一句一个证据", "一句一个反应", "规则施工")
+    required_symptom_terms = ("一句一个动作", "一句一个证据", "一句一个反应", "规则施工", "施工单")
     if not any(term in symptom_text for term in required_symptom_terms):
         errors.append("分镜/施工单症状必须覆盖动作、证据、反应或规则施工")
 
@@ -220,8 +308,17 @@ def validate_receipt(
     source_path: Path,
     target_path: Path,
 ) -> tuple[list[str], dict[str, Any]]:
-    errors: list[str] = []
     data = json.loads(receipt_path.read_text(encoding="utf-8"))
+    return validate_receipt_data(data, receipt_path, source_path, target_path)
+
+
+def validate_receipt_data(
+    data: dict[str, Any],
+    receipt_path: Path,
+    source_path: Path,
+    target_path: Path,
+) -> tuple[list[str], dict[str, Any]]:
+    errors: list[str] = []
     resolved_source = source_path.resolve()
     resolved_target = target_path.resolve()
 
@@ -234,7 +331,7 @@ def validate_receipt(
 
     source_text = read_text(resolved_source)
     target_text = read_text(resolved_target)
-    target_body = canonical_body(target_text)
+    target_body = canonical_body(opening_slice(target_text))
 
     source_info = data.get("primary_source")
     if not isinstance(source_info, dict):
@@ -287,7 +384,7 @@ def validate_receipt(
                 continue
             quote = str(item.get("quote") or "").strip()
             judgment = str(item.get("judgment") or "").strip()
-            if not quote or quote not in source_text:
+            if not quote or not normalized_contains(source_text, quote):
                 errors.append(f"主体来源证据不在导语资产中: [{index}]")
                 continue
             if not judgment:

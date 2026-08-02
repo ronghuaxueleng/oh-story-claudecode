@@ -2120,6 +2120,18 @@ def build_sample_source_entry(profile: dict, profile_path: Path | None = None) -
     return {key: value for key, value in entry.items() if value}
 
 
+def dedupe_paths_keep_order(paths: list[Path]) -> list[Path]:
+    unique_paths: list[Path] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_paths.append(resolved)
+    return unique_paths
+
+
 def normalize_sample_source_level(entry: dict[str, str]) -> str:
     level = re.sub(r"\s+", "", entry.get("level", ""))
     if "C类负样本" in level:
@@ -3034,6 +3046,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
 
 
 def merge_profiles(profile_paths: list[Path], name: str) -> dict:
+    profile_paths = dedupe_paths_keep_order(profile_paths)
     profiles = [json.loads(read_text(path)) for path in profile_paths]
     missing = [
         str(path)

@@ -87,8 +87,9 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
 - finalize 只允许生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 和读取正式产物，不允许修改 Markdown
-- 无损编译包归拆书阶段所有：它必须是 `version: 1.1`，包含唯一完整原文、全部 SF 原始字段、每个 SF 的逐场 `source_style_granularity`、BID 施工卡和 profile 承重资产；写作阶段只读、只校验，缺失、旧版或过期必须返回本阶段重跑 finalize
-- `source_style_granularity` 必须在 finalize 前已经由拆书产物固化。六项分别是 `narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`；每项至少两条不同原文证据，且证据必须落在该 SF 的 `source_range` 内
+- 无损编译包归拆书阶段所有：它必须是 `version: 1.1`，包含唯一完整原文、全部 SF 原始字段、每个 SF 的 `source_excerpt`、逐场 `source_style_granularity`、BID 施工卡和 profile 承重资产；写作阶段只读、只校验，缺失、旧版或过期必须返回本阶段重跑 finalize
+- `source_excerpt` 必须在 finalize 前已经由拆书产物固化，并与该 SF 的 `source_range` 对应原文精确切片完全一致；不得留锚点句、手工摘要或压缩版摘录
+- `source_style_granularity` 必须在 finalize 前已经由拆书产物固化。六项分别是 `narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`；每项至少两条不同原文证据，且证据必须落在该 SF 的 `source_range` 内；六项合计至少覆盖四条不同原文证据，同一证据组不得覆盖四个及以上字段
 - `source_asset_coverage` 必须排除无损编译包自身，避免自引用；包内仍保留不含自身的完整来源清单用于新鲜度校验
 - 全量 validator 未通过时，finalize 必须撤销本轮生成包；只有 `ready-for-write` 的拆书目录可以保留并下发该包
 - 人工复核回执未闭环时，finalize 必须保持阻断

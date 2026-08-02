@@ -29,12 +29,16 @@ class DirectImitationPackageTest(unittest.TestCase):
         self.root = Path(self.temp_dir.name) / "拆文库" / "样本"
         (self.root / "原文").mkdir(parents=True)
         (self.root / "写作资产").mkdir(parents=True)
-        (self.root / "原文" / "样本.txt").write_text("唯一完整原文。", encoding="utf-8")
+        (self.root / "原文" / "样本.txt").write_text(
+            "第一句原文。\n第二句原文。\n第三句原文。\n第四句原文。\n",
+            encoding="utf-8",
+        )
         (self.root / "拆文报告.md").write_text("# 拆文报告\n", encoding="utf-8")
         (self.root / "写作资产" / "桥段施工卡.md").write_text("# BID-01\n承重桥。\n", encoding="utf-8")
         self.subflow = {
             "subflow_id": "SF-01",
-            "source_range": "L1-L1",
+            "source_excerpt": "第一句原文。\n第二句原文。\n第三句原文。\n第四句原文。",
+            "source_range": "L1-L4",
             "entry_state": "误判尚未证实",
             "required_sequence": ["看见", "追问", "翻刀"],
             "scene_granularity": "动作与错答同场发生",
@@ -45,21 +49,31 @@ class DirectImitationPackageTest(unittest.TestCase):
                 "institutional_constraints": ["现场流程不允许私下撤回记录"],
                 "obvious_alternative_blockers": ["公开流程已开始，无法改日处理"],
                 "exit_cause": "事实公开后关系进入下一轮清算",
-                "source_evidence": ["唯一完整原文", "承重桥"],
+                "source_evidence": ["第一句原文。", "第四句原文。"],
             },
             "information_delay": "先给异常，后给事实",
             "control_changes": ["观察权转为质问权"],
             "emotion_sequence": ["迟疑", "刺痛", "决断"],
             "end_state": "关系进入不可逆状态",
-            "source_evidence": ["唯一完整原文"],
+            "source_evidence": ["第一句原文。", "第四句原文。"],
             "source_style_granularity": {
                 field: {
                     "analysis": f"{field} 的逐场分析",
-                    "source_evidence": ["唯一完整", "完整原文"],
+                    "source_evidence": ["第一句原文。", "第二句原文。"],
                 }
                 for field in PACKAGE.STYLE_GRANULARITY_FIELDS
             },
         }
+        style_quotes = {
+            "narrative_voice_and_attitude": ["第一句原文。", "第二句原文。"],
+            "sentence_relation_and_rhythm": ["第二句原文。", "第三句原文。"],
+            "paragraph_breath_and_cut_points": ["第三句原文。", "第四句原文。"],
+            "dialogue_misfire_or_avoidance": ["第一句原文。", "第四句原文。"],
+            "action_perception_emotion_weave": ["第一句原文。", "第三句原文。"],
+            "narrator_interjection_and_roughness": ["第二句原文。", "第四句原文。"],
+        }
+        for field, quotes in style_quotes.items():
+            self.subflow["source_style_granularity"][field]["source_evidence"] = quotes
         self.index_path = self.root / "写作资产" / "子流程索引.jsonl"
         self.index_path.write_text(json.dumps(self.subflow, ensure_ascii=False) + "\n", encoding="utf-8")
         profile = {key: [f"{key}-asset"] for key in PACKAGE.PROFILE_ASSET_KEYS}
@@ -106,7 +120,7 @@ class DirectImitationPackageTest(unittest.TestCase):
     def test_build_contains_exact_original_subflows_and_profile_assets(self) -> None:
         output = PACKAGE.build_package(self.root)
         data = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual("唯一完整原文。", data["original"]["text"])
+        self.assertEqual("第一句原文。\n第二句原文。\n第三句原文。\n第四句原文。\n", data["original"]["text"])
         self.assertEqual([self.subflow], data["subflows"])
         profile = json.loads((self.root / "book.profile.json").read_text(encoding="utf-8"))
         self.assertEqual(
@@ -116,6 +130,14 @@ class DirectImitationPackageTest(unittest.TestCase):
         manifest_paths = {item["path"] for item in data["source_asset_manifest"]["files"]}
         self.assertNotIn(PACKAGE.PACKAGE_RELATIVE_PATH, manifest_paths)
         self.assertEqual([], PACKAGE.validate_package(self.root))
+
+    def test_manifest_lookup_accepts_same_directory_with_different_path_spelling(self) -> None:
+        profile = json.loads((self.root / "book.profile.json").read_text(encoding="utf-8"))
+        manifest = profile["source_asset_coverage"][0]
+        manifest["root"] = "/stored/path/with/different/case"
+
+        with mock.patch.object(PACKAGE, "same_location", return_value=True):
+            self.assertIs(manifest, PACKAGE.current_manifest(profile, self.root))
 
     def test_source_or_subflow_change_invalidates_without_rewriting(self) -> None:
         output = PACKAGE.build_package(self.root)
@@ -136,6 +158,12 @@ class DirectImitationPackageTest(unittest.TestCase):
         errors = PACKAGE.validate_package(self.root)
         self.assertTrue(any("版本过期" in error for error in errors))
 
+    def test_validate_package_handles_package_removed_between_checks(self) -> None:
+        output = PACKAGE.build_package(self.root)
+        output.unlink()
+        errors = PACKAGE.validate_package(self.root)
+        self.assertTrue(any("缺少仿写无损编译包" in error for error in errors))
+
     def test_empty_causal_assets_blocks_generation(self) -> None:
         profile_path = self.root / "book.profile.json"
         profile = json.loads(profile_path.read_text(encoding="utf-8"))
@@ -149,6 +177,13 @@ class DirectImitationPackageTest(unittest.TestCase):
         value.pop("source_style_granularity")
         self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
         with self.assertRaisesRegex(ValueError, "source_style_granularity"):
+            PACKAGE.build_package(self.root)
+
+    def test_source_excerpt_must_match_exact_slice(self) -> None:
+        value = dict(self.subflow)
+        value["source_excerpt"] = "被截断的原文"
+        self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "source_excerpt"):
             PACKAGE.build_package(self.root)
 
     def test_repeated_subflow_style_templates_block_package(self) -> None:
@@ -169,7 +204,7 @@ class DirectImitationPackageTest(unittest.TestCase):
         value["source_style_granularity"] = {
             field: {
                 "analysis": f"{PACKAGE.LEGACY_STYLE_TEMPLATE_MARKER}，其余为真实分析。",
-                "source_evidence": ["唯一完整", "完整原文"],
+                "source_evidence": ["第一句原文。", "第二句原文。"],
             }
             for field in PACKAGE.STYLE_GRANULARITY_FIELDS
         }
@@ -177,20 +212,53 @@ class DirectImitationPackageTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "自动拼接模板"):
             PACKAGE.build_package(self.root)
 
+    def test_style_requires_at_least_four_distinct_quotes(self) -> None:
+        value = dict(self.subflow)
+        value["source_style_granularity"] = {
+            field: {
+                "analysis": f"{field} 的逐场分析",
+                "source_evidence": ["唯一完整", "完整原文"],
+            }
+            for field in PACKAGE.STYLE_GRANULARITY_FIELDS
+        }
+        self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "至少覆盖四条不同原文证据"):
+            PACKAGE.build_package(self.root)
+
     def test_multi_range_source_style_is_supported(self) -> None:
         original = self.root / "原文" / "样本.txt"
         original.write_text("第一行原文\n第二行原文\n第三行原文\n第四行原文\n", encoding="utf-8")
         value = dict(self.subflow)
-        value["source_range"] = "L1-L2、L4-L4"
+        value["source_range"] = "L1-L2、L3-L4"
+        value["source_excerpt"] = "第一行原文\n第二行原文\n第三行原文\n第四行原文"
         value["source_evidence"] = ["第一行原文", "第四行原文"]
         value["causal_preconditions"] = dict(self.subflow["causal_preconditions"])
         value["causal_preconditions"]["source_evidence"] = ["第一行原文", "第四行原文"]
         value["source_style_granularity"] = {
-            field: {
-                "analysis": f"{field} 的逐场分析",
+            "narrative_voice_and_attitude": {
+                "analysis": "逐场分析",
+                "source_evidence": ["第一行原文", "第二行原文"],
+            },
+            "sentence_relation_and_rhythm": {
+                "analysis": "逐场分析",
+                "source_evidence": ["第二行原文", "第三行原文"],
+            },
+            "paragraph_breath_and_cut_points": {
+                "analysis": "逐场分析",
+                "source_evidence": ["第三行原文", "第四行原文"],
+            },
+            "dialogue_misfire_or_avoidance": {
+                "analysis": "逐场分析",
                 "source_evidence": ["第一行原文", "第四行原文"],
-            }
-            for field in PACKAGE.STYLE_GRANULARITY_FIELDS
+            },
+            "action_perception_emotion_weave": {
+                "analysis": "逐场分析",
+                "source_evidence": ["第一行原文", "第三行原文"],
+            },
+            "narrator_interjection_and_roughness": {
+                "analysis": "逐场分析",
+                "source_evidence": ["第二行原文", "第四行原文"],
+            },
         }
         self.index_path.write_text(json.dumps(value, ensure_ascii=False) + "\n", encoding="utf-8")
         self._refresh_manifest()

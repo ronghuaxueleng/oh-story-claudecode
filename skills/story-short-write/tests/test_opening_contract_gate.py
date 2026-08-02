@@ -132,6 +132,25 @@ class OpeningContractGateTest(unittest.TestCase):
             receipt["target_text"]["opening_windows"]["60"].startswith("丈夫替女同事")
         )
 
+    def test_outline_opening_windows_prefer_opening_block_over_metadata(self) -> None:
+        outline = self.root / "小节大纲.md"
+        outline.write_text(
+            "# 《测试》小节大纲\n\n"
+            "## 第1节 执法现场，他先护了她\n\n"
+            "- 对应来源：\n"
+            "  - 主体 `SF-12`\n"
+            "- 本节主事件：顾南枝在扫黄行动里撞见丈夫和学生\n"
+            "- 本节开口：\n"
+            "  - 我没想到扫黄会扫到我老公。\n"
+            "  - 他怀里还护着自己的学生。\n",
+            encoding="utf-8",
+        )
+
+        receipt = GATE.create_receipt("测试", self.source, outline, "outline")
+
+        self.assertTrue(receipt["target_text"]["opening_windows"]["60"].startswith("我没想到扫黄会扫到我老公"))
+        self.assertNotIn("对应来源", receipt["target_text"]["opening_windows"]["120"])
+
     def test_complete_manual_contract_passes(self) -> None:
         self._completed_receipt()
         errors, summary = GATE.validate_receipt(
@@ -182,6 +201,18 @@ class OpeningContractGateTest(unittest.TestCase):
         )
         errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
         self.assertTrue(any("主体来源证据不在导语资产中" in error for error in errors))
+
+    def test_source_evidence_allows_normalized_quote(self) -> None:
+        receipt = self._completed_receipt()
+        receipt["source_evidence"][0]["quote"] = "公开越界先起事"
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
+
+        self.assertFalse(any("主体来源证据不在导语资产中" in error for error in errors))
 
     def test_original_opening_comparison_is_required(self) -> None:
         receipt = self._completed_receipt()

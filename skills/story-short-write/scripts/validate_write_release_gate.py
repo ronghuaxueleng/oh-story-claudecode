@@ -202,6 +202,9 @@ def validate_release(
     setting_sequence_receipt: Path | None = None,
     draft_capacity_contract: Path | None = None,
     section_source_bundle: Path | None = None,
+    skip_writing_receipt_validation: bool = False,
+    skip_source_receipt_validation: bool = False,
+    skip_section_source_bundle_validation: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     writing_data = load_json(writing_receipt, "写作规则读取回执", errors)
@@ -210,7 +213,7 @@ def validate_release(
         "写作规则读取门禁",
         errors,
     )
-    if writing_data is not None:
+    if writing_data is not None and not skip_writing_receipt_validation:
         writing_errors, _ = _WRITING_RULE_MODULE.validate_receipt(writing_receipt)
         if writing_errors:
             errors.append("写作规则读取回执实时复验失败")
@@ -221,7 +224,7 @@ def validate_release(
         "拆文读取门禁",
         errors,
     )
-    if source_data is not None:
+    if source_data is not None and not skip_source_receipt_validation:
         source_errors, _ = _SOURCE_READ_MODULE.validate_receipt(source_receipt)
         if source_errors:
             errors.append("拆文读取回执实时复验失败")
@@ -277,7 +280,7 @@ def validate_release(
                 errors.extend(capacity_errors)
         if section_source_bundle is None:
             errors.append("正文写作放行必须提供逐节原文颗粒包")
-        else:
+        elif not skip_section_source_bundle_validation:
             bundle_errors = _SECTION_SOURCE_BUNDLE_MODULE.validate_bundle(
                 section_source_bundle
             )
@@ -356,6 +359,7 @@ def validate_release(
                             _OUTLINE_PERFORMANCE_MODULE.validate_receipt(
                                 outline_contract,
                                 outline_path,
+                                skip_source_receipt_validation=skip_source_receipt_validation,
                             )
                         )
         if profile is None:

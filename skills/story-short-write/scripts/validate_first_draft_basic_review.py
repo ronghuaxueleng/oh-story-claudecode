@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
+import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import importlib.util
@@ -55,6 +58,55 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 def source_binding(path: Path) -> dict[str, str]:
     resolved = path.resolve()
     return {"path": str(resolved), "sha256": sha256(resolved)}
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def validate_finalized_bindings(
+    receipt: Path,
+    section_execution_receipt: Path,
+    draft: Path,
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        review = read_json(receipt)
+        execution = read_json(section_execution_receipt)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"重绑后回执不可读取: {exc}"]
+    draft_info = review.get("draft")
+    if not isinstance(draft_info, dict):
+        errors.append("重绑后 review.draft 必须是对象")
+    else:
+        if Path(str(draft_info.get("path") or "")).expanduser().resolve() != draft.resolve():
+            errors.append("重绑后 review.draft.path 未绑定当前正文")
+        if draft_info.get("sha256") != sha256(draft):
+            errors.append("重绑后 review.draft.sha256 未绑定当前正文")
+    execution_binding = review.get("section_execution_receipt")
+    if not isinstance(execution_binding, dict):
+        errors.append("重绑后 review.section_execution_receipt 必须是对象")
+    else:
+        if (
+            Path(str(execution_binding.get("path") or "")).expanduser().resolve()
+            != section_execution_receipt.resolve()
+        ):
+            errors.append("重绑后 review.section_execution_receipt.path 未绑定正式逐节回执")
+        if execution_binding.get("sha256") != sha256(section_execution_receipt):
+            errors.append("重绑后 review.section_execution_receipt.sha256 未绑定正式逐节回执")
+    if execution.get("final_draft_sha256") != sha256(draft):
+        errors.append("重绑后逐节回执 final_draft_sha256 未绑定当前正文")
+    return errors
 
 
 def init_receipt(
@@ -366,6 +418,84 @@ def validate_receipt(receipt: Path, draft_override: Path | None = None) -> list[
     return errors
 
 
+def finalize_after_revision(
+    receipt: Path,
+    draft: Path,
+    section_execution_receipt: Path,
+) -> list[str]:
+    """Validate the real dual-baseline evidence before mechanically rebinding SHA values."""
+    try:
+        review = read_json(receipt)
+        execution = read_json(section_execution_receipt)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return [f"回执不可读取: {exc}"]
+    if not draft.is_file():
+        return [f"正文不存在: {draft}"]
+    if review.get("gate") != "first_draft_basic_review":
+        return ["gate 必须为 first_draft_basic_review"]
+    if execution.get("gate") != "section_draft_execution":
+        return ["逐节回执 gate 必须为 section_draft_execution"]
+    if execution.get("gate_status") != "passed":
+        return ["逐节回执尚未完成，禁止基础审计后重绑"]
+
+    draft_sha = sha256(draft)
+    staged_execution = copy.deepcopy(execution)
+    staged_execution.setdefault(
+        "first_draft_sha256",
+        str(staged_execution.get("final_draft_sha256") or ""),
+    )
+    staged_execution["final_draft_sha256"] = draft_sha
+    staged_execution["post_review_draft_sha256"] = draft_sha
+    staged_execution["post_review_rebound_at"] = now_iso()
+    for item in staged_execution.get("sections", []):
+        if not isinstance(item, dict):
+            continue
+        section_id = str(item.get("section_id") or "")
+        content = _DRAFT_ENTRY_MODULE._SECTION_EXECUTION_MODULE.section_text(
+            draft,
+            section_id,
+        )
+        if not content:
+            return [f"第 {section_id} 节正文为空，禁止重绑"]
+        item["post_review_section_sha256"] = hashlib.sha256(
+            content.encode("utf-8")
+        ).hexdigest()
+
+    staged_review = copy.deepcopy(review)
+    draft_info = staged_review.get("draft")
+    if not isinstance(draft_info, dict):
+        return ["draft 必须是对象"]
+    draft_info["path"] = str(draft.resolve())
+    draft_info["sha256"] = draft_sha
+
+    with tempfile.TemporaryDirectory() as temporary_dir:
+        temporary_root = Path(temporary_dir)
+        temporary_execution = temporary_root / "逐节首写执行回执.json"
+        temporary_review = temporary_root / "首稿基础审计回执.json"
+        write_json(temporary_execution, staged_execution)
+        staged_review["section_execution_receipt"] = source_binding(
+            temporary_execution
+        )
+        write_json(temporary_review, staged_review)
+        errors = validate_receipt(temporary_review, draft)
+    if errors:
+        return errors
+
+    atomic_write_json(section_execution_receipt, staged_execution)
+    staged_review["section_execution_receipt"] = source_binding(
+        section_execution_receipt
+    )
+    atomic_write_json(receipt, staged_review)
+    final_errors = validate_finalized_bindings(
+        receipt,
+        section_execution_receipt,
+        draft,
+    )
+    if final_errors:
+        return ["重绑后复验失败", *final_errors]
+    return []
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -380,6 +510,10 @@ def main() -> int:
     validate = sub.add_parser("validate")
     validate.add_argument("--receipt", required=True)
     validate.add_argument("--draft")
+    finalize = sub.add_parser("finalize")
+    finalize.add_argument("--receipt", required=True)
+    finalize.add_argument("--draft", required=True)
+    finalize.add_argument("--section-execution-receipt", required=True)
     args = parser.parse_args()
     if args.command == "init":
         return init_receipt(
@@ -400,6 +534,19 @@ def main() -> int:
             ),
         )
     receipt = Path(args.receipt).resolve()
+    if args.command == "finalize":
+        errors = finalize_after_revision(
+            receipt,
+            Path(args.draft).resolve(),
+            Path(args.section_execution_receipt).resolve(),
+        )
+        if errors:
+            print("first_draft_basic_review: finalize blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("first_draft_basic_review: finalized")
+        return 0
     draft = Path(args.draft).resolve() if args.draft else None
     errors = validate_receipt(receipt, draft)
     if errors:

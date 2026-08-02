@@ -56,6 +56,18 @@ class RuleExecutionLedgerTest(unittest.TestCase):
                 )
 
     def _build_source_files(self) -> None:
+        compiled_package = self.source / GATE.COMPILED_SOURCE_PACKAGE
+        compiled_package.parent.mkdir(parents=True, exist_ok=True)
+        compiled_package.write_text(
+            json.dumps(
+                {
+                    "version": "test",
+                    "sources": [{"name": "样本", "selected_subflows": ["SF-01"]}],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         table = self.source / "可直接仿写_人物偏手表.md"
         table.parent.mkdir(parents=True, exist_ok=True)
         table.write_text(
@@ -274,7 +286,7 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         errors, summary = GATE.validate_ledger(self.ledger_path)
         self.assertEqual([], errors)
         self.assertGreater(summary["skill_rules"], 0)
-        self.assertEqual(4, summary["source_assets"])
+        self.assertEqual(5, summary["source_assets"])
         self.assertGreater(summary["asset_rules"], 0)
 
     def test_critical_source_contract_requires_per_source_review(self) -> None:
@@ -649,6 +661,73 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertTrue(first["case_ids"])
         self.assertIn(first["case_ids"][0], payload["case_registry"])
         self.assertNotIn("cases", first)
+        exported_ids = {
+            str(item["id"])
+            for batch in payload["batches"]
+            for item in batch["items"]
+        }
+        self.assertTrue(exported_ids)
+        self.assertTrue(
+            exported_ids.isdisjoint(
+                {str(item["id"]) for item in ledger["skill_rules"]}
+            )
+        )
+        compiled = next(
+            asset
+            for asset in ledger["source_assets"]
+            if asset["relative_path"] == GATE.COMPILED_SOURCE_PACKAGE
+        )
+        self.assertNotIn(str(compiled["id"]), exported_ids)
+
+    def test_compiled_package_is_preclassified_from_current_receipt(self) -> None:
+        ledger = self._create_ledger()
+        compiled = next(
+            asset
+            for asset in ledger["source_assets"]
+            if asset["relative_path"] == GATE.COMPILED_SOURCE_PACKAGE
+        )
+
+        self.assertEqual("source_package_precompiled", compiled["classification_method"])
+        self.assertEqual("workflow_gate", compiled["rule_role"])
+        self.assertEqual("script", compiled["execution_mode"])
+        self.assertEqual("completed", compiled["status"])
+        self.assertEqual("passed", compiled["outcome"])
+        self.assertEqual(
+            str(self.source_receipt.resolve()),
+            compiled["script_artifacts"][0]["path"],
+        )
+        self.assertEqual(
+            GATE.sha256(self.source_receipt),
+            compiled["script_artifacts"][0]["sha256"],
+        )
+
+    def test_prewrite_passes_with_only_fixed_rules_and_compiled_package(self) -> None:
+        ledger = self._create_ledger()
+        ledger["source_assets"] = [
+            asset
+            for asset in ledger["source_assets"]
+            if asset["relative_path"] == GATE.COMPILED_SOURCE_PACKAGE
+        ]
+        ledger["execution_summary"] = GATE.calculate_execution_summary(ledger)
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        self.assertEqual([], GATE.validate_prewrite_ledger(self.ledger_path))
+
+    def test_skill_rules_are_preclassified_without_project_semantics(self) -> None:
+        ledger = self._create_ledger()
+        self.assertTrue(ledger["skill_rules"])
+        for entry in ledger["skill_rules"]:
+            if entry["applicability"] == "merged":
+                continue
+            self.assertEqual("skill_precompiled", entry["classification_method"])
+            self.assertTrue(entry["classification_confirmed"])
+            self.assertTrue(entry["mode_confirmed"])
+            self.assertEqual("pending", entry["status"])
+            self.assertEqual("pending", entry["outcome"])
+            self.assertIn("不包含", entry["classification_notes"])
 
     def test_empty_ledger_is_not_prewrite_ready(self) -> None:
         ledger = self._create_ledger()

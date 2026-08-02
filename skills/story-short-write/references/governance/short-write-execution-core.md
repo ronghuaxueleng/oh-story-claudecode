@@ -22,17 +22,11 @@
 进入最低输入判断前，必须先通过：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
-  --receipt "项目目录/写作资产/写作规则读取回执.json" \
-  --output "项目目录/设定.md" \
-  --output "项目目录/小节大纲.md" \
-  --output "项目目录/正文.md"
+SKILL_ROOT="{系统注入的 story-short-write SKILL.md 所在目录}"
+TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
-  --receipt "项目目录/写作资产/拆文读取回执.json" \
-  --output "项目目录/设定.md" \
-  --output "项目目录/小节大纲.md" \
-  --output "项目目录/正文.md"
+python3 "$TOOLBOX" --project "项目目录" validate-prewrite-reads
+python3 "$TOOLBOX" --project "项目目录" prepare-setting
 ```
 
 `writing_rule_gate` 必须覆盖当前工作区的格式规则、`anti-ai-writing.md` 和 `narrator-voice.md`。任一规则文件变化后旧回执失效，禁止用旧对话上下文或旧摘要代替。
@@ -82,9 +76,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 3. 验证单书全量资产 SHA 覆盖，生成拆文关键编译包读取清单
 4. 逐文件读取编译包，主体确认全 BID/SF，辅助选定 SF 后回填读取回执
 5. 通过 `source_read_gate`
-6. 初始化 `规则执行台账.json`
-7. 导出模型复核批次，由当前写作模型按 `case_ids / source_ref_ids` 解引用共享注册表，逐族阅读全部案例与来源并归纳 `canonical_rule_text`
-8. 模型确认规则角色、修复目标、`script / human / hybrid`、适用性、目标阶段和目标场景，并先合并近义规则
+6. 初始化 `规则执行台账.json`；固定 Skill 规则按当前 Skill 文件 SHA 预分类，只保存规则角色、执行方式和阶段，不加载其他项目结论
+7. 导出模型复核批次；任务只包含本书来源规则，由当前写作模型按 `case_ids / source_ref_ids` 解引用共享注册表，逐族阅读本书全部来源并归纳 `canonical_rule_text`
+8. 模型只对本书来源确认规则角色、修复目标、`script / human / hybrid`、适用性、目标阶段和目标场景，并合并近义来源规则；不得重复展开固定 Skill 规则，也不得参考任何跑通过的项目
 9. 读取 `profile_source.md`
 10. 读取 `book.profile.json / project.profile.json`
 11. 判断 `讲法型 / 桥段链型 / 混合型`
@@ -95,9 +89,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py extend-outline` 从已通过的设定回执增量建立完整契约，保留已审核设定证据
 17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger` 与覆盖所有相邻小节的 `section_handoff_chain`；再逐节用 `scene_entry_state / beat_dependency_chain / knowledge_state_chain / causal_risk_reviews / scene_exit_state` 验证节内每一拍的前态、触发、知情、空间或物件权限和后态首尾相接，同时核对原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据。融合仿写还必须绑定拆文读取回执，并用 `auxiliary_subflow_flow_parity` 完整逐步迁移每个已选辅助 SF；最后逐节填完 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系
-20. 先运行 `build_section_source_bundle.py` 生成 `逐节原文颗粒包.json`，再运行 `validate_first_draft_entry.py init` 作为正文首稿唯一入口；该入口会实时复验 `validate_write_release_gate.py draft` 并初始化 `validate_section_draft_execution.py`。正文目标文件已有内容、已出现数字小节、缺逐节颗粒包或任一放行回执失效时，入口直接阻断。每节先 `open-section`，装载该节颗粒包后重读全部 `source_slice_bindings` 和生成契约，只写当前节，再 `close-section` 完成事件、情绪、文风和气口停检；未关闭不得进入下一节
-21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，再绑定修改后的正文 SHA
+19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger` 与覆盖所有相邻小节的 `section_handoff_chain`；再逐节用 `scene_entry_state / beat_dependency_chain / knowledge_state_chain / causal_risk_reviews / scene_exit_state` 验证节内每一拍的前态、触发、知情、空间或物件权限和后态首尾相接，同时核对原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据。融合仿写还必须绑定拆文读取回执，并用 `auxiliary_subflow_flow_parity` 完整逐步迁移每个已选辅助 SF；最后逐节填完 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系。修闸阶段先运行 `story_short_write_project_toolbox.py outline-precheck --only {sections|handoff|bridges|first-draft}` 收缩当前改动块，只有局部预检通过后，才运行 `story_short_write_project_toolbox.py outline-validate` 触发一次正式全量放行
+20. 运行 `story_short_write_project_toolbox.py start-draft`：工具箱先自动吸收当前项目里已经填好且已更新的 `opening / sequence / draft-capacity / outline` 修闸回填，再复用或刷新同一内容指纹下的机械预检，编译含完整 `source_excerpt / section_contract / first_draft_generation_contract` 的逐节原文颗粒包，只执行一次 `validate_write_release_gate.py draft`，再初始化首稿入口与逐节执行回执。第一节执行 `show-section -> 完整阅读 -> open-section`；写完后执行 `advance-section`，关闭当前节并打印下一节完整包，但不自动开节。当前模型读完下一节全部切片和合同后，必须把输出的 `packet_sha256` 传回 `open-section`。未关闭当前节、未展示完整包或 SHA 不一致时不得进入下一节
+21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，填写真实 `revision_blocks` 后运行工具箱 `finalize-basic-review`。只有原文、母稿和改后正文证据全部通过时，脚本才机械重算并重绑正文 SHA；禁止手工静默重绑或重建母稿
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
 23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
 24. 用 `validate_sequence_contract.py extend-draft` 绑定正文，保留已审核设定/大纲证据；只补正文节点证据并通过 `validate --draft ...`
@@ -332,7 +326,100 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "项目目
 python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" --json "项目目录/正文.md"
 ```
 
-### 1. 生成并校验写作规则读取回执
+### 0. 轻量筛选辅助子流程
+
+候选阶段只查跨书轻量总索引，不展开多本完整 profile、无损编译包或原文：
+
+```bash
+SKILL_ROOT="{系统注入的 story-short-write SKILL.md 所在目录}"
+TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
+
+python3 "$TOOLBOX" candidate-subflows \
+  --index "资料库/子流程总索引.jsonl" \
+  --query "追妻 补救 低位求回" \
+  --exclude-source "{主体书名}" \
+  --limit 8 \
+  --project-root "{工作区}" \
+  --project-name "{新书名}" \
+  --primary-source-dir "{工作区}/拆文库/{主体书名}"
+```
+
+只读取输出的紧凑字段完成初筛。命令内部会按来源缓存机械 readiness 校验，只检查轻量索引绑定和无损包可用性，不打印完整包；缺少 `source_dir/source_index_path`、索引 SHA 变化或包过期的候选会以 `unavailable` 简因过滤，并继续扫描后续排名，直到补足 `--limit` 或候选池耗尽。最终 JSON 只包含 `source_status: ready` 的候选，因此不再等到 `init-book` 才发现已知过期来源。
+
+宿主已经注入完整 skill 时不得再次读取 `SKILL.md`；候选前也不得加载 craft、治理长文、完整 profile、无损编译包、原文或全部 learnings，不得用 `rg --files`、`find`、递归 `ls` 枚举旧书项目。禁止并行执行“读取参数定义”和“运行候选命令”，禁止手工打印全部索引。首轮不足时最多再做一次收窄查询；仍无可用候选时默认由主体承担，不得自动切换 `story-short-analyze` 或执行历史拆书升级。只有用户明确要求“无辅助则停写并先补拆”时，才报告缺口并等待用户单独启动拆书。候选输出会给出确定性的 `next_allocate_command`，不得再次搜索初始化参数。
+
+### 1. 原子初始化新书
+
+先用候选输出的固定命令分配安全新目录：
+
+```bash
+python3 "$TOOLBOX" allocate-project \
+  --root "{工作区}" \
+  --name "{新书名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --select-subflow "{辅助书}=SF-01"
+```
+
+该命令使用原子目录创建分配不存在的名称；同名目录存在时依次分配 `-2`、`-3`，不读取旧项目内容，也不根据时间戳猜测并发状态。随后原样运行输出的 `next_command`，不要手工重组参数。
+
+该命令先校验全部来源包和辅助 SF，再在内存构建三份产物；只有全部成功才同时落盘：
+
+- `写作资产/写作规则读取回执.json`
+- `写作资产/拆文读取回执.json`
+- `profiles/{项目名}.project.profile.json`
+
+任一步失败均不得生成后置 profile。禁止用多条 shell 命令手工串联初始化，禁止执行中通过 `--help` 猜参数，也禁止读取其他已写项目的回执、状态、设定、大纲、正文或项目专用脚本来反推格式。
+
+初始化后的 `拆文读取回执.json` 为 1.2 版。每个主体 SF 和每个已选辅助 SF 都有独立 `semantic_read_review`，必须由当前模型逐条回填：
+
+- `status: read`
+- `consumption_scope: full_subflow`
+- 至少两条位于该 SF 精确行段内的 `source_quote_evidence`
+- 不得复用同一句套话的事件、情绪、文风、用途和人工判断
+
+文件级 `evidence_terms` 只证明文件被读取，`SF-01` 等编号不能代替逐 SF 语义证据。任一主体 SF 未完成完整读取，或模型声明只取若干承重机制，禁止进入设定阶段。
+
+初始化后先完成固定规则语义读取：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" export-rule-review
+```
+
+总任务只供脚本索引和最终复验，当前模型禁止直接用 `cat / sed / jq` 展开。改为循环执行：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" rule-review-next
+```
+
+每次只完整读取该命令输出的一个规则文件包，按包内模板填写 `写作资产/当前规则语义回执.json`，再执行：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" apply-rule-review-item \
+  --packet-sha "{当前包 packet_sha256}"
+```
+
+工具箱验证顺序、包 SHA、任务 SHA、正式回执 SHA、证据词和语义结论后，才原子追加到累计 `规则语义进度.json`。重复到 `rule-review-next` 显示清单归零后，必须立刻连续运行：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" apply-rule-review
+python3 "$TOOLBOX" --project "{项目目录}" validate-prewrite-reads
+```
+
+该输入已经携带三份固定规则原文，禁止再打开对应 references；不得直接编辑正式规则回执。不得把 `apply-rule-review` 当作完整流程的停靠点；它通过后，当前流程必须直接推进到 `validate-prewrite-reads`，再继续 `prepare-setting`。
+
+随后运行来源读取门禁与项目侧主体颗粒包初始化：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" validate-prewrite-reads
+python3 "$TOOLBOX" --project "{项目目录}" prepare-setting
+```
+
+`validate-prewrite-reads` 会直接复验正式 `拆文读取回执.json` 与 `仿写无损编译包.json`，确认主体全量 `SF-*` 和辅助已选 `SF-*` 的完整消费契约已落入正式回执；不再导出新的逐 SF 人工语义任务。`prepare-setting` 会初始化预分类台账、跳过固定 Skill 规则和 compiled 包文件级占位的重复模型分类、生成并校验项目侧 `主体原文完整颗粒包.json`，再完成设定写作放行。主体原文完整颗粒包必须逐条固化本项目主体来源已选 `SF-*` 的完整合同和精确原文切片；后续细纲回执与正文契约对主体原文的绑定只认这份包和 `build_section_source_bundle.py` 生成的 `逐节原文颗粒包.json`，不得退回 `模型语义输入.json`、`模型语义输出.json`、单条 binding 或摘要结论。
+
+下面的单脚本命令只用于开发调试，不是正常写作入口。
+
+### 1.1 生成并校验写作规则读取回执
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" init \
@@ -346,7 +433,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate
   --output "{项目目录}/正文.md"
 ```
 
-### 2. 生成并校验拆文读取回执
+### 1.2 生成并校验拆文读取回执
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" init \
@@ -368,23 +455,25 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 
 ### 3. 初始化、绑定并校验规则执行台账
 
+正常完整写作流程已经由 `prepare-setting` 完成台账初始化和写前校验。以下单脚本命令只用于开发诊断，不得通过搜索旧项目台账或归并计划补字段。
+
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" init \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" init \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate-prewrite \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate-prewrite \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" bind-artifacts \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" bind-artifacts \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --artifact "设定={项目目录}/设定.md" \
   --artifact "大纲={项目目录}/小节大纲.md" \
   --artifact "正文={项目目录}/正文.md"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -460,6 +549,37 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 硬闸：任一单书 profile 缺少 `precheck_overrides` 时停止融合，重新全量拆书后再生成单书和融合 profile。
 
+### 6.1 统一正文入口与逐节推进
+
+固定使用同一个工具箱，不再临时运行各脚本的 `--help`，也不创建项目专用回填脚本：
+
+```bash
+TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
+
+python3 "$TOOLBOX" --project "{项目目录}" preflight-book
+python3 "$TOOLBOX" --project "{项目目录}" start-draft
+
+# 第一节：先展示并完整阅读，再把输出中的 packet_sha256 原样传回。
+python3 "$TOOLBOX" --project "{项目目录}" show-section --section 1
+python3 "$TOOLBOX" --project "{项目目录}" open-section \
+  --section 1 \
+  --packet-sha "{刚刚展示的 packet_sha256}" \
+  --read-judgment "已完整读取本节全部主体/辅助原文切片及完整生成合同"
+
+# 当前节正文写完并完成四项人工停检后，关闭当前节并展示下一节。
+python3 "$TOOLBOX" --project "{项目目录}" advance-section \
+  --section 1 \
+  --judgment "事件、情绪、文风、句间关系与气口均已对照完整原文切片人工通过"
+```
+
+`advance-section` 不会自动打开下一节。必须先完整读取其输出的所有 `source_excerpt`、`section_contract` 和 `first_draft_generation_contract`，再用新的 `packet_sha256` 运行 `open-section`。
+
+机械预检缓存只保存依赖文件内容指纹和通过状态，字段 `semantic_payload` 固定为 `null`。来源、规则、台账、profile 或验证脚本任一内容变化时缓存自动失效；禁止把细纲语义、原文摘要或模型判断写入该缓存。
+
+### 6.2 长任务执行
+
+预计超过 10 秒的升级、finalize 和批量审计，在 Codex 宿主中使用持久 `exec_command` session/PTY，并轮询同一 session 直到拿到真实退出码。裸 `command &`、只记录临时 PID、日志只有 `START` 就继续主流程，均视为任务未执行。宿主不支持持久 session 时，替代方案也必须同时保留实时日志、状态文件和最终退出码。
+
 ### 7. 首稿基础审计与停靠
 
 正文落笔后、任何基础回修前，初始化并人工回填基础审计回执。下例用于仿写稿；自由创作去掉 `--imitation-mode` 和 `--source`：
@@ -478,7 +598,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic
   --receipt "写作资产/首稿基础审计回执.json"
 ```
 
-四项人工检查都必须引用当前正文原句。初始化会保存 `写作资产/首稿基础审计母稿.md`；仿写稿还必须填写原文颗粒基线。发现问题时，在同一回执填写逐区块双基线记录，完成回修后更新最终正文绑定，禁止重新初始化覆盖母稿。通过后将该回执绑定为完成状态中的 `first_draft_basic_review`，然后执行：
+四项人工检查都必须引用当前正文原句。初始化会保存 `写作资产/首稿基础审计母稿.md`；仿写稿还必须填写原文颗粒基线。发现问题时，在同一回执填写逐区块双基线记录，完成回修后运行：
+
+```bash
+python3 "$TOOLBOX" --project "{项目目录}" finalize-basic-review
+```
+
+该命令先在临时回执上验证原文、母稿、改后正文三类证据，全部通过后才更新当前正文和逐节执行回执 SHA。禁止重新初始化覆盖母稿，也禁止直接编辑 SHA 字段。通过后将该回执绑定为完成状态中的 `first_draft_basic_review`，然后执行：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_short_write_completion.py" mark-draft-preview \

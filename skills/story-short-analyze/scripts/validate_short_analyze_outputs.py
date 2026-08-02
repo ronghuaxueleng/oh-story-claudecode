@@ -106,6 +106,7 @@ SUBFLOW_REQUIRED_FIELDS = (
     "source_book",
     "parent_bridge_id",
     "name",
+    "source_excerpt",
     "source_range",
     "function_tags",
     "entry_state",
@@ -3317,6 +3318,49 @@ def check_subflow_assets(
                 return "", "超出完整原文行号范围"
         return "\n".join(slices), None
 
+    def validate_style_granularity(
+        label: str,
+        style: object,
+        source_slice: str,
+    ) -> None:
+        if not isinstance(style, dict):
+            errors.append(f"{label}.source_style_granularity 必须是逐 SF 文风颗粒对象")
+            return
+        evidence_groups: dict[tuple[str, ...], list[str]] = {}
+        unique_quotes: set[str] = set()
+        for field in SUBFLOW_STYLE_GRANULARITY_FIELDS:
+            item = style.get(field)
+            style_label = f"{label}.source_style_granularity.{field}"
+            if not isinstance(item, dict):
+                errors.append(f"{style_label} 必须是对象")
+                continue
+            if not str(item.get("analysis") or "").strip():
+                errors.append(f"{style_label}.analysis 不能为空")
+            evidence = item.get("source_evidence")
+            quotes = (
+                [str(quote).strip() for quote in evidence if str(quote).strip()]
+                if isinstance(evidence, list)
+                else []
+            )
+            if len(set(quotes)) < 2:
+                errors.append(f"{style_label}.source_evidence 至少需要两条不同原文证据")
+            for quote in quotes:
+                if quote not in source_slice:
+                    errors.append(f"{style_label}.source_evidence 不在该 SF 精确行段内：{quote!r}")
+            normalized_quotes = tuple(sorted(set(quotes)))
+            if normalized_quotes:
+                evidence_groups.setdefault(normalized_quotes, []).append(field)
+                unique_quotes.update(normalized_quotes)
+        if len(unique_quotes) < 4:
+            errors.append(f"{label}.source_style_granularity 六类字段合计至少覆盖四条不同原文证据")
+        for quotes, fields in evidence_groups.items():
+            if len(fields) >= 4:
+                errors.append(
+                    f"{label}.source_style_granularity 同一证据组复用过多字段："
+                    + ", ".join(fields)
+                    + f" -> {quotes!r}"
+                )
+
     seen_ids: set[str] = set()
     covered_bridges: set[str] = set()
     for index, entry in enumerate(entries, start=1):
@@ -3393,33 +3437,15 @@ def check_subflow_assets(
             if text and text not in original_text:
                 errors.append(f"{label}.source_evidence 不在原文中：{text!r}")
         style = entry.get("source_style_granularity")
+        source_excerpt = str(entry.get("source_excerpt") or "")
         source_slice, range_error = build_source_slice(str(entry.get("source_range") or "").strip())
         if range_error == "超出完整原文行号范围":
             errors.append(f"{label}.source_range 超出完整原文行号范围")
         elif range_error:
             errors.append(f"{label}.source_range {range_error}")
-        if not isinstance(style, dict):
-            errors.append(f"{label}.source_style_granularity 必须是逐 SF 文风颗粒对象")
-        else:
-            for field in SUBFLOW_STYLE_GRANULARITY_FIELDS:
-                item = style.get(field)
-                style_label = f"{label}.source_style_granularity.{field}"
-                if not isinstance(item, dict):
-                    errors.append(f"{style_label} 必须是对象")
-                    continue
-                if not str(item.get("analysis") or "").strip():
-                    errors.append(f"{style_label}.analysis 不能为空")
-                evidence = item.get("source_evidence")
-                quotes = (
-                    [str(quote).strip() for quote in evidence if str(quote).strip()]
-                    if isinstance(evidence, list)
-                    else []
-                )
-                if len(set(quotes)) < 2:
-                    errors.append(f"{style_label}.source_evidence 至少需要两条不同原文证据")
-                for quote in quotes:
-                    if quote not in source_slice:
-                        errors.append(f"{style_label}.source_evidence 不在该 SF 精确行段内：{quote!r}")
+        elif source_excerpt != source_slice:
+            errors.append(f"{label}.source_excerpt 与 source_range 对应原文精确切片不一致")
+        validate_style_granularity(label, style, source_slice)
 
     missing_bridges = sorted(bridge_ids - covered_bridges)
     if missing_bridges:

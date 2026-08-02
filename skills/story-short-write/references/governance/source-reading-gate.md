@@ -16,29 +16,45 @@
    - 至少 1 个 `used_for`
 7. 融合写作还必须填写 `cross_source_decisions`，说明主体样本和辅助样本发生冲突时如何裁决。
 8. 读取回执必须在 `小节大纲.md` 和 `正文.md` 之前完成。事后补回执视为失败。
+9. 直接仿写回执固定为 1.2 版。主体全量 SF 与已选辅助 SF 的完整消费契约必须直接写回正式回执；文件级证据和 SF 编号不能代替逐 SF 完整合同。
+10. 正常流程禁止人工修改拆文读取回执、禁止再导出新的逐 SF 人工语义任务，也禁止把历史 `模型语义输入.json / 模型语义输出.json` 当正文输入。
+11. 六类文风颗粒合计至少覆盖四条不同原文证据；同一证据组覆盖四个及以上维度时视为上游拆文过薄，必须返回 finalize。
+12. 辅助候选阶段只输出通过索引 SHA 和无损包可用性校验的 `source_status: ready` 项；校验只在脚本内部读取来源，不得把完整包打印进模型上下文。旧总索引缺少来源路径、索引变化或包过期时应在候选阶段过滤并提示重新 finalize，不得拖到 `init-book` 才暴露。
 
 ## 标准流程
 
-先生成逐文件清单：
+正常流程固定使用统一工具箱：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" init \
-  --project "项目名" \
+SKILL_ROOT="{系统注入的 story-short-write SKILL.md 所在目录}"
+TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
+
+python3 "$TOOLBOX" --project "项目目录" init-book \
   --source-dir "拆文库/主体书" \
   --source-dir "拆文库/辅助书" \
-  --inventory-mode compiled \
-  --writing-mode direct_imitation \
-  --select-subflow "辅助书=SF-01" \
-  --receipt "项目目录/写作资产/拆文读取回执.json"
+  --select-subflow "辅助书=SF-01"
+
+python3 "$TOOLBOX" --project "项目目录" validate-prewrite-reads
+python3 "$TOOLBOX" --project "项目目录" prepare-setting
 ```
+
+`validate-prewrite-reads` 固定一次校验规则读取与来源读取，直接仿写时同时确认：
+
+- `写作资产/仿写无损编译包.json` 已由拆书 finalize 固化
+- 主体全量 `SF-*` 与辅助已选 `SF-*` 的完整合同已经进入正式 `拆文读取回执.json`
+- 项目侧后续将只消费 `主体原文完整颗粒包.json` 与 `逐节原文颗粒包.json`
+
+`prepare-setting` 会在通过写前门禁后机械生成并校验项目侧 `主体原文完整颗粒包.json`。后续细纲和正文只认这份项目侧主体包与 `build_section_source_bundle.py` 生成的 `逐节原文颗粒包.json`；不得退回 `模型语义输入.json`、单条 binding、五拍摘要或一句文风概括。
+
+禁止搜索其他项目的 `拆文读取回执.json`、旧语义文件或正文作为回填示例；只使用当前任务正式回执、当前无损编译包和当前原文证据。
 
 第一个 `--source-dir` 固定是主体，后续均为辅助。`--writing-mode` 默认 `direct_imitation`，即主体全量 SF 与辅助已选 SF 的融合仿写；完全原创任务才允许显式传入 `standard`。直接仿写时用可重复的 `--select-subflow "来源目录名=SF-ID"` 预选辅助完整子流程。初始化会从索引机械预填全部必须逐字段等同的消费契约，`source_style_granularity` 也必须原样继承上游逐 SF 分析和切片证据，禁止在写作阶段用通用口号补填。`--inventory-mode full` 只用于诊断旧资料或覆盖异常，不是默认写作路径。
 
 同桥/主干/融合仿写使用默认 `direct_imitation`，仍使用 `--inventory-mode compiled`。`写作资产/仿写无损编译包.json` 必须已经由 `story-short-analyze` finalize 生成：完整原文只保留一份，主体全量 SF 与每本书的 BID、因果、情绪、表演和文风资产均为包内真实内容；辅助只允许从包中消费已选 SF 的全部字段。写作门禁只读、只校验，包缺失或任一来源资产失配时必须阻断并返回拆书 finalize；不得在写作阶段重生成，不得退化为逐文件全读，更不得用 profile 的 SHA 清单替代包内容。
 
-直接仿写时，语义包文件的 `evidence_terms` 必须逐一包含该来源要求消费的 `SF-*`；标准编译模式仍检查 `子流程施工卡.md` 与 `子流程索引.jsonl`。只在 `selected_subflow_ids` 里填 ID，没有包内读取证据和逐字段消费契约，门禁仍然阻断。
+直接仿写时，语义包文件的 `evidence_terms` 只证明该文件已经实际读取，不能用 `SF-01` 等编号冒充完整消费证据。标准编译模式仍检查 `子流程施工卡.md` 与 `子流程索引.jsonl`。只在 `selected_subflow_ids` 或文件级 `evidence_terms` 里填 ID，没有逐字段消费契约和真实原文证据，门禁仍然阻断。
 
-模型逐文件读取并回填后，在写大纲前校验：
+下面的单脚本校验仅用于开发诊断，不是正常写作入口：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \

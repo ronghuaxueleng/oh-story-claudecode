@@ -56,6 +56,22 @@ def draft_has_user_content(path: Path) -> bool:
     return bool(text.strip())
 
 
+def read_initialized_section_execution_receipt(receipt: Path) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    try:
+        data = read_json(receipt)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return {}, [f"逐节首写执行回执无法读取: {exc}"]
+    if data.get("gate") != "section_draft_execution":
+        errors.append("逐节首写执行回执 gate 必须为 section_draft_execution")
+    sections = data.get("sections")
+    if not isinstance(sections, list) or not sections:
+        errors.append("逐节首写执行回执 sections 必须是非空数组")
+    elif not all(isinstance(item, dict) for item in sections):
+        errors.append("逐节首写执行回执 sections 含非对象")
+    return data, errors
+
+
 def init_entry(
     project: str,
     draft: Path,
@@ -71,22 +87,25 @@ def init_entry(
     section_source_bundle: Path,
     section_execution_receipt: Path,
     force: bool,
+    release_prevalidated: bool = False,
 ) -> int:
     if receipt.exists() and not force:
         print(f"首稿入口回执已存在，拒绝覆盖: {receipt}")
         return 2
-    release_errors = _WRITE_RELEASE_MODULE.validate_release(
-        phase="draft",
-        writing_receipt=writing_receipt,
-        source_receipt=source_receipt,
-        ledger=ledger,
-        opening_contract=opening_contract,
-        outline_contract=outline_contract,
-        profile=profile,
-        sequence_receipt=sequence_receipt,
-        draft_capacity_contract=draft_capacity_contract,
-        section_source_bundle=section_source_bundle,
-    )
+    release_errors = []
+    if not release_prevalidated:
+        release_errors = _WRITE_RELEASE_MODULE.validate_release(
+            phase="draft",
+            writing_receipt=writing_receipt,
+            source_receipt=source_receipt,
+            ledger=ledger,
+            opening_contract=opening_contract,
+            outline_contract=outline_contract,
+            profile=profile,
+            sequence_receipt=sequence_receipt,
+            draft_capacity_contract=draft_capacity_contract,
+            section_source_bundle=section_source_bundle,
+        )
     if release_errors:
         print("first_draft_entry: blocked")
         for error in release_errors:
@@ -110,7 +129,7 @@ def init_entry(
     )
     if init_result != 0:
         return init_result
-    execution_data, execution_errors = _SECTION_EXECUTION_MODULE.validate_receipt(
+    execution_data, execution_errors = read_initialized_section_execution_receipt(
         section_execution_receipt
     )
     if execution_errors:
@@ -202,7 +221,10 @@ def validate_entry(receipt: Path, draft_override: Path | None = None) -> list[st
     if release_errors:
         errors.append("首稿入口绑定的正文放行条件已失效")
         errors.extend(release_errors)
-    execution_data, execution_errors = _SECTION_EXECUTION_MODULE.validate_receipt(execution_path)
+    execution_data, execution_errors = _SECTION_EXECUTION_MODULE.validate_receipt(
+        execution_path,
+        deep_static_validation=False,
+    )
     if execution_errors:
         errors.append("逐节首写执行回执已失效")
         errors.extend(execution_errors)

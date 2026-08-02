@@ -17,12 +17,19 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 
 CORE_SKILL_RULE_FILES = (
     "SKILL.md",
+    "references/governance/mandatory-rule-catalog.md",
     "references/workflow/format-and-structure.md",
     "references/anti-ai-writing.md",
     "references/craft/narrator-voice.md",
     "references/workflow/writing-workflow.md",
     "references/governance/audit-rulebook.json",
 )
+
+COMPILED_SOURCE_PACKAGE = "写作资产/仿写无损编译包.json"
+PRECOMPILED_CLASSIFICATION_METHODS = {
+    "skill_precompiled",
+    "source_package_precompiled",
+}
 
 RULE_BEARING_ASSET_NAMES = {
     "作者DNA指纹.md",
@@ -656,6 +663,106 @@ def merge_exact_duplicate_rules(entries: list[dict[str, Any]]) -> None:
         )
 
 
+def preclassify_skill_rules(entries: list[dict[str, Any]]) -> None:
+    """Preclassify immutable Skill rules without importing any project decision."""
+    target_stage_by_role = {
+        "workflow_gate": "workflow",
+        "format_check": "draft_and_audit",
+        "setting_constraint": "setting",
+        "outline_constraint": "outline",
+        "draft_constraint": "draft",
+        "audit_check": "audit",
+        "source_candidate": "setting_outline_draft",
+        "source_prohibition": "draft_and_audit",
+    }
+    for entry in entries:
+        if entry.get("applicability") == "merged":
+            continue
+        role = str(entry.get("rule_role") or "")
+        rule_text = str(entry.get("rule_text") or "").strip()
+        entry.update(
+            {
+                "classification_confirmed": True,
+                "classification_method": "skill_precompiled",
+                "classification_notes": (
+                    "由当前 Skill 文件内容和版本指纹预分类；"
+                    "不包含、也不得继承任何书籍项目的适用性或正文证据。"
+                ),
+                "canonical_rule_text": (
+                    f"执行当前 Skill 中的规则族「{rule_text}」；"
+                    "完整要求以本条 cases 绑定的当前 Skill 原文为准。"
+                ),
+                "mode_confirmed": True,
+                "applicability": "applicable",
+                "status": "pending",
+                "target_stage": target_stage_by_role.get(role, "workflow"),
+                "target_scene": (
+                    "当前项目对应阶段；具体落点由本书设定、大纲、正文和审计证据确定。"
+                    if role in {"setting_constraint", "outline_constraint", "draft_constraint"}
+                    else ""
+                ),
+                "decision_reason": (
+                    "这是当前版本 Skill 的固定执行规则，不需要每本书重复做语义归并；"
+                    "本书来源规则和题材适用性仍单独由当前模型裁决。"
+                ),
+                "outcome": "pending",
+            }
+        )
+
+
+def preclassify_compiled_source_packages(
+    entries: list[dict[str, Any]],
+    source_receipt_path: Path,
+) -> None:
+    """Preclassify the deterministic file-level compiled-package gate."""
+    receipt_sha = sha256(source_receipt_path)
+    for entry in entries:
+        if (
+            entry.get("relative_path") != COMPILED_SOURCE_PACKAGE
+            or entry.get("rule_expansion") != "file_level"
+            or entry.get("applicability") == "merged"
+        ):
+            continue
+        entry.update(
+            {
+                "rule_role": "workflow_gate",
+                "classification_confirmed": True,
+                "classification_method": "source_package_precompiled",
+                "classification_notes": (
+                    "该条目只是无损编译包的文件级完整性占位，不包含待归并的"
+                    "书籍语义；逐 SF 的事件、情绪和文风消费已由拆文读取门禁裁决。"
+                ),
+                "canonical_rule_text": (
+                    "写作前必须通过无损编译包完整性校验，并完成主体全部选中 "
+                    "SF 的逐条语义读取；摘要、桥名或文件存在不能替代正式回执。"
+                ),
+                "remediation_target": "workflow",
+                "execution_mode": "script",
+                "mode_confirmed": True,
+                "applicability": "applicable",
+                "status": "completed",
+                "target_stage": "prewrite",
+                "target_scene": "全书设定、大纲与逐节首写",
+                "script_artifacts": [
+                    {
+                        "path": str(source_receipt_path),
+                        "sha256": receipt_sha,
+                        "summary": (
+                            "正式拆文读取回执已通过，并绑定当前无损编译包及全部"
+                            "选中 SF 的完整语义读取结果。"
+                        ),
+                    }
+                ],
+                "decision_reason": (
+                    "这是固定包格式和正式读取回执可以机械证明的工作流门禁，"
+                    "无需每本书再次执行模型规则分类。"
+                ),
+                "outcome": "passed",
+                "result": "无损编译包与正式拆文读取回执已完成绑定和实时校验。",
+            }
+        )
+
+
 def load_receipt(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"{label}不存在: {path}")
@@ -823,13 +930,18 @@ def create_ledger(
                 }
             )
 
-    expanded_rules = list(skill_rules)
+    source_rule_entries: list[dict[str, Any]] = []
     for asset in source_assets:
         if asset["rules"]:
-            expanded_rules.extend(asset["rules"])
+            source_rule_entries.extend(asset["rules"])
         else:
-            expanded_rules.append(asset)
-    merge_exact_duplicate_rules(expanded_rules)
+            source_rule_entries.append(asset)
+    # Fixed Skill rules and book-specific source rules are separate domains.
+    # Never let an exact text match merge a book asset into a Skill canonical.
+    merge_exact_duplicate_rules(skill_rules)
+    merge_exact_duplicate_rules(source_rule_entries)
+    preclassify_skill_rules(skill_rules)
+    preclassify_compiled_source_packages(source_assets, source_receipt_path)
 
     ledger = {
         "version": "1.1",
@@ -866,6 +978,7 @@ def create_ledger(
         "skill_rules": skill_rules,
         "source_assets": source_assets,
     }
+    ledger["execution_summary"] = calculate_execution_summary(ledger)
     return ledger, errors
 
 
@@ -1169,6 +1282,7 @@ def export_model_review(
         entry
         for entry in iter_execution_entries(data)
         if not str(entry.get("merged_into") or "").strip()
+        and entry.get("classification_method") not in PRECOMPILED_CLASSIFICATION_METHODS
     ]
     case_registry: dict[str, dict[str, Any]] = {}
     source_ref_registry: dict[str, dict[str, Any]] = {}
@@ -1222,7 +1336,8 @@ def export_model_review(
         "source_ref_registry": source_ref_registry,
         "case_registry": case_registry,
         "instructions": [
-            "必须由当前写作模型按 case_ids/source_ref_ids 解引用共享注册表，逐族阅读全部案例与来源后归纳 canonical_rule_text，脚本建议只能参考。",
+            "这里只导出本书来源规则；当前 Skill 固定规则已按 Skill 版本预分类，不得从其他项目复制适用性判断。",
+            "必须由当前写作模型按 case_ids/source_ref_ids 解引用共享注册表，逐族阅读本书全部来源案例后归纳 canonical_rule_text，脚本建议只能参考。",
             "剔除导航、示例、说明性材料时标 not_applicable，并写具体原因。",
             "语义近似规则合并到唯一 canonical，保留 source_refs 和全部 cases。",
             "source_candidate 是候选资产，不等于必须写入正文。",
@@ -1988,7 +2103,11 @@ def validate_prewrite_ledger(ledger_path: Path) -> list[str]:
             continue
         if entry.get("classification_confirmed") is not True:
             errors.append(f"{label}尚未完成模型语义分类")
-        if entry.get("classification_method") not in {"model_semantic_review", "exact_duplicate"}:
+        if entry.get("classification_method") not in {
+            "model_semantic_review",
+            "exact_duplicate",
+            *PRECOMPILED_CLASSIFICATION_METHODS,
+        }:
             errors.append(f"{label}分类方法不合格")
         if not str(entry.get("classification_notes") or "").strip():
             errors.append(f"{label}缺少分类说明")
@@ -2037,8 +2156,15 @@ def validate_execution_entry(
     if entry.get("classification_confirmed") is not True:
         errors.append(f"{label}尚未人工确认规则分类")
     classification_method = str(entry.get("classification_method") or "").strip()
-    if classification_method not in {"model_semantic_review", "exact_duplicate"}:
-        errors.append(f"{label}分类必须经过模型语义复核，不能只用脚本建议")
+    if classification_method not in {
+        "model_semantic_review",
+        "exact_duplicate",
+        *PRECOMPILED_CLASSIFICATION_METHODS,
+    }:
+        errors.append(
+            f"{label}分类必须经过模型语义复核，"
+            "或来自精确去重/当前 Skill/固定来源包预编译，不能只用脚本建议"
+        )
     if not str(entry.get("classification_notes") or "").strip():
         errors.append(f"{label}缺少分类与合并说明")
     if (

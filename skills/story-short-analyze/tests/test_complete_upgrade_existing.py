@@ -21,7 +21,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
         (self.root / "原文").mkdir(parents=True)
         (self.root / "写作资产").mkdir(parents=True)
         (self.root / "原文" / "样本.txt").write_text(
-            "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n",
+            "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。\n",
             encoding="utf-8",
         )
         (self.root / "拆文报告.md").write_text("# 报告\n内容\n", encoding="utf-8")
@@ -40,7 +40,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
                     "source_book": "样本",
                     "parent_bridge_id": "BID-01",
                     "name": "测试子流程",
-                    "source_range": "L1-L2",
+                    "source_range": "L1-L4",
                     "function_tags": ["照护掉位", "短问句"],
                     "entry_state": "主角带着核验目的进入现场。",
                     "required_sequence": ["先观察", "再追问", "最后确认"],
@@ -86,15 +86,16 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
         payload = COMPLETE.process_root(self.root)
         self.assertEqual("needs_model_reanalysis", payload["status"])
         self.assertEqual(["SF-01"], payload["missing_source_style_subflows"])
+        self.assertEqual(["SF-01"], payload["source_excerpt_synced_subflows"])
         self.assertEqual(1, payload["style_reanalysis_task_count"])
         task_payload = json.loads(
             (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
         )
         task = task_payload["tasks"][0]
         self.assertEqual("SF-01", task["subflow_id"])
-        self.assertEqual("L1-L2", task["source_range"])
+        self.assertEqual("L1-L4", task["source_range"])
         self.assertEqual(
-            "第一行原文锚点A。\n第二行原文锚点B。",
+            "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。",
             task["source_excerpt"],
         )
         self.assertEqual(list(COMPLETE.STYLE_FIELDS), task["required_style_fields"])
@@ -103,6 +104,10 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
             for line in (self.root / "写作资产" / "子流程索引.jsonl").read_text(encoding="utf-8").splitlines()
             if line.strip()
         ][0]
+        self.assertEqual(
+            "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。",
+            data["source_excerpt"],
+        )
         self.assertNotIn("source_style_granularity", data)
         self.assertFalse((self.root / "_finalize_human_review.json").exists())
         progress = (self.root / "_progress.md").read_text(encoding="utf-8")
@@ -131,12 +136,17 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
     def test_process_root_ready_removes_stale_task_without_touching_index(self) -> None:
         index_path = self.root / "写作资产" / "子流程索引.jsonl"
         entry = json.loads(index_path.read_text(encoding="utf-8"))
+        entry["source_excerpt"] = "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。"
         entry["source_style_granularity"] = {
             field: {
                 "analysis": f"{field} 对应本场独立分析。",
-                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
+                "source_evidence": (
+                    ["第一行原文锚点A。", "第二行原文锚点B。"]
+                    if number < 3
+                    else ["第三行原文锚点C。", "第四行原文锚点D。"]
+                ),
             }
-            for field in COMPLETE.STYLE_FIELDS
+            for number, field in enumerate(COMPLETE.STYLE_FIELDS)
         }
         expected = json.dumps(entry, ensure_ascii=False) + "\n"
         index_path.write_text(expected, encoding="utf-8")
@@ -148,6 +158,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
         payload = COMPLETE.process_root(self.root)
 
         self.assertEqual("ready_for_finalize", payload["status"])
+        self.assertEqual([], payload["source_excerpt_synced_subflows"])
         self.assertEqual(0, payload["style_reanalysis_task_count"])
         self.assertIsNone(payload["style_reanalysis_task_file"])
         self.assertFalse((self.root / "_style_reanalysis_tasks.json").exists())
@@ -160,6 +171,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
         for number in range(1, 4):
             entry = dict(base)
             entry["subflow_id"] = f"SF-{number:02d}"
+            entry["source_excerpt"] = "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。"
             entry["source_style_granularity"] = {
                 field: {
                     "analysis": f"跨场复用的 {field} 分析。",
@@ -184,6 +196,7 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
     def test_process_root_blocks_incomplete_style_even_without_legacy_marker(self) -> None:
         index_path = self.root / "写作资产" / "子流程索引.jsonl"
         entry = json.loads(index_path.read_text(encoding="utf-8"))
+        entry["source_excerpt"] = "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。"
         entry["source_style_granularity"] = {
             field: {
                 "analysis": f"{field} 对应本场独立分析。",
@@ -204,9 +217,46 @@ class CompleteUpgradeExistingTest(unittest.TestCase):
             task["reasons"],
         )
 
+    def test_process_root_blocks_one_evidence_pair_reused_for_all_fields(self) -> None:
+        index_path = self.root / "写作资产" / "子流程索引.jsonl"
+        entry = json.loads(index_path.read_text(encoding="utf-8"))
+        entry["source_excerpt"] = "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。"
+        entry["source_style_granularity"] = {
+            field: {
+                "analysis": f"{field} 对应本场独立分析。",
+                "source_evidence": ["第一行原文锚点A。", "第二行原文锚点B。"],
+            }
+            for field in COMPLETE.STYLE_FIELDS
+        }
+        index_path.write_text(json.dumps(entry, ensure_ascii=False) + "\n", encoding="utf-8")
+
+        payload = COMPLETE.process_root(self.root)
+
+        self.assertEqual("needs_model_reanalysis", payload["status"])
+        reasons = json.loads(
+            (self.root / "_style_reanalysis_tasks.json").read_text(encoding="utf-8")
+        )["tasks"][0]["reasons"]
+        self.assertIn("insufficient_distinct_style_evidence_across_fields", reasons)
+        self.assertTrue(
+            any(
+                reason.startswith("style_evidence_group_reused_across_too_many_fields")
+                for reason in reasons
+            )
+        )
+
     def test_source_slice_supports_multi_ranges(self) -> None:
         lines = ["一", "二", "三", "四", "五"]
         self.assertEqual("一\n二\n四\n五", COMPLETE.source_slice(lines, "L1-L2、L4-L5"))
+
+    def test_sync_source_excerpts_backfills_existing_index(self) -> None:
+        result = COMPLETE.sync_source_excerpts(self.root)
+        self.assertTrue(result["updated"])
+        self.assertEqual(["SF-01"], result["updated_subflows"])
+        entry = json.loads((self.root / "写作资产" / "子流程索引.jsonl").read_text(encoding="utf-8"))
+        self.assertEqual(
+            "第一行原文锚点A。\n第二行原文锚点B。\n第三行原文锚点C。\n第四行原文锚点D。",
+            entry["source_excerpt"],
+        )
 
 
 if __name__ == "__main__":

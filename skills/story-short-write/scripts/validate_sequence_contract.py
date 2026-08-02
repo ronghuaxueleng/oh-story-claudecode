@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -76,6 +77,65 @@ def text_evidence(
     return offsets
 
 
+SECTION_HEADING_RE = re.compile(r"^##\s+(?:第\s*)?(\d+)(?:\s*节)?[.、．]?\s*(.*)$", re.MULTILINE)
+NUMBERED_LINE_RE = re.compile(r"^\s*(\d+)\.\s+(.+?)\s*$", re.MULTILINE)
+
+
+def numbered_block_lines(text: str, heading_keyword: str) -> list[str]:
+    lines = text.splitlines()
+    inside = False
+    collected: list[str] = []
+    for raw_line in lines:
+        stripped = raw_line.strip()
+        if stripped.startswith("## "):
+            inside = heading_keyword in stripped
+            continue
+        if not inside:
+            continue
+        if stripped.startswith("## "):
+            break
+        if NUMBERED_LINE_RE.match(raw_line):
+            collected.append(raw_line.rstrip())
+    return collected
+
+
+def quote_with_offset(text: str, quote: str) -> list[dict[str, Any]]:
+    if not quote:
+        return []
+    offset = text.find(quote)
+    if offset < 0:
+        return []
+    return [{"quote": quote, "judgment": "机械预填：待当前模型复核顺序判断", "offset": offset}]
+
+
+def seed_canonical_sequence(setting_text: str, outline_text: str) -> list[dict[str, Any]]:
+    setting_nodes = numbered_block_lines(setting_text, "不可打乱的事件顺序")
+    if not setting_nodes:
+        setting_nodes = numbered_block_lines(setting_text, "来源功能绑定")
+    outline_nodes = list(SECTION_HEADING_RE.finditer(outline_text))
+    sequence: list[dict[str, Any]] = []
+    if setting_nodes:
+        count = min(len(setting_nodes), len(outline_nodes))
+    else:
+        count = len(outline_nodes)
+    for index in range(count):
+        setting_line = setting_nodes[index].strip() if index < len(setting_nodes) else ""
+        outline_match = outline_nodes[index]
+        section_id = outline_match.group(1)
+        outline_line = outline_match.group(0).strip()
+        outline_title = str(outline_match.group(2) or "").strip()
+        label = outline_title or setting_line or f"第{section_id}节"
+        sequence.append(
+            {
+                "id": section_id,
+                "label": label[:80],
+                "setting_evidence": quote_with_offset(setting_text, setting_line),
+                "outline_evidence": quote_with_offset(outline_text, outline_line),
+            }
+        )
+    return sequence
+
+
 def validate_common(data: dict[str, Any], errors: list[str]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if data.get("gate_status") != "passed":
         errors.append("顺序契约 gate_status 必须为 passed")
@@ -116,6 +176,15 @@ def validate_setting(
     data = load_json(receipt_path, "设定顺序契约回执", errors)
     if data is None:
         return errors
+    return validate_setting_data(data, receipt_path, setting_path)
+
+
+def validate_setting_data(
+    data: dict[str, Any],
+    receipt_path: Path,
+    setting_path: Path,
+) -> list[str]:
+    errors: list[str] = []
     if data.get("scope") != "setting":
         errors.append("设定顺序契约 scope 必须为 setting")
     artifacts, sequence = validate_common(data, errors)
@@ -180,6 +249,17 @@ def validate(
     data = load_json(receipt_path, "顺序契约回执", errors)
     if data is None:
         return errors
+    return validate_data(data, receipt_path, setting_path, outline_path, draft_path)
+
+
+def validate_data(
+    data: dict[str, Any],
+    receipt_path: Path,
+    setting_path: Path,
+    outline_path: Path,
+    draft_path: Path | None = None,
+) -> list[str]:
+    errors: list[str] = []
     if data.get("scope") != "full":
         errors.append("设定—大纲—正文顺序契约 scope 必须为 full")
     artifacts, sequence = validate_common(data, errors)
@@ -277,10 +357,12 @@ def validate(
 
 def init_receipt(project: str, setting: Path, outline: Path, draft: Path | None, output: Path) -> None:
     artifacts: dict[str, Any] = {}
+    setting_text = setting.read_text(encoding="utf-8")
+    outline_text = outline.read_text(encoding="utf-8")
     for key, path in (("setting", setting), ("outline", outline), ("draft", draft)):
         if path is None:
             continue
-        text = path.read_text(encoding="utf-8")
+        text = setting_text if key == "setting" else outline_text if key == "outline" else path.read_text(encoding="utf-8")
         artifacts[key] = {
             "path": str(path.resolve()),
             "sha256": sha256(path.resolve()),
@@ -300,7 +382,7 @@ def init_receipt(project: str, setting: Path, outline: Path, draft: Path | None,
             "status": "pending",
             "findings": [],
         },
-        "canonical_sequence": [],
+        "canonical_sequence": seed_canonical_sequence(setting_text, outline_text),
         "manual_judgment": "",
     }
     output.parent.mkdir(parents=True, exist_ok=True)

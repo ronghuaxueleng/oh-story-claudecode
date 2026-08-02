@@ -270,13 +270,22 @@ def write_execution_prompt(path: Path, book_name: str, source_copy: Path, out_di
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def resolve_corpus_root(raw_output_root: str | None, source: Path) -> Path:
+    candidate = Path(raw_output_root).resolve() if raw_output_root else source.parent / "拆文库"
+    if candidate.name != "拆文库":
+        raise ValueError(
+            f"--output-root 必须指向拆文库目录，禁止直接使用工作区根或其他散目录: {candidate}"
+        )
+    return candidate
+
+
 def prepare(args: argparse.Namespace) -> dict:
     source = Path(args.source).resolve()
     if not source.exists() or not source.is_file():
         raise FileNotFoundError(f"源文件不存在：{source}")
 
     book_name = args.name or source.stem
-    output_root = Path(args.output_root).resolve() if args.output_root else source.parent / "拆文库"
+    output_root = resolve_corpus_root(args.output_root, source)
     out_dir = output_root / book_name
 
     if out_dir.exists() and any(out_dir.iterdir()) and not args.force:

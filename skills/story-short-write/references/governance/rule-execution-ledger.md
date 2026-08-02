@@ -137,23 +137,26 @@
 | `human` | 人物偏手、失控说话、注意力漂移、认知局限、作者代判、对白生活性 | 有人工判断，并引用设定/大纲/正文原句 |
 | `hybrid` | 长窗节奏、对白效率、桥段相似度、profile 覆盖 | 脚本定位和人工裁决两侧证据都齐全 |
 
-初始化给出的角色和 `execution_mode` 都只是脚本建议。最终分类必须写入：
+固定 Skill 规则由当前 Skill 文件和版本指纹预分类，compiled 无损包的文件级占位由正式拆文读取回执预分类；这两类不进入每本书的模型归并任务。本书来源规则的最终分类必须写入：
 
 `classification_confirmed=true + classification_method=model_semantic_review + classification_notes`
 
-自动完全重复项允许使用 `classification_method=exact_duplicate`。其他条目仍是 `script_suggestion` 时，最终校验必须阻断。
+预分类分别使用 `classification_method=skill_precompiled / source_package_precompiled`，自动完全重复项允许使用 `classification_method=exact_duplicate`。其他本书来源条目仍是 `script_suggestion` 时，最终校验必须阻断。
 
 ## 初始化
 
 必须先通过 `writing_rule_gate` 和 `source_read_gate`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" init \
-  --project "{项目名}" \
-  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
-  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
-  --ledger "{项目目录}/写作资产/规则执行台账.json"
+SKILL_ROOT="{系统注入的 story-short-write SKILL.md 所在目录}"
+TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
+
+python3 "$TOOLBOX" --project "{项目目录}" prepare-setting
 ```
+
+`prepare-setting` 是正常完整写作流程的唯一入口：台账不存在时原子初始化，存在时复用；随后先生成或复用 `写作资产/主体原文完整颗粒包.json`，校验主体来源已选 `SF-*` 与 `拆文读取回执.json / 仿写无损编译包.json` 一致，再执行写前台账校验和设定写作放行。默认 compiled 模式只有固定 Skill 规则和无损包文件级占位时，应直接 `passed`，不得生成单条手工归并计划。
+
+以下命令只用于开发诊断或确有本书来源规则需要模型裁决的情况：
 
 如本次加载了额外题材规则或专项规则，逐个追加：
 
@@ -164,7 +167,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 初始化完成后，先逐项确认规则角色、修复目标、适用性、执行方式、目标阶段和目标场景，再写设定、大纲或正文。可合并项先归一，避免同义规则重复执行；不得写完后统一伪造执行记录。分类完成后必须先运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate-prewrite \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate-prewrite \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -173,13 +176,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 先导出模型复核批次：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" export-model-review \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" export-model-review \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --output "{项目目录}/写作资产/规则模型分类批次.json" \
   --batch-size 30
 ```
 
-当前写作模型必须逐批阅读所有案例，把同一规则的多个案例压成一张规则卡，并生成可审计 `apply-plan`。导出文件在顶层用 `case_registry / source_ref_registry` 共享存储案例与来源，规则项分别通过 `case_ids / source_ref_ids` 引用；必须按 ID 解引用并全量阅读，不得把存储去重误解为证据缩减。不得写脚本把建议分类批量改成 `model_semantic_review`。
+导出任务只包含本书来源规则。当前写作模型必须逐批阅读这些案例，把同一规则的多个案例压成一张规则卡，并生成可审计 `apply-plan`。导出文件在顶层用 `case_registry / source_ref_registry` 共享存储案例与来源，规则项分别通过 `case_ids / source_ref_ids` 引用；必须按 ID 解引用并全量阅读，不得把存储去重误解为证据缩减。不得重新导出固定 Skill 规则，也不得写脚本把来源建议分类批量改成 `model_semantic_review`。
 
 模型归并计划使用：
 
@@ -216,7 +219,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 应用后，canonical 规则卡保留全部 `cases/source_refs`，其他成员自动标记 `merged`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" apply-model-groups \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" apply-model-groups \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --plan "{项目目录}/写作资产/规则模型归并计划.json"
 ```
@@ -246,7 +249,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 逐项状态更新后刷新汇总：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" refresh-summary \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" refresh-summary \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -257,7 +260,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 不要在 skill 规则、专项规则或拆书资产更新后继续使用旧 SHA，也不要为了一个无关小节变动重做整本台账。先运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" sync-sources \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" sync-sources \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -266,7 +269,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 ## 绑定最终产物
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" bind-artifacts \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" bind-artifacts \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --artifact "设定={项目目录}/设定.md" \
   --artifact "大纲={项目目录}/小节大纲.md" \
@@ -276,7 +279,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 ## 最终校验
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 

@@ -163,6 +163,26 @@ class SequenceContractTest(unittest.TestCase):
         )
         self.assertEqual([], extended["canonical_sequence"][0]["outline_evidence"])
 
+    def test_seed_canonical_sequence_falls_back_to_source_binding_numbered_chain(self) -> None:
+        setting_text = (
+            "## 来源功能绑定\n\n"
+            "1. `SF-12` 扫黄现场公权撞见\n"
+            "2. `SF-01` 医院善意返场\n"
+            "3. `SF-14` 最后一次回家窗口\n"
+        )
+        outline_text = (
+            "## 第1节 执法现场，他先护了她\n"
+            "## 第2节 我带花去医院，看见他先给她顺气\n"
+            "## 第3节 他提前回家做饭，我差点又信了\n"
+        )
+
+        sequence = GATE.seed_canonical_sequence(setting_text, outline_text)
+
+        self.assertEqual(["1", "2", "3"], [item["id"] for item in sequence])
+        self.assertEqual("执法现场，他先护了她", sequence[0]["label"])
+        self.assertTrue(sequence[0]["setting_evidence"])
+        self.assertTrue(sequence[0]["outline_evidence"])
+
     def test_changed_setting_blocks_outline_extension(self) -> None:
         setting_receipt = self.root / "setting-sequence.json"
         setting_receipt.write_text(

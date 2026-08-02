@@ -47,6 +47,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.original_validate_source_receipt = GATE._SOURCE_READ_MODULE.validate_receipt
         self.original_validate_capacity_contract = GATE._DRAFT_CAPACITY_MODULE.validate
         self.original_validate_opening_receipt = GATE._OPENING_CONTRACT_MODULE.validate_receipt
+        self.original_validate_outline_receipt = GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt
         self.original_validate_section_bundle = GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle
         GATE._RULE_LEDGER_MODULE.validate_ledger = lambda _path: ([], {})
         GATE._RULE_LEDGER_MODULE.validate_prewrite_ledger = lambda _path: []
@@ -452,6 +453,53 @@ class WriteReleaseGateTest(unittest.TestCase):
                     ],
                     "source_performance_excerpt": "原文场面",
                     "source_performance_evidence": ["原文动作", "原文余痛"],
+                    "source_style_granularity": {
+                        "narrative_voice_and_attitude": {
+                            "analysis": "叙述贴近人物即时偏见，以具体动作承载失位后的刺痛。",
+                            "source_evidence": ["原文场面"],
+                            "manual_judgment": "保留贴脸偏见口气，不复用原句。",
+                        },
+                        "sentence_relation_and_rhythm": {
+                            "analysis": "动作、误认和情绪反冲形成连续因果，不拆成结果摘要。",
+                            "source_evidence": ["原文动作"],
+                            "manual_judgment": "保留动作后补情绪反冲的节奏。",
+                        },
+                        "paragraph_breath_and_cut_points": {
+                            "analysis": "在公开失位与场末余痛之间断段，让关系变化先落地。",
+                            "source_evidence": ["原文余痛"],
+                            "manual_judgment": "在失位和余痛之间换气断段。",
+                        },
+                        "dialogue_misfire_or_avoidance": {
+                            "analysis": "人物不直接回答关系质问，而用错答和回避暴露站位。",
+                            "source_evidence": ["原文场面"],
+                            "manual_judgment": "对白保留错答和回避。",
+                        },
+                        "action_perception_emotion_weave": {
+                            "analysis": "动作、物件感知和情绪判断保持在同一连续瞬间。",
+                            "source_evidence": ["原文动作"],
+                            "manual_judgment": "动作、感知、情绪连成一拍。",
+                        },
+                        "narrator_interjection_and_roughness": {
+                            "analysis": "叙述者以短促插话留下粗粝态度，但不照搬来源句面。",
+                            "source_evidence": ["原文余痛"],
+                            "manual_judgment": "叙述者保留粗粝打断感。",
+                        },
+                    },
+                    "first_draft_style_plan": {
+                        "narrative_voice_and_attitude": "贴脸写失位后的即时态度，不下总判断。",
+                        "sentence_relation_and_rhythm": "先动作后反冲，不写摘要汇报句。",
+                        "paragraph_breath_and_cut_points": "按掉位、改口、余痛三个阶段换气。",
+                        "dialogue_misfire_or_avoidance": "对白优先错答和回避，不要主题句。",
+                        "action_perception_emotion_weave": "动作、知觉和情绪写成连续瞬间。",
+                        "narrator_interjection_and_roughness": "保留粗粝打断，但不用原句。",
+                    },
+                    "anti_verbatim_transfer_contract": {
+                        "preserve_axes": ["保事件拍序", "保情绪次序"],
+                        "rewrite_axes": ["改句面", "改对白壳"],
+                        "forbidden_surface_reuse": ["原文场面"],
+                        "allowed_evidence_usage": "原文证据只准校准颗粒，不准直接扩写。",
+                        "manual_judgment": "必须保颗粒，不保原句。",
+                    },
                     "source_excerpt_reuse_reason": "",
                     "emotion_process": {
                         "entry_state": "她还在等丈夫给一个合理解释。",
@@ -527,6 +575,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         GATE._SOURCE_READ_MODULE.validate_receipt = self.original_validate_source_receipt
         GATE._DRAFT_CAPACITY_MODULE.validate = self.original_validate_capacity_contract
         GATE._OPENING_CONTRACT_MODULE.validate_receipt = self.original_validate_opening_receipt
+        GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt = self.original_validate_outline_receipt
         GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle = self.original_validate_section_bundle
         self.temp_dir.cleanup()
 
@@ -634,6 +683,91 @@ class WriteReleaseGateTest(unittest.TestCase):
             section_source_bundle=self.files["section_bundle"],
         )
         self.assertEqual([], errors)
+
+    def test_draft_can_skip_revalidating_already_verified_section_bundle(self) -> None:
+        calls: list[Path] = []
+
+        def record_bundle_validate(path: Path) -> list[str]:
+            calls.append(path)
+            return []
+
+        GATE._SECTION_SOURCE_BUNDLE_MODULE.validate_bundle = record_bundle_validate
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
+            skip_section_source_bundle_validation=True,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual([], calls)
+
+    def test_draft_can_skip_duplicate_writing_and_source_receipt_validation(self) -> None:
+        writing_calls: list[Path] = []
+        source_calls: list[Path] = []
+
+        def record_writing_validate(path: Path) -> tuple[list[str], dict]:
+            writing_calls.append(path)
+            return [], {}
+
+        def record_source_validate(path: Path) -> tuple[list[str], dict]:
+            source_calls.append(path)
+            return [], {}
+
+        GATE._WRITING_RULE_MODULE.validate_receipt = record_writing_validate
+        GATE._SOURCE_READ_MODULE.validate_receipt = record_source_validate
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
+            skip_writing_receipt_validation=True,
+            skip_source_receipt_validation=True,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual([], writing_calls)
+        self.assertEqual([], source_calls)
+
+    def test_draft_passes_skip_source_receipt_flag_into_outline_validation(self) -> None:
+        calls: list[bool] = []
+
+        def record_outline_validate(
+            _receipt: Path,
+            _outline: Path,
+            *,
+            skip_source_receipt_validation: bool = False,
+        ) -> list[str]:
+            calls.append(skip_source_receipt_validation)
+            return []
+
+        GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt = record_outline_validate
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            draft_capacity_contract=self.files["profile"],
+            section_source_bundle=self.files["section_bundle"],
+            skip_source_receipt_validation=True,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual([True], calls)
 
     def test_draft_requires_outline_performance_contract(self) -> None:
         errors = GATE.validate_release(

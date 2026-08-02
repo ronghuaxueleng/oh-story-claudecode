@@ -547,6 +547,7 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "source_book",
             "parent_bridge_id",
             "name",
+            "source_excerpt",
             "source_range",
             "function_tags",
             "entry_state",
@@ -560,10 +561,12 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "embeddable_after",
             "incompatible_with",
             "source_evidence",
+            "source_style_granularity",
         ],
         "rules": [
             "JSONL 与同名施工卡一一对应",
             "required_sequence 至少两步，source_evidence 至少两条",
+            "source_excerpt 必须与 source_range 对应原文精确切片完全一致",
             "causal_preconditions 完整包含到场、知情、物件、制度、替代阻断、离场和原文证据",
         ],
     },
@@ -1025,7 +1028,7 @@ def write_upgrade_plan(
             "2. 对每个缺失文件，只读取 `output-templates.md` 中对应模板区段，不整份吞模板。",
             "3. 回看 `原文/`、`_source_manifest.json`、`事实与推断台账.md`、`情节节点.md`、`写作手法.md`、`写作资产/原文资产候选池.md`。",
             "4. 新增资产文件必须补原文证据、迁移规则、禁写边界和候选池核销关系。",
-            "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
+            "5. 不仅补缺文件，还要补旧文件里的缺字段、旧合同和新版 required 字段；尤其是 `子流程索引.jsonl` 的 `source_excerpt` 精确切片、逐 SF `source_style_granularity`、父 BID 覆盖、`_finalize_human_review.json` 的增量复核闭环。",
             "6. 运行 `complete_upgrade_existing.py`；若生成 `_style_reanalysis_tasks.json`，当前模型立即逐 SF 重读其中原文切片，真实重写六项文风颗粒，禁止脚本拼 analysis。",
             "7. 重跑检查器直到 `ready_for_finalize` 且任务文件清除，再更新 `_progress.md` 中对应项。",
             "8. 运行 `sync_finalize_human_review.py`，把 `human_review_items` 逐条真实裁决到 `_finalize_human_review.json`，并记录当前正式 Markdown SHA。",
@@ -1599,13 +1602,29 @@ def write_execution_prompt(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def resolve_corpus_root(raw_output_root: str | None, source: Path) -> Path:
+    candidate = Path(raw_output_root).resolve() if raw_output_root else source.parent / "拆文库"
+    if candidate.name != "拆文库":
+        raise ValueError(
+            f"--output-root 必须指向拆文库目录，禁止直接使用工作区根或其他散目录: {candidate}"
+        )
+    return candidate
+
+
+def validate_upgrade_existing_root(root: Path) -> None:
+    if root.parent.name != "拆文库":
+        raise ValueError(
+            f"--upgrade-existing 只允许传 拆文库/{{书名}} 目录，当前路径不合法: {root}"
+        )
+
+
 def prepare(args: argparse.Namespace) -> dict:
     source = Path(args.source).resolve()
     if not source.exists() or not source.is_file():
         raise FileNotFoundError(f"源文件不存在：{source}")
 
     book_name = args.name or source.stem
-    output_root = Path(args.output_root).resolve() if args.output_root else source.parent / "拆文库"
+    output_root = resolve_corpus_root(args.output_root, source)
     out_dir = output_root / book_name
 
     if out_dir.exists() and any(out_dir.iterdir()) and not args.force:
@@ -1673,6 +1692,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
     out_dir = Path(args.upgrade_existing).resolve()
     if not out_dir.exists() or not out_dir.is_dir():
         raise FileNotFoundError(f"待升级拆文目录不存在：{out_dir}")
+    validate_upgrade_existing_root(out_dir)
 
     layout = parse_output_contract()
     book_name = args.name or out_dir.name
@@ -1752,6 +1772,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
 
     return {
         "mode": "upgrade-existing",
+        "status": style_reanalysis.get("status", "needs_model_reanalysis"),
         "book_name": book_name,
         "root": str(out_dir),
         "source_file": str(source_path),
@@ -1763,7 +1784,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
             "then": (
-                "若存在 _style_reanalysis_tasks.json，当前模型立即逐 SF 重读其中原文切片并真实重写文风颗粒；"
+                "脚本会先机械补齐子流程索引缺失的 source_excerpt；若存在 _style_reanalysis_tasks.json，当前模型立即逐 SF 重读其中原文切片并真实重写文风颗粒；"
                 "随后按 _upgrade_plan.md 自动增量补拆其余缺失、过期和缺字段内容"
             ),
             "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
@@ -1800,20 +1821,31 @@ def main() -> int:
             print(f"[ERROR] {exc}")
         return 2
 
-    payload["ok"] = True
+    payload["ok"] = not (
+        payload.get("mode") == "upgrade-existing"
+        and payload.get("status") != "ready_for_finalize"
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         print(f"book_name: {payload['book_name']}")
         print(f"root: {payload['root']}")
-        print(f"source_copy: {payload['source_copy']}")
-        print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
-        print(f"line_count: {payload['line_count']}")
-        print(f"chapter_count: {payload['chapter_count']}")
-        print(f"chunk_count: {payload['chunk_count']}")
-        print("created_files:")
-        for item in payload["created_files"]:
-            print(f"- {item}")
+        if payload.get("mode") == "upgrade-existing":
+            print(f"status: {payload.get('status', '')}")
+        if payload.get("mode") == "upgrade-existing":
+            print(f"source_file: {payload['source_file']}")
+            print("written_files:")
+            for item in payload["written_files"]:
+                print(f"- {item}")
+        else:
+            print(f"source_copy: {payload['source_copy']}")
+            print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
+            print(f"line_count: {payload['line_count']}")
+            print(f"chapter_count: {payload['chapter_count']}")
+            print(f"chunk_count: {payload['chunk_count']}")
+            print("created_files:")
+            for item in payload["created_files"]:
+                print(f"- {item}")
         print("created_dirs:")
         for item in payload["created_dirs"]:
             print(f"- {item}")
@@ -1831,7 +1863,7 @@ def main() -> int:
             print(f"  finalize_after_backfill: {payload['next_step'].get('finalize_after_backfill', '')}")
         else:
             print(f"  {payload['next_step']}")
-    return 0
+    return 0 if payload["ok"] else 2
 
 
 if __name__ == "__main__":

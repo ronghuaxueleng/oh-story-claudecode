@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 from pathlib import Path
@@ -32,7 +33,8 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
         "source_book": "测试书",
         "parent_bridge_id": bridge_id,
         "name": "先抢入口再迫使让位",
-        "source_range": "L1-L1",
+        "source_excerpt": "对手先伸手。\n主角挡住。\n关系人表态。\n主角才松手。",
+        "source_range": "L1-L4",
         "function_tags": ["公开失位"],
         "entry_state": "主角仍有现场决定权。",
         "required_sequence": ["对手先抢入口", "关系人随后要求主角让位"],
@@ -44,7 +46,7 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
             "institutional_constraints": ["无外部制度依赖，现场权限只由钥匙控制。"],
             "obvious_alternative_blockers": ["主角不能直接离场，因为入口仍由她负责。"],
             "exit_cause": "关系人公开表态后，主角失去阻拦资格并交出钥匙。",
-            "source_evidence": ["对手先伸手", "主角才松手"],
+            "source_evidence": ["对手先伸手。", "主角才松手。"],
         },
         "information_delay": "本场只漏出偏护，完整责任压后。",
         "control_changes": ["入口控制权从主角转给对手"],
@@ -52,11 +54,11 @@ def subflow(subflow_id: str = "SF-01", bridge_id: str = "BID-01") -> dict:
         "end_state": "主角失去默认进入权。",
         "embeddable_after": [],
         "incompatible_with": [],
-        "source_evidence": ["对手先伸手", "主角才松手"],
+        "source_evidence": ["对手先伸手。", "主角才松手。"],
         "source_style_granularity": {
             field: {
                 "analysis": f"{field} 的逐场分析",
-                "source_evidence": ["对手先伸手", "主角才松手"],
+                "source_evidence": ["对手先伸手。", "主角才松手。"],
             }
             for field in VALIDATOR.SUBFLOW_STYLE_GRANULARITY_FIELDS
         },
@@ -78,7 +80,18 @@ class SubflowAssetTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.index = asset_dir / "子流程索引.jsonl"
-        self.original = "对手先伸手，主角挡住，关系人表态后主角才松手。"
+        self.original = "对手先伸手。\n主角挡住。\n关系人表态。\n主角才松手。"
+        style_quotes = {
+            "narrative_voice_and_attitude": ["对手先伸手。", "主角挡住。"],
+            "sentence_relation_and_rhythm": ["主角挡住。", "关系人表态。"],
+            "paragraph_breath_and_cut_points": ["关系人表态。", "主角才松手。"],
+            "dialogue_misfire_or_avoidance": ["对手先伸手。", "主角才松手。"],
+            "action_perception_emotion_weave": ["对手先伸手。", "关系人表态。"],
+            "narrator_interjection_and_roughness": ["主角挡住。", "主角才松手。"],
+        }
+        self.base_subflow = subflow()
+        for field, quotes in style_quotes.items():
+            self.base_subflow["source_style_granularity"][field]["source_evidence"] = quotes
 
     def tearDown(self) -> None:
         self.temp_dir.cleanup()
@@ -90,13 +103,14 @@ class SubflowAssetTest(unittest.TestCase):
         )
 
     def test_complete_subflow_assets_pass(self) -> None:
-        self.write_entries([subflow()])
+        self.write_entries([self.base_subflow])
         errors: list[str] = []
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
         self.assertEqual([], errors)
 
     def test_missing_field_blocks(self) -> None:
         entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         del entry["end_state"]
         self.write_entries([entry])
         errors: list[str] = []
@@ -106,13 +120,13 @@ class SubflowAssetTest(unittest.TestCase):
     def test_uncovered_bridge_blocks(self) -> None:
         card = self.root / "写作资产" / "桥段施工卡.md"
         card.write_text("## BID-01 公开失位\n\n## BID-02 私域换主\n", encoding="utf-8")
-        self.write_entries([subflow()])
+        self.write_entries([copy.deepcopy(self.base_subflow)])
         errors: list[str] = []
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
         self.assertTrue(any("未覆盖全部父 BID" in error for error in errors))
 
     def test_fake_source_evidence_blocks(self) -> None:
-        entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         entry["source_evidence"] = ["对手先伸手", "并不存在的原句"]
         self.write_entries([entry])
         errors: list[str] = []
@@ -120,7 +134,7 @@ class SubflowAssetTest(unittest.TestCase):
         self.assertTrue(any("不在原文中" in error for error in errors))
 
     def test_missing_causal_precondition_blocks(self) -> None:
-        entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         entry["causal_preconditions"]["arrival_causes"] = []
         self.write_entries([entry])
         errors: list[str] = []
@@ -128,7 +142,7 @@ class SubflowAssetTest(unittest.TestCase):
         self.assertTrue(any("arrival_causes" in error for error in errors))
 
     def test_fake_causal_evidence_blocks(self) -> None:
-        entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         entry["causal_preconditions"]["source_evidence"][1] = "并不存在的因果证据"
         self.write_entries([entry])
         errors: list[str] = []
@@ -136,7 +150,7 @@ class SubflowAssetTest(unittest.TestCase):
         self.assertTrue(any("causal_preconditions.source_evidence" in error for error in errors))
 
     def test_missing_per_subflow_style_blocks(self) -> None:
-        entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         del entry["source_style_granularity"]
         self.write_entries([entry])
         errors: list[str] = []
@@ -144,16 +158,25 @@ class SubflowAssetTest(unittest.TestCase):
         self.assertTrue(any("source_style_granularity" in error for error in errors))
 
     def test_style_evidence_outside_exact_subflow_range_blocks(self) -> None:
-        entry = subflow()
+        entry = copy.deepcopy(self.base_subflow)
         entry["source_range"] = "L1-L1"
+        entry["source_excerpt"] = "对手先伸手。"
         entry["source_style_granularity"]["sentence_relation_and_rhythm"]["source_evidence"] = [
-            "对手先伸手",
+            "对手先伸手。",
             "不存在于行段",
         ]
         self.write_entries([entry])
         errors: list[str] = []
         VALIDATOR.check_subflow_assets(self.root, self.original, errors)
         self.assertTrue(any("精确行段" in error for error in errors))
+
+    def test_source_excerpt_must_match_exact_range(self) -> None:
+        entry = copy.deepcopy(self.base_subflow)
+        entry["source_excerpt"] = "被截断的切片"
+        self.write_entries([entry])
+        errors: list[str] = []
+        VALIDATOR.check_subflow_assets(self.root, self.original, errors)
+        self.assertTrue(any("source_excerpt" in error for error in errors))
 
     def test_cross_book_library_preserves_source_boundary(self) -> None:
         book_dir = self.root / "拆文库" / "测试书" / "写作资产"

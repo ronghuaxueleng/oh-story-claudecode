@@ -7,6 +7,9 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from unittest.mock import patch
 
 
 SCRIPT_PATH = (
@@ -22,6 +25,40 @@ SPEC.loader.exec_module(PREPARE)
 
 
 class PrepareUpgradeExistingTest(unittest.TestCase):
+    def test_prepare_rejects_workspace_root_as_output_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = Path(temp_dir) / "workspace"
+            workspace.mkdir()
+            source = workspace / "扫黄扫到了我老公.txt"
+            source.write_text("第一行\n第二行", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "--output-root 必须指向拆文库目录"):
+                PREPARE.prepare(
+                    argparse.Namespace(
+                        source=str(source),
+                        name=None,
+                        output_root=str(workspace),
+                        force=False,
+                    )
+                )
+
+    def test_upgrade_existing_rejects_non_corpus_book_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "旧书"
+            root.mkdir(parents=True)
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "--upgrade-existing 只允许传 拆文库/\\{书名\\} 目录",
+            ):
+                PREPARE.upgrade_existing(
+                    argparse.Namespace(
+                        upgrade_existing=str(root),
+                        source=None,
+                        name=None,
+                    )
+                )
+
     def test_upgrade_existing_keeps_existing_outputs_and_writes_backfill_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "拆文库" / "旧书"
@@ -66,6 +103,7 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             )
 
             self.assertEqual("upgrade-existing", payload["mode"])
+            self.assertEqual("needs_model_reanalysis", payload["status"])
             self.assertEqual("已有厚拆报告，不允许覆盖", (root / "拆文报告.md").read_text(encoding="utf-8"))
             self.assertTrue((root / "原文细节库").is_dir())
             self.assertTrue((root / "写作资产").is_dir())
@@ -123,7 +161,12 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
                 if lane["id"] == "sensitive_assets"
             )
             subflow_contract = sensitive_contract["files"]["写作资产/子流程索引.jsonl"]
+            self.assertIn("source_excerpt", subflow_contract["required_fields"])
             self.assertIn("causal_preconditions", subflow_contract["required_fields"])
+            self.assertIn("source_style_granularity", subflow_contract["required_fields"])
+            self.assertTrue(
+                any("source_excerpt" in rule for rule in subflow_contract["rules"])
+            )
 
             execution_prompt = (root / "_execution_prompt.md").read_text(encoding="utf-8")
             self.assertIn("FS 状态链", execution_prompt)
@@ -132,6 +175,7 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("## 13. 场景因果资产", execution_prompt)
 
             self.assertIn("_style_reanalysis_tasks.json", payload["next_step"]["then"])
+            self.assertIn("source_excerpt", payload["next_step"]["then"])
             self.assertIn("自动增量补拆", payload["next_step"]["then"])
             self.assertEqual("needs_model_reanalysis", payload["style_reanalysis"]["status"])
             self.assertTrue(payload["next_step"]["auto_continue_expected"])
@@ -170,6 +214,22 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
                 (root / "_finalize_human_review.json").read_text(encoding="utf-8")
             )
             self.assertIn("不得被重复", repeated["upgrade_reviews"][0]["judgement"])
+
+            output = StringIO()
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    str(SCRIPT_PATH),
+                    "--upgrade-existing",
+                    str(root),
+                ],
+            ), redirect_stdout(output):
+                result = PREPARE.main()
+            self.assertEqual(2, result)
+            self.assertIn("status: needs_model_reanalysis", output.getvalue())
+            self.assertIn(f"source_file: {root / '原文' / '旧书.txt'}", output.getvalue())
+            self.assertNotIn("source_copy:", output.getvalue())
 
 
 if __name__ == "__main__":
