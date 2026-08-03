@@ -110,6 +110,10 @@ CAUSAL_RISK_TYPES = (
     "spatial_or_object_access",
 )
 CAUSAL_PLACEHOLDER_MARKERS = (
+    "机械预填",
+    "待当前模型",
+    "待确认",
+    "待复核",
     "读者新获知",
     "上一节已公开的信息",
     "人物均由上一节未完成动作或主动追问",
@@ -195,10 +199,13 @@ def subsection_map(lines: list[str]) -> dict[str, list[str]]:
         bullet_line = raw_line.strip()
         if bullet_line.startswith(("-", "*")):
             content = bullet_line[1:].strip()
-            bullet_match = re.match(r"^([^：:]+)[：:]\s*$", content)
+            bullet_match = re.match(r"^([^：:]+)[：:]\s*(.*?)\s*$", content)
             if bullet_match:
                 current = bullet_match.group(1).strip()
                 result.setdefault(current, [])
+                inline_value = bullet_match.group(2).strip()
+                if inline_value:
+                    result[current].append(inline_value)
                 continue
         if current:
             result[current].append(raw_line)
@@ -234,6 +241,14 @@ def merged_part_lines(parts: dict[str, list[str]], *names: str) -> list[str]:
         if not isinstance(value, list):
             continue
         merged.extend(value)
+    return merged
+
+
+def prefixed_part_lines(parts: dict[str, list[str]], *prefixes: str) -> list[str]:
+    merged: list[str] = []
+    for name, value in parts.items():
+        if any(name.startswith(prefix) for prefix in prefixes) and isinstance(value, list):
+            merged.extend(value)
     return merged
 
 
@@ -1239,7 +1254,11 @@ def resolve_section_contracts(
                     (normalize_source_title(match.group("title") or ""), str(match.group("subflow_id") or "").strip())
                 )
         for title, subflow_id in line_refs:
-            source_path = path_by_title.get(title) if title else primary_path
+            source_path = (
+                primary_path
+                if title in {"主体", "主来源", "primary"}
+                else (path_by_title.get(title) if title else primary_path)
+            )
             if not source_path:
                 continue
             contract = contracts_by_source.get(source_path, {}).get(subflow_id)
@@ -1328,14 +1347,41 @@ def build_section_seed(
     lines = block.get("lines") if isinstance(block.get("lines"), list) else []
     parts = subsection_map(lines)
     heading_line = lines[0].strip() if lines else ""
-    source_binding_lines = merged_part_lines(parts, "来源绑定", "绑定来源")
+    source_binding_lines = merged_part_lines(
+        parts,
+        "主体现来源绑定",
+        "主体来源绑定",
+        "来源绑定",
+        "绑定来源",
+        "对应来源",
+    )
     entry_lines = merged_part_lines(parts, "入口状态", "开始状态")
     exit_lines = merged_part_lines(parts, "出口状态", "结束状态")
-    performance_lines = merged_part_lines(parts, "表演与对白", "本节承压对白", "子事件", "冲突载体")
+    performance_lines = merged_part_lines(
+        parts,
+        "表演与对白",
+        "本节承压对白",
+        "对话交锋",
+        "表演颗粒",
+        "子事件",
+        "冲突载体",
+    )
     emotion_lines = merged_part_lines(parts, "情绪过程", "本节情绪推进", "情绪链")
     control_lines = merged_part_lines(parts, "控制权变化", "本节功能", "本节新信息", "冲突载体")
-    event_lines = merged_part_lines(parts, "主事件与子事件", "主事件", "子事件", "顺序事件")
-    info_lines = merged_part_lines(parts, "新信息、证据与出口", "本节新信息", "本节钩子", "结束状态", "信息差")
+    event_beat_lines = prefixed_part_lines(parts, "事件拍")
+    event_lines = [
+        *merged_part_lines(parts, "主事件与子事件", "主事件", "子事件", "顺序事件"),
+        *event_beat_lines,
+    ]
+    info_lines = merged_part_lines(
+        parts,
+        "新信息、证据与出口",
+        "本节新信息",
+        "本节钩子",
+        "节尾钩子",
+        "结束状态",
+        "信息差",
+    )
     entry_state = join_summary(entry_lines, limit=1)
     exit_state = (
         join_summary(exit_lines, limit=1)
@@ -1344,8 +1390,11 @@ def build_section_seed(
     source_binding = join_summary(source_binding_lines, limit=2)
     performance = join_summary(performance_lines, limit=2)
     emotion = join_summary(emotion_lines, limit=2)
-    control = join_summary(control_lines, limit=2)
     events = join_summary(event_lines, limit=3)
+    control = join_summary(control_lines, limit=2) or first_nonempty_text(
+        source_binding,
+        events,
+    )
     outline_evidence = section_outline_evidence(outline_text, heading_line, parts)
     active_subflow_ids = {
         str(item.get("subflow_id") or "").strip()
@@ -1419,6 +1468,12 @@ def build_section_seed(
     source_sha256 = str(primary_ref.get("source_sha256") or "") if isinstance(primary_ref, dict) else ""
     source_range = str(primary_contract.get("source_range") or "").strip()
     source_excerpt = excerpt_from_line_range(Path(source_path), source_range) if source_path and source_range else ""
+    has_explicit_primary_binding = any(
+        isinstance(item, dict)
+        and str(item.get("role") or "").strip() == "primary"
+        and item.get("explicit_outline_binding") is True
+        for item in active_source_refs
+    )
     bridge_range_excerpt = (
         excerpt_from_original_ranges(
             Path(source_path),
@@ -1426,13 +1481,19 @@ def build_section_seed(
             section_index_in_bridge=section_index_in_bridge,
             section_count_for_bridge=section_count_for_bridge,
         )
-        if source_path and isinstance(bridge_entry, dict)
+        if source_path
+        and isinstance(bridge_entry, dict)
+        and not has_explicit_primary_binding
         else ""
     )
-    chosen_primary_excerpt, chosen_primary_subflow = choose_section_primary_excerpt(
-        bridge_subflows,
-        section_index_in_bridge=section_index_in_bridge,
-        section_count_for_bridge=section_count_for_bridge,
+    chosen_primary_excerpt, chosen_primary_subflow = (
+        ("", None)
+        if has_explicit_primary_binding
+        else choose_section_primary_excerpt(
+            bridge_subflows,
+            section_index_in_bridge=section_index_in_bridge,
+            section_count_for_bridge=section_count_for_bridge,
+        )
     )
     chosen_primary_bundle_excerpt = (
         str(chosen_primary_subflow.get("source_excerpt") or "").strip()
@@ -1534,35 +1595,31 @@ def build_section_seed(
         ref_contract = ref.get("contract") if isinstance(ref, dict) else {}
         ref_path = str(ref.get("source_path") or "") if isinstance(ref, dict) else ""
         ref_range = str(ref_contract.get("source_range") or "").strip() if isinstance(ref_contract, dict) else ""
-        ref_excerpt = excerpt_from_line_range(Path(ref_path), ref_range) if ref_path and ref_range else ""
-        ref_quotes = evidence_lines_from_excerpt(ref_excerpt, limit=2)
-        if not ref_path or not ref_range or len(ref_quotes) < 2:
+        range_segments = parse_range_segments(ref_range)
+        if not ref_path or not range_segments:
             continue
-        if (
-            str(ref.get("role") or "").strip() == "primary"
-            and not precise_primary_excerpt
-        ):
-            exact_excerpt = first_nonempty_text(
-                str(ref.get("source_excerpt") or "").strip(),
-                chosen_primary_bundle_excerpt,
-                ref_excerpt,
+        for start, end in range_segments:
+            segment_range = f"L{start}-L{end}"
+            segment_excerpt = excerpt_from_line_range(Path(ref_path), segment_range)
+            segment_quotes = evidence_lines_from_excerpt(segment_excerpt, limit=2)
+            if len(segment_quotes) < 2:
+                continue
+            if (
+                str(ref.get("role") or "").strip() == "primary"
+                and not precise_primary_excerpt
+            ):
+                precise_primary_excerpt = segment_excerpt
+                precise_primary_quotes = list(segment_quotes)
+            source_slice_bindings.append(
+                {
+                    "subflow_id": str(ref.get("subflow_id") or "").strip(),
+                    "source_path": ref_path,
+                    "source_sha256": str(ref.get("source_sha256") or ""),
+                    "source_range": segment_range,
+                    "source_evidence": segment_quotes,
+                    "style_fields_consumed": list(STYLE_GRANULARITY_FIELDS),
+                }
             )
-            precise_primary_excerpt = exact_excerpt
-            precise_primary_quotes = (
-                evidence_lines_from_excerpt(exact_excerpt, limit=2)
-                if exact_excerpt
-                else list(ref_quotes)
-            )
-        source_slice_bindings.append(
-            {
-                "subflow_id": str(ref.get("subflow_id") or "").strip(),
-                "source_path": ref_path,
-                "source_sha256": str(ref.get("source_sha256") or ""),
-                "source_range": ref_range,
-                "source_evidence": ref_quotes,
-                "style_fields_consumed": list(STYLE_GRANULARITY_FIELDS),
-            }
-        )
     source_style_granularity = build_source_style_granularity_contract(
         active_source_refs,
         section_id=section_id,
@@ -1575,7 +1632,10 @@ def build_section_seed(
         performance=performance or "",
         exit_state=exit_state or "",
     )
-    subevent_lines = compact_lines(merged_part_lines(parts, "子事件", "顺序事件"), limit=8)
+    subevent_lines = compact_lines(
+        [*merged_part_lines(parts, "子事件", "顺序事件"), *event_beat_lines],
+        limit=8,
+    )
     if len(subevent_lines) < 2:
         subevent_lines = compact_lines(event_lines, limit=8)
     anti_verbatim_transfer_contract = build_anti_verbatim_transfer_contract(
@@ -1587,7 +1647,10 @@ def build_section_seed(
         exit_state=exit_state or "",
     )
     new_info_lines = compact_lines(info_lines, limit=3)
-    dialogue_lines = compact_lines(merged_part_lines(parts, "本节承压对白"), limit=3)
+    dialogue_lines = compact_lines(
+        merged_part_lines(parts, "本节承压对白", "对话交锋"),
+        limit=3,
+    )
     beat_dependency_chain = []
     for beat_index, beat_text in enumerate(subevent_lines[:3], start=1):
         beat_dependency_chain.append(
@@ -1645,10 +1708,12 @@ def build_section_seed(
         "original_scene_granularity": {
             "source_path": source_path,
             "source_sha256": source_sha256,
-            "source_scene": str(block.get("title") or "").strip(),
+            "source_scene": first_nonempty_text(
+                str(block.get("title") or "").strip(), events, source_binding
+            ),
             "action_sequence": events or source_excerpt[:120],
-            "body_object_space_control": control or "",
-            "dialogue_forces_action": performance or "",
+            "body_object_space_control": control or source_binding or events,
+            "dialogue_forces_action": performance or events,
             "bystander_or_order_shift": first_nonempty_text(
                 performance,
                 control,
@@ -1730,7 +1795,9 @@ def build_section_seed(
         "source_mechanism": {
             "source_path": source_path,
             "source_sha256": source_sha256,
-            "source_scene": str(block.get("title") or "").strip(),
+            "source_scene": first_nonempty_text(
+                str(block.get("title") or "").strip(), events, source_binding
+            ),
             "transferable_mechanism": source_binding or "",
             "adaptation_boundary": "机械预填：只前置可从所选来源直接提取的桥段与颗粒，待当前模型补人工边界。",
         },
@@ -1798,7 +1865,7 @@ def build_section_seed(
             "relationship_first": True,
         },
         "source_emotion_parity": {
-            "source_excerpt": source_excerpt or "",
+            "source_excerpt": precise_primary_excerpt or source_excerpt or "",
             "source_emotion_sequence": source_emotion_beats,
             "target_emotion_sequence": target_emotion_beats,
             "source_intensity_score": source_intensity_score,
@@ -2028,7 +2095,7 @@ def build_primary_bridge_seed(
         "source_sha256": first_source["sha256"],
         "bridge_id": bridge_id,
         "bridge_name": bridge_name,
-        "source_required_sequence": required_sequence[:4],
+        "source_required_sequence": required_sequence,
         "source_must_keep_actions": source_must_keep_actions,
         "source_scene_granularity": source_scene_granularity,
         "source_end_state_change": str(
@@ -2043,7 +2110,7 @@ def build_primary_bridge_seed(
         "source_bridge_name": bridge_name,
         "source_path": first_source["path"],
         "source_sha256": first_source["sha256"],
-        "source_required_sequence": required_sequence[:4],
+        "source_required_sequence": required_sequence,
         "source_must_keep_actions": source_must_keep_actions,
         "source_scene_granularity": source_scene_granularity,
         "source_emotion_sequence": source_emotion_sequence,
@@ -2314,8 +2381,11 @@ def create_receipt(
         )
         binding_lines = merged_part_lines(
             subsection_map(section_lines),
+            "主体现来源绑定",
+            "主体来源绑定",
             "来源绑定",
             "绑定来源",
+            "对应来源",
         )
         if not binding_lines:
             binding_lines = [line for line in section_lines[1:] if "SF-" in str(line)]
@@ -2324,6 +2394,9 @@ def create_receipt(
             sources,
             contract_map,
         )
+        for resolved_ref in resolved_refs:
+            if isinstance(resolved_ref, dict):
+                resolved_ref["explicit_outline_binding"] = True
         bridge_entry = monotonic_bridge_assignments.get(section_id)
         bridge_id = str((bridge_entry or {}).get("bridge_id") or "").strip()
         section_group = bridge_section_groups.get(bridge_id, []) if bridge_id else []
@@ -2347,15 +2420,8 @@ def create_receipt(
             if str(item.get("role") or "") == "primary"
         ]
         bridge_primary_refs_required = bool(section_primary_subflows)
-        primary_refs_conflict_with_bridge = bool(explicit_primary_refs) and bool(bridge_entry) and not any(
-            contract_overlaps_bridge(
-                item.get("contract") if isinstance(item, dict) else {},
-                bridge_entry,
-            )
-            for item in explicit_primary_refs
-        )
         has_primary_ref = bool(explicit_primary_refs)
-        if (not has_primary_ref or primary_refs_conflict_with_bridge) and section_primary_subflows:
+        if not has_primary_ref and section_primary_subflows:
             primary_refs: list[dict[str, Any]] = []
             for matched_item in section_primary_subflows:
                 if not isinstance(matched_item, dict):
@@ -2375,17 +2441,7 @@ def create_receipt(
                     }
                 )
             if primary_refs:
-                if primary_refs_conflict_with_bridge:
-                    resolved_refs = [
-                        *primary_refs,
-                        *[
-                            item
-                            for item in resolved_refs
-                            if str(item.get("role") or "") != "primary"
-                        ],
-                    ]
-                else:
-                    resolved_refs = [*primary_refs, *resolved_refs]
+                resolved_refs = [*primary_refs, *resolved_refs]
         seeded_section = build_section_seed(
             section_id,
             outline_text,
@@ -2783,7 +2839,7 @@ def create_receipt(
                 }
             )
     return {
-        "version": "1.6",
+        "version": "1.8",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "passed",
@@ -3728,12 +3784,20 @@ def validate_source_emotion_parity(
         )
     if not nonempty_text(value.get("adaptation_boundary")):
         errors.append(f"{label} source_emotion_parity.adaptation_boundary 不能为空")
+    elif contains_causal_placeholder(value.get("adaptation_boundary")):
+        errors.append(
+            f"{label} source_emotion_parity.adaptation_boundary 不得保留机械预填或待确认占位话"
+        )
     if value.get("ending_afterpain_equivalent") is not True:
         errors.append(f"{label} 场末余痛必须与原文承担同级情绪功能")
     if value.get("reader_experience_equivalent") is not True:
         errors.append(f"{label} 必须人工确认读者体感与原文同级")
     if not nonempty_text(value.get("manual_judgment")):
         errors.append(f"{label} source_emotion_parity.manual_judgment 不能为空")
+    elif contains_causal_placeholder(value.get("manual_judgment")):
+        errors.append(
+            f"{label} source_emotion_parity.manual_judgment 不得保留机械预填或待确认占位话"
+        )
 
 
 def validate_first_draft_generation_contract(
@@ -3789,6 +3853,12 @@ def validate_first_draft_generation_contract(
                 errors.append(f"{binding_label}.style_fields_consumed 必须覆盖六类逐 SF 文风颗粒")
             primary_contract = primary_inventory.get((str(source_path), source_range))
             if primary_contract is not None:
+                expected_subflow_id = str(primary_contract.get("subflow_id") or "").strip()
+                if str(binding.get("subflow_id") or "").strip() != expected_subflow_id:
+                    errors.append(
+                        f"{binding_label}.subflow_id 与主体 SF 合同不一致: {expected_subflow_id}"
+                    )
+                    continue
                 bound_primary_subflows.add((str(source_path), source_range))
                 for field in STYLE_GRANULARITY_FIELDS:
                     if field not in {str(item).strip() for item in consumed if str(item).strip()}:
@@ -4289,7 +4359,9 @@ def validate_primary_subflow_inventory(
         source_path = str(bundle.get("primary_source", {}).get("original", {}).get("path") or "")
         source_range = str(contract.get("source_range") or "").strip()
         if source_path and source_range:
-            inventory[(str(Path(source_path).expanduser().resolve()), source_range)] = item
+            resolved_source_path = str(Path(source_path).expanduser().resolve())
+            for start, end in parse_range_segments(source_range):
+                inventory[(resolved_source_path, f"L{start}-L{end}")] = item
     return inventory
 
 
@@ -4308,9 +4380,9 @@ def validate_receipt(
         return [f"细纲表演验收回执不是有效 JSON: {exc}"]
     if not isinstance(data, dict):
         return ["细纲表演验收回执必须是 JSON 对象"]
-    if data.get("version") != "1.6":
+    if data.get("version") != "1.8":
         errors.append(
-            "细纲表演验收回执版本必须为 1.5；旧回执缺少节内逐拍、跨节交接或辅助 SF 全流程契约，必须重新 init"
+            "细纲表演验收回执版本必须为 1.8；旧回执缺少内联事件拍、节内逐拍、跨节交接或辅助 SF 全流程契约，必须重新 init"
         )
 
     resolved_outline = outline_path.resolve()
@@ -4699,6 +4771,9 @@ ERROR_SUMMARY_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "首写生成契约字段",
             "首写不得设置固定短句",
             "source_excerpt_reuse_reason",
+            "source_slice_bindings",
+            "source_performance_excerpt",
+            "source_performance_evidence",
         ),
     ),
     ("sections", ("第 ", "细纲小节缺少验收", "回执存在细纲中没有的小节")),

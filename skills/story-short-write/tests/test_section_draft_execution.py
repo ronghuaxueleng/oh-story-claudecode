@@ -190,6 +190,14 @@ class SectionDraftExecutionTest(unittest.TestCase):
         self.assertEqual(["1", "2"], GATE.draft_section_ids(self.draft))
         self.assertEqual("第一节正文。", GATE.section_text(self.draft, "1"))
 
+    def test_compact_level_three_section_heading_is_recognized(self) -> None:
+        self.draft.write_text(
+            "###1.\n\n第一节正文。\n\n### 2.\n\n第二节正文。\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(["1", "2"], GATE.draft_section_ids(self.draft))
+        self.assertEqual("第一节正文。", GATE.section_text(self.draft, "1"))
+
     def test_cannot_open_next_section_before_previous_close(self) -> None:
         with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]), mock.patch.object(
             GATE, "validate_section_source_bundle_receipt", return_value=[]
@@ -290,6 +298,23 @@ class SectionDraftExecutionTest(unittest.TestCase):
             self.draft.write_text("1.\n\n" + telegraphic + "\n", encoding="utf-8")
             self.assertEqual(2, GATE.close_section(self.receipt, "1", self.close_judgment()))
 
+    def test_reopen_allows_last_completed_section_when_later_sections_are_pending(self) -> None:
+        with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]), mock.patch.object(
+            GATE, "validate_section_source_bundle_receipt", return_value=[]
+        ):
+            self.assertEqual(0, GATE.init_receipt(self.outline, self.source_receipt, self.bundle, self.draft, self.receipt))
+            self.assertEqual(0, GATE.open_section(self.receipt, "1", self.read_judgment("a")))
+            self.draft.write_text("1.\n\n" + self.rich_section_content("第一节") + "\n", encoding="utf-8")
+            self.assertEqual(0, GATE.close_section(self.receipt, "1", self.close_judgment()))
+
+        self.assertEqual(0, GATE.reopen_section(self.receipt, "1"))
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertEqual("pending", data["sections"][0]["status"])
+        self.assertTrue(data["sections"][0]["revision_reopen"])
+        self.assertEqual(0, GATE.open_section(self.receipt, "1", self.read_judgment("a")))
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertFalse(data["sections"][0]["revision_reopen"])
+
     def test_close_section_blocks_when_source_excerpt_line_coverage_too_low(self) -> None:
         with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]), mock.patch.object(
             GATE, "validate_section_source_bundle_receipt", return_value=[]
@@ -307,6 +332,80 @@ class SectionDraftExecutionTest(unittest.TestCase):
             )
             self.draft.write_text(diluted + "\n", encoding="utf-8")
             self.assertEqual(2, GATE.close_section(self.receipt, "1", self.close_judgment()))
+
+    def test_required_sequence_has_zero_missing_beat_tolerance(self) -> None:
+        bindings = [
+            {
+                "subflow_id": "SF-01",
+                "source_subflow_contract": {
+                    "required_sequence": [
+                        "日程说法",
+                        "善意返场",
+                        "安静画面",
+                        "身体信号",
+                        "完成照护",
+                        "压住爆发",
+                    ]
+                },
+            }
+        ]
+        content = "日程说法后，她善意返场，看见安静画面。身体信号出现，他完成照护。"
+        errors = GATE.validate_required_sequence_coverage(bindings, content)
+        self.assertEqual(1, len(errors))
+        self.assertIn("6 拍必须零遗漏", errors[0])
+        self.assertIn("第6拍：压住爆发", errors[0])
+
+    def test_required_sequence_passes_only_when_every_beat_is_present(self) -> None:
+        bindings = [
+            {
+                "subflow_id": "SF-01",
+                "source_subflow_contract": {
+                    "required_sequence": ["冷静试探", "身体信号", "最后发现"]
+                },
+            }
+        ]
+        errors = GATE.validate_required_sequence_coverage(
+            bindings,
+            "她先冷静试探。身体信号让他转身照护，最后发现她也在场。",
+        )
+        self.assertEqual([], errors)
+
+    def test_structured_beat_receipt_requires_unique_ordered_draft_evidence(self) -> None:
+        bindings = [
+            {
+                "subflow_id": "SF-01",
+                "source_subflow_contract": {
+                    "required_sequence": ["冷静试探", "身体信号", "最后发现"]
+                },
+            }
+        ]
+        content = "她先问他今晚在哪。女孩忽然喘不上气，他立刻过去扶人。忙完后，他才看见门边的妻子。"
+        receipts = [
+            {
+                "subflow_id": "SF-01",
+                "beat_index": index,
+                "source_beat": source_beat,
+                "target_evidence": evidence,
+                "causal_link": "本拍由前态触发动作，并直接造成下一拍。",
+                "performance_equivalence": "保留原拍的动作优先级和关系刺痛。",
+                "status": "passed",
+            }
+            for index, (source_beat, evidence) in enumerate(
+                [
+                    ("冷静试探", "她先问他今晚在哪。"),
+                    ("身体信号", "女孩忽然喘不上气，他立刻过去扶人。"),
+                    ("最后发现", "忙完后，他才看见门边的妻子。"),
+                ],
+                start=1,
+            )
+        ]
+        self.assertEqual(
+            [],
+            GATE.validate_required_sequence_receipts(bindings, content, receipts),
+        )
+        receipts[2]["target_evidence"] = receipts[1]["target_evidence"]
+        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts)
+        self.assertTrue(any("不得与其他拍重复" in error for error in errors))
 
     def test_close_section_blocks_when_verbatim_source_lines_repeat(self) -> None:
         with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]), mock.patch.object(

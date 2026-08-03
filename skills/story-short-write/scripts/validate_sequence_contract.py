@@ -111,6 +111,8 @@ def quote_with_offset(text: str, quote: str) -> list[dict[str, Any]]:
 def seed_canonical_sequence(setting_text: str, outline_text: str) -> list[dict[str, Any]]:
     setting_nodes = numbered_block_lines(setting_text, "不可打乱的事件顺序")
     if not setting_nodes:
+        setting_nodes = numbered_block_lines(setting_text, "不可打乱的顺序")
+    if not setting_nodes:
         setting_nodes = numbered_block_lines(setting_text, "来源功能绑定")
     outline_nodes = list(SECTION_HEADING_RE.finditer(outline_text))
     sequence: list[dict[str, Any]] = []

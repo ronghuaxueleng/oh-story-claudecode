@@ -13,9 +13,12 @@ from pathlib import Path
 from typing import Any
 
 
-SECTION_RE = re.compile(r"(?m)^(?:(\d+)\.\s*$|##\s*第\s*(\d+)\s*节(?:\s+.*)?$)")
+SECTION_RE = re.compile(
+    r"(?m)^(?:(?:###\s*)?(\d+)\.\s*$|##\s*第\s*(\d+)\s*节(?:\s+.*)?$)"
+)
 MIN_SECTION_CHARS = 800
 SECTION_CHAR_RATIO = 0.45
+MAX_SHORT_PARAGRAPH_RATIO = 0.85
 MANDATORY_CLOSE_MARKERS = (
     "event_flow=passed",
     "emotion_flow=passed",
@@ -185,16 +188,107 @@ def validate_required_sequence_coverage(
         ]
         if not required_sequence:
             continue
-        matched_count = 0
-        for step in required_sequence:
+        matched_steps: list[int] = []
+        for step_index, step in enumerate(required_sequence, start=1):
             markers = lexical_markers_from_sequence_line(step)
             if markers and any(marker in normalized_content for marker in markers):
-                matched_count += 1
-        minimum_required = max(1, len(required_sequence) - 2)
-        if matched_count < minimum_required:
-            errors.append(
-                f"正文未完整承接 {subflow_id} 的逐拍链：{len(required_sequence)} 拍中仅检测到 {matched_count} 拍的落点"
+                matched_steps.append(step_index)
+        missing_steps = [
+            (step_index, step)
+            for step_index, step in enumerate(required_sequence, start=1)
+            if step_index not in matched_steps
+        ]
+        if missing_steps:
+            missing_preview = " / ".join(
+                f"第{step_index}拍：{step}" for step_index, step in missing_steps
             )
+            errors.append(
+                f"正文未完整承接 {subflow_id} 的逐拍链："
+                f"{len(required_sequence)} 拍必须零遗漏，当前缺 {len(missing_steps)} 拍；"
+                f"{missing_preview}"
+            )
+    return errors
+
+
+def validate_required_sequence_receipts(
+    bindings: Any,
+    content: str,
+    receipts: Any,
+) -> list[str]:
+    if not isinstance(bindings, list):
+        return []
+    required: list[tuple[str, int, str]] = []
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            continue
+        subflow_id = str(binding.get("subflow_id") or "").strip()
+        contract = binding.get("source_subflow_contract")
+        if not isinstance(contract, dict):
+            continue
+        for beat_index, source_beat in enumerate(contract.get("required_sequence") or [], start=1):
+            source_beat_text = str(source_beat).strip()
+            if source_beat_text:
+                required.append((subflow_id, beat_index, source_beat_text))
+    if not required:
+        return []
+    if not isinstance(receipts, list):
+        return ["逐拍消费回填缺失：仿写 required_sequence 必须逐拍零容缺验收"]
+
+    actual: dict[tuple[str, int], dict[str, Any]] = {}
+    errors: list[str] = []
+    for index, item in enumerate(receipts, start=1):
+        if not isinstance(item, dict):
+            errors.append(f"逐拍消费回填[{index}] 必须是对象")
+            continue
+        key = (
+            str(item.get("subflow_id") or "").strip(),
+            item.get("beat_index") if isinstance(item.get("beat_index"), int) else -1,
+        )
+        if key in actual:
+            errors.append(f"逐拍消费回填重复认领 {key[0]} 第{key[1]}拍")
+        actual[key] = item
+
+    required_keys = {(subflow_id, beat_index) for subflow_id, beat_index, _ in required}
+    extra_keys = set(actual) - required_keys
+    if extra_keys:
+        errors.append(
+            "逐拍消费回填包含未绑定拍："
+            + " / ".join(f"{subflow_id}#{beat_index}" for subflow_id, beat_index in sorted(extra_keys))
+        )
+
+    evidence_positions: list[int] = []
+    seen_evidence: set[str] = set()
+    for subflow_id, beat_index, source_beat in required:
+        label = f"{subflow_id} 第{beat_index}拍"
+        item = actual.get((subflow_id, beat_index))
+        if not isinstance(item, dict):
+            errors.append(f"逐拍消费回填缺少 {label}：{source_beat}")
+            continue
+        if str(item.get("source_beat") or "").strip() != source_beat:
+            errors.append(f"{label}.source_beat 与完整来源合同不一致")
+        evidence = str(item.get("target_evidence") or "").strip()
+        if not evidence:
+            errors.append(f"{label}.target_evidence 必须引用当前正文独立原句")
+        elif evidence not in content:
+            errors.append(f"{label}.target_evidence 不在当前正文中: {evidence!r}")
+        elif evidence in seen_evidence:
+            errors.append(f"{label}.target_evidence 不得与其他拍重复认领同一句")
+        else:
+            seen_evidence.add(evidence)
+            evidence_positions.append(content.index(evidence))
+        for field, field_label in (
+            ("causal_link", "前态、触发、动作与下一拍因果"),
+            ("performance_equivalence", "心理、动作与情绪表演等强判断"),
+        ):
+            value = str(item.get(field) or "").strip()
+            if not value:
+                errors.append(f"{label}.{field} 必须说明{field_label}")
+            elif any(marker in value for marker in ("机械预填", "待确认", "待复核", "待当前模型")):
+                errors.append(f"{label}.{field} 不得使用机械占位话")
+        if item.get("status") != "passed":
+            errors.append(f"{label}.status 必须为 passed")
+    if evidence_positions != sorted(evidence_positions):
+        errors.append("逐拍消费回填的正文证据顺序与 required_sequence 不一致")
     return errors
 
 
@@ -409,7 +503,11 @@ def validate_close_content_signals(
             )
         if len(paragraphs) >= 8:
             short_paragraphs = [item for item in paragraphs if non_whitespace_chars(item) <= 40]
-            if short_paragraphs and len(short_paragraphs) / len(paragraphs) >= 0.7:
+            if (
+                short_paragraphs
+                and len(short_paragraphs) / len(paragraphs)
+                >= MAX_SHORT_PARAGRAPH_RATIO
+            ):
                 errors.append(
                     "正文段落气口失真：短促电报段占比过高，已无法承接 paragraph_breath_and_cut_points 的连续场面颗粒"
                 )
@@ -466,7 +564,13 @@ def validate_close_content_signals(
             errors.append(
                 "正文缺少粗粝打断信号：已绑定 narrator_interjection_and_roughness，但正文没有感叹/问句或短促断段"
             )
-    errors.extend(validate_required_sequence_coverage(bindings, content))
+    errors.extend(
+        validate_required_sequence_receipts(
+            bindings,
+            content,
+            target.get("required_sequence_receipts"),
+        )
+    )
     errors.extend(validate_binding_anchor_coverage(bindings, content))
     errors.extend(validate_source_excerpt_line_coverage(bindings, content))
     errors.extend(validate_verbatim_source_reuse(bindings, content))
@@ -690,7 +794,16 @@ def validate_receipt(
         errors.append("同时只能打开一个小节")
     actual_ids = draft_section_ids(draft)
     allowed_ids = completed_ids + [
-        str(item.get("section_id")) for item in sections if isinstance(item, dict) and item.get("status") == "open"
+        str(item.get("section_id"))
+        for item in sections
+        if isinstance(item, dict)
+        and (
+            item.get("status") == "open"
+            or (
+                item.get("status") == "pending"
+                and item.get("revision_reopen") is True
+            )
+        )
     ]
     if actual_ids != allowed_ids:
         errors.append(
@@ -757,12 +870,25 @@ def init_receipt(
         if not packet:
             print(f"section_draft_execution: blocked\n- 第 {section_id} 节缺少逐节原文颗粒包")
             return 2
+        packet_payload = packet.get("payload")
+        packet_bindings = (
+            packet_payload.get("source_slice_bindings")
+            if isinstance(packet_payload, dict)
+            else None
+        )
+        if not isinstance(packet_bindings, list) or not packet_bindings:
+            print(f"section_draft_execution: blocked\n- 第 {section_id} 节颗粒包缺少完整来源绑定")
+            return 2
         sections.append({
             "section_id": section_id,
             "status": "pending",
             "granularity_packet_id": str(packet.get("packet_id") or ""),
             "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
-            "source_slice_bindings": bindings,
+            "source_slice_bindings": [
+                {key: value for key, value in item.items() if key != "source_excerpt"}
+                for item in packet_bindings
+                if isinstance(item, dict)
+            ],
             "opened_at": "",
             "closed_at": "",
             "read_judgment": "",
@@ -773,6 +899,8 @@ def init_receipt(
             "telegraphic_and_relation_check": "pending",
             "section_sha256": "",
             "draft_sha256_after_close": "",
+            "required_sequence_receipts": [],
+            "revision_reopen": False,
         })
     data = {
         "version": "1.0",
@@ -812,6 +940,7 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
     target["status"] = "open"
     target["opened_at"] = now_iso()
     target["read_judgment"] = read_judgment.strip()
+    target["revision_reopen"] = False
     if not target.get("granularity_packet_id") or not target.get("granularity_packet_sha256"):
         print("section_draft_execution: blocked\n- 当前小节缺少逐节原文颗粒包绑定")
         return 2
@@ -820,7 +949,12 @@ def open_section(receipt: Path, section_id: str, read_judgment: str) -> int:
     return 0
 
 
-def close_section(receipt: Path, section_id: str, judgment: str) -> int:
+def close_section(
+    receipt: Path,
+    section_id: str,
+    judgment: str,
+    beat_receipt: Path | None = None,
+) -> int:
     data, errors = validate_receipt(receipt, deep_static_validation=False)
     if errors:
         print("section_draft_execution: blocked\n- " + "\n- ".join(errors))
@@ -834,6 +968,21 @@ def close_section(receipt: Path, section_id: str, judgment: str) -> int:
     if not content:
         print("section_draft_execution: blocked\n- 当前小节正文为空")
         return 2
+    if beat_receipt is not None:
+        try:
+            beat_payload = read_json(beat_receipt)
+        except Exception as exc:
+            print(f"section_draft_execution: blocked\n- 逐拍消费回填不可读取: {exc}")
+            return 2
+        if str(beat_payload.get("section_id") or "").strip() != section_id:
+            print("section_draft_execution: blocked\n- 逐拍消费回填 section_id 与当前节不一致")
+            return 2
+        if str(beat_payload.get("granularity_packet_sha256") or "").strip() != str(
+            target.get("granularity_packet_sha256") or ""
+        ).strip():
+            print("section_draft_execution: blocked\n- 逐拍消费回填绑定的颗粒包已过期")
+            return 2
+        target["required_sequence_receipts"] = beat_payload.get("beats")
     bundle_path = check_binding(
         data.get("section_source_bundle"),
         "section_source_bundle",
@@ -879,12 +1028,21 @@ def reopen_section(receipt: Path, section_id: str) -> int:
         print("section_draft_execution: blocked\n- gate 必须为 section_draft_execution")
         return 2
     target = next((item for item in data["sections"] if item["section_id"] == section_id), None)
-    if not target or target["status"] != "open":
-        print("section_draft_execution: blocked\n- 目标小节不存在或不是 open")
+    if not target or target["status"] not in {"open", "completed"}:
+        print("section_draft_execution: blocked\n- 目标小节不存在或不是 open/completed")
+        return 2
+    target_index = data["sections"].index(target)
+    if target["status"] == "completed" and any(
+        item.get("status") != "pending"
+        for item in data["sections"][target_index + 1 :]
+        if isinstance(item, dict)
+    ):
+        print("section_draft_execution: blocked\n- 只能回修最后一个已完成小节，后续小节必须全部为 pending")
         return 2
     if not target.get("granularity_packet_id") or not target.get("granularity_packet_sha256"):
         print("section_draft_execution: blocked\n- 当前小节缺少逐节原文颗粒包绑定")
         return 2
+    was_completed = target["status"] == "completed"
     target.update(
         {
             "status": "pending",
@@ -898,6 +1056,8 @@ def reopen_section(receipt: Path, section_id: str) -> int:
             "telegraphic_and_relation_check": "pending",
             "section_sha256": "",
             "draft_sha256_after_close": "",
+            "required_sequence_receipts": [],
+            "revision_reopen": was_completed,
         }
     )
     write_json(receipt, data)
@@ -925,6 +1085,7 @@ def main() -> int:
     closing.add_argument("--receipt", required=True)
     closing.add_argument("--section", required=True)
     closing.add_argument("--judgment", required=True)
+    closing.add_argument("--beat-receipt")
     validate = sub.add_parser("validate")
     validate.add_argument("--receipt", required=True)
     args = parser.parse_args()
@@ -942,7 +1103,12 @@ def main() -> int:
     if args.command == "reopen-section":
         return reopen_section(receipt, args.section)
     if args.command == "close-section":
-        return close_section(receipt, args.section, args.judgment)
+        return close_section(
+            receipt,
+            args.section,
+            args.judgment,
+            Path(args.beat_receipt).resolve() if args.beat_receipt else None,
+        )
     _, errors = validate_receipt(receipt, require_complete=True)
     if errors:
         print("section_draft_execution: blocked\n- " + "\n- ".join(errors))

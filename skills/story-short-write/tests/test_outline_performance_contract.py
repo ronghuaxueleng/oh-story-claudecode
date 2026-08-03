@@ -23,6 +23,15 @@ SPEC.loader.exec_module(GATE)
 
 
 class OutlinePerformanceContractTest(unittest.TestCase):
+    def test_summarize_errors_routes_unqualified_source_fields_to_first_draft(self) -> None:
+        errors = [
+            "第 4 节.source_slice_bindings[1].source_range 必须使用 L起始-L结束",
+            "第 4 节 source_performance_excerpt 必须来自主体原文完整颗粒包中的精确 SF 切片",
+            "第 4 节 source_performance_evidence 至少两条",
+        ]
+
+        self.assertEqual([("first-draft", errors)], GATE.summarize_errors(errors))
+
     @staticmethod
     def emotion_beats(evidence: str | list[str]) -> list[dict]:
         roles = [
@@ -169,6 +178,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
         self.receipt = self.root / "细纲表演验收回执.json"
         self._original_validate_primary_bundle = (
             GATE.PRIMARY_SOURCE_BUNDLE_MODULE.validate_bundle
@@ -581,6 +591,130 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         ]
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
+    def test_explicit_outline_source_binding_wins_over_bridge_fallback(self) -> None:
+        source = self.root / "binding-source.txt"
+        source.write_text("SF01第一句。\nSF01第二句。\nSF04第一句。\nSF04第二句。\n", encoding="utf-8")
+        explicit_contract = {
+            "source_range": "L1-L2",
+            "source_evidence": ["SF01第一句。", "SF01第二句。"],
+            "emotion_sequence": ["错愕", "受伤", "冷下去"],
+            "causal_preconditions": {},
+        }
+        bridge_contract = {
+            "source_range": "L3-L4",
+            "source_evidence": ["SF04第一句。", "SF04第二句。"],
+            "emotion_sequence": ["希望", "反刀", "余痛"],
+            "causal_preconditions": {},
+        }
+        block = {
+            "lines": [
+                "## 第1节",
+                "### 主体现来源绑定",
+                "- 主体::SF-01",
+                "### 入口状态",
+                "- 她仍在执行任务",
+                "### 主事件",
+                "- 她当场看见丈夫护住第三人",
+                "### 出口状态",
+                "- 她决定停止替他遮掩",
+            ]
+        }
+
+        seeded = GATE.build_section_seed(
+            "1",
+            "\n".join(block["lines"]),
+            block,
+            source_refs=[
+                {
+                    "source_path": str(source),
+                    "source_sha256": GATE.sha256(source),
+                    "role": "primary",
+                    "subflow_id": "SF-01",
+                    "contract": explicit_contract,
+                    "explicit_outline_binding": True,
+                }
+            ],
+            bridge_entry={"original_ranges": ["L3-L4"]},
+            bridge_subflows=[
+                {"subflow_id": "SF-04", "source_excerpt": "SF04第一句。\nSF04第二句。", "contract": bridge_contract}
+            ],
+        )
+
+        bindings = seeded["first_draft_generation_contract"]["source_slice_bindings"]
+        self.assertEqual("SF-01", bindings[0]["subflow_id"])
+        self.assertEqual("L1-L2", bindings[0]["source_range"])
+        self.assertIn("SF01第一句", seeded["first_draft_generation_contract"]["source_performance_excerpt"])
+        self.assertNotIn("SF04第一句", seeded["first_draft_generation_contract"]["source_performance_excerpt"])
+
+    def test_multi_segment_source_contract_creates_precise_slice_bindings(self) -> None:
+        source = self.root / "multi-segment-source.txt"
+        source.write_text(
+            "一段第一句。\n一段第二句。\n间隔。\n二段第一句。\n二段第二句。\n间隔二。\n三段第一句。\n三段第二句。\n",
+            encoding="utf-8",
+        )
+        seeded = GATE.build_section_seed(
+            "1",
+            "## 第1节\n- 主事件：她发现证据。",
+            {"lines": ["## 第1节", "- 主事件：她发现证据。"]},
+            source_refs=[
+                {
+                    "source_path": str(source),
+                    "source_sha256": GATE.sha256(source),
+                    "role": "primary",
+                    "subflow_id": "SF-07",
+                    "source_excerpt": "一段第一句。\n一段第二句。\n二段第一句。\n二段第二句。\n三段第一句。\n三段第二句。",
+                    "contract": {"source_range": "L1-L2、L4-L5、L7-L8"},
+                }
+            ],
+        )
+
+        contract = seeded["first_draft_generation_contract"]
+        self.assertEqual(
+            ["L1-L2", "L4-L5", "L7-L8"],
+            [item["source_range"] for item in contract["source_slice_bindings"]],
+        )
+        self.assertEqual("一段第一句。\n一段第二句。", contract["source_performance_excerpt"])
+        self.assertEqual(
+            "一段第一句。\n一段第二句。",
+            seeded["source_emotion_parity"]["source_excerpt"],
+        )
+
+    def test_subsection_map_reads_inline_bullet_labels(self) -> None:
+        lines = [
+            "## 第1节",
+            "- 入口状态：她仍相信丈夫在外地。",
+            "- 主事件：她在后台看见丈夫删名。",
+            "- 事件拍 1：她带母片进入后台。",
+            "- 事件拍 2：丈夫按下删名确认键。",
+            "- 事件拍 3：她截下版本号。",
+            "- 对话交锋：她问谁允许他删名。",
+            "- 出口状态：她确认丈夫撒谎。",
+        ]
+        parts = GATE.subsection_map(lines)
+
+        self.assertEqual(["她仍相信丈夫在外地。"], parts["入口状态"])
+        self.assertEqual(["她在后台看见丈夫删名。"], parts["主事件"])
+        self.assertEqual(["她确认丈夫撒谎。"], parts["出口状态"])
+        seeded = GATE.build_section_seed("1", "\n".join(lines), {"lines": lines})
+        chain = seeded["scene_logic_contract"]["beat_dependency_chain"]
+        self.assertEqual(3, len(chain))
+        self.assertEqual("她仍相信丈夫在外地。", chain[0]["from_state"])
+        self.assertEqual(chain[0]["to_state"], chain[1]["from_state"])
+        self.assertEqual("她确认丈夫撒谎。", chain[-1]["to_state"])
+        self.assertEqual("她问谁允许他删名。", seeded["first_draft_generation_contract"]["emotion_process"]["speech_misfire_or_avoidance"])
+
+    def test_resolve_section_contracts_treats_subject_alias_as_primary(self) -> None:
+        source_path = str(self.source.resolve())
+        refs = GATE.resolve_section_contracts(
+            ["主体::SF-01"],
+            [{"path": source_path, "role": "primary", "sha256": GATE.sha256(self.source)}],
+            {source_path: {"SF-01": {"source_range": "L1-L1"}}},
+        )
+
+        self.assertEqual(1, len(refs))
+        self.assertEqual("SF-01", refs[0]["subflow_id"])
+        self.assertEqual(source_path, refs[0]["source_path"])
+
     def test_evidence_lines_from_excerpt_keeps_cross_line_dialogue_sentence_intact(self) -> None:
         excerpt = "蒋湛听见了我的动静，正在围着围裙的男人转身冲我笑，\n「你洗手休息，马上开饭。」"
 
@@ -894,7 +1028,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         data["version"] = "1.4"
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
-        self.assertTrue(any("版本必须为 1.5" in error for error in errors))
+        self.assertTrue(any("版本必须为 1.8" in error for error in errors))
 
     def test_beat_dependency_chain_must_connect_states(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
@@ -996,6 +1130,16 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("必须来自选中原文" in error for error in errors))
+
+    def test_source_emotion_parity_rejects_mechanical_placeholder_judgments(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        parity = data["sections"][0]["source_emotion_parity"]
+        parity["manual_judgment"] = "机械预填：待当前模型补齐等强判断。"
+        parity["adaptation_boundary"] = "待确认反刀位是否等强。"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("manual_judgment 不得保留" in error for error in errors))
+        self.assertTrue(any("adaptation_boundary 不得保留" in error for error in errors))
 
     def test_first_draft_excerpt_must_be_real(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

@@ -46,6 +46,19 @@
 
 “和原文一样”指情绪功能、顺序、反刀时机、峰值位置、场末余痛和读者体感烈度对齐，不复制原句、人物、职业或完整情节壳。不能用“整节总分相同”掩盖中间某一拍被削弱。
 
+`required_sequence` 是零容缺合同，不是抽样指标。主体与已选辅助 `SF-*` 的每一拍都必须在目标细纲和正文中有独立落点；禁止容许漏一拍或漏两拍，禁止把相邻承重拍合并成一个结果句。逐拍验收必须判断“前态 -> 触发 -> 动作选择 -> 可见结果 -> 下一拍原因”，不能用关键词、状态标签或同一处证据重复认领多拍。任何一拍缺失都必须阻断当前节关闭并回写正文。
+
+`required_sequence` 必须全量进入逐节展示、细纲映射和正文关闭校验，不得只展示前四拍。`source_emotion_parity.manual_judgment` 与 `adaptation_boundary` 必须由当前模型给出已完成判断；保留“机械预填 / 待确认 / 待复核”等占位话时不得通过。
+
+正文 `open-section` 后由工具箱生成 `写作资产/当前节逐拍消费回填.json`。每条固定绑定 `subflow_id / beat_index / source_beat`，当前模型只补：
+
+- `target_evidence`：当前正文中承担本拍的独立原句，不得与其他拍重复；
+- `causal_link`：说明前态如何触发动作、动作如何造成可见结果并推动下一拍；
+- `performance_equivalence`：说明心理过程、身体动作、注意顺位或情绪刺痛为何没有降级成标签；
+- `status`：人工验收后改为 `passed`。
+
+`advance-section` 必须校验颗粒包 SHA、拍数、拍号、原拍文本、正文证据存在性、证据唯一性和正文出现顺序。任何一项失败都留在当前节回写，不允许以总覆盖率或口头 `passed` 代替。
+
 ## 执行时机
 
 设定与细纲完成后，且在任何正文首写、全文重写或正文大回炉前，必须先初始化并人工回填：
@@ -82,6 +95,8 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-validate
 `outline-validate` 会先执行快速预检；预检未过时直接阻断并跳过正式全量 `validate_outline_performance_contract.py validate`。输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲、任一选中原文、主体原文完整颗粒包或拆文读取回执 SHA 变化后，旧回执立即失效。1.4 及更早回执不具备节内逐拍链、跨节交接链和辅助 SF 全流程对齐，必须重新 `init` 并由当前模型人工回填。进入某一节正文前，必须重新读取该节 `source_performance_excerpt` 和完整生成契约；不得只凭对话上下文、`模型语义输出.json` 概括结论或压缩后的细纲开写。
 
 `outline-precheck` 或 `outline-validate` 一旦失败，工具箱会自动刷新 `当前细纲修闸包.json + 当前细纲修闸回填.json`。失败后禁止继续用 `cat / sed / jq` 逐层探测整张回执，也禁止为了“摸字段”去读旧项目同名文件。唯一允许的修闸闭环是：编辑当前回填模板 -> `outline-repair-apply --packet-sha ...` -> 立刻重跑刚才被阻断的命令。
+
+修闸回填必须是最小字段 delta。`sections` 只输出当前失败小节及报错字段，写回时递归合并，不得整节替换已经通过的嵌套字段；`section_handoff_chain` 只输出报错中的相邻节对。包内 `eligible_outline_evidence` 是从当前 `小节大纲.md` 有界摘出的可用原句，所有 `outline_evidence / target_outline_evidence` 必须从中逐字复制，同义改写不算命中。
 
 ### 颗粒度原创模式
 
@@ -159,7 +174,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-validate
 2. `controlling_object`：本场唯一主控物件或空间控制点，必须服务人物争夺。
 3. `source_function_mechanism`：绑定拆书资料中的功能机制，说明本节迁移的是公开掉位、私域换主、不可替代物爆体、高成本补救后再选错、行动验收、公开反噬、私人尾声等哪类功能；必须填写拆书资产路径、资产规则和本节采用理由。
 4. `original_scene_granularity`：绑定选中原文具体桥段，写清原文场面颗粒度：谁先施压、谁抢/挡/松手、哪个物件或空间改归属、哪句台词逼出动作、旁观者或外部秩序如何改变现场。不能只写“参考原文节奏”。
-5. `scene_logic_contract`：绑定原文的 `causal_asset_id`、原文路径/SHA 和至少两条真实证据；逐项填写目标人物为何同场、各自入场前知道什么、关键物件何时生成/持有/使用、明显替代方案为何不可用、本场如何触发下一场。还必须用 `scene_entry_state / scene_exit_state / beat_dependency_chain` 逐拍闭合前态、触发、知情、空间或物件权限、后态和下一拍原因；用 `knowledge_state_chain` 记录承重事实如何被谁在第几拍获知；逐项裁决人物汇合、关键信息延迟、精准打断和空间/物件权限四类风险。`external_rule_dependency` 涉及医疗/法律/金融/行政时必须有可靠依据；无法核实时不得借制度硬推，改由角色主动选择承担责任。
+5. `scene_logic_contract`：绑定原文的 `causal_asset_id`、原文路径/SHA 和至少两条真实证据；逐项填写目标人物为何同场、各自入场前知道什么、关键物件何时生成/持有/使用、明显替代方案为何不可用、本场如何触发下一场。还必须用 `scene_entry_state / scene_exit_state / beat_dependency_chain` 逐拍闭合前态、触发、知情、空间或物件权限、后态和下一拍原因。等值合同是：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；`knowledge_state_chain` 从 `initial_state` 起逐次要求前一迁移 `to_state == 后一迁移 from_state`，且末次 `to_state == final_state`。用知情链记录承重事实如何被谁在第几拍获知；逐项裁决人物汇合、关键信息延迟、精准打断和空间/物件权限四类风险。`external_rule_dependency` 涉及医疗/法律/金融/行政时必须有可靠依据；无法核实时不得借制度硬推，改由角色主动选择承担责任。
 6. `source_mechanism`：绑定一段选中原文，说明只迁移的表演机制，以及不复制人物、职业、原句和完整桥壳的改写边界。
 7. `information_delay`：入场已知、本场只漏出什么、必须压到后场的事实分别是什么。
 7. `character_missteps`：至少两条。写清谁先躲、谁先抓、谁错答、谁把什么当作可以补救，不写抽象性格标签。

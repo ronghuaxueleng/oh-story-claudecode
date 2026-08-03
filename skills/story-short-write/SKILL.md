@@ -9,7 +9,7 @@ description: |
 
 执行短篇网文完整写作流程。优先保证原文事件、因果、情绪、表演和文风颗粒真正进入首写，不用事后润色补救写前缺失。
 
-当前流程版本：`1.11.0`。
+当前流程版本：`1.12.0`。
 
 ## 边界
 
@@ -121,13 +121,17 @@ python3 "$TOOLBOX" --project "{项目目录}" setting-context
 
 `prepare-setting` 通过后，设定阶段只允许读取 `setting-context` 输出的有界摘要，再运行工具箱给出的 `stage-reference --stage setting`。禁止直接 `cat/wc/awk/sed` 阶段 Markdown，禁止重复运行 `prepare-setting`，禁止 `rg --files` / `find` 枚举项目目录，禁止整包读取 `profiles/{项目名}.project.profile.json` 或 `写作资产/主体原文完整颗粒包.json`；如需字段，必须走 `setting-context`。
 
+设定阶段的 `setting-context` 不展示 `source_excerpt` 或原文预览，只提供来源功能合同。设定必须逐个覆盖主体全部 `SF-*` 与已选辅助 `SF-*`，写入 `## 换链差异矩阵`：每个单元固定填写 `来源表层件 / 保留机制 / 新稿实现 / 更换维度 / 用户锁定复用 / 禁止回流`。`新稿实现` 必须使用 Unicode `→`；`更换维度` 只能逐字使用工具箱给出的允许标签；`禁止回流` 必须逐字重列除用户锁定项之外的每个 `来源表层件`。`direct_imitation` 只迁移因果前提、信息延迟、控制权变化、情绪过程和文风运行方式，不得保留原地点、原物件、原金额、原职业流程或原场景连续动作后只改人名；除用户明确锁定的题面件外，至少更换四类实质维度。矩阵缺项、目标链少于四拍或两个以上来源表层件回流，工具箱必须阻断进入细纲。
+
 设定最多分两次补丁落盘；细纲固定分三批落盘：第 1-4 节、第 5-8 节、第 9 节至末节及全书状态链。禁止先发送“现在写入”后在单次超大补丁前静默生成数分钟。设定落盘后立即运行：
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" stage-reference --stage outline
 ```
 
-细纲三批全部落盘后立即运行 `prepare-draft-gates`，不得停在大纲文件生成提示上。
+该命令会先机械校验换链差异矩阵；门禁未通过时不返回细纲阶段资料，禁止靠口头解释绕过。
+
+细纲中的小节一级标题必须独占一行且严格写成 `## 第N节`，标题另起一行写 `### 标题：...`；禁止写成 `## 第N节：标题` 或 `## 第N节 标题`。细纲三批全部落盘后立即运行 `prepare-draft-gates`，不得停在大纲文件生成提示上。
 
 设定写完并通过设定内部顺序契约、大纲写完后，正文首写前必须运行：
 
@@ -154,6 +158,8 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only first-draf
 ```
 
 `outline-precheck` 只读 `小节大纲.md + 细纲表演验收回执.json`，用于快速发现空字段、证据句不命中、交接状态不一致和跨节模板复用。只有局部预检通过后，才运行正式全量：
+
+`opening-precheck / sequence-precheck / draft-capacity-precheck` 本身会在失败时生成当前修闸包和回填模板；对应写回命令只能是 `opening-apply / sequence-apply / draft-capacity-apply`。不存在 `opening-repair-next / sequence-repair-next / draft-capacity-repair-next`。细纲才使用 `outline-repair-next / outline-repair-apply`。
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" outline-validate
@@ -192,6 +198,8 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 ```
 
 工具箱会原子写回正式 `细纲表演验收回执.json`。写回后仍应立刻重跑 `start-draft`，不要停在单张回执成功提示上。禁止在修闸阶段手写项目专用临时脚本、临时 `/tmp/*.json` 依赖或整张回执大补丁。
+
+局部回填是字段级 delta：只能包含当前失败小节、失败字段或失败交接，不得复制整节、整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。
 
 修闸过程中如果脚本提示某个字段缺失，只允许回到以下来源补齐：
 
@@ -243,9 +251,9 @@ python3 "$TOOLBOX" --project "{项目目录}" start-draft
 ```
 
 10. 第一节执行 `show-section -> 完整阅读 -> open-section`。
-11. 只写当前节。写完立即对照原文检查事件流程、情绪过程、文风颗粒、句间关系和段落气口。
+11. 只写当前节。`open-section` 会生成 `写作资产/当前节逐拍消费回填.json`；写完后按每个绑定 SF 的全部 `required_sequence` 逐拍填写正文独立原句、因果链、表演等强判断和 `status=passed`，不得复用同一句认领多拍。
 12. 当前节不合格时当场整场重写，不等待全文完成后统一润色。
-13. 运行 `advance-section` 关闭当前节并展示下一节完整包；读完后再显式 `open-section`。
+13. 运行 `advance-section`。工具箱会先校验逐拍回填与当前颗粒包 SHA、正文原句、拍序和零容缺状态，通过后才关闭当前节并展示下一节完整包；读完后再显式 `open-section`。
 14. 全文完成后只做首稿基础审计和一次必要回修，随后交付 `draft_preview` 并停靠。
 15. 用户明确确认深审后，才进入人工切窗、正式审计、最终台账重绑和写后人工语义复核。
 
@@ -255,6 +263,10 @@ python3 "$TOOLBOX" --project "{项目目录}" start-draft
 
 - 原文颗粒度与事件颗粒度同级验收；只读 profile、摘要、桥名或功能概括不算。
 - 每节必须使用完整逐节原文颗粒包，禁止以 `模型语义输入.json`、单条 binding 或五拍摘要替代。
+- 仿写绑定的每个主体及辅助 `SF-*` 都实行逐拍零容缺：`required_sequence` 有几拍就必须逐拍全部落地，禁止按比例放行、允许漏拍、合并掉承重拍，或用同一个结果句冒充多拍消费。
+- 每拍必须保留其前态、触发、动作选择、可见结果和对下一拍的因果作用。状态标签、情绪概括、关键词露面或后文存在一个无关动作，都不能证明该拍已经消费。
+- `show-section` 必须展示每个绑定 `SF-*` 的完整 `source_dense_beats`，禁止只截前四拍或以摘要替代末端动作链；未完整读到最后一拍不得 `open-section`。
+- 关节必须使用 `当前节逐拍消费回填.json` 留证：每拍的 `target_evidence` 必须是当前正文中的独立原句且按原拍序出现；`causal_link` 与 `performance_equivalence` 禁止机械占位，任一拍缺失、重复认领、乱序或未通过都不得 `advance-section`。
 - 情绪必须包含注意偏移、非自主反应、偏见或自欺、说话失手、动作选择和余痛中的真实过程，不能缩成动作标签。
 - 同一连续瞬间优先写成连续气口；禁止动作、证据、反应各自一句一段的电报稿。
 - 对白优先试探、回避、错答和找补，不写人人都会总结主题的功能对白。

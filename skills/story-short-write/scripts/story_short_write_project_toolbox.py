@@ -19,7 +19,7 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CACHE_VERSION = "647-mechanical-v1"
+CACHE_VERSION = "649-focused-outline-repair-v1"
 PROJECT_RESERVATION_FILE = ".story-short-write-reservation.json"
 SOURCE_REVIEW_PACKET_KIND = "source_semantic_review_packet"
 SOURCE_REVIEW_ITEM_RESULT_KIND = "source_semantic_review_item_result"
@@ -70,6 +70,33 @@ OUTLINE_PRECHECK_GROUPS: tuple[str, ...] = (
     "sections",
     "first-draft",
     "auxiliary",
+)
+ADAPTATION_DIMENSIONS: tuple[str, ...] = (
+    "场所",
+    "人物身份",
+    "职业流程",
+    "关键物件",
+    "触发动作",
+    "冲突载体",
+    "现实后果",
+    "知情路径",
+    "公开场",
+)
+ADAPTATION_GENERIC_TERMS: frozenset[str] = frozenset(
+    {
+        "女主",
+        "男主",
+        "丈夫",
+        "妻子",
+        "第三人",
+        "第三者",
+        "失位",
+        "情绪",
+        "控制权",
+        "信息延迟",
+        "关系",
+        "冲突",
+    }
 )
 
 
@@ -399,6 +426,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "draft_capacity_item_output": asset / "当前容量修闸回填.json",
         "section_source_bundle": asset / "逐节原文颗粒包.json",
         "section_execution_receipt": asset / "逐节首写执行回执.json",
+        "section_beat_receipt": asset / "当前节逐拍消费回填.json",
         "first_draft_entry": asset / "首稿入口回执.json",
         "first_draft_basic_review": asset / "首稿基础审计回执.json",
         "preflight_cache": asset / "机械预检缓存.json",
@@ -1729,6 +1757,8 @@ def outline_repair_template_for_key(
     receipt_key: str,
     focus_group: str = "",
     focus_section_ids: list[str] | None = None,
+    focus_errors: list[str] | None = None,
+    focus_handoff_pairs: list[tuple[str, str]] | None = None,
 ) -> Any:
     if receipt_key in {
         "sections",
@@ -1789,12 +1819,28 @@ def outline_repair_template_for_key(
         focus_id_set = {section_id for section_id in focus_section_ids if section_id}
         sections = data.get("sections")
         if isinstance(sections, list):
-            return [
+            focused_sections = [
                 copy.deepcopy(item)
                 for item in sections
                 if isinstance(item, dict)
                 and str(item.get("section_id") or "") in focus_id_set
             ]
+            if focus_errors is not None:
+                return minimal_section_repair_template(
+                    focused_sections, focus_group, focus_errors
+                )
+            return focused_sections
+    if receipt_key == "section_handoff_chain" and focus_handoff_pairs:
+        pair_set = set(focus_handoff_pairs)
+        return [
+            copy.deepcopy(item)
+            for item in data.get(receipt_key) or []
+            if isinstance(item, dict)
+            and (
+                str(item.get("from_section_id") or "").strip(),
+                str(item.get("to_section_id") or "").strip(),
+            ) in pair_set
+        ]
     if receipt_key in data:
         return copy.deepcopy(data[receipt_key])
     if receipt_key == "global_review":
@@ -1819,8 +1865,142 @@ def parse_outline_sections_map(outline_text: str) -> dict[str, str]:
     }
 
 
+def eligible_outline_evidence(section_text: str, limit: int = 12) -> list[str]:
+    """Return bounded exact substrings that can be pasted into evidence fields."""
+    candidates: list[str] = []
+    for raw_line in section_text.splitlines()[1:]:
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("###"):
+            continue
+        candidate = re.sub(r"^(?:[-*+]\s+|\d+[.、．]\s*)", "", stripped).strip()
+        if candidate and candidate in section_text and candidate not in candidates:
+            candidates.append(candidate)
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def outline_repair_focus_handoff_pairs(errors: list[str]) -> list[tuple[str, str]]:
+    pairs: list[tuple[str, str]] = []
+    for error in errors:
+        for match in re.finditer(r"(?:小节交接\s*)?(\d+)\s*->\s*(\d+)", error):
+            pair = (match.group(1), match.group(2))
+            if pair not in pairs:
+                pairs.append(pair)
+    return pairs
+
+
+def nested_value(value: Any, path: tuple[str, ...]) -> Any:
+    current = value
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return copy.deepcopy(current)
+
+
+def assign_nested_value(target: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    current = target
+    for key in path[:-1]:
+        child = current.get(key)
+        if not isinstance(child, dict):
+            child = {}
+            current[key] = child
+        current = child
+    current[path[-1]] = copy.deepcopy(value)
+
+
+def section_repair_field_paths(
+    focus_group: str,
+    errors: list[str],
+) -> list[tuple[str, ...]]:
+    paths: list[tuple[str, ...]] = []
+
+    def add(path: tuple[str, ...]) -> None:
+        if path not in paths:
+            paths.append(path)
+
+    nested_roots = (
+        "first_draft_generation_contract",
+        "scene_logic_contract",
+        "source_emotion_parity",
+        "source_function_mechanism",
+        "relationship_legibility",
+        "emotion_intensity",
+        "professional_shell_translation",
+    )
+    for error in errors:
+        for root in nested_roots:
+            match = re.search(rf"{root}\.([A-Za-z_]+)", error)
+            if match:
+                child = match.group(1)
+                grandchild = re.search(
+                    rf"{root}\.{re.escape(child)}\.([A-Za-z_]+)", error
+                )
+                add((root, child, grandchild.group(1)) if grandchild else (root, child))
+        for child in (
+            "source_slice_bindings",
+            "source_performance_excerpt",
+            "source_performance_evidence",
+        ):
+            if child in error:
+                add(("first_draft_generation_contract", child))
+        if "beat_dependency_chain" in error:
+            add(("scene_logic_contract", "beat_dependency_chain"))
+        if "knowledge_state_chain" in error:
+            add(("scene_logic_contract", "knowledge_state_chain"))
+        for field in OUTLINE_PERFORMANCE.REQUIRED_SECTION_FIELDS:
+            if field in error and not any(path[0] == field for path in paths):
+                add((field,))
+    if not paths:
+        add(("first_draft_generation_contract",) if focus_group == "first-draft" else ("verdict",))
+    return paths
+
+
+def minimal_section_repair_template(
+    sections: list[dict[str, Any]],
+    focus_group: str,
+    errors: list[str],
+) -> list[dict[str, Any]]:
+    field_paths = section_repair_field_paths(focus_group, errors)
+    result: list[dict[str, Any]] = []
+    for section in sections:
+        delta: dict[str, Any] = {
+            "section_id": str(section.get("section_id") or "").strip()
+        }
+        for path in field_paths:
+            value = nested_value(section, path)
+            if value is None:
+                value = [] if path[-1] in {
+                    "source_slice_bindings",
+                    "source_performance_evidence",
+                    "continuous_moment_groups",
+                    "paragraph_break_reasons",
+                    "sentence_relation_plan",
+                    "emotion_shorthand_to_avoid",
+                    "beat_dependency_chain",
+                    "knowledge_state_chain",
+                    "outline_evidence",
+                    "target_outline_evidence",
+                } else ""
+            assign_nested_value(delta, path, value)
+        result.append(delta)
+    return result
+
+
 def analyze_outline_progress(outline_text: str) -> dict[str, Any]:
-    section_ids = OUTLINE_PERFORMANCE.outline_sections(outline_text)
+    strict_pattern = re.compile(r"^##\s+第\s*(\d+)\s*节\s*$")
+    section_ids = [
+        match.group(1)
+        for raw_line in outline_text.splitlines()
+        if (match := strict_pattern.match(raw_line))
+    ]
+    malformed_section_headings = [
+        raw_line.strip()
+        for raw_line in outline_text.splitlines()
+        if re.match(r"^##\s+.*(?:第\s*)?\d+\s*节", raw_line)
+        and strict_pattern.match(raw_line) is None
+    ]
     numeric_ids = sorted(
         {
             int(section_id)
@@ -1850,6 +2030,11 @@ def analyze_outline_progress(outline_text: str) -> dict[str, Any]:
     )
 
     missing_items: list[str] = []
+    if malformed_section_headings:
+        missing_items.append(
+            "小节标题格式错误；一级标题必须独占一行写成 `## 第N节`，标题另起一行: "
+            + " | ".join(malformed_section_headings[:3])
+        )
     if not numeric_ids:
         missing_items.append("缺少任何 `## 第N节` 大纲小节")
     else:
@@ -1872,6 +2057,7 @@ def analyze_outline_progress(outline_text: str) -> dict[str, Any]:
         "numeric_ids": numeric_ids,
         "max_section_id": numeric_ids[-1] if numeric_ids else 0,
         "missing_internal_sections": missing_internal_sections,
+        "malformed_section_headings": malformed_section_headings,
         "has_story_fact_state_ledger": has_story_fact_state_ledger,
         "has_section_handoff_chain": has_section_handoff_chain,
         "missing_items": missing_items,
@@ -1897,8 +2083,6 @@ def outline_trim_focus_section_ids(
     section_ids: list[str],
 ) -> list[str]:
     if receipt_key != "sections":
-        return section_ids
-    if focus_group == "first-draft":
         return section_ids
     return section_ids[:OUTLINE_REPAIR_MAX_SECTIONS_PER_PACKET]
 
@@ -2001,7 +2185,7 @@ def merge_outline_sections_by_id(
         if section_id in target_id_set:
             replacement = updated_map.get(section_id)
             if replacement is not None:
-                merged.append(copy.deepcopy(replacement))
+                merged.append(deep_merge_outline_delta(item, replacement))
                 seen_target_ids.add(section_id)
             else:
                 merged.append(copy.deepcopy(item))
@@ -2011,6 +2195,47 @@ def merge_outline_sections_by_id(
         if section_id not in seen_target_ids and section_id in updated_map:
             merged.append(copy.deepcopy(updated_map[section_id]))
             seen_target_ids.add(section_id)
+    return merged
+
+
+def deep_merge_outline_delta(base: Any, delta: Any) -> Any:
+    if isinstance(base, dict) and isinstance(delta, dict):
+        merged = copy.deepcopy(base)
+        for key, value in delta.items():
+            merged[key] = deep_merge_outline_delta(merged.get(key), value)
+        return merged
+    return copy.deepcopy(delta)
+
+
+def merge_outline_handoffs_by_pair(base: Any, updated: Any) -> list[dict[str, Any]]:
+    if not isinstance(updated, list):
+        raise ValueError("section_handoff_chain 回填必须是数组")
+    base_list = [copy.deepcopy(item) for item in (base or []) if isinstance(item, dict)]
+    updated_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in updated:
+        if not isinstance(item, dict):
+            continue
+        pair = (
+            str(item.get("from_section_id") or "").strip(),
+            str(item.get("to_section_id") or "").strip(),
+        )
+        if not all(pair):
+            raise ValueError("交接回填必须包含 from_section_id 和 to_section_id")
+        updated_map[pair] = copy.deepcopy(item)
+    merged: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in base_list:
+        pair = (
+            str(item.get("from_section_id") or "").strip(),
+            str(item.get("to_section_id") or "").strip(),
+        )
+        merged.append(
+            deep_merge_outline_delta(item, updated_map[pair])
+            if pair in updated_map
+            else item
+        )
+        seen.add(pair)
+    merged.extend(value for pair, value in updated_map.items() if pair not in seen)
     return merged
 
 
@@ -2280,11 +2505,26 @@ def outline_repair_template_from_packet(
         if isinstance(focus_context, dict)
         else []
     )
+    focus_handoff_pairs = (
+        [
+            (str(item[0]).strip(), str(item[1]).strip())
+            for item in (focus_context.get("focus_handoff_pairs") or [])
+            if isinstance(item, list) and len(item) == 2
+        ]
+        if isinstance(focus_context, dict)
+        else []
+    )
     return outline_repair_template_for_key(
         receipt,
         receipt_key,
         focus_group=str(packet.get("focus_group") or "").strip(),
         focus_section_ids=focus_section_ids,
+        focus_errors=(
+            [str(item) for item in packet.get("focus_errors") or []]
+            if "focus_errors" in packet
+            else None
+        ),
+        focus_handoff_pairs=focus_handoff_pairs,
     )
 
 
@@ -2758,8 +2998,16 @@ def outline_precheck_errors_from_data(
             )
 
     if "first-draft" in enabled:
+        target_sections = sections
+        if focus_section_ids:
+            focus_id_set = {section_id for section_id in focus_section_ids if section_id}
+            target_sections = [
+                section
+                for section in sections
+                if str(section.get("section_id") or "") in focus_id_set
+            ]
         repeated_templates = collect_repeated_generation_templates(sections)
-        for section in sections:
+        for section in target_sections:
             label = f"第 {section.get('section_id')} 节"
             contract = section.get("first_draft_generation_contract")
             if not isinstance(contract, dict):
@@ -2773,12 +3021,13 @@ def outline_precheck_errors_from_data(
                 errors,
                 strong_emotion_required=strong_emotion_required,
             )
-        for (field, _value), repeated_sections in repeated_templates.items():
-            if len(repeated_sections) >= 3:
-                errors.append(
-                    f"首写生成契约字段 {field} 在三节以上复用同一模板，必须逐节改写: "
-                    + ", ".join(repeated_sections)
-                )
+        if not focus_section_ids:
+            for (field, _value), repeated_sections in repeated_templates.items():
+                if len(repeated_sections) >= 3:
+                    errors.append(
+                        f"首写生成契约字段 {field} 在三节以上复用同一模板，必须逐节改写: "
+                        + ", ".join(repeated_sections)
+                    )
 
     if "auxiliary" in enabled:
         auxiliary = data.get("auxiliary_subflow_flow_parity")
@@ -2848,11 +3097,14 @@ def build_outline_repair_packet(
         outline_precheck_focus_section_ids(focus_errors),
     )
     focus_errors = outline_filter_errors_for_section_ids(focus_errors, focus_section_ids)
+    focus_handoff_pairs = outline_repair_focus_handoff_pairs(focus_errors)
     result_template = outline_repair_template_for_key(
         receipt,
         receipt_key,
         focus_group=focus_group,
         focus_section_ids=focus_section_ids,
+        focus_errors=focus_errors,
+        focus_handoff_pairs=focus_handoff_pairs,
     )
     outline_sections_map = parse_outline_sections_map(outline_text)
     current_sections = outline_section_entries_for_ids(receipt.get("sections"), focus_section_ids)
@@ -2871,6 +3123,17 @@ def build_outline_repair_packet(
             for section_id in focus_section_ids
         }
         focus_context["current_sections"] = compact_outline_sections_for_repair(current_sections)
+        focus_context["eligible_outline_evidence"] = {
+            section_id: eligible_outline_evidence(outline_sections_map.get(section_id, ""))
+            for section_id in focus_section_ids
+        }
+    if focus_handoff_pairs:
+        focus_context["focus_handoff_pairs"] = [list(pair) for pair in focus_handoff_pairs]
+        handoff_section_ids = list(dict.fromkeys(item for pair in focus_handoff_pairs for item in pair))
+        focus_context["eligible_outline_evidence"] = {
+            section_id: eligible_outline_evidence(outline_sections_map.get(section_id, ""))
+            for section_id in handoff_section_ids
+        }
     source_metadata = source_metadata_for_selected_sources(receipt)
     if receipt_key == "sections":
         primary_inventory = compact_primary_subflow_inventory_for_outline_repair(
@@ -3339,6 +3602,11 @@ def command_outline_repair_apply(paths: dict[str, Path], args: argparse.Namespac
                     updated_value,
                     focus_section_ids,
                 )
+            elif receipt_key == "section_handoff_chain":
+                candidate_receipt[receipt_key] = merge_outline_handoffs_by_pair(
+                    receipt.get(receipt_key),
+                    updated_value,
+                )
             else:
                 candidate_receipt[receipt_key] = updated_value
         except ValueError as exc:
@@ -3540,7 +3808,7 @@ def outline_contract_refresh_reasons(
         return ["invalid-outline-contract-json"]
 
     reasons: list[str] = []
-    if receipt.get("version") != "1.6":
+    if receipt.get("version") != "1.8":
         reasons.append("outline-contract-version-stale")
 
     outline_binding = receipt.get("outline")
@@ -4755,7 +5023,6 @@ def compact_subflows_for_setting(bundle: dict[str, Any]) -> list[dict[str, Any]]
                     contract_dict.get("emotion_sequence"), 5
                 ),
                 "style_granularity_keys": sorted(str(key) for key in style_dict.keys())[:8],
-                "source_excerpt_preview": str(item.get("source_excerpt") or "").strip()[:160],
             }
         )
     return result
@@ -4777,7 +5044,6 @@ def compact_auxiliary_subflows_for_setting(source_receipt: dict[str, Any]) -> li
         if len(originals) != 1:
             continue
         original = originals[0]
-        original_text = SOURCE_READ.read_text(original)
         contracts = source.get("selected_subflow_contracts")
         if not isinstance(contracts, list):
             continue
@@ -4786,9 +5052,6 @@ def compact_auxiliary_subflows_for_setting(source_receipt: dict[str, Any]) -> li
             if not isinstance(contract, dict):
                 continue
             source_range = str(contract.get("source_range") or "").strip()
-            excerpt = ""
-            if source_range:
-                excerpt, _ = SOURCE_READ.source_slice_for_range(original_text, source_range)
             style = contract.get("source_style_granularity")
             style_dict = style if isinstance(style, dict) else {}
             subflows.append(
@@ -4823,7 +5086,6 @@ def compact_auxiliary_subflows_for_setting(source_receipt: dict[str, Any]) -> li
                     ),
                     "end_state": str(contract.get("end_state") or "").strip(),
                     "style_granularity_keys": sorted(str(key) for key in style_dict.keys())[:8],
-                    "source_excerpt_preview": excerpt.strip()[:140],
                 }
             )
         result.append(
@@ -4943,6 +5205,150 @@ def trim_setting_context_to_byte_limit(
     return trimmed
 
 
+def adaptation_units_from_setting_context(context: dict[str, Any]) -> list[str]:
+    units: list[str] = []
+    primary = context.get("primary_source_bundle_summary")
+    if isinstance(primary, dict):
+        for item in primary.get("subflows") or []:
+            if not isinstance(item, dict):
+                continue
+            subflow_id = str(item.get("subflow_id") or "").strip()
+            if subflow_id:
+                units.append(f"主体::{subflow_id}")
+    auxiliaries = context.get("auxiliary_source_bundle_summaries")
+    if isinstance(auxiliaries, list):
+        for summary in auxiliaries:
+            if not isinstance(summary, dict):
+                continue
+            source = summary.get("source")
+            source_name = (
+                str(source.get("name") or "").strip()
+                if isinstance(source, dict)
+                else ""
+            )
+            for item in summary.get("subflows") or []:
+                if not isinstance(item, dict):
+                    continue
+                subflow_id = str(item.get("subflow_id") or "").strip()
+                if source_name and subflow_id:
+                    units.append(f"{source_name}::{subflow_id}")
+    return list(dict.fromkeys(units))
+
+
+def split_adaptation_terms(value: str) -> list[str]:
+    return list(
+        dict.fromkeys(
+            term.strip(" `*\t")
+            for term in re.split(r"[、,，/|；;]+", value)
+            if len(term.strip(" `*\t")) >= 2
+            and term.strip(" `*\t") not in ADAPTATION_GENERIC_TERMS
+        )
+    )
+
+
+def setting_without_adaptation_matrix(setting_text: str) -> str:
+    match = re.search(r"(?m)^##\s+换链差异矩阵\s*$", setting_text)
+    if match is None:
+        return setting_text
+    following = re.search(r"(?m)^##\s+", setting_text[match.end() :])
+    end = match.end() + following.start() if following is not None else len(setting_text)
+    return setting_text[: match.start()] + setting_text[end:]
+
+
+def parse_adaptation_matrix(setting_text: str) -> dict[str, dict[str, str]]:
+    section_match = re.search(r"(?m)^##\s+换链差异矩阵\s*$", setting_text)
+    if section_match is None:
+        return {}
+    trailing = setting_text[section_match.end() :]
+    next_section = re.search(r"(?m)^##\s+", trailing)
+    section = trailing[: next_section.start()] if next_section is not None else trailing
+    heading_matches = list(
+        re.finditer(r"(?m)^###\s+换链单元[：:]\s*(.+?)\s*$", section)
+    )
+    result: dict[str, dict[str, str]] = {}
+    for index, heading in enumerate(heading_matches):
+        unit = heading.group(1).strip()
+        block_end = (
+            heading_matches[index + 1].start()
+            if index + 1 < len(heading_matches)
+            else len(section)
+        )
+        block = section[heading.end() : block_end]
+        fields: dict[str, str] = {}
+        for label in (
+            "来源表层件",
+            "保留机制",
+            "新稿实现",
+            "更换维度",
+            "用户锁定复用",
+            "禁止回流",
+        ):
+            field_match = re.search(
+                rf"(?m)^-\s*{re.escape(label)}[：:]\s*(.+?)\s*$", block
+            )
+            fields[label] = field_match.group(1).strip() if field_match else ""
+        result[unit] = fields
+    return result
+
+
+def validate_setting_adaptation_contract(
+    setting_text: str,
+    required_units: list[str],
+) -> list[str]:
+    errors: list[str] = []
+    matrices = parse_adaptation_matrix(setting_text)
+    if not matrices:
+        return ["设定缺少 `## 换链差异矩阵`，禁止进入细纲"]
+    body_without_matrix = setting_without_adaptation_matrix(setting_text)
+    for unit in required_units:
+        fields = matrices.get(unit)
+        if fields is None:
+            errors.append(f"换链差异矩阵缺少来源单元: {unit}")
+            continue
+        for label, value in fields.items():
+            if not value:
+                errors.append(f"{unit}.{label} 不能为空")
+        surface_terms = split_adaptation_terms(fields.get("来源表层件", ""))
+        if len(surface_terms) < 3:
+            errors.append(f"{unit}.来源表层件 至少列 3 个具体地点/物件/动作")
+        target = fields.get("新稿实现", "")
+        if target.count("→") < 3:
+            errors.append(f"{unit}.新稿实现 至少写 4 拍并用 `→` 串联")
+        dimensions = set(split_adaptation_terms(fields.get("更换维度", "")))
+        recognized_dimensions = dimensions.intersection(ADAPTATION_DIMENSIONS)
+        if len(recognized_dimensions) < 4:
+            errors.append(
+                f"{unit}.更换维度 至少命中 4 项允许维度，当前为 {len(recognized_dimensions)}"
+            )
+        locked = set(split_adaptation_terms(fields.get("用户锁定复用", "")))
+        if fields.get("用户锁定复用", "").strip() == "无":
+            locked = set()
+        forbidden = set(split_adaptation_terms(fields.get("禁止回流", "")))
+        missing_forbidden = set(surface_terms).difference(locked).difference(forbidden)
+        if missing_forbidden:
+            errors.append(
+                f"{unit}.禁止回流 未覆盖来源表层件: {', '.join(sorted(missing_forbidden))}"
+            )
+        copied_into_target = [
+            term for term in surface_terms if term not in locked and term in target
+        ]
+        if len(copied_into_target) >= 2:
+            errors.append(
+                f"{unit}.新稿实现 仍复用多个来源表层件: {', '.join(copied_into_target)}"
+            )
+        leaked_into_setting = [
+            term
+            for term in surface_terms
+            if term not in locked and term in body_without_matrix
+        ]
+        if len(leaked_into_setting) >= 2:
+            errors.append(
+                f"{unit} 有多个来源表层件回流设定正文，疑似仅改名式仿写: "
+                + ", ".join(leaked_into_setting)
+            )
+    return errors
+
+
 def build_setting_context(paths: dict[str, Path]) -> tuple[dict[str, Any], list[str]]:
     errors: list[str] = []
     try:
@@ -5019,6 +5425,11 @@ def build_setting_context(paths: dict[str, Path]) -> tuple[dict[str, Any], list[
         "auxiliary_source_bundle_summaries": compact_auxiliary_subflows_for_setting(
             source_receipt
         ),
+    }
+    context["adaptation_contract"] = {
+        "required_units": adaptation_units_from_setting_context(context),
+        "required_dimensions": list(ADAPTATION_DIMENSIONS),
+        "surface_copy_rule": "除用户锁定题面件外，来源表层件不得成组回流；目标实现至少四拍、至少更换四类实质维度。",
     }
     return trim_setting_context_to_byte_limit(
         context,
@@ -5904,7 +6315,22 @@ def command_stage_reference(
     paths: dict[str, Path],
     args: argparse.Namespace,
 ) -> int:
-    del paths
+    if args.stage == "outline":
+        if not paths["setting"].is_file():
+            return print_result("stage-reference", ["进入细纲前缺少设定.md"], [])
+        context, context_errors = build_setting_context(paths)
+        if context_errors:
+            return print_result("stage-reference", context_errors, [])
+        adaptation_errors = validate_setting_adaptation_contract(
+            paths["setting"].read_text(encoding="utf-8"),
+            list((context.get("adaptation_contract") or {}).get("required_units") or []),
+        )
+        if adaptation_errors:
+            return print_result(
+                "stage-reference",
+                ["换链差异矩阵未通过"] + adaptation_errors,
+                ["修复设定.md 的 ## 换链差异矩阵 后重跑 stage-reference --stage outline"],
+            )
     payload, errors = build_stage_reference(args.stage)
     if errors or payload is None:
         return print_result("stage-reference", errors, [])
@@ -5979,6 +6405,19 @@ def command_prepare_draft_gates(
         errors.append(f"设定不存在: {paths['setting']}")
     if not paths["outline"].is_file():
         errors.append(f"细纲不存在: {paths['outline']}")
+    if paths["setting"].is_file() and not errors:
+        setting_context, setting_context_errors = build_setting_context(paths)
+        if not setting_context_errors:
+            errors.extend(
+                validate_setting_adaptation_contract(
+                    paths["setting"].read_text(encoding="utf-8"),
+                    list(
+                        (setting_context.get("adaptation_contract") or {}).get(
+                            "required_units", []
+                        )
+                    ),
+                )
+            )
     if paths["draft"].exists() and not paths["first_draft_entry"].is_file():
         errors.append(
             "检测到正文已在首稿放行前生成；必须先运行 prepare-draft-gates，补完并通过四张契约后，再执行 start-draft 和逐节首写。"
@@ -6920,7 +7359,7 @@ def _section_reading_source_bindings(bindings: list[Any]) -> list[dict[str, Any]
             if isinstance(required_sequence, list):
                 reading_binding["source_dense_beats"] = [
                     str(step).strip() for step in required_sequence if str(step).strip()
-                ][:4]
+                ]
         reading_bindings.append(reading_binding)
     return reading_bindings
 
@@ -7256,11 +7695,72 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
             ["packet-sha 与当前完整颗粒包不一致；必须重新 show-section 并完整读取"],
             [],
         )
-    return SECTION_EXECUTION.open_section(
+    packet_payload = packet.get("payload") if isinstance(packet, dict) else None
+    packet_bindings = (
+        packet_payload.get("source_slice_bindings")
+        if isinstance(packet_payload, dict)
+        else None
+    )
+    if paths["section_execution_receipt"].is_file():
+        execution = read_json(paths["section_execution_receipt"])
+        execution_target = next(
+            (
+                item
+                for item in execution.get("sections", [])
+                if isinstance(item, dict)
+                and str(item.get("section_id") or "").strip() == str(args.section)
+            ),
+            None,
+        )
+        if isinstance(execution_target, dict) and isinstance(packet_bindings, list):
+            execution_target["source_slice_bindings"] = [
+                {key: value for key, value in item.items() if key != "source_excerpt"}
+                for item in packet_bindings
+                if isinstance(item, dict)
+            ]
+            execution_target.setdefault("required_sequence_receipts", [])
+            atomic_write_json(paths["section_execution_receipt"], execution)
+    result = SECTION_EXECUTION.open_section(
         paths["section_execution_receipt"],
         args.section,
         args.read_judgment,
     )
+    if result != 0:
+        return result
+    beats: list[dict[str, Any]] = []
+    payload = packet.get("payload") if isinstance(packet, dict) else None
+    bindings = payload.get("source_slice_bindings") if isinstance(payload, dict) else None
+    for binding in bindings if isinstance(bindings, list) else []:
+        if not isinstance(binding, dict):
+            continue
+        subflow_id = str(binding.get("subflow_id") or "").strip()
+        contract = binding.get("source_subflow_contract")
+        sequence = contract.get("required_sequence") if isinstance(contract, dict) else None
+        for beat_index, source_beat in enumerate(sequence if isinstance(sequence, list) else [], start=1):
+            if not str(source_beat).strip():
+                continue
+            beats.append(
+                {
+                    "subflow_id": subflow_id,
+                    "beat_index": beat_index,
+                    "source_beat": str(source_beat).strip(),
+                    "target_evidence": "",
+                    "causal_link": "",
+                    "performance_equivalence": "",
+                    "status": "pending",
+                }
+            )
+    atomic_write_json(
+        paths["section_beat_receipt"],
+        {
+            "section_id": str(args.section),
+            "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
+            "beats": beats,
+        },
+    )
+    print(f"beat_receipt: {paths['section_beat_receipt']}")
+    print("next_action: 写完当前节后逐拍填写 target_evidence / causal_link / performance_equivalence / status，再运行 advance-section。")
+    return 0
 
 
 def command_reopen_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
@@ -7287,6 +7787,7 @@ def command_advance_section(paths: dict[str, Path], args: argparse.Namespace) ->
         paths["section_execution_receipt"],
         args.section,
         args.judgment,
+        paths["section_beat_receipt"],
     )
     if result != 0:
         return result

@@ -78,6 +78,23 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         ):
             self.assertIn(command, subparsers.choices)
 
+    def test_outline_progress_requires_title_on_separate_line(self) -> None:
+        progress = TOOLBOX.analyze_outline_progress(
+            "## 第1节：执法现场\n\n### 标题：执法现场\n\n## 全书事实状态链\n\n## 相邻节交接链\n"
+        )
+
+        self.assertEqual([], progress["section_ids"])
+        self.assertEqual(["## 第1节：执法现场"], progress["malformed_section_headings"])
+        self.assertTrue(any("一级标题必须独占一行" in item for item in progress["missing_items"]))
+
+    def test_outline_progress_accepts_exact_section_heading(self) -> None:
+        progress = TOOLBOX.analyze_outline_progress(
+            "## 第1节\n\n### 标题：执法现场\n\n## 第9节\n\n## 全书事实状态链\n\n## 相邻节交接链\n"
+        )
+
+        self.assertEqual(["1", "9"], progress["section_ids"])
+        self.assertEqual([], progress["malformed_section_headings"])
+
     def test_allocate_project_reserves_unique_directory_and_prints_init_command(
         self,
     ) -> None:
@@ -362,6 +379,105 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             contract["emotion_process"]["memory_association_or_attention_drift"],
         )
         self.assertEqual("旧值", contract["emotion_process"]["contradictory_impulse"])
+
+    def test_minimal_section_repair_template_only_contains_failed_nested_field(self) -> None:
+        sections = [
+            {
+                "section_id": "1",
+                "scene_logic_contract": {"scene_entry_state": "入口", "scene_exit_state": "出口"},
+                "first_draft_generation_contract": {
+                    "emotion_process": {"entry_state": "", "scene_afterpain": "余痛"},
+                    "source_performance_excerpt": "很长的原文载荷",
+                },
+            }
+        ]
+
+        template = TOOLBOX.minimal_section_repair_template(
+            sections,
+            "first-draft",
+            ["第 1 节 first_draft_generation_contract.emotion_process.entry_state 不能为空"],
+        )
+
+        self.assertEqual(
+            [{"section_id": "1", "first_draft_generation_contract": {"emotion_process": {"entry_state": ""}}}],
+            template,
+        )
+
+    def test_merge_outline_sections_delta_preserves_previously_passed_nested_fields(self) -> None:
+        base = [
+            {
+                "section_id": "1",
+                "first_draft_generation_contract": {
+                    "emotion_process": {"entry_state": "已通过入口", "scene_afterpain": "已通过余痛"}
+                },
+                "scene_logic_contract": {"scene_entry_state": "旧入口", "scene_exit_state": "旧出口"},
+            }
+        ]
+        delta = [{"section_id": "1", "scene_logic_contract": {"scene_exit_state": "新出口"}}]
+
+        merged = TOOLBOX.merge_outline_sections_by_id(base, delta, ["1"])
+
+        self.assertEqual("已通过入口", merged[0]["first_draft_generation_contract"]["emotion_process"]["entry_state"])
+        self.assertEqual("旧入口", merged[0]["scene_logic_contract"]["scene_entry_state"])
+        self.assertEqual("新出口", merged[0]["scene_logic_contract"]["scene_exit_state"])
+
+    def test_first_draft_precheck_respects_focus_section_ids(self) -> None:
+        self.paths["outline"].write_text("## 第1节\n\n动作一\n\n## 第2节\n\n动作二\n", encoding="utf-8")
+        data = {
+            "sections": [
+                {"section_id": "1", "first_draft_generation_contract": {}},
+                {"section_id": "2", "first_draft_generation_contract": {}},
+            ],
+            "selected_source_originals": [],
+            "primary_subflow_semantic_inventory": [],
+            "primary_source_semantic_bundle": {},
+            "global_review": {},
+        }
+
+        with patch.object(
+            TOOLBOX.OUTLINE_PERFORMANCE,
+            "validate_primary_subflow_inventory",
+            return_value={},
+        ), patch.object(
+            TOOLBOX.OUTLINE_PERFORMANCE,
+            "validate_first_draft_generation_contract",
+            side_effect=lambda _contract, _source_texts, _inventory, label, errors, **_kwargs: errors.append(
+                f"{label} 当前节错误"
+            ),
+        ):
+            errors, _ = TOOLBOX.outline_precheck_errors_from_data(
+                self.paths,
+                data,
+                {"first-draft"},
+                focus_section_ids=["1"],
+            )
+
+        self.assertIn("第 1 节 当前节错误", errors)
+        self.assertNotIn("第 2 节 当前节错误", errors)
+
+    def test_handoff_repair_template_only_contains_failing_pair(self) -> None:
+        data = {
+            "section_handoff_chain": [
+                {"from_section_id": "1", "to_section_id": "2", "handoff_trigger": "待修"},
+                {"from_section_id": "2", "to_section_id": "3", "handoff_trigger": "保留"},
+            ]
+        }
+
+        template = TOOLBOX.outline_repair_template_for_key(
+            data,
+            "section_handoff_chain",
+            focus_handoff_pairs=[("1", "2")],
+        )
+
+        self.assertEqual([{"from_section_id": "1", "to_section_id": "2", "handoff_trigger": "待修"}], template)
+
+    def test_eligible_outline_evidence_returns_exact_bounded_lines(self) -> None:
+        section = "## 第1节\n\n### 主事件\n- 她当场扣下证件。\n1. 他先替第三人解释。\n"
+
+        evidence = TOOLBOX.eligible_outline_evidence(section)
+
+        self.assertEqual(["她当场扣下证件。", "他先替第三人解释。"], evidence)
+        self.assertTrue(all(item in section for item in evidence))
 
     def test_outline_blocks_prefer_summary_object_lines(self) -> None:
         output = StringIO()
@@ -1511,7 +1627,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("outline_guidance_candidates_end", text)
         self.assertIn("outline_guidance_block_end", text)
 
-    def test_outline_repair_next_groups_first_draft_errors_into_multi_section_packet(self) -> None:
+    def test_outline_repair_next_limits_first_draft_packet_to_one_section(self) -> None:
         self.paths["outline"].write_text(
             "## 1. 起事\n\n- 主事件：动作一\n\n## 2. 失位\n\n- 主事件：动作二\n",
             encoding="utf-8",
@@ -1550,9 +1666,27 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         packet = json.loads(self.paths["outline_repair_packet"].read_text(encoding="utf-8"))
         self.assertEqual("first-draft", packet["focus_group"])
         self.assertEqual("sections", packet["receipt_key"])
-        self.assertEqual(["1", "2"], packet["focus_context"]["focus_section_ids"])
+        self.assertEqual(["1"], packet["focus_context"]["focus_section_ids"])
         template = json.loads(self.paths["outline_repair_item_output"].read_text(encoding="utf-8"))
-        self.assertEqual(["1", "2"], [item["section_id"] for item in template])
+        self.assertEqual(["1"], [item["section_id"] for item in template])
+        self.assertEqual(
+            {"section_id", "first_draft_generation_contract"},
+            set(template[0]),
+        )
+
+    def test_section_repair_fields_recognize_unqualified_first_draft_source_errors(self) -> None:
+        errors = [
+            "第 4 节.source_slice_bindings[1].source_range 必须使用 L起始-L结束",
+            "第 4 节 source_performance_excerpt 必须来自主体原文完整颗粒包中的精确 SF 切片",
+        ]
+
+        self.assertEqual(
+            [
+                ("first_draft_generation_contract", "source_slice_bindings"),
+                ("first_draft_generation_contract", "source_performance_excerpt"),
+            ],
+            TOOLBOX.section_repair_field_paths("first-draft", errors),
+        )
 
     def test_outline_repair_next_blocks_when_draft_prerequisites_remain(self) -> None:
         self.paths["outline"].write_text(
@@ -4018,6 +4152,8 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("setting_context: bounded-setting-stage-summary", text)
         self.assertIn('"opening_signal_groups"', text)
         self.assertIn('"subflow_id": "SF-01"', text)
+        self.assertIn('"adaptation_contract"', text)
+        self.assertNotIn('"source_excerpt_preview"', text)
         self.assertIn("next_command: stage-reference --stage setting", text)
 
     def test_stage_reference_setting_excludes_postwrite_and_legacy_sections(self) -> None:
@@ -4054,8 +4190,17 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         )
 
     def test_stage_reference_command_prints_fixed_write_checkpoints(self) -> None:
+        self.paths["setting"].write_text("# 设定\n", encoding="utf-8")
         output = StringIO()
-        with redirect_stdout(output):
+        with patch.object(
+            TOOLBOX,
+            "build_setting_context",
+            return_value=({"adaptation_contract": {"required_units": ["主体::SF-01"]}}, []),
+        ), patch.object(
+            TOOLBOX,
+            "validate_setting_adaptation_contract",
+            return_value=[],
+        ), redirect_stdout(output):
             result = TOOLBOX.command_stage_reference(
                 self.paths,
                 argparse.Namespace(stage="outline"),
@@ -4066,6 +4211,35 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("stage_reference: bounded-fixed-stage-content", text)
         self.assertIn("第1-4节、第5-8节", text)
         self.assertIn("next_command_after_write: prepare-draft-gates", text)
+
+    def test_adaptation_matrix_blocks_surface_copy(self) -> None:
+        setting = """## 换链差异矩阵
+
+### 换链单元：主体::SF-01
+- 来源表层件：病房、花束、咳嗽、喂粥
+- 保留机制：善意核验和被后置
+- 新稿实现：病房咳嗽 → 丈夫喂粥 → 丢花 → 无借条
+- 更换维度：场所、关键物件、触发动作、现实后果
+- 用户锁定复用：无
+- 禁止回流：病房、花束、咳嗽、喂粥
+"""
+        errors = TOOLBOX.validate_setting_adaptation_contract(setting, ["主体::SF-01"])
+        self.assertTrue(any("仍复用多个来源表层件" in error for error in errors))
+
+    def test_adaptation_matrix_accepts_mechanism_transfer(self) -> None:
+        setting = """## 换链差异矩阵
+
+### 换链单元：主体::SF-01
+- 来源表层件：病房、花束、咳嗽、喂粥
+- 保留机制：善意核验和被后置
+- 新稿实现：听证候场 → 直播失控 → 声明撤回 → 停职通知
+- 更换维度：场所、职业流程、关键物件、触发动作、现实后果
+- 用户锁定复用：无
+- 禁止回流：病房、花束、咳嗽、喂粥
+"""
+        self.assertEqual(
+            [], TOOLBOX.validate_setting_adaptation_contract(setting, ["主体::SF-01"])
+        )
 
     def test_prepare_setting_reuses_existing_ledger(self) -> None:
         TOOLBOX.atomic_write_json(self.paths["ledger"], {"gate_status": "pending"})
@@ -4596,7 +4770,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         TOOLBOX.atomic_write_json(
             self.paths["outline_contract"],
             {
-                "version": "1.6",
+                "version": "1.8",
                 "outline": {
                     "path": str(self.paths["outline"].resolve()),
                     "sha256": TOOLBOX.file_sha256(self.paths["outline"]),
@@ -4657,7 +4831,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         TOOLBOX.atomic_write_json(
             self.paths["outline_contract"],
             {
-                "version": "1.6",
+                "version": "1.8",
                 "outline": {
                     "path": str(self.paths["outline"].resolve()),
                     "sha256": TOOLBOX.file_sha256(self.paths["outline"]),
@@ -4733,7 +4907,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         TOOLBOX.atomic_write_json(
             self.paths["outline_contract"],
             {
-                "version": "1.6",
+                "version": "1.8",
                 "outline": {
                     "path": str(self.paths["outline"].resolve()),
                     "sha256": TOOLBOX.file_sha256(self.paths["outline"]),
@@ -4971,7 +5145,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             self.paths["primary_source_semantic_bundle"],
             {"kind": "primary_source_semantic_bundle"},
         )
-        TOOLBOX.atomic_write_json(self.paths["outline_contract"], {"version": "1.6"})
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], {"version": "1.8"})
         output = StringIO()
 
         with patch.object(

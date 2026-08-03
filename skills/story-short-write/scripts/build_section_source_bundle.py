@@ -90,6 +90,14 @@ def source_excerpt_for_range(source_text: str, source_range: str) -> tuple[str, 
     return "\n".join(excerpts), None
 
 
+def source_range_parts(source_range: str) -> list[str]:
+    return [
+        part.strip()
+        for part in re.split(r"[、,，]\s*", str(source_range or ""))
+        if re.fullmatch(r"L\d+-L\d+", part.strip())
+    ]
+
+
 def normalized_source_binding(value: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_path": str(
@@ -235,18 +243,25 @@ def build_source_contract_index(
                     f"sources[{source_index}].selected_subflow_contracts[{contract_index}] 缺少 subflow_id 或 source_range"
                 )
                 continue
-            key = (str(original), source_range)
-            if key in index:
+            range_parts = source_range_parts(source_range)
+            if not range_parts:
                 errors.append(
-                    f"拆文读取回执存在重复原文绑定，无法唯一定位 SF: {original} {source_range}"
+                    f"sources[{source_index}].selected_subflow_contracts[{contract_index}] source_range 格式无效"
                 )
                 continue
-            index[key] = {
-                "source_name": source_name,
-                "source_role": source_role,
-                "subflow_id": subflow_id,
-                "source_subflow_contract": copy.deepcopy(contract),
-            }
+            for range_part in range_parts:
+                key = (str(original), range_part)
+                if key in index:
+                    errors.append(
+                        f"拆文读取回执存在重复原文绑定，无法唯一定位 SF: {original} {range_part}"
+                    )
+                    continue
+                index[key] = {
+                    "source_name": source_name,
+                    "source_role": source_role,
+                    "subflow_id": subflow_id,
+                    "source_subflow_contract": copy.deepcopy(contract),
+                }
     return index, errors
 
 

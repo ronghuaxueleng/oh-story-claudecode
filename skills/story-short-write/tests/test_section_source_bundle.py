@@ -142,6 +142,33 @@ class SectionSourceBundleTest(unittest.TestCase):
         GATE.write_json(output, bundle)
         self.assertEqual([], GATE.validate_bundle(output))
 
+    def test_bundle_binding_can_trace_to_one_segment_of_multi_range_contract(self) -> None:
+        self.source.write_text(
+            "原文第一拍。原文第二拍。原文第三拍。\n第二段第一拍。第二段第二拍。",
+            encoding="utf-8",
+        )
+        outline = json.loads(self.outline.read_text(encoding="utf-8"))
+        outline["sections"][0]["first_draft_generation_contract"][
+            "source_slice_bindings"
+        ][0]["source_sha256"] = GATE.sha256(self.source)
+        self.outline.write_text(json.dumps(outline, ensure_ascii=False), encoding="utf-8")
+        receipt = json.loads(self.source_receipt.read_text(encoding="utf-8"))
+        receipt["sources"][0]["selected_subflow_contracts"][0]["source_range"] = (
+            "L1-L1、L2-L2"
+        )
+        self.source_receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False), encoding="utf-8"
+        )
+
+        with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]):
+            bundle, errors = GATE.create_bundle(self.outline, self.source_receipt)
+
+        self.assertEqual([], errors)
+        contract = bundle["packets"][0]["payload"]["source_slice_bindings"][0][
+            "source_subflow_contract"
+        ]
+        self.assertEqual("L1-L1、L2-L2", contract["source_range"])
+
     def test_bundle_rejects_truncated_source_excerpt(self) -> None:
         with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]):
             bundle, errors = GATE.create_bundle(self.outline, self.source_receipt)
