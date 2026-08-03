@@ -188,14 +188,20 @@ def validate_required_sequence_coverage(
         ]
         if not required_sequence:
             continue
+        source_indices = source_contract.get("source_beat_indices")
+        beat_indices = (
+            source_indices
+            if isinstance(source_indices, list) and len(source_indices) == len(required_sequence)
+            else list(range(1, len(required_sequence) + 1))
+        )
         matched_steps: list[int] = []
-        for step_index, step in enumerate(required_sequence, start=1):
+        for step_index, step in zip(beat_indices, required_sequence):
             markers = lexical_markers_from_sequence_line(step)
             if markers and any(marker in normalized_content for marker in markers):
                 matched_steps.append(step_index)
         missing_steps = [
             (step_index, step)
-            for step_index, step in enumerate(required_sequence, start=1)
+            for step_index, step in zip(beat_indices, required_sequence)
             if step_index not in matched_steps
         ]
         if missing_steps:
@@ -225,7 +231,14 @@ def validate_required_sequence_receipts(
         contract = binding.get("source_subflow_contract")
         if not isinstance(contract, dict):
             continue
-        for beat_index, source_beat in enumerate(contract.get("required_sequence") or [], start=1):
+        sequence = contract.get("required_sequence") or []
+        source_indices = contract.get("source_beat_indices")
+        beat_indices = (
+            source_indices
+            if isinstance(source_indices, list) and len(source_indices) == len(sequence)
+            else list(range(1, len(sequence) + 1))
+        )
+        for beat_index, source_beat in zip(beat_indices, sequence):
             source_beat_text = str(source_beat).strip()
             if source_beat_text:
                 required.append((subflow_id, beat_index, source_beat_text))
@@ -564,14 +577,16 @@ def validate_close_content_signals(
             errors.append(
                 "正文缺少粗粝打断信号：已绑定 narrator_interjection_and_roughness，但正文没有感叹/问句或短促断段"
             )
+    sequence_receipts = target.get("required_sequence_receipts")
     errors.extend(
         validate_required_sequence_receipts(
             bindings,
             content,
-            target.get("required_sequence_receipts"),
+            sequence_receipts,
         )
     )
-    errors.extend(validate_binding_anchor_coverage(bindings, content))
+    if not isinstance(sequence_receipts, list) or not sequence_receipts:
+        errors.extend(validate_binding_anchor_coverage(bindings, content))
     errors.extend(validate_source_excerpt_line_coverage(bindings, content))
     errors.extend(validate_verbatim_source_reuse(bindings, content))
     return errors

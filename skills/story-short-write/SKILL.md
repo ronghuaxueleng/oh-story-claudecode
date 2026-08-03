@@ -9,7 +9,7 @@ description: |
 
 执行短篇网文完整写作流程。优先保证原文事件、因果、情绪、表演和文风颗粒真正进入首写，不用事后润色补救写前缺失。
 
-当前流程版本：`1.12.0`。
+当前流程版本：`1.13.0`。
 
 ## 边界
 
@@ -148,7 +148,7 @@ python3 "$TOOLBOX" --project "{项目目录}" prepare-draft-gates
 
 初始化后，必须由当前模型把四张回执补到 `gate_status=passed`，再继续 `start-draft`。禁止先落 `正文.md` 再回头补闸。
 
-补 `细纲表演验收回执.json` 时，禁止每改一小块就直接全量跑正式校验。先用工具箱快速预检当前修改块：
+补 `细纲表演验收回执.json` 时，禁止每改一小块就直接全量跑正式校验。工具箱默认把同一错误组中最多 3 个连续小节放进一个有界修闸包；当前模型应一次补完包内全部小节，再用工具箱快速预检当前批次：
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only sections
@@ -157,7 +157,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only bridges
 python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only first-draft
 ```
 
-`outline-precheck` 只读 `小节大纲.md + 细纲表演验收回执.json`，用于快速发现空字段、证据句不命中、交接状态不一致和跨节模板复用。只有局部预检通过后，才运行正式全量：
+`outline-precheck` 只读 `小节大纲.md + 细纲表演验收回执.json`，用于快速发现空字段、证据句不命中、交接状态不一致和跨节模板复用。修闸包会从当前细纲的 `场景入口状态 / 场景出口状态` 机械预填节内状态；小节写回时会同步更新相邻交接的 `from_exit_state / to_entry_state`。禁止手工改写这四个可机械派生字段；只需人工处理不可逆动作、人物偏手、因果拍链、知情变化和情绪等强判断。只有当前批次预检通过后，才运行正式全量：
 
 `opening-precheck / sequence-precheck / draft-capacity-precheck` 本身会在失败时生成当前修闸包和回填模板；对应写回命令只能是 `opening-apply / sequence-apply / draft-capacity-apply`。不存在 `opening-repair-next / sequence-repair-next / draft-capacity-repair-next`。细纲才使用 `outline-repair-next / outline-repair-apply`。
 
@@ -184,7 +184,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-next
 - `写作资产/当前细纲修闸包.json`
 - `写作资产/当前细纲修闸回填.json`
 
-当前模型只编辑 `当前细纲修闸回填.json` 这一份局部模板。填完后默认直接重跑：
+当前模型只编辑 `当前细纲修闸回填.json` 这一份局部模板。若模板同时含 2-3 节，必须在同一次回填中全部完成，不得只留第一节或拆回逐节串行。填完后默认直接重跑：
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" start-draft
@@ -199,7 +199,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 
 工具箱会原子写回正式 `细纲表演验收回执.json`。写回后仍应立刻重跑 `start-draft`，不要停在单张回执成功提示上。禁止在修闸阶段手写项目专用临时脚本、临时 `/tmp/*.json` 依赖或整张回执大补丁。
 
-局部回填是字段级 delta：只能包含当前失败小节、失败字段或失败交接，不得复制整节、整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。
+局部回填是字段级 delta：只能包含当前批次最多 3 个失败小节、失败字段或失败交接，不得复制整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。交接包中的两端状态由工具箱自动同步；人工只补 `handoff_trigger`、人物/知情/物件连续、未解线头、证据和语义判断。
 
 修闸过程中如果脚本提示某个字段缺失，只允许回到以下来源补齐：
 
@@ -224,6 +224,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 - [audit-rulebook.json](references/governance/audit-rulebook.json)
 
 模型语义归并只处理本书来源资产，不读取其他项目结论。台账详细命令见 [rule-execution-ledger.md](references/governance/rule-execution-ledger.md)。
+如工具箱提示 `skill 规则源已变化，先运行 sync-sources`，必须直接运行 `python3 "$TOOLBOX" --project "{项目目录}" sync-sources`，通过后立即重跑原被阻断命令。禁止绕过台账哈希校验。
 
 从候选到交付的所有阶段都禁止递归搜索工作区中的旧项目回执、规则输出、台账、设定、大纲或正文作为字段示例。字段结构只能来自当前任务文件的 `result_template`、当前脚本固定输出和本 Skill references。完整写作流程不得委派给子代理；来源全文读取、设定、细纲和逐节正文必须由当前执行模型连续完成。
 

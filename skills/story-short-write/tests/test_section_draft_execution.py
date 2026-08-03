@@ -407,6 +407,82 @@ class SectionDraftExecutionTest(unittest.TestCase):
         errors = GATE.validate_required_sequence_receipts(bindings, content, receipts)
         self.assertTrue(any("不得与其他拍重复" in error for error in errors))
 
+    def test_structured_beat_receipt_preserves_sparse_source_indices(self) -> None:
+        bindings = [
+            {
+                "subflow_id": "SF-02",
+                "source_subflow_contract": {
+                    "required_sequence": ["原第六拍", "原第七拍"],
+                    "source_beat_indices": [6, 7],
+                },
+            }
+        ]
+        content = "她先落下原第六拍的动作。然后转入原第七拍的后果。"
+        receipts = [
+            {
+                "subflow_id": "SF-02",
+                "beat_index": 6,
+                "source_beat": "原第六拍",
+                "target_evidence": "她先落下原第六拍的动作。",
+                "causal_link": "前态触发动作，动作造成下一拍。",
+                "performance_equivalence": "保留原拍的人物偏手和情绪反应。",
+                "status": "passed",
+            },
+            {
+                "subflow_id": "SF-02",
+                "beat_index": 7,
+                "source_beat": "原第七拍",
+                "target_evidence": "然后转入原第七拍的后果。",
+                "causal_link": "上一拍结果触发本拍收束。",
+                "performance_equivalence": "保留原拍的信息延迟与余痛。",
+                "status": "passed",
+            },
+        ]
+
+        self.assertEqual(
+            [],
+            GATE.validate_required_sequence_receipts(bindings, content, receipts),
+        )
+        receipts[0]["beat_index"] = 1
+        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts)
+        self.assertTrue(any("SF-02#1" in error for error in errors))
+
+    def test_structured_receipts_replace_verbatim_anchor_coverage(self) -> None:
+        evidence = "她核对签字后，终于看清他先走向了谁。"
+        binding = {
+            "subflow_id": "SF-07",
+            "source_subflow_contract": {
+                "required_sequence": ["第一次越位接触时因现实习惯保留录音。"],
+                "source_beat_indices": [1],
+                "source_evidence": ["我的手机正开着录音。"],
+                "control_changes": ["主角获得可复核权。"],
+                "end_state": "材料已存在。",
+            },
+        }
+        receipt = {
+            "subflow_id": "SF-07",
+            "beat_index": 1,
+            "source_beat": "第一次越位接触时因现实习惯保留录音。",
+            "target_evidence": evidence,
+            "causal_link": "现场冲突触发核验，核验产生可复查记录。",
+            "performance_equivalence": "保留先受伤再冷静核验的情绪转换。",
+            "status": "passed",
+        }
+        target = {
+            "source_slice_bindings": [binding],
+            "required_sequence_receipts": [receipt],
+        }
+
+        self.assertTrue(GATE.validate_binding_anchor_coverage([binding], evidence))
+        self.assertEqual(
+            [],
+            GATE.validate_close_content_signals(
+                target,
+                {"first_draft_generation_contract": {}},
+                evidence,
+            ),
+        )
+
     def test_close_section_blocks_when_verbatim_source_lines_repeat(self) -> None:
         with mock.patch.object(GATE, "validate_outline_contract_receipt", return_value=[]), mock.patch.object(
             GATE, "validate_section_source_bundle_receipt", return_value=[]

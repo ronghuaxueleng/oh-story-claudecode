@@ -19,7 +19,7 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CACHE_VERSION = "649-focused-outline-repair-v1"
+CACHE_VERSION = "651-batched-outline-repair-v1"
 PROJECT_RESERVATION_FILE = ".story-short-write-reservation.json"
 SOURCE_REVIEW_PACKET_KIND = "source_semantic_review_packet"
 SOURCE_REVIEW_ITEM_RESULT_KIND = "source_semantic_review_item_result"
@@ -417,6 +417,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "outline_contract": asset / "细纲表演验收回执.json",
         "outline_repair_packet": asset / "当前细纲修闸包.json",
         "outline_repair_item_output": asset / "当前细纲修闸回填.json",
+        "outline_repair_staging": asset / "当前细纲修闸累积回填.json",
         "outline_repair_lock": asset / ".当前细纲修闸锁.lock",
         "sequence_receipt": asset / "顺序契约回执.json",
         "sequence_repair_packet": asset / "当前顺序修闸包.json",
@@ -1733,7 +1734,7 @@ OUTLINE_REPAIR_GROUP_TO_KEY: dict[str, str] = {
     "global_review": "global_review",
     "auxiliary_subflow_flow_parity": "auxiliary_subflow_flow_parity",
 }
-OUTLINE_REPAIR_MAX_SECTIONS_PER_PACKET = 1
+OUTLINE_REPAIR_MAX_SECTIONS_PER_PACKET = 3
 
 
 def summarize_outline_errors(errors: list[str]) -> list[tuple[str, list[str]]]:
@@ -1815,6 +1816,7 @@ def outline_repair_template_for_key(
                         data = {**data, refresh_key: copy.deepcopy(refreshed.get(refresh_key))}
             except (FileNotFoundError, ValueError, OSError, json.JSONDecodeError):
                 pass
+    data = synchronize_outline_handoff_states(data)
     if receipt_key == "sections" and focus_section_ids:
         focus_id_set = {section_id for section_id in focus_section_ids if section_id}
         sections = data.get("sections")
@@ -1863,6 +1865,83 @@ def parse_outline_sections_map(outline_text: str) -> dict[str, str]:
         section_id: "\n".join(lines).strip()
         for section_id, lines in sections.items()
     }
+
+
+def outline_declared_scene_states(section_text: str) -> dict[str, str]:
+    """Extract mechanically declared scene states from one outline section."""
+    labels = {
+        "场景入口状态": "scene_entry_state",
+        "场景出口状态": "scene_exit_state",
+    }
+    states: dict[str, str] = {}
+    for raw_line in section_text.splitlines():
+        match = re.match(r"^\s*[-*+]\s*(场景(?:入口|出口)状态)\s*[：:]\s*(.+?)\s*$", raw_line)
+        if not match:
+            continue
+        field_name = labels.get(match.group(1))
+        value = match.group(2).strip()
+        if field_name and value:
+            states[field_name] = value
+    return states
+
+
+def seed_section_template_scene_states(
+    template: Any,
+    outline_sections_map: dict[str, str],
+) -> Any:
+    """Prefill empty mechanical state fields without replacing human judgments."""
+    if not isinstance(template, list):
+        return template
+    seeded = copy.deepcopy(template)
+    for section in seeded:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("section_id") or "").strip()
+        declared = outline_declared_scene_states(outline_sections_map.get(section_id, ""))
+        if not declared:
+            continue
+        scene_logic = section.get("scene_logic_contract")
+        if not isinstance(scene_logic, dict):
+            scene_logic = {}
+            section["scene_logic_contract"] = scene_logic
+        for field_name, value in declared.items():
+            if not str(scene_logic.get(field_name) or "").strip():
+                scene_logic[field_name] = value
+    return seeded
+
+
+def synchronize_outline_handoff_states(data: dict[str, Any]) -> dict[str, Any]:
+    """Make handoff endpoints exactly match their adjacent section contracts."""
+    synchronized = copy.deepcopy(data)
+    sections = synchronized.get("sections")
+    handoffs = synchronized.get("section_handoff_chain")
+    if not isinstance(sections, list) or not isinstance(handoffs, list):
+        return synchronized
+    by_id = {
+        str(item.get("section_id") or "").strip(): item
+        for item in sections
+        if isinstance(item, dict) and str(item.get("section_id") or "").strip()
+    }
+    for handoff in handoffs:
+        if not isinstance(handoff, dict):
+            continue
+        from_section = by_id.get(str(handoff.get("from_section_id") or "").strip())
+        to_section = by_id.get(str(handoff.get("to_section_id") or "").strip())
+        if isinstance(from_section, dict):
+            logic = from_section.get("scene_logic_contract")
+            handoff["from_exit_state"] = str(
+                ((logic or {}).get("scene_exit_state") or "")
+                if isinstance(logic, dict)
+                else ""
+            ).strip()
+        if isinstance(to_section, dict):
+            logic = to_section.get("scene_logic_contract")
+            handoff["to_entry_state"] = str(
+                ((logic or {}).get("scene_entry_state") or "")
+                if isinstance(logic, dict)
+                else ""
+            ).strip()
+    return synchronized
 
 
 def eligible_outline_evidence(section_text: str, limit: int = 12) -> list[str]:
@@ -2239,6 +2318,128 @@ def merge_outline_handoffs_by_pair(base: Any, updated: Any) -> list[dict[str, An
     return merged
 
 
+def outline_repair_packet_focus_section_ids(packet: dict[str, Any]) -> list[str]:
+    focus_context = packet.get("focus_context")
+    if not isinstance(focus_context, dict):
+        return []
+    return [
+        str(item).strip()
+        for item in (focus_context.get("focus_section_ids") or [])
+        if str(item).strip()
+    ]
+
+
+def discard_outline_repair_staging(paths: dict[str, Path]) -> None:
+    if paths["outline_repair_staging"].exists():
+        paths["outline_repair_staging"].unlink()
+
+
+def read_valid_outline_repair_staging(
+    paths: dict[str, Path],
+    receipt: dict[str, Any],
+    packet: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    staging_path = paths["outline_repair_staging"]
+    if not staging_path.is_file():
+        return None
+    if not paths["outline"].is_file() or not paths["outline_contract"].is_file():
+        discard_outline_repair_staging(paths)
+        return None
+    try:
+        staging = read_json(staging_path)
+    except (OSError, json.JSONDecodeError, ValueError):
+        discard_outline_repair_staging(paths)
+        return None
+    expected = {
+        "kind": "outline_repair_staging",
+        "outline_sha256": file_sha256(paths["outline"]),
+        "outline_contract_sha256": file_sha256(paths["outline_contract"]),
+    }
+    if any(staging.get(key) != value for key, value in expected.items()):
+        discard_outline_repair_staging(paths)
+        return None
+    if packet is not None:
+        packet_scope = {
+            "receipt_key": str(packet.get("receipt_key") or "").strip(),
+            "focus_group": str(packet.get("focus_group") or "").strip(),
+            "focus_section_ids": outline_repair_packet_focus_section_ids(packet),
+        }
+        if any(staging.get(key) != value for key, value in packet_scope.items()):
+            discard_outline_repair_staging(paths)
+            return None
+    return staging
+
+
+def merge_outline_repair_value_into_receipt(
+    receipt: dict[str, Any],
+    receipt_key: str,
+    updated_value: Any,
+    focus_section_ids: list[str],
+) -> dict[str, Any]:
+    candidate = copy.deepcopy(receipt)
+    if receipt_key == "sections":
+        candidate[receipt_key] = merge_outline_sections_by_id(
+            candidate.get("sections"),
+            updated_value,
+            focus_section_ids,
+        )
+    elif receipt_key == "section_handoff_chain":
+        candidate[receipt_key] = merge_outline_handoffs_by_pair(
+            candidate.get(receipt_key),
+            updated_value,
+        )
+    else:
+        candidate[receipt_key] = copy.deepcopy(updated_value)
+    return candidate
+
+
+def apply_valid_outline_repair_staging(
+    paths: dict[str, Path],
+    receipt: dict[str, Any],
+    packet: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    staging = read_valid_outline_repair_staging(paths, receipt, packet)
+    if staging is None:
+        return copy.deepcopy(receipt)
+    return merge_outline_repair_value_into_receipt(
+        receipt,
+        str(staging.get("receipt_key") or "").strip(),
+        staging.get("staged_value"),
+        [str(item) for item in staging.get("focus_section_ids") or []],
+    )
+
+
+def write_outline_repair_staging(
+    paths: dict[str, Path],
+    packet: dict[str, Any],
+    candidate_receipt: dict[str, Any],
+) -> None:
+    receipt_key = str(packet.get("receipt_key") or "").strip()
+    focus_section_ids = outline_repair_packet_focus_section_ids(packet)
+    existing = read_valid_outline_repair_staging(paths, read_json(paths["outline_contract"]), packet)
+    accepted_packet_shas = list(existing.get("accepted_packet_sha256s") or []) if existing else []
+    packet_sha = str(packet.get("packet_sha256") or "").strip()
+    if packet_sha and packet_sha not in accepted_packet_shas:
+        accepted_packet_shas.append(packet_sha)
+    atomic_write_json(
+        paths["outline_repair_staging"],
+        {
+            "kind": "outline_repair_staging",
+            "outline_sha256": file_sha256(paths["outline"]),
+            "outline_contract_sha256": file_sha256(paths["outline_contract"]),
+            "receipt_key": receipt_key,
+            "focus_group": str(packet.get("focus_group") or "").strip(),
+            "focus_section_ids": focus_section_ids,
+            "accepted_packet_sha256s": accepted_packet_shas,
+            "staged_value": outline_receipt_scope_value(
+                candidate_receipt,
+                receipt_key,
+                focus_section_ids,
+            ),
+        },
+    )
+
+
 def compact_primary_subflow_inventory_for_outline_repair(items: Any) -> list[dict[str, Any]]:
     if not isinstance(items, list):
         return []
@@ -2314,6 +2515,7 @@ def focused_primary_subflow_context(
     current_sections: list[dict[str, Any]],
     outline_sections_map: dict[str, str],
     primary_inventory: list[dict[str, Any]],
+    limit: int = 4,
 ) -> list[dict[str, Any]]:
     if not primary_inventory:
         return []
@@ -2363,7 +2565,7 @@ def focused_primary_subflow_context(
         reverse=True,
     )
     focused: list[dict[str, Any]] = []
-    for direct, score, item in scored[:4]:
+    for direct, score, item in scored[: max(1, limit)]:
         contract = item.get("contract")
         contract_dict = contract if isinstance(contract, dict) else {}
         focused.append(
@@ -2514,7 +2716,7 @@ def outline_repair_template_from_packet(
         if isinstance(focus_context, dict)
         else []
     )
-    return outline_repair_template_for_key(
+    template = outline_repair_template_for_key(
         receipt,
         receipt_key,
         focus_group=str(packet.get("focus_group") or "").strip(),
@@ -2526,6 +2728,12 @@ def outline_repair_template_from_packet(
         ),
         focus_handoff_pairs=focus_handoff_pairs,
     )
+    if receipt_key == "sections" and paths["outline"].is_file():
+        outline_sections_map = parse_outline_sections_map(
+            paths["outline"].read_text(encoding="utf-8")
+        )
+        template = seed_section_template_scene_states(template, outline_sections_map)
+    return template
 
 
 OUTLINE_REPAIR_TEMPLATE_PRIORITY_PATHS = {
@@ -3098,6 +3306,7 @@ def build_outline_repair_packet(
     )
     focus_errors = outline_filter_errors_for_section_ids(focus_errors, focus_section_ids)
     focus_handoff_pairs = outline_repair_focus_handoff_pairs(focus_errors)
+    outline_sections_map = parse_outline_sections_map(outline_text)
     result_template = outline_repair_template_for_key(
         receipt,
         receipt_key,
@@ -3106,7 +3315,11 @@ def build_outline_repair_packet(
         focus_errors=focus_errors,
         focus_handoff_pairs=focus_handoff_pairs,
     )
-    outline_sections_map = parse_outline_sections_map(outline_text)
+    if receipt_key == "sections":
+        result_template = seed_section_template_scene_states(
+            result_template,
+            outline_sections_map,
+        )
     current_sections = outline_section_entries_for_ids(receipt.get("sections"), focus_section_ids)
     focus_context: dict[str, Any] = {
         "focus_group": focus_group,
@@ -3144,17 +3357,20 @@ def build_outline_repair_packet(
             for item in current_sections
             if str(item.get("section_id") or "").strip()
         ]
-        focus_context["primary_subflow_context"] = focused_primary_subflow_context(
+        primary_focus_context = focused_primary_subflow_context(
             current_sections,
             outline_sections_map,
             primary_inventory,
+            limit=max(4, len(current_sections) * 2),
         )
+        focus_context["primary_subflow_context"] = primary_focus_context
     else:
         primary_inventory = []
+        primary_focus_context = []
     repair_guidance = outline_repair_guidance(
         receipt_key,
         current_sections,
-        primary_inventory,
+        primary_focus_context,
         source_metadata,
     )
     primary_error_preview = "；".join(str(item).strip() for item in focus_errors[:3] if str(item).strip())
@@ -3221,6 +3437,11 @@ def export_outline_repair_packet(
     preserve_existing_output: bool = False,
     emit_output: bool = True,
 ) -> dict[str, Any]:
+    if emit_output:
+        print(
+            f"project_toolbox_progress: 正在生成细纲修闸包 ({source_stage})...",
+            flush=True,
+        )
     with file_lock(paths["outline_repair_lock"]):
         packet = build_outline_repair_packet(paths, source_stage, errors, rerun_command)
         result_template = outline_repair_template_from_packet(paths, packet)
@@ -3340,10 +3561,12 @@ def outline_precheck_errors(
         data = read_json(paths["outline_contract"])
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         return [f"细纲表演验收回执不可读取: {exc}"], []
+    data = apply_valid_outline_repair_staging(paths, data)
     return outline_precheck_errors_from_data(paths, data, enabled)
 
 
 def command_outline_precheck(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    print("project_toolbox_progress: 正在运行细纲分组预检...", flush=True)
     auto_apply_result, auto_apply_actions = auto_apply_ready_prewrite_repairs(paths)
     if auto_apply_result != 0:
         return auto_apply_result
@@ -3485,6 +3708,7 @@ def command_outline_validate(paths: dict[str, Path], args: argparse.Namespace) -
 
 def command_outline_repair_next(paths: dict[str, Path], args: argparse.Namespace) -> int:
     del args
+    print("project_toolbox_progress: 正在计算下一个细纲修闸焦点...", flush=True)
     enabled = normalize_outline_precheck_groups(None)
     precheck_errors, actions = outline_precheck_errors(paths, enabled)
     if precheck_errors:
@@ -3572,16 +3796,7 @@ def command_outline_repair_apply(paths: dict[str, Path], args: argparse.Namespac
         if not receipt_key:
             return print_result("outline-repair-apply", ["细纲修闸包缺少 receipt_key"], [])
         focus_group = str(packet.get("focus_group") or "").strip()
-        focus_context = packet.get("focus_context")
-        focus_section_ids = (
-            [
-                str(item).strip()
-                for item in (focus_context.get("focus_section_ids") or [])
-                if str(item).strip()
-            ]
-            if isinstance(focus_context, dict)
-            else []
-        )
+        focus_section_ids = outline_repair_packet_focus_section_ids(packet)
         receipt = read_json(paths["outline_contract"])
         packet_receipt_key_sha = str(packet.get("outline_contract_receipt_key_sha256") or "")
         current_receipt_key_sha = json_value_sha256(
@@ -3594,21 +3809,15 @@ def command_outline_repair_apply(paths: dict[str, Path], args: argparse.Namespac
                 [],
             )
         updated_value = json.loads(paths["outline_repair_item_output"].read_text(encoding="utf-8"))
-        candidate_receipt = copy.deepcopy(receipt)
         try:
-            if receipt_key == "sections":
-                candidate_receipt[receipt_key] = merge_outline_sections_by_id(
-                    receipt.get("sections"),
-                    updated_value,
-                    focus_section_ids,
-                )
-            elif receipt_key == "section_handoff_chain":
-                candidate_receipt[receipt_key] = merge_outline_handoffs_by_pair(
-                    receipt.get(receipt_key),
-                    updated_value,
-                )
-            else:
-                candidate_receipt[receipt_key] = updated_value
+            candidate_receipt = apply_valid_outline_repair_staging(paths, receipt, packet)
+            candidate_receipt = merge_outline_repair_value_into_receipt(
+                candidate_receipt,
+                receipt_key,
+                updated_value,
+                focus_section_ids,
+            )
+            candidate_receipt = synchronize_outline_handoff_states(candidate_receipt)
         except ValueError as exc:
             return print_result("outline-repair-apply", [str(exc)], [])
     validate_groups = {
@@ -3630,14 +3839,18 @@ def command_outline_repair_apply(paths: dict[str, Path], args: argparse.Namespac
         focus_section_ids=focus_section_ids if receipt_key == "sections" else None,
     )
     if precheck_errors:
+        write_outline_repair_staging(paths, packet, candidate_receipt)
         result = print_result(
             "outline-repair-apply",
             precheck_errors,
             [
                 "reject-invalid-outline-repair-writeback-before-merge",
+                "stage-valid-outline-repair-delta-before-final-merge",
+                "keep-formal-outline-receipt-unchanged-until-focused-precheck-passes",
                 "refresh-current-outline-repair-packet-from-apply-failure",
             ],
         )
+        print(f"outline_repair_staging: {paths['outline_repair_staging']}")
         export_outline_repair_packet(
             paths,
             "outline-repair-apply",
@@ -3647,7 +3860,10 @@ def command_outline_repair_apply(paths: dict[str, Path], args: argparse.Namespac
         )
         return result
     receipt[receipt_key] = candidate_receipt[receipt_key]
+    if receipt_key == "sections" and "section_handoff_chain" in candidate_receipt:
+        receipt["section_handoff_chain"] = candidate_receipt["section_handoff_chain"]
     atomic_write_json(paths["outline_contract"], receipt)
+    discard_outline_repair_staging(paths)
     rerun_command = str(packet.get("rerun_command") or "outline-repair-next").strip()
     result = print_result(
         "outline-repair-apply",
@@ -6397,6 +6613,7 @@ def command_prepare_draft_gates(
     paths: dict[str, Path],
     args: argparse.Namespace,
 ) -> int:
+    print("project_toolbox_progress: 正在运行写前机械预检...", flush=True)
     errors, actions = run_preflight(paths, force=getattr(args, "force_preflight", False))
     if errors:
         return print_result("prepare-draft-gates", errors, actions)
@@ -6442,6 +6659,7 @@ def command_prepare_draft_gates(
     if len(source_originals) > 1:
         opening_kwargs["selected_source_paths"] = source_originals
 
+    print("project_toolbox_progress: 正在初始化开头承重契约...", flush=True)
     opening_receipt = OPENING_CONTRACT.create_receipt(
         paths["project"].name,
         primary_source,
@@ -6456,6 +6674,7 @@ def command_prepare_draft_gates(
     )
     actions.append(f"{opening_state}-opening-contract-outline-gate")
 
+    print("project_toolbox_progress: 正在初始化首写容量契约...", flush=True)
     capacity_receipt = DRAFT_CAPACITY.init(
         paths["project"].name,
         paths["outline"],
@@ -6471,6 +6690,7 @@ def command_prepare_draft_gates(
     if paths["sequence_receipt"].exists() and not args.force:
         actions.append("reused-full-sequence-contract")
     else:
+        print("project_toolbox_progress: 正在初始化顺序契约...", flush=True)
         SEQUENCE_CONTRACT.init_receipt(
             paths["project"].name,
             paths["setting"],
@@ -6489,6 +6709,7 @@ def command_prepare_draft_gates(
     if had_outline_contract and not args.force and not outline_refresh_reasons:
         actions.append("reused-outline-performance-contract")
     else:
+        print("project_toolbox_progress: 正在初始化细纲表演验收契约...", flush=True)
         outline_receipt = OUTLINE_PERFORMANCE.create_receipt(
             paths["project"].name,
             paths["outline"],
@@ -6507,6 +6728,7 @@ def command_prepare_draft_gates(
             actions.append("initialized-outline-performance-contract")
 
     actions.append("require-all-four-draft-gates-passed-before-start-draft")
+    print("project_toolbox_progress: 正在生成待修闸回填包...", flush=True)
     actions.extend(
         seed_pending_draft_gate_repair_packets(
             paths,
@@ -7166,6 +7388,30 @@ def archive_stale_first_draft_state(paths: dict[str, Path]) -> tuple[Path | None
     return backup_dir, actions
 
 
+def command_sync_sources(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    """Refresh changed rule/source bindings through the existing ledger gate."""
+    del args
+    if not paths["ledger"].is_file():
+        return print_result(
+            "sync-sources",
+            [f"规则执行台账不存在: {paths['ledger']}"],
+            [],
+        )
+    errors, summary = RULE_LEDGER.sync_sources(paths["ledger"])
+    if errors:
+        return print_result("sync-sources", errors, ["保留原台账绑定"])
+    result = print_result(
+        "sync-sources",
+        [],
+        ["增量同步规则与拆书来源", "仅重置实质变动的规则卡"],
+    )
+    for key, value in summary.items():
+        print(f"{key}: {value}")
+    print(f"ledger: {paths['ledger']}")
+    print("next_action: 规则源已重绑；立即重跑原被阻断的工具箱命令。")
+    return result
+
+
 def command_start_draft(paths: dict[str, Path], args: argparse.Namespace) -> int:
     if paths["draft"].is_file() and not paths["first_draft_entry"].is_file():
         return print_result(
@@ -7329,12 +7575,137 @@ def packet_for_section(
     bundle = read_json(bundle_path)
     for packet in bundle.get("packets", []):
         if isinstance(packet, dict) and str(packet.get("section_id") or "") == section_id:
-            return packet
+            return _section_execution_packet(packet)
     raise ValueError(f"第 {section_id} 节不存在于逐节原文颗粒包")
 
 
 def _deepcopy_mapping(value: Any) -> dict[str, Any]:
     return copy.deepcopy(value) if isinstance(value, dict) else {}
+
+
+_SECTION_BEAT_SCOPE_PATTERN = re.compile(
+    r"(?P<scope>前(?P<front>[一二三四五六七八九十两\d]+)拍"
+    r"|后(?P<back>[一二三四五六七八九十两\d]+)拍"
+    r"|第(?P<single>[一二三四五六七八九十两\d]+)拍"
+    r"|末拍"
+    r"|全(?P<all>[一二三四五六七八九十两\d]+)拍)"
+)
+
+
+def _section_binding_description(packet: dict[str, Any]) -> str:
+    payload = packet.get("payload")
+    section_contract = payload.get("section_contract") if isinstance(payload, dict) else None
+    if not isinstance(section_contract, dict):
+        return ""
+    source_function = section_contract.get("source_function_mechanism")
+    if isinstance(source_function, dict):
+        description = str(source_function.get("why_selected_for_this_section") or "").strip()
+        if description:
+            return description
+    for field in ("controlling_object", "source_mechanism"):
+        value = section_contract.get(field)
+        if isinstance(value, str) and "SF-" in value:
+            return value.strip()
+    return ""
+
+
+def _chinese_or_arabic_integer(value: str) -> int | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    if normalized.isdigit():
+        return int(normalized)
+    digits = {"一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+    if normalized == "十":
+        return 10
+    if "十" in normalized:
+        tens, ones = normalized.split("十", 1)
+        tens_value = digits.get(tens, 1) if tens else 1
+        ones_value = digits.get(ones, 0) if ones else 0
+        return tens_value * 10 + ones_value
+    return digits.get(normalized)
+
+
+def _binding_beat_scope(
+    description: str,
+    binding: dict[str, Any],
+    beat_count: int,
+) -> list[int]:
+    if beat_count <= 0:
+        return []
+    subflow_id = str(binding.get("subflow_id") or "").strip()
+    source_name = str(binding.get("source_name") or "").strip()
+    needles = []
+    if source_name and subflow_id:
+        needles.append(f"{source_name}::{subflow_id}")
+    if subflow_id:
+        needles.append(subflow_id)
+    scope_match: re.Match[str] | None = None
+    for needle in needles:
+        match = re.search(
+            rf"{re.escape(needle)}`?\s*(?P<suffix>[^\u3001\uff0c\u3002\uff1b\n]*)",
+            description,
+        )
+        if not match:
+            continue
+        scope_match = _SECTION_BEAT_SCOPE_PATTERN.search(match.group("suffix"))
+        if scope_match:
+            break
+    if not scope_match:
+        return list(range(1, beat_count + 1))
+    if scope_match.group("front"):
+        count = _chinese_or_arabic_integer(scope_match.group("front")) or beat_count
+        return list(range(1, min(count, beat_count) + 1))
+    if scope_match.group("back"):
+        count = _chinese_or_arabic_integer(scope_match.group("back")) or beat_count
+        start = max(1, beat_count - count + 1)
+        return list(range(start, beat_count + 1))
+    if scope_match.group("single"):
+        index = _chinese_or_arabic_integer(scope_match.group("single"))
+        return [index] if isinstance(index, int) and 1 <= index <= beat_count else []
+    if scope_match.group(0) == "末拍":
+        return [beat_count]
+    return list(range(1, beat_count + 1))
+
+
+def _section_execution_packet(packet: dict[str, Any]) -> dict[str, Any]:
+    """Keep every reading range while building one scoped execution contract per SF."""
+    scoped_packet = copy.deepcopy(packet)
+    payload = scoped_packet.get("payload")
+    if not isinstance(payload, dict):
+        return scoped_packet
+    bindings = payload.get("source_slice_bindings")
+    if not isinstance(bindings, list):
+        return scoped_packet
+    description = _section_binding_description(scoped_packet)
+    execution_bindings: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    for binding in bindings:
+        if not isinstance(binding, dict):
+            continue
+        key = (
+            str(binding.get("source_name") or "").strip(),
+            str(binding.get("source_role") or "").strip(),
+            str(binding.get("subflow_id") or "").strip(),
+        )
+        contract = binding.get("source_subflow_contract")
+        sequence = contract.get("required_sequence") if isinstance(contract, dict) else None
+        if key in seen_keys:
+            binding.pop("source_subflow_contract", None)
+            binding["execution_contract_reference"] = "::".join(part for part in key if part)
+            continue
+        seen_keys.add(key)
+        if isinstance(sequence, list):
+            indices = _binding_beat_scope(description, binding, len(sequence))
+            scoped_contract = copy.deepcopy(contract)
+            scoped_contract["required_sequence"] = [sequence[index - 1] for index in indices]
+            scoped_contract["source_beat_indices"] = indices
+            binding["source_subflow_contract"] = copy.deepcopy(scoped_contract)
+        execution_binding = copy.deepcopy(binding)
+        execution_binding.pop("source_excerpt", None)
+        execution_bindings.append(execution_binding)
+    payload["execution_source_bindings"] = execution_bindings
+    return scoped_packet
 
 
 def _section_reading_source_bindings(bindings: list[Any]) -> list[dict[str, Any]]:
@@ -7697,10 +8068,12 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
         )
     packet_payload = packet.get("payload") if isinstance(packet, dict) else None
     packet_bindings = (
-        packet_payload.get("source_slice_bindings")
+        packet_payload.get("execution_source_bindings")
         if isinstance(packet_payload, dict)
         else None
     )
+    if not isinstance(packet_bindings, list) and isinstance(packet_payload, dict):
+        packet_bindings = packet_payload.get("source_slice_bindings")
     if paths["section_execution_receipt"].is_file():
         execution = read_json(paths["section_execution_receipt"])
         execution_target = next(
@@ -7729,14 +8102,25 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
         return result
     beats: list[dict[str, Any]] = []
     payload = packet.get("payload") if isinstance(packet, dict) else None
-    bindings = payload.get("source_slice_bindings") if isinstance(payload, dict) else None
+    bindings = payload.get("execution_source_bindings") if isinstance(payload, dict) else None
+    if not isinstance(bindings, list) and isinstance(payload, dict):
+        bindings = payload.get("source_slice_bindings")
     for binding in bindings if isinstance(bindings, list) else []:
         if not isinstance(binding, dict):
             continue
         subflow_id = str(binding.get("subflow_id") or "").strip()
         contract = binding.get("source_subflow_contract")
         sequence = contract.get("required_sequence") if isinstance(contract, dict) else None
-        for beat_index, source_beat in enumerate(sequence if isinstance(sequence, list) else [], start=1):
+        source_indices = contract.get("source_beat_indices") if isinstance(contract, dict) else None
+        normalized_indices = (
+            source_indices
+            if isinstance(source_indices, list) and len(source_indices) == len(sequence or [])
+            else list(range(1, len(sequence or []) + 1))
+        )
+        for beat_index, source_beat in zip(
+            normalized_indices,
+            sequence if isinstance(sequence, list) else [],
+        ):
             if not str(source_beat).strip():
                 continue
             beats.append(
@@ -8006,6 +8390,9 @@ def build_parser() -> argparse.ArgumentParser:
     outline_repair_apply = subparsers.add_parser("outline-repair-apply")
     outline_repair_apply.add_argument("--packet-sha", required=True)
     outline_repair_apply.set_defaults(func=command_outline_repair_apply)
+
+    sync_sources = subparsers.add_parser("sync-sources")
+    sync_sources.set_defaults(func=command_sync_sources)
 
     workspace_rules = subparsers.add_parser("workspace-rules")
     workspace_rules.add_argument("--root", default=".")

@@ -68,6 +68,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "outline-validate",
             "outline-repair-next",
             "outline-repair-apply",
+            "sync-sources",
             "preflight-book",
             "start-draft",
             "show-section",
@@ -77,6 +78,23 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "finalize-basic-review",
         ):
             self.assertIn(command, subparsers.choices)
+
+    def test_sync_sources_delegates_to_rule_ledger_gate(self) -> None:
+        self.paths["ledger"].write_text("{}\n", encoding="utf-8")
+        output = StringIO()
+
+        with patch.object(
+            TOOLBOX.RULE_LEDGER,
+            "sync_sources",
+            return_value=([], {"preserved": 8, "reset": 1}),
+        ), redirect_stdout(output):
+            result = TOOLBOX.command_sync_sources(self.paths, argparse.Namespace())
+
+        text = output.getvalue()
+        self.assertEqual(0, result)
+        self.assertIn("project_toolbox: sync-sources passed", text)
+        self.assertIn("preserved: 8", text)
+        self.assertIn("reset: 1", text)
 
     def test_outline_progress_requires_title_on_separate_line(self) -> None:
         progress = TOOLBOX.analyze_outline_progress(
@@ -470,6 +488,121 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         )
 
         self.assertEqual([{"from_section_id": "1", "to_section_id": "2", "handoff_trigger": "待修"}], template)
+
+    def test_outline_repair_batches_up_to_three_sections(self) -> None:
+        section_ids = TOOLBOX.outline_trim_focus_section_ids(
+            "sections",
+            "sections",
+            ["1", "2", "3", "4"],
+        )
+
+        self.assertEqual(["1", "2", "3"], section_ids)
+
+    def test_section_repair_template_prefills_declared_scene_states(self) -> None:
+        outline_sections = TOOLBOX.parse_outline_sections_map(
+            "## 第1节\n\n- 场景入口状态：她已经到门外。\n"
+            "- 场景出口状态：她带走了钥匙。\n"
+            "\n## 第2节\n\n- 场景入口状态：他发现门已锁。\n"
+            "- 场景出口状态：他失去进入权。\n"
+        )
+        template = [
+            {"section_id": "1", "scene_logic_contract": {"scene_entry_state": ""}},
+            {
+                "section_id": "2",
+                "scene_logic_contract": {"scene_entry_state": "人工精确入口"},
+            },
+        ]
+
+        seeded = TOOLBOX.seed_section_template_scene_states(template, outline_sections)
+
+        self.assertEqual(
+            "她已经到门外。",
+            seeded[0]["scene_logic_contract"]["scene_entry_state"],
+        )
+        self.assertEqual(
+            "她带走了钥匙。",
+            seeded[0]["scene_logic_contract"]["scene_exit_state"],
+        )
+        self.assertEqual(
+            "人工精确入口",
+            seeded[1]["scene_logic_contract"]["scene_entry_state"],
+        )
+        self.assertEqual(
+            "他失去进入权。",
+            seeded[1]["scene_logic_contract"]["scene_exit_state"],
+        )
+
+    def test_rebuilt_section_repair_template_keeps_declared_scene_states(self) -> None:
+        self.paths["outline"].write_text(
+            "## 第1节\n\n"
+            "- 场景入口状态：她已经到门外。\n"
+            "- 场景出口状态：她带走了钥匙。\n",
+            encoding="utf-8",
+        )
+        receipt = {
+            "sections": [
+                {
+                    "section_id": "1",
+                    "scene_logic_contract": {
+                        "scene_entry_state": "",
+                        "scene_exit_state": "",
+                    },
+                }
+            ]
+        }
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], receipt)
+        packet = {
+            "receipt_key": "sections",
+            "focus_group": "sections",
+            "focus_context": {"focus_section_ids": ["1"]},
+            "focus_errors": [
+                "第 1 节 scene_logic_contract.scene_entry_state 不能为空",
+                "第 1 节 scene_logic_contract.scene_exit_state 不能为空",
+            ],
+        }
+
+        template = TOOLBOX.outline_repair_template_from_packet(self.paths, packet)
+        scene_logic = template[0]["scene_logic_contract"]
+
+        self.assertEqual("她已经到门外。", scene_logic["scene_entry_state"])
+        self.assertEqual("她带走了钥匙。", scene_logic["scene_exit_state"])
+
+    def test_section_states_are_synchronized_into_adjacent_handoffs(self) -> None:
+        receipt = {
+            "sections": [
+                {
+                    "section_id": "1",
+                    "scene_logic_contract": {
+                        "scene_entry_state": "第一节入口",
+                        "scene_exit_state": "第一节出口",
+                    },
+                },
+                {
+                    "section_id": "2",
+                    "scene_logic_contract": {
+                        "scene_entry_state": "第二节入口",
+                        "scene_exit_state": "第二节出口",
+                    },
+                },
+            ],
+            "section_handoff_chain": [
+                {
+                    "from_section_id": "1",
+                    "to_section_id": "2",
+                    "from_exit_state": "旧出口",
+                    "to_entry_state": "旧入口",
+                    "handoff_trigger": "保留人工语义字段",
+                }
+            ],
+        }
+
+        synchronized = TOOLBOX.synchronize_outline_handoff_states(receipt)
+        handoff = synchronized["section_handoff_chain"][0]
+
+        self.assertEqual("第一节出口", handoff["from_exit_state"])
+        self.assertEqual("第二节入口", handoff["to_entry_state"])
+        self.assertEqual("保留人工语义字段", handoff["handoff_trigger"])
+        self.assertEqual("旧出口", receipt["section_handoff_chain"][0]["from_exit_state"])
 
     def test_eligible_outline_evidence_returns_exact_bounded_lines(self) -> None:
         section = "## 第1节\n\n### 主事件\n- 她当场扣下证件。\n1. 他先替第三人解释。\n"
@@ -1259,6 +1392,77 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual([{"section_id": "1", "verdict": "passed"}], receipt["sections"])
         self.assertIn("merge-updated-sections-into-outline-contract", output.getvalue())
 
+    def test_outline_repair_apply_persists_derived_handoff_states(self) -> None:
+        self.paths["outline"].write_text("## 第1节\n\n## 第2节\n", encoding="utf-8")
+        receipt = {
+            "sections": [
+                {
+                    "section_id": "1",
+                    "scene_logic_contract": {
+                        "scene_entry_state": "入口1",
+                        "scene_exit_state": "旧出口1",
+                    },
+                },
+                {
+                    "section_id": "2",
+                    "scene_logic_contract": {
+                        "scene_entry_state": "入口2",
+                        "scene_exit_state": "出口2",
+                    },
+                },
+            ],
+            "section_handoff_chain": [
+                {
+                    "from_section_id": "1",
+                    "to_section_id": "2",
+                    "from_exit_state": "旧交接出口",
+                    "to_entry_state": "旧交接入口",
+                }
+            ],
+        }
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], receipt)
+        packet = {
+            "packet_sha256": "batch-state-packet",
+            "receipt_key": "sections",
+            "focus_group": "sections",
+            "focus_context": {"focus_section_ids": ["1"]},
+            "outline_contract_receipt_key_sha256": TOOLBOX.json_value_sha256(
+                TOOLBOX.outline_receipt_scope_value(receipt, "sections", ["1"])
+            ),
+            "summary": {
+                "primary_focus_summary": "group=sections | receipt_key=sections | sections=1",
+                "primary_error_preview": "第 1 节待修",
+                "focus_summary_line": "group=sections | receipt_key=sections | sections=1",
+                "guidance_summary_line": "errors=1",
+            },
+        }
+        TOOLBOX.atomic_write_json(self.paths["outline_repair_packet"], packet)
+        TOOLBOX.atomic_write_json_value(
+            self.paths["outline_repair_item_output"],
+            [
+                {
+                    "section_id": "1",
+                    "scene_logic_contract": {"scene_exit_state": "新出口1"},
+                }
+            ],
+        )
+
+        with patch.object(
+            TOOLBOX,
+            "outline_precheck_errors_from_data",
+            return_value=([], []),
+        ):
+            result = TOOLBOX.command_outline_repair_apply(
+                self.paths,
+                argparse.Namespace(packet_sha=packet["packet_sha256"]),
+            )
+
+        updated = TOOLBOX.read_json(self.paths["outline_contract"])
+        handoff = updated["section_handoff_chain"][0]
+        self.assertEqual(0, result)
+        self.assertEqual("新出口1", handoff["from_exit_state"])
+        self.assertEqual("入口2", handoff["to_entry_state"])
+
     def test_outline_repair_apply_rejects_invalid_sections_before_merge(self) -> None:
         self.paths["outline"].write_text(
             "## 1. 起事\n\n动作一\n动作二\n",
@@ -1317,6 +1521,8 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("project_toolbox: outline-repair-apply blocked", text)
         self.assertIn("第 1 节 verdict 必须为 passed", text)
         self.assertIn("reject-invalid-outline-repair-writeback-before-merge", text)
+        self.assertIn("stage-valid-outline-repair-delta-before-final-merge", text)
+        self.assertTrue(self.paths["outline_repair_staging"].is_file())
         self.assertIn("repair_packet:", text)
         self.assertIn("repair_result_template:", text)
         self.assertIn("repair_allowed_external_rule_domains:", text)
@@ -1324,6 +1530,157 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             f"next_apply_command: outline-repair-apply --packet-sha {refreshed_packet['packet_sha256']}",
             text,
         )
+
+    def test_outline_repair_apply_accumulates_dependent_packets_before_atomic_merge(self) -> None:
+        self.paths["outline"].write_text("## 1. 起事\n", encoding="utf-8")
+        original_receipt = {
+            "sections": [
+                {
+                    "section_id": "1",
+                    "verdict": "pending",
+                    "irreversible_action": "",
+                    "scene_logic_contract": {"beat_dependency_chain": []},
+                }
+            ]
+        }
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], original_receipt)
+
+        def write_packet(packet_sha: str) -> dict[str, object]:
+            packet = {
+                "packet_sha256": packet_sha,
+                "receipt_key": "sections",
+                "focus_group": "sections",
+                "focus_context": {"focus_section_ids": ["1"]},
+                "rerun_command": "outline-repair-next",
+                "summary": {
+                    "primary_focus_summary": "group=sections | receipt_key=sections | sections=1",
+                    "primary_error_preview": "第 1 节待修",
+                    "focus_summary_line": "group=sections | receipt_key=sections | sections=1",
+                    "guidance_summary_line": "errors=1",
+                },
+                "outline_contract_receipt_key_sha256": TOOLBOX.json_value_sha256(
+                    TOOLBOX.outline_receipt_scope_value(original_receipt, "sections", ["1"])
+                ),
+            }
+            TOOLBOX.atomic_write_json(self.paths["outline_repair_packet"], packet)
+            return packet
+
+        first_packet = write_packet("static-fields-packet")
+        TOOLBOX.atomic_write_json_value(
+            self.paths["outline_repair_item_output"],
+            [
+                {
+                    "section_id": "1",
+                    "verdict": "passed",
+                    "irreversible_action": "她当众签字离开",
+                }
+            ],
+        )
+        with patch.object(
+            TOOLBOX,
+            "outline_precheck_errors_from_data",
+            return_value=(["第 1 节 beat_dependency_chain 至少需要 3 拍"], []),
+        ), patch.object(TOOLBOX, "export_outline_repair_packet"):
+            first_result = TOOLBOX.command_outline_repair_apply(
+                self.paths,
+                argparse.Namespace(packet_sha=first_packet["packet_sha256"]),
+            )
+
+        self.assertEqual(2, first_result)
+        self.assertEqual(original_receipt, TOOLBOX.read_json(self.paths["outline_contract"]))
+        self.assertTrue(self.paths["outline_repair_staging"].is_file())
+
+        second_packet = write_packet("dependency-chain-packet")
+        TOOLBOX.atomic_write_json_value(
+            self.paths["outline_repair_item_output"],
+            [
+                {
+                    "section_id": "1",
+                    "scene_logic_contract": {
+                        "beat_dependency_chain": [{"beat_id": "B1"}, {"beat_id": "B2"}, {"beat_id": "B3"}]
+                    },
+                }
+            ],
+        )
+        with patch.object(
+            TOOLBOX,
+            "outline_precheck_errors_from_data",
+            return_value=([], []),
+        ):
+            second_result = TOOLBOX.command_outline_repair_apply(
+                self.paths,
+                argparse.Namespace(packet_sha=second_packet["packet_sha256"]),
+            )
+
+        self.assertEqual(0, second_result)
+        merged = TOOLBOX.read_json(self.paths["outline_contract"])["sections"][0]
+        self.assertEqual("她当众签字离开", merged["irreversible_action"])
+        self.assertEqual(3, len(merged["scene_logic_contract"]["beat_dependency_chain"]))
+        self.assertFalse(self.paths["outline_repair_staging"].exists())
+
+    def test_outline_repair_staging_is_discarded_when_outline_changes(self) -> None:
+        self.paths["outline"].write_text("## 1. 起事\n", encoding="utf-8")
+        receipt = {"sections": [{"section_id": "1", "verdict": "pending"}]}
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], receipt)
+        packet = {
+            "packet_sha256": "packet-1",
+            "receipt_key": "sections",
+            "focus_group": "sections",
+            "focus_context": {"focus_section_ids": ["1"]},
+        }
+        candidate = TOOLBOX.merge_outline_repair_value_into_receipt(
+            receipt,
+            "sections",
+            [{"section_id": "1", "verdict": "passed"}],
+            ["1"],
+        )
+        TOOLBOX.write_outline_repair_staging(self.paths, packet, candidate)
+
+        self.paths["outline"].write_text("## 1. 起事\n\n新动作\n", encoding="utf-8")
+        effective = TOOLBOX.apply_valid_outline_repair_staging(self.paths, receipt, packet)
+
+        self.assertEqual(receipt, effective)
+        self.assertFalse(self.paths["outline_repair_staging"].exists())
+
+    def test_outline_precheck_reads_accumulated_repair_candidate(self) -> None:
+        self.paths["outline"].write_text("## 1. 起事\n", encoding="utf-8")
+        receipt = {"sections": [{"section_id": "1", "irreversible_action": ""}]}
+        TOOLBOX.atomic_write_json(self.paths["outline_contract"], receipt)
+        packet = {
+            "packet_sha256": "packet-1",
+            "receipt_key": "sections",
+            "focus_group": "sections",
+            "focus_context": {"focus_section_ids": ["1"]},
+        }
+        candidate = TOOLBOX.merge_outline_repair_value_into_receipt(
+            receipt,
+            "sections",
+            [{"section_id": "1", "irreversible_action": "她当众签字离开"}],
+            ["1"],
+        )
+        TOOLBOX.write_outline_repair_staging(self.paths, packet, candidate)
+
+        def inspect_candidate(
+            _paths: dict[str, Path],
+            data: dict[str, object],
+            enabled: set[str],
+            focus_section_ids: list[str] | None = None,
+        ) -> tuple[list[str], list[str]]:
+            del enabled, focus_section_ids
+            sections = data["sections"]
+            self.assertIsInstance(sections, list)
+            self.assertEqual("她当众签字离开", sections[0]["irreversible_action"])
+            return [], []
+
+        with patch.object(
+            TOOLBOX,
+            "outline_precheck_errors_from_data",
+            side_effect=inspect_candidate,
+        ):
+            errors, actions = TOOLBOX.outline_precheck_errors(self.paths, {"sections"})
+
+        self.assertEqual([], errors)
+        self.assertEqual([], actions)
 
     def test_outline_repair_apply_sections_does_not_force_first_draft_group(self) -> None:
         self.paths["outline"].write_text(
@@ -1627,7 +1984,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("outline_guidance_candidates_end", text)
         self.assertIn("outline_guidance_block_end", text)
 
-    def test_outline_repair_next_limits_first_draft_packet_to_one_section(self) -> None:
+    def test_outline_repair_next_batches_first_draft_sections(self) -> None:
         self.paths["outline"].write_text(
             "## 1. 起事\n\n- 主事件：动作一\n\n## 2. 失位\n\n- 主事件：动作二\n",
             encoding="utf-8",
@@ -1666,9 +2023,9 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         packet = json.loads(self.paths["outline_repair_packet"].read_text(encoding="utf-8"))
         self.assertEqual("first-draft", packet["focus_group"])
         self.assertEqual("sections", packet["receipt_key"])
-        self.assertEqual(["1"], packet["focus_context"]["focus_section_ids"])
+        self.assertEqual(["1", "2"], packet["focus_context"]["focus_section_ids"])
         template = json.loads(self.paths["outline_repair_item_output"].read_text(encoding="utf-8"))
-        self.assertEqual(["1"], [item["section_id"] for item in template])
+        self.assertEqual(["1", "2"], [item["section_id"] for item in template])
         self.assertEqual(
             {"section_id", "first_draft_generation_contract"},
             set(template[0]),
@@ -4697,6 +5054,8 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertTrue(self.paths["outline_repair_packet"].is_file())
         self.assertTrue(self.paths["outline_repair_item_output"].is_file())
         self.assertIn("require-all-four-draft-gates-passed-before-start-draft", output.getvalue())
+        self.assertIn("project_toolbox_progress: 正在运行写前机械预检", output.getvalue())
+        self.assertIn("project_toolbox_progress: 正在初始化细纲表演验收契约", output.getvalue())
         self.assertIn("outline-precheck --only sections/handoff/bridges/first-draft", output.getvalue())
         self.assertIn("未到 start-draft 前不得收口", output.getvalue())
         self.assertIn("禁止搜索其他项目回执当模板", output.getvalue())
@@ -5537,6 +5896,74 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         )
         self.assertNotIn("source_performance_excerpt", payload["first_draft_generation_contract"])
         self.assertIn("anti_verbatim_transfer_contract", payload["first_draft_generation_contract"])
+
+    def test_section_execution_packet_scopes_and_deduplicates_source_beats(self) -> None:
+        def binding(subflow_id: str, sequence: list[str], source_range: str) -> dict[str, object]:
+            return {
+                "source_name": "主体书",
+                "source_role": "main",
+                "subflow_id": subflow_id,
+                "source_range": source_range,
+                "source_evidence": [f"{source_range}证据"],
+                "source_subflow_contract": {
+                    "subflow_id": subflow_id,
+                    "required_sequence": sequence,
+                },
+            }
+
+        sf01 = [f"SF-01 第{index}拍" for index in range(1, 7)]
+        sf02 = [f"SF-02 第{index}拍" for index in range(1, 8)]
+        sf07 = [f"SF-07 第{index}拍" for index in range(1, 7)]
+        packet = {
+            "section_id": "1",
+            "packet_sha256": "packet-sha",
+            "payload": {
+                "section_contract": {
+                    "source_function_mechanism": {
+                        "why_selected_for_this_section": "主体 `SF-01`、主体 `SF-02`前三拍、主体 `SF-07`第一拍。"
+                    }
+                },
+                "source_slice_bindings": [
+                    binding("SF-01", sf01, "L1-L10"),
+                    binding("SF-02", sf02, "L11-L20"),
+                    binding("SF-07", sf07, "L21-L30"),
+                    binding("SF-07", sf07, "L31-L40"),
+                    binding("SF-07", sf07, "L41-L50"),
+                ],
+            },
+        }
+
+        scoped = TOOLBOX._section_execution_packet(packet)
+        payload = scoped["payload"]
+        execution = payload["execution_source_bindings"]
+
+        self.assertEqual(5, len(payload["source_slice_bindings"]))
+        self.assertEqual(3, len(execution))
+        self.assertEqual(sf01, execution[0]["source_subflow_contract"]["required_sequence"])
+        self.assertEqual([1, 2, 3, 4, 5, 6], execution[0]["source_subflow_contract"]["source_beat_indices"])
+        self.assertEqual(sf02[:3], execution[1]["source_subflow_contract"]["required_sequence"])
+        self.assertEqual([1, 2, 3], execution[1]["source_subflow_contract"]["source_beat_indices"])
+        self.assertEqual(sf07[:1], execution[2]["source_subflow_contract"]["required_sequence"])
+        self.assertEqual([1], execution[2]["source_subflow_contract"]["source_beat_indices"])
+        self.assertNotIn("source_subflow_contract", payload["source_slice_bindings"][3])
+        self.assertNotIn("source_subflow_contract", payload["source_slice_bindings"][4])
+        self.assertEqual(["L21-L30证据"], payload["source_slice_bindings"][2]["source_evidence"])
+        self.assertEqual(["L31-L40证据"], payload["source_slice_bindings"][3]["source_evidence"])
+        self.assertEqual(["L41-L50证据"], payload["source_slice_bindings"][4]["source_evidence"])
+
+    def test_binding_beat_scope_supports_front_back_single_last_and_all(self) -> None:
+        binding = {"source_name": "主体书", "subflow_id": "SF-03"}
+        cases = {
+            "主体 `SF-03`前两拍。": [1, 2],
+            "主体 `SF-03`后三拍。": [6, 7, 8],
+            "主体 `SF-03`第五拍回收。": [5],
+            "主体 `SF-03`末拍回收。": [8],
+            "主体 `SF-03`全八拍。": [1, 2, 3, 4, 5, 6, 7, 8],
+            "主体 `SF-03`的证据中继。": [1, 2, 3, 4, 5, 6, 7, 8],
+        }
+        for description, expected in cases.items():
+            with self.subTest(description=description):
+                self.assertEqual(expected, TOOLBOX._binding_beat_scope(description, binding, 8))
 
     def test_show_section_prints_bounded_reading_packet(self) -> None:
         args = argparse.Namespace(section="1", part=None)
