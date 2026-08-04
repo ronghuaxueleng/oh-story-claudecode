@@ -50,14 +50,14 @@
 
 `required_sequence` 必须全量进入逐节展示、细纲映射和正文关闭校验，不得只展示前四拍。`source_emotion_parity.manual_judgment` 与 `adaptation_boundary` 必须由当前模型给出已完成判断；保留“机械预填 / 待确认 / 待复核”等占位话时不得通过。
 
-正文 `open-section` 后由工具箱生成 `写作资产/当前节逐拍消费回填.json`。每条固定绑定 `subflow_id / beat_index / source_beat`，当前模型只补：
+正文自动开节后由工具箱生成 schema v2.1 的 `写作资产/当前节逐拍消费回填.json`。每条固定绑定 `subflow_id / beat_index / source_beat`，当前模型只补：
 
-- `target_evidence`：当前正文中承担本拍的独立原句，不得与其他拍重复；
-- `causal_link`：说明前态如何触发动作、动作如何造成可见结果并推动下一拍；
-- `performance_equivalence`：说明心理过程、身体动作、注意顺位或情绪刺痛为何没有降级成标签；
-- `status`：人工验收后改为 `passed`。
+- `evidence`：固定五项数组，依次填写本拍前态、可见触发、动作选择、可见结果和推动下一拍的原因；
+- `performance_equivalence`：说明心理过程、身体动作、注意顺位或情绪刺痛为何没有降级成标签。
 
-`advance-section` 必须校验颗粒包 SHA、拍数、拍号、原拍文本、正文证据存在性、证据唯一性和正文出现顺序。任何一项失败都留在当前节回写，不允许以总覆盖率或口头 `passed` 代替。
+`status` 由工具校验全部证据后自动判定，禁止要求模型重复手填。
+
+五类证据必须分别引用当前正文中不少于 6 个非空白字符的真实片段，并按前态 -> 触发 -> 动作 -> 结果 -> 下一拍原因出现；不得跨组件或跨拍复用。`advance-section` 必须校验 schema、颗粒包 SHA、拍数、拍号、原拍文本、五组件正文证据、组件顺序和跨拍动作顺序。任何一项失败都留在当前节回写，不允许以总覆盖率、宽泛功能句或口头 `passed` 代替。
 
 ## 执行时机
 

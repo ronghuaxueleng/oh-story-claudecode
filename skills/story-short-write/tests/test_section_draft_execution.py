@@ -190,6 +190,32 @@ class SectionDraftExecutionTest(unittest.TestCase):
         self.assertEqual(["1", "2"], GATE.draft_section_ids(self.draft))
         self.assertEqual("第一节正文。", GATE.section_text(self.draft, "1"))
 
+    def test_zhihu_format_blocks_book_title_and_titled_section_heading(self) -> None:
+        (self.root / "设定.md").write_text(
+            "- 目标平台：知乎盐言，女性情感短篇。\n",
+            encoding="utf-8",
+        )
+        self.draft.write_text(
+            "# 测试书名\n\n## 第1节 带标题的小节\n\n第一节正文。\n",
+            encoding="utf-8",
+        )
+        errors = GATE.validate_draft_format(
+            self.draft,
+            GATE.infer_draft_format(self.draft),
+        )
+        self.assertTrue(any("不得包含书名标题或小节标题" in error for error in errors))
+
+    def test_zhihu_format_accepts_only_pure_numeric_section_markers(self) -> None:
+        (self.root / "设定.md").write_text(
+            "- 目标平台：知乎盐言。\n",
+            encoding="utf-8",
+        )
+        self.draft.write_text("1.\n\n第一节正文。\n\n2.\n\n第二节正文。\n", encoding="utf-8")
+        self.assertEqual(
+            [],
+            GATE.validate_draft_format(self.draft, GATE.infer_draft_format(self.draft)),
+        )
+
     def test_compact_level_three_section_heading_is_recognized(self) -> None:
         self.draft.write_text(
             "###1.\n\n第一节正文。\n\n### 2.\n\n第二节正文。\n",
@@ -379,33 +405,83 @@ class SectionDraftExecutionTest(unittest.TestCase):
                 },
             }
         ]
-        content = "她先问他今晚在哪。女孩忽然喘不上气，他立刻过去扶人。忙完后，他才看见门边的妻子。"
+        beat_evidence = [
+            ["她原本还信他的日程。", "门外忽然传来脚步声。", "她先问他今晚在哪里。", "他的回答明显躲闪了。", "这次躲闪逼她继续观察。"],
+            ["屋里的气氛刚刚僵住。", "女孩忽然喘不上气来。", "他立刻转身过去扶人。", "女孩终于慢慢站稳了。", "照护动作让门边被冷落。"],
+            ["门边的人一直没有出声。", "他忙完才抬头看向门口。", "他终于转身去认妻子。", "妻子已经把手收回去了。", "这次迟见造成关系失位。"],
+        ]
+        content = "".join(quote for beat in beat_evidence for quote in beat)
         receipts = [
             {
                 "subflow_id": "SF-01",
                 "beat_index": index,
                 "source_beat": source_beat,
-                "target_evidence": evidence,
-                "causal_link": "本拍由前态触发动作，并直接造成下一拍。",
+                **dict(zip((field for field, _ in GATE.BEAT_EVIDENCE_FIELDS), evidence)),
                 "performance_equivalence": "保留原拍的动作优先级和关系刺痛。",
                 "status": "passed",
             }
             for index, (source_beat, evidence) in enumerate(
                 [
-                    ("冷静试探", "她先问他今晚在哪。"),
-                    ("身体信号", "女孩忽然喘不上气，他立刻过去扶人。"),
-                    ("最后发现", "忙完后，他才看见门边的妻子。"),
+                    ("冷静试探", beat_evidence[0]),
+                    ("身体信号", beat_evidence[1]),
+                    ("最后发现", beat_evidence[2]),
                 ],
                 start=1,
             )
         ]
         self.assertEqual(
             [],
-            GATE.validate_required_sequence_receipts(bindings, content, receipts),
+            GATE.validate_required_sequence_receipts(bindings, content, receipts, "2.0"),
         )
-        receipts[2]["target_evidence"] = receipts[1]["target_evidence"]
-        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts)
-        self.assertTrue(any("不得与其他拍重复" in error for error in errors))
+        original_trigger = receipts[0]["trigger_evidence"]
+        receipts[0]["trigger_evidence"] = beat_evidence[0][0] + beat_evidence[0][1]
+        overlap_errors = GATE.validate_required_sequence_receipts(bindings, content, receipts, "2.0")
+        self.assertTrue(any("不得重叠" in error for error in overlap_errors))
+        receipts[0]["trigger_evidence"] = original_trigger
+        receipts[2]["trigger_evidence"] = receipts[1]["trigger_evidence"]
+        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts, "2.0")
+        self.assertTrue(any("不得与其他组件或其他拍重复" in error for error in errors))
+
+    def test_structured_beat_receipt_rejects_legacy_single_quote_claim(self) -> None:
+        bindings = [{"subflow_id": "SF-01", "source_subflow_contract": {"required_sequence": ["完整照护后才发现妻子"]}}]
+        content = "他先扶稳女孩，随后才看见门边的妻子。"
+        receipts = [{
+            "subflow_id": "SF-01",
+            "beat_index": 1,
+            "source_beat": "完整照护后才发现妻子",
+            "target_evidence": content,
+            "causal_link": "功能相同。",
+            "performance_equivalence": "保留刺痛。",
+            "status": "passed",
+        }]
+        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts, "1.0")
+        self.assertTrue(any("版本过旧" in error for error in errors))
+
+    def test_compact_v21_beat_receipt_passes_without_manual_status(self) -> None:
+        binding = {
+            "subflow_id": "SF-01",
+            "source_subflow_contract": {"required_sequence": ["完整照护后才发现妻子"]},
+        }
+        evidence = [
+            "门外的人一直没有出声。",
+            "女孩忽然喘不上气来。",
+            "他先俯身扶住了女孩。",
+            "女孩的呼吸终于平稳。",
+            "他这才抬头看见妻子。",
+        ]
+        receipt = {
+            "subflow_id": "SF-01",
+            "beat_index": 1,
+            "source_beat": "完整照护后才发现妻子",
+            "evidence": evidence,
+            "performance_equivalence": "保留先完成照护、后发现妻子的关系掉位。",
+        }
+        self.assertEqual(
+            [],
+            GATE.validate_required_sequence_receipts(
+                [binding], "".join(evidence), [receipt], "2.1"
+            ),
+        )
 
     def test_structured_beat_receipt_preserves_sparse_source_indices(self) -> None:
         bindings = [
@@ -417,14 +493,15 @@ class SectionDraftExecutionTest(unittest.TestCase):
                 },
             }
         ]
-        content = "她先落下原第六拍的动作。然后转入原第七拍的后果。"
+        beat_six = ["她仍握着上一份材料。", "门锁忽然响了一声。", "她先把录音按键打开。", "屏幕亮起红色计时。", "这份记录逼出后续核验。"]
+        beat_seven = ["核验前现场仍在争执。", "对方忽然改口否认了。", "她转身调取门禁记录。", "时间线因此对上了。", "这条结果促成最终追责。"]
+        content = "".join(beat_six + beat_seven)
         receipts = [
             {
                 "subflow_id": "SF-02",
                 "beat_index": 6,
                 "source_beat": "原第六拍",
-                "target_evidence": "她先落下原第六拍的动作。",
-                "causal_link": "前态触发动作，动作造成下一拍。",
+                **dict(zip((field for field, _ in GATE.BEAT_EVIDENCE_FIELDS), beat_six)),
                 "performance_equivalence": "保留原拍的人物偏手和情绪反应。",
                 "status": "passed",
             },
@@ -432,8 +509,7 @@ class SectionDraftExecutionTest(unittest.TestCase):
                 "subflow_id": "SF-02",
                 "beat_index": 7,
                 "source_beat": "原第七拍",
-                "target_evidence": "然后转入原第七拍的后果。",
-                "causal_link": "上一拍结果触发本拍收束。",
+                **dict(zip((field for field, _ in GATE.BEAT_EVIDENCE_FIELDS), beat_seven)),
                 "performance_equivalence": "保留原拍的信息延迟与余痛。",
                 "status": "passed",
             },
@@ -441,14 +517,15 @@ class SectionDraftExecutionTest(unittest.TestCase):
 
         self.assertEqual(
             [],
-            GATE.validate_required_sequence_receipts(bindings, content, receipts),
+            GATE.validate_required_sequence_receipts(bindings, content, receipts, "2.0"),
         )
         receipts[0]["beat_index"] = 1
-        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts)
+        errors = GATE.validate_required_sequence_receipts(bindings, content, receipts, "2.0")
         self.assertTrue(any("SF-02#1" in error for error in errors))
 
     def test_structured_receipts_replace_verbatim_anchor_coverage(self) -> None:
-        evidence = "她核对签字后，终于看清他先走向了谁。"
+        evidence_parts = ["她原本只想核对签字。", "门边忽然有人叫住她。", "她当场打开系统记录。", "屏幕显示他先走向别人。", "这个顺位逼她重新定性。"]
+        evidence = "".join(evidence_parts)
         binding = {
             "subflow_id": "SF-07",
             "source_subflow_contract": {
@@ -463,14 +540,14 @@ class SectionDraftExecutionTest(unittest.TestCase):
             "subflow_id": "SF-07",
             "beat_index": 1,
             "source_beat": "第一次越位接触时因现实习惯保留录音。",
-            "target_evidence": evidence,
-            "causal_link": "现场冲突触发核验，核验产生可复查记录。",
+            **dict(zip((field for field, _ in GATE.BEAT_EVIDENCE_FIELDS), evidence_parts)),
             "performance_equivalence": "保留先受伤再冷静核验的情绪转换。",
             "status": "passed",
         }
         target = {
             "source_slice_bindings": [binding],
             "required_sequence_receipts": [receipt],
+            "beat_receipt_schema_version": "2.0",
         }
 
         self.assertTrue(GATE.validate_binding_anchor_coverage([binding], evidence))

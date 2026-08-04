@@ -17,6 +17,25 @@ CHINESE_CHAPTER_HEADING = re.compile(
 NUMBERED_TITLE = re.compile(r"^\d+[.、]\s*\S+")
 NON_ZHIHU_SECTION = re.compile(r"^\d+、")
 ANY_MARKDOWN_HEADING = re.compile(r"^#{1,6}\s*\S+")
+SENTENCE_END = re.compile(r"[^。！？!?]+[。！？!?]?")
+EXPLICIT_DIALOGUE = re.compile(r"[：:]\s*[「“]")
+MAX_PARAGRAPH_SENTENCES = 2
+MAX_PARAGRAPH_CHARS = 100
+MAX_SENTENCE_CHARS = 42
+LONG_SENTENCE_CHARS = 22
+MAX_CONSECUTIVE_LONG_SENTENCES = 2
+
+
+def non_whitespace_chars(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def prose_sentences(line: str) -> list[str]:
+    return [
+        item.strip()
+        for item in SENTENCE_END.findall(line)
+        if item.strip() and re.search(r"[\w\u4e00-\u9fff]", item)
+    ]
 
 
 def read_text(path: Path) -> str:
@@ -36,6 +55,7 @@ def validate_text(text: str) -> tuple[list[str], list[int]]:
 
     previous_nonempty_line: int | None = None
     blank_run = 0
+    consecutive_long_sentences = 0
 
     for line_number, raw_line in enumerate(lines, start=1):
         line = raw_line.strip()
@@ -59,6 +79,7 @@ def validate_text(text: str) -> tuple[list[str], list[int]]:
         pure_match = PURE_SECTION.fullmatch(line)
         if pure_match:
             sections.append(int(pure_match.group(1)))
+            consecutive_long_sentences = 0
             continue
 
         if MARKDOWN_NUMBERED_HEADING.match(line):
@@ -76,9 +97,43 @@ def validate_text(text: str) -> tuple[list[str], list[int]]:
             errors.append(f"第 {line_number} 行使用了非知乎分节符号: {line}")
             continue
         if ANY_MARKDOWN_HEADING.match(line):
-            if nonempty_index == 1 and line.startswith("# ") and not line.startswith("## "):
-                continue
             errors.append(f"第 {line_number} 行存在正文 Markdown 标题: {line}")
+            continue
+
+        sentence_items = prose_sentences(line)
+        paragraph_chars = non_whitespace_chars(line)
+        if len(sentence_items) > MAX_PARAGRAPH_SENTENCES:
+            errors.append(
+                f"第 {line_number} 行含 {len(sentence_items)} 句，知乎正文单个自然段最多承载 "
+                f"{MAX_PARAGRAPH_SENTENCES} 句；请按注意对象、说话轮次或情绪转折重新断段"
+            )
+        if paragraph_chars > MAX_PARAGRAPH_CHARS:
+            errors.append(
+                f"第 {line_number} 行自然段过长：{paragraph_chars} 字，超过 "
+                f"{MAX_PARAGRAPH_CHARS} 字阅读上限"
+            )
+        if EXPLICIT_DIALOGUE.search(line) and not (
+            line.startswith(("「", "“")) and line.endswith(("」", "”"))
+        ):
+            errors.append(
+                f"第 {line_number} 行把对白嵌在叙述段内；知乎正文对白必须按说话轮次独立成段"
+            )
+        for sentence in sentence_items:
+            sentence_chars = non_whitespace_chars(sentence)
+            if sentence_chars > MAX_SENTENCE_CHARS:
+                errors.append(
+                    f"第 {line_number} 行存在 {sentence_chars} 字超长句，超过 "
+                    f"{MAX_SENTENCE_CHARS} 字；请拆出动作、错答或反应气口"
+                )
+            if sentence_chars > LONG_SENTENCE_CHARS:
+                consecutive_long_sentences += 1
+                if consecutive_long_sentences > MAX_CONSECUTIVE_LONG_SENTENCES:
+                    errors.append(
+                        f"第 {line_number} 行附近连续超过 {MAX_CONSECUTIVE_LONG_SENTENCES} 个长句，"
+                        "缺少短促反应或对白换气"
+                    )
+            else:
+                consecutive_long_sentences = 0
 
     if not sections:
         errors.append("正文至少需要一个纯数字分节标记，如 `1.`")

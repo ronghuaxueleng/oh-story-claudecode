@@ -90,7 +90,7 @@ python3 "$TOOLBOX" --project "项目目录" prepare-setting
 17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger` 与覆盖所有相邻小节的 `section_handoff_chain`；再逐节用 `scene_entry_state / beat_dependency_chain / knowledge_state_chain / causal_risk_reviews / scene_exit_state` 验证节内每一拍的前态、触发、知情、空间或物件权限和后态首尾相接，同时核对原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据。融合仿写还必须绑定拆文读取回执，并用 `auxiliary_subflow_flow_parity` 完整逐步迁移每个已选辅助 SF；最后逐节填完 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系。修闸阶段先运行 `story_short_write_project_toolbox.py outline-precheck --only {sections|handoff|bridges|first-draft}` 收缩当前改动块，只有局部预检通过后，才运行 `story_short_write_project_toolbox.py outline-validate` 触发一次正式全量放行
-20. 运行 `story_short_write_project_toolbox.py start-draft`：工具箱先自动吸收当前项目里已经填好且已更新的 `opening / sequence / draft-capacity / outline` 修闸回填，再复用或刷新同一内容指纹下的机械预检，编译含完整 `source_excerpt / section_contract / first_draft_generation_contract` 的逐节原文颗粒包，只执行一次 `validate_write_release_gate.py draft`，再初始化首稿入口与逐节执行回执。第一节执行 `show-section -> 完整阅读 -> open-section`；写完后执行 `advance-section`，关闭当前节并打印下一节完整包，但不自动开节。当前模型读完下一节全部切片和合同后，必须把输出的 `packet_sha256` 传回 `open-section`。未关闭当前节、未展示完整包或 SHA 不一致时不得进入下一节
+20. 运行 `story_short_write_project_toolbox.py start-draft`：工具箱先自动吸收当前项目里已经填好且已更新的 `opening / sequence / draft-capacity / outline` 修闸回填，再复用或刷新同一内容指纹下的机械预检，编译含完整 `source_excerpt / section_contract / first_draft_generation_contract` 的逐节原文颗粒包，只执行一次 `validate_write_release_gate.py draft`，再初始化首稿入口与逐节执行回执。工具箱输出只含一次完整原文切片、一次逐拍链和一次目标写作合同的紧凑包；安全大小的第一节及后续节自动打开。当前模型每节只需同次落正文与 schema v2.1 紧凑五证据数组，再运行一次 `advance-section --section N`。超限包才按 `show-section --part` 读取，并用最后一包的 token 显式 `open-section`。
 21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，填写真实 `revision_blocks` 后运行工具箱 `finalize-basic-review`。只有原文、母稿和改后正文证据全部通过时，脚本才机械重算并重绑正文 SHA；禁止手工静默重绑或重建母稿
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
 23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
@@ -559,20 +559,17 @@ TOOLBOX="$SKILL_ROOT/scripts/story_short_write_project_toolbox.py"
 python3 "$TOOLBOX" --project "{项目目录}" preflight-book
 python3 "$TOOLBOX" --project "{项目目录}" start-draft
 
-# 第一节：先展示并完整阅读，再把输出中的 packet_sha256 原样传回。
-python3 "$TOOLBOX" --project "{项目目录}" show-section --section 1
-python3 "$TOOLBOX" --project "{项目目录}" open-section \
-  --section 1 \
-  --packet-sha "{刚刚展示的 packet_sha256}" \
-  --read-judgment "已完整读取本节全部主体/辅助原文切片及完整生成合同"
+# start-draft 已自动输出并打开安全大小的第一节完整紧凑包。
+# 当前节正文与紧凑五证据数组同次落盘后，关闭并自动打开下一节。
+python3 "$TOOLBOX" --project "{项目目录}" advance-section --section 1
 
-# 当前节正文写完并完成四项人工停检后，关闭当前节并展示下一节。
-python3 "$TOOLBOX" --project "{项目目录}" advance-section \
-  --section 1 \
-  --judgment "事件、情绪、文风、句间关系与气口均已对照完整原文切片人工通过"
+# 只有工具明确返回 chunked 时才逐包读取；最后一包后显式开节。
+python3 "$TOOLBOX" --project "{项目目录}" show-section --section 1 --part 2
+python3 "$TOOLBOX" --project "{项目目录}" open-section \
+  --section 1 --packet-sha "{packet_sha256}" --read-token "{read_token}"
 ```
 
-`advance-section` 不会自动打开下一节。必须先完整读取其输出的所有 `source_excerpt`、`section_contract` 和 `first_draft_generation_contract`，再用新的 `packet_sha256` 运行 `open-section`。
+`advance-section` 对安全大小的下一节紧凑包会自动打开；只有输出标记为 `section_source_packet_mode: chunked` 时，下一节保持 pending，继续按 `--part` 读取剩余包并以最后一包 token 打开。禁止无条件重复六次 `show-section`。
 
 机械预检缓存只保存依赖文件内容指纹和通过状态，字段 `semantic_payload` 固定为 `null`。来源、规则、台账、profile 或验证脚本任一内容变化时缓存自动失效；禁止把细纲语义、原文摘要或模型判断写入该缓存。
 
@@ -582,7 +579,7 @@ python3 "$TOOLBOX" --project "{项目目录}" advance-section \
 
 ### 7. 首稿基础审计与停靠
 
-正文落笔后、任何基础回修前，初始化并人工回填基础审计回执。下例用于仿写稿；自由创作去掉 `--imitation-mode` 和 `--source`：
+末节 `advance-section` 关闭成功后，工具箱自动固定母稿并初始化基础审计回执。下列独立命令只供旧项目迁移或隔离调试；正常流程禁止再手工初始化：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic_review.py" init \
@@ -604,7 +601,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_first_draft_basic
 python3 "$TOOLBOX" --project "{项目目录}" finalize-basic-review
 ```
 
-该命令先在临时回执上验证原文、母稿、改后正文三类证据，全部通过后才更新当前正文和逐节执行回执 SHA。禁止重新初始化覆盖母稿，也禁止直接编辑 SHA 字段。通过后将该回执绑定为完成状态中的 `first_draft_basic_review`，然后执行：
+该命令先在临时回执上验证原文、母稿、改后正文三类证据，全部通过后才更新当前正文和逐节执行回执 SHA。禁止重新初始化覆盖母稿，也禁止直接编辑 SHA 字段。通过后自动创建或补齐全流程状态、绑定 `first_draft_basic_review` 并停靠 `draft_preview`。下列独立命令只供旧项目迁移或隔离调试：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_short_write_completion.py" mark-draft-preview \

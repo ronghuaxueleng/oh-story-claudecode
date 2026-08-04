@@ -71,6 +71,14 @@ class WritingRuleGateTest(unittest.TestCase):
         self.assertEqual([], validation_errors)
         self.assertEqual(len(GATE.REQUIRED_RULES), summary["read_count"])
 
+    def test_builtin_reviews_complete_current_skill_rules_without_model_loop(self) -> None:
+        receipt, errors = GATE.create_receipt("测试项目")
+        self.assertEqual([], errors)
+        self.assertEqual([], GATE.apply_builtin_rule_reviews(receipt))
+        self.assertEqual("passed", receipt["gate_status"])
+        self.assertEqual("builtin_sha_bound", receipt["review_mode"])
+        self.assertTrue(all(item["status"] == "read" for item in receipt["files"]))
+
     def test_changed_rule_requires_reread(self) -> None:
         self._write_completed_receipt()
         path = self.skill_root / "references/anti-ai-writing.md"
@@ -102,6 +110,18 @@ class WritingRuleGateTest(unittest.TestCase):
             self.skill_root,
         )
         self.assertTrue(any("事后补填" in error for error in validation_errors))
+
+    def test_builtin_sha_bound_receipt_can_be_refreshed_after_existing_output(self) -> None:
+        output = self.root / "项目" / "正文.md"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text("正文", encoding="utf-8")
+        receipt, errors = GATE.create_receipt("测试项目")
+        self.assertEqual([], errors)
+        self.assertEqual([], GATE.apply_builtin_rule_reviews(receipt))
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        GATE.atomic_write_json(self.receipt_path, receipt)
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path, [output])
+        self.assertEqual([], validation_errors)
 
     def test_rule_review_task_contains_complete_rule_content(self) -> None:
         receipt, errors = GATE.create_receipt("测试项目", self.skill_root)

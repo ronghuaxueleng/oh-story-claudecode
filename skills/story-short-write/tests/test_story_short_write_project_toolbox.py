@@ -96,6 +96,34 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("preserved: 8", text)
         self.assertIn("reset: 1", text)
 
+    def test_sync_sources_refreshes_builtin_rule_receipt_for_existing_project(self) -> None:
+        self.paths["ledger"].write_text("{}\n", encoding="utf-8")
+        self.paths["writing_receipt"].write_text('{"review_mode":"legacy"}\n', encoding="utf-8")
+        candidate = {"files": [], "review_mode": "pending"}
+
+        def apply_builtin(receipt: dict[str, object]) -> list[str]:
+            receipt["review_mode"] = "builtin_sha_bound"
+            return []
+
+        with patch.object(
+            TOOLBOX.WRITING_RULE,
+            "create_receipt",
+            return_value=(candidate, []),
+        ), patch.object(
+            TOOLBOX.WRITING_RULE,
+            "apply_builtin_rule_reviews",
+            side_effect=apply_builtin,
+        ), patch.object(
+            TOOLBOX.RULE_LEDGER,
+            "sync_sources",
+            return_value=([], {"preserved": 1, "reset": 0}),
+        ):
+            result = TOOLBOX.command_sync_sources(self.paths, argparse.Namespace())
+
+        self.assertEqual(0, result)
+        refreshed = TOOLBOX.read_json(self.paths["writing_receipt"])
+        self.assertEqual("builtin_sha_bound", refreshed["review_mode"])
+
     def test_outline_progress_requires_title_on_separate_line(self) -> None:
         progress = TOOLBOX.analyze_outline_progress(
             "## 第1节：执法现场\n\n### 标题：执法现场\n\n## 全书事实状态链\n\n## 相邻节交接链\n"
@@ -151,6 +179,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "create_receipt",
             return_value=({"kind": "writing"}, []),
         ), patch.object(
+            TOOLBOX.WRITING_RULE,
+            "apply_builtin_rule_reviews",
+            return_value=[],
+        ), patch.object(
             TOOLBOX.SOURCE_READ,
             "create_receipt",
             return_value=({}, ["来源包过期"]),
@@ -176,6 +208,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             TOOLBOX.WRITING_RULE,
             "create_receipt",
             return_value=({"kind": "writing"}, []),
+        ), patch.object(
+            TOOLBOX.WRITING_RULE,
+            "apply_builtin_rule_reviews",
+            return_value=[],
         ), patch.object(
             TOOLBOX.SOURCE_READ,
             "create_receipt",
@@ -209,6 +245,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             TOOLBOX.WRITING_RULE,
             "create_receipt",
             return_value=({"kind": "writing"}, []),
+        ), patch.object(
+            TOOLBOX.WRITING_RULE,
+            "apply_builtin_rule_reviews",
+            return_value=[],
         ), patch.object(
             TOOLBOX.SOURCE_READ,
             "create_receipt",
@@ -489,14 +529,14 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
 
         self.assertEqual([{"from_section_id": "1", "to_section_id": "2", "handoff_trigger": "待修"}], template)
 
-    def test_outline_repair_batches_up_to_three_sections(self) -> None:
+    def test_outline_repair_batches_up_to_six_sections(self) -> None:
         section_ids = TOOLBOX.outline_trim_focus_section_ids(
             "sections",
             "sections",
-            ["1", "2", "3", "4"],
+            ["1", "2", "3", "4", "5", "6", "7"],
         )
 
-        self.assertEqual(["1", "2", "3"], section_ids)
+        self.assertEqual(["1", "2", "3", "4", "5", "6"], section_ids)
 
     def test_section_repair_template_prefills_declared_scene_states(self) -> None:
         outline_sections = TOOLBOX.parse_outline_sections_map(
@@ -5796,7 +5836,20 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         with patch.object(
             TOOLBOX,
             "packet_for_section",
-            return_value={"section_id": "1", "packet_sha256": "right"},
+            return_value={
+                "section_id": "1",
+                "packet_sha256": "right",
+                "payload": {
+                    "source_slice_bindings": [
+                        {
+                            "subflow_id": "SF-01",
+                            "source_subflow_contract": {
+                                "required_sequence": ["第一拍"]
+                            },
+                        }
+                    ]
+                },
+            },
         ) as packet_for_section, patch.object(
             TOOLBOX.SECTION_EXECUTION,
             "open_section",
@@ -5810,6 +5863,14 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             validate_bundle=False,
         )
         open_section.assert_called_once()
+        beat_receipt = json.loads(
+            self.paths["section_beat_receipt"].read_text(encoding="utf-8")
+        )
+        self.assertEqual("2.1", beat_receipt["schema_version"])
+        self.assertEqual(800, beat_receipt["minimum_section_chars"])
+        self.assertEqual(6, beat_receipt["minimum_evidence_chars"])
+        self.assertIn("唯一首次出现位置递增", beat_receipt["evidence_order_note"])
+        self.assertEqual(["", "", "", "", ""], beat_receipt["beats"][0]["evidence"])
 
     def test_section_reading_packet_keeps_full_sha_and_preserves_full_granularity_contracts(self) -> None:
         packet = {
@@ -5883,19 +5944,16 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
 
         self.assertEqual("packet-sha", reading_packet["packet_sha256"])
         self.assertEqual("第1节 包厢里，他先抓住了我的制服", payload["section_heading"])
-        self.assertIn("source_function_mechanism", payload["section_contract"])
-        self.assertNotIn("scene_logic_contract", payload["section_contract"])
-        self.assertNotIn("source_emotion_parity", payload["section_contract"])
-        self.assertNotIn("first_draft_generation_contract", payload["section_contract"])
-        self.assertNotIn("source_excerpt", payload["source_emotion_parity"])
-        self.assertNotIn("source_excerpt", payload["source_slice_bindings"][0])
+        self.assertEqual("完整原文切片", payload["source_slice_bindings"][0]["source_excerpt"])
         self.assertEqual(["第一拍", "第二拍"], payload["source_slice_bindings"][0]["source_dense_beats"])
         self.assertEqual(
             ["必须先撞见"],
             payload["source_slice_bindings"][0]["source_subflow_contract"]["causal_preconditions"]["arrival_causes"],
         )
-        self.assertNotIn("source_performance_excerpt", payload["first_draft_generation_contract"])
-        self.assertIn("anti_verbatim_transfer_contract", payload["first_draft_generation_contract"])
+        self.assertEqual("进入", payload["target_scene_contract"]["scene_entry_state"])
+        self.assertIn("anti_verbatim_transfer_contract", payload["target_style_contract"])
+        self.assertEqual("掉位成立", payload["section_guardrails"]["irreversible_action"])
+        self.assertNotIn("source_emotion_sequence", payload["target_emotion_contract"])
 
     def test_section_execution_packet_scopes_and_deduplicates_source_beats(self) -> None:
         def binding(subflow_id: str, sequence: list[str], source_range: str) -> dict[str, object]:
@@ -6019,18 +6077,18 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual(0, result)
         self.assertIn("packet-1", text)
         self.assertIn("证据A", text)
-        self.assertNotIn("完整原文切片", text)
+        self.assertIn("完整原文切片", text)
         self.assertNotIn("重复原文", text)
-        self.assertIn("section_source_packet_parts: 6", text)
-        self.assertIn("section_source_packet_current_part: 1/6", text)
-        self.assertIn("section_source_packet_part: 1/6", text)
-        self.assertNotIn("section_source_packet_part: 6/6", text)
-        self.assertIn("- part 1: source_bindings", text)
-        self.assertIn("- part 2: section_contract", text)
-        self.assertNotIn("required_read_judgment:", text)
-        self.assertNotIn("required_close_judgment:", text)
-        self.assertIn("section_source_packet_manifest:", text)
-        self.assertIn("next_read_action: 继续运行 show-section --section 1 --part 2", text)
+        self.assertIn("section_source_packet_mode: combined", text)
+        self.assertIn("section_source_packet_parts_saved: 5", text)
+        self.assertIn("minimum_section_chars:", text)
+        self.assertIn("minimum_evidence_chars:", text)
+        self.assertIn("evidence_order_note:", text)
+        self.assertIn('"target_scene_contract"', text)
+        self.assertIn('"target_style_contract"', text)
+        self.assertIn("required_read_judgment:", text)
+        self.assertIn("required_close_judgment:", text)
+        self.assertNotIn("next_read_action:", text)
 
     def test_section_reading_packet_chunks_split_large_binding_groups(self) -> None:
         packet = {
@@ -6082,21 +6140,20 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual("source_bindings", chunks[0]["part_kind"])
         self.assertEqual(2, chunks[1]["part_index"])
         self.assertEqual(6, chunks[1]["part_count"])
-        self.assertEqual("section_contract", chunks[1]["part_kind"])
-        self.assertEqual(2, len(chunks[0]["payload"]["source_slice_bindings"]))
+        self.assertEqual("source_bindings", chunks[1]["part_kind"])
+        self.assertEqual(1, len(chunks[0]["payload"]["source_slice_bindings"]))
         self.assertEqual(3, chunks[2]["part_index"])
         self.assertEqual(6, chunks[2]["part_count"])
-        self.assertEqual("first_draft_generation_contract", chunks[2]["part_kind"])
-        self.assertEqual([], chunks[2]["payload"]["source_slice_bindings"])
+        self.assertEqual("target_scene_contract", chunks[2]["part_kind"])
         self.assertEqual(4, chunks[3]["part_index"])
         self.assertEqual(6, chunks[3]["part_count"])
-        self.assertEqual("scene_logic_contract", chunks[3]["part_kind"])
+        self.assertEqual("target_style_contract", chunks[3]["part_kind"])
         self.assertEqual(5, chunks[4]["part_index"])
         self.assertEqual(6, chunks[4]["part_count"])
-        self.assertEqual("source_emotion_parity", chunks[4]["part_kind"])
+        self.assertEqual("target_emotion_contract", chunks[4]["part_kind"])
         self.assertEqual(6, chunks[5]["part_index"])
         self.assertEqual(6, chunks[5]["part_count"])
-        self.assertEqual("original_scene_granularity", chunks[5]["part_kind"])
+        self.assertEqual("section_guardrails", chunks[5]["part_kind"])
         self.assertEqual("packet-sha", chunks[0]["packet_sha256"])
         self.assertEqual("packet-sha", chunks[5]["packet_sha256"])
 
@@ -6112,7 +6169,8 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
                     "section_id": "1",
                     "title": "第1节 包厢里，他先抓住了我的制服",
                     "verdict": "passed",
-                    "irreversible_action": "A" * 9000,
+                    "irreversible_action": "A" * 20000,
+                    "character_missteps": "B" * 9000,
                     "interaction_exchange": "B" * 9000,
                     "manual_judgment": "通过",
                 },
@@ -6124,12 +6182,36 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         }
 
         chunks = TOOLBOX.section_reading_packet_chunks(packet)
-        section_contract_chunks = [chunk for chunk in chunks if chunk["part_kind"] == "section_contract"]
+        section_contract_chunks = [chunk for chunk in chunks if chunk["part_kind"] == "section_guardrails"]
 
         self.assertGreaterEqual(len(section_contract_chunks), 2)
         for chunk in section_contract_chunks:
             self.assertIn("section_heading", chunk["payload"])
-            self.assertIn("section_contract", chunk["payload"])
+            self.assertIn("section_guardrails", chunk["payload"])
+
+    def test_show_section_falls_back_to_chunks_when_combined_packet_is_oversized(self) -> None:
+        args = argparse.Namespace(section="1", part=None)
+        packet = {
+            "packet_id": "section-1",
+            "section_id": "1",
+            "packet_sha256": "packet-sha",
+            "payload": {
+                "section_id": "1",
+                "source_slice_bindings": [],
+                "section_contract": {"section_id": "1", "manual_judgment": "A" * 80000},
+                "first_draft_generation_contract": {},
+                "scene_logic_contract": {},
+                "source_emotion_parity": {},
+                "original_scene_granularity": {},
+            },
+        }
+        output = StringIO()
+        with patch.object(TOOLBOX, "packet_for_section", return_value=packet), redirect_stdout(output):
+            result = TOOLBOX.command_show_section(self.paths, args)
+        self.assertEqual(0, result)
+        self.assertIn("section_source_packet_mode: chunked", output.getvalue())
+        self.assertIn("next_read_action:", output.getvalue())
+        self.assertNotIn("required_read_judgment:", output.getvalue())
 
     def test_advance_closes_current_and_prints_next_full_packet(self) -> None:
         args = argparse.Namespace(section="1", judgment="四项停检通过", part=None)
@@ -6157,6 +6239,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "close_section",
             return_value=0,
         ), patch.object(
+            TOOLBOX.SECTION_EXECUTION,
+            "open_section",
+            return_value=0,
+        ), patch.object(
             TOOLBOX,
             "packet_for_section",
             return_value=packet,
@@ -6169,11 +6255,14 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             validate_bundle=False,
         )
         self.assertIn("packet-2", output.getvalue())
-        self.assertIn("下一节尚未打开", output.getvalue())
-        self.assertIn("section_source_packet_current_part: 1/", output.getvalue())
-        self.assertIn("next_read_action: 继续运行 show-section --section 2 --part 2", output.getvalue())
-        self.assertNotIn("required_read_judgment:", output.getvalue())
-        self.assertNotIn("required_close_judgment:", output.getvalue())
+        self.assertIn("auto-opened", output.getvalue())
+        self.assertIn("section_source_packet_mode: combined", output.getvalue())
+        self.assertIn("minimum_section_chars:", output.getvalue())
+        self.assertIn("minimum_evidence_chars:", output.getvalue())
+        self.assertIn("evidence_order_note:", output.getvalue())
+        self.assertNotIn("next_read_action:", output.getvalue())
+        self.assertIn("required_read_judgment:", output.getvalue())
+        self.assertIn("required_close_judgment:", output.getvalue())
 
     def test_reopen_section_resets_and_reprints_current_packet(self) -> None:
         args = argparse.Namespace(section="1", part=None)
@@ -6207,10 +6296,10 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             validate_bundle=False,
         )
         self.assertIn("下一步必须重新完整阅读当前节颗粒包", output.getvalue())
-        self.assertNotIn("required_read_judgment:", output.getvalue())
+        self.assertIn("required_read_judgment:", output.getvalue())
 
     def test_show_section_last_part_prints_required_judgments(self) -> None:
-        args = argparse.Namespace(section="1", part=6)
+        args = argparse.Namespace(section="1", part=5)
         packet = {
             "packet_id": "section-1",
             "section_id": "1",
@@ -6261,7 +6350,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
 
         text = output.getvalue()
         self.assertEqual(0, result)
-        self.assertIn("section_source_packet_current_part: 6/6", text)
+        self.assertIn("section_source_packet_current_part: 5/5", text)
         self.assertIn("required_read_judgment:", text)
         self.assertIn("read_token=", text)
         self.assertIn("required_close_judgment:", text)

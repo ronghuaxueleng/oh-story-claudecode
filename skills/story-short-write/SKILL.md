@@ -9,7 +9,7 @@ description: |
 
 执行短篇网文完整写作流程。优先保证原文事件、因果、情绪、表演和文风颗粒真正进入首写，不用事后润色补救写前缺失。
 
-当前流程版本：`1.13.0`。
+当前流程版本：`1.14.3`。
 
 ## 边界
 
@@ -87,27 +87,7 @@ python3 "$TOOLBOX" --project "{项目目录}" export-rule-review
 
 不得直接编辑 `写作规则读取回执.json`。完整字段见 [writing-rule-reading-gate.md](references/governance/writing-rule-reading-gate.md)。
 
-禁止直接打开总文件 `写作资产/规则语义输入.json`。改为循环运行：
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" rule-review-next
-```
-
-该命令每次只展示一个有界规则文件包，并已把同一 `result_template` 原子预写到 `写作资产/当前规则语义回执.json`。完整读取当前唯一规则文件后，禁止再 `cat/jq/sed` 探测回执；只定点编辑包内明确允许的三个 `review` 字段，再运行：
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" apply-rule-review-item \
-  --packet-sha "{rule-review-next 输出的 packet_sha256}"
-```
-
-工具箱逐条校验 SHA、顺序、证据词和非空结论，并原子追加到 `规则语义进度.json`。重复 `rule-review-next -> apply-rule-review-item`，直到显示全部完成后，必须立刻连续运行：
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" apply-rule-review
-python3 "$TOOLBOX" --project "{项目目录}" validate-prewrite-reads
-```
-
-禁止把 `apply-rule-review` 当作阶段终点；只要它通过，当前流程就必须继续推进到 `validate-prewrite-reads`，随后进入 `prepare-setting -> setting-context`。
+`init-book` 会按当前 Skill 文件 SHA 机械载入三份固定写作规则及维护过的摘要，直接生成 `review_mode=builtin_sha_bound` 的已通过回执。新书禁止再循环执行 `rule-review-next -> apply-rule-review-item` 复述固定规则；这些命令只供旧版 pending 项目迁移或规则摘要过期时诊断。初始化后直接运行 `validate-prewrite-reads`，随后进入 `prepare-setting -> setting-context`。任一规则文件或内置证据词变化时机械阻断，必须先更新 Skill 摘要，不能让写书模型临场重复消化整套固定文档。
 
 ### 原文与拆书资产
 
@@ -148,7 +128,7 @@ python3 "$TOOLBOX" --project "{项目目录}" prepare-draft-gates
 
 初始化后，必须由当前模型把四张回执补到 `gate_status=passed`，再继续 `start-draft`。禁止先落 `正文.md` 再回头补闸。
 
-补 `细纲表演验收回执.json` 时，禁止每改一小块就直接全量跑正式校验。工具箱默认把同一错误组中最多 3 个连续小节放进一个有界修闸包；当前模型应一次补完包内全部小节，再用工具箱快速预检当前批次：
+补 `细纲表演验收回执.json` 时，禁止每改一小块就直接全量跑正式校验。工具箱默认把同一错误组中最多 6 个连续小节放进一个有界修闸包；当前模型应一次补完包内全部小节，再用工具箱快速预检当前批次：
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only sections
@@ -199,7 +179,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 
 工具箱会原子写回正式 `细纲表演验收回执.json`。写回后仍应立刻重跑 `start-draft`，不要停在单张回执成功提示上。禁止在修闸阶段手写项目专用临时脚本、临时 `/tmp/*.json` 依赖或整张回执大补丁。
 
-局部回填是字段级 delta：只能包含当前批次最多 3 个失败小节、失败字段或失败交接，不得复制整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。交接包中的两端状态由工具箱自动同步；人工只补 `handoff_trigger`、人物/知情/物件连续、未解线头、证据和语义判断。
+局部回填是字段级 delta：只能包含当前批次最多 6 个同错误组失败小节、失败字段或失败交接，不得复制整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。交接包中的两端状态由工具箱自动同步；人工只补 `handoff_trigger`、人物/知情/物件连续、未解线头、证据和语义判断。
 
 修闸过程中如果脚本提示某个字段缺失，只允许回到以下来源补齐：
 
@@ -224,7 +204,7 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 - [audit-rulebook.json](references/governance/audit-rulebook.json)
 
 模型语义归并只处理本书来源资产，不读取其他项目结论。台账详细命令见 [rule-execution-ledger.md](references/governance/rule-execution-ledger.md)。
-如工具箱提示 `skill 规则源已变化，先运行 sync-sources`，必须直接运行 `python3 "$TOOLBOX" --project "{项目目录}" sync-sources`，通过后立即重跑原被阻断命令。禁止绕过台账哈希校验。
+如工具箱提示 `skill 规则源已变化，先运行 sync-sources`，必须直接运行 `python3 "$TOOLBOX" --project "{项目目录}" sync-sources`。该命令会同时增量重绑规则台账并重建当前 SHA 对应的 `builtin_sha_bound` 写作规则回执，不要求旧项目重新跑固定规则 AI 复述；通过后立即重跑原被阻断命令。禁止绕过台账哈希校验。
 
 从候选到交付的所有阶段都禁止递归搜索工作区中的旧项目回执、规则输出、台账、设定、大纲或正文作为字段示例。字段结构只能来自当前任务文件的 `result_template`、当前脚本固定输出和本 Skill references。完整写作流程不得委派给子代理；来源全文读取、设定、细纲和逐节正文必须由当前执行模型连续完成。
 
@@ -251,11 +231,11 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 python3 "$TOOLBOX" --project "{项目目录}" start-draft
 ```
 
-10. 第一节执行 `show-section -> 完整阅读 -> open-section`。
-11. 只写当前节。`open-section` 会生成 `写作资产/当前节逐拍消费回填.json`；写完后按每个绑定 SF 的全部 `required_sequence` 逐拍填写正文独立原句、因果链、表演等强判断和 `status=passed`，不得复用同一句认领多拍。
+10. `start-draft` 直接输出并自动打开第一节的紧凑完整包；紧凑包只保留一次完整原文切片、一次完整逐拍合同和一次目标场景/文风合同，禁止重复输出六份同义摘要。只有完整包超过安全上限时才回退 `show-section --part` 分包，读到最后一包后用 `open-section --read-token` 打开。
+11. 只写当前节。工具箱生成 schema v2.1 的 `写作资产/当前节逐拍消费回填.json`，并在开节输出和回填顶层直接给出 `minimum_section_chars` 与 `evidence_order_note`。同一次文件编辑中写正文，并为每拍只填写固定顺序的 `evidence=[前态,触发,动作选择,可见结果,下一拍原因]` 与 `performance_equivalence`；五条证据还必须按其在正文中的唯一首次出现位置递增，不得只按语义顺序猜。证据硬门槛虽为 6 个非空白字符，首写默认截取 8—18 个非空白字符，禁止贴着 6 字边界反复返工。工具验证通过后自动判定 `passed`，禁止再让模型手填状态或复述固定字段名。
 12. 当前节不合格时当场整场重写，不等待全文完成后统一润色。
-13. 运行 `advance-section`。工具箱会先校验逐拍回填与当前颗粒包 SHA、正文原句、拍序和零容缺状态，通过后才关闭当前节并展示下一节完整包；读完后再显式 `open-section`。
-14. 全文完成后只做首稿基础审计和一次必要回修，随后交付 `draft_preview` 并停靠。
+13. 直接运行 `advance-section --section N`，不传固定 `judgment` 长串。工具箱机械生成关闭判断，校验逐拍回填、正文格式、原句唯一性、拍序和零容缺状态；通过后关闭当前节，并对安全大小的下一节紧凑包自动开节。正常逐节循环固定为“一次正文+回执编辑，一次 advance”；只有超限分包才增加显式读取与开节。
+14. 末节 `advance-section` 关闭后自动固定母稿并初始化首稿基础审计回执；模型一次回填四项基础检查，直接运行 `finalize-basic-review`。该命令通过后自动绑定全流程状态并停靠 `draft_preview`，禁止再手工初始化或补状态文件。
 15. 用户明确确认深审后，才进入人工切窗、正式审计、最终台账重绑和写后人工语义复核。
 
 正文入口、逐节回执和停靠规则见 [short-write-execution-core.md](references/governance/short-write-execution-core.md)。
@@ -266,8 +246,10 @@ python3 "$TOOLBOX" --project "{项目目录}" start-draft
 - 每节必须使用完整逐节原文颗粒包，禁止以 `模型语义输入.json`、单条 binding 或五拍摘要替代。
 - 仿写绑定的每个主体及辅助 `SF-*` 都实行逐拍零容缺：`required_sequence` 有几拍就必须逐拍全部落地，禁止按比例放行、允许漏拍、合并掉承重拍，或用同一个结果句冒充多拍消费。
 - 每拍必须保留其前态、触发、动作选择、可见结果和对下一拍的因果作用。状态标签、情绪概括、关键词露面或后文存在一个无关动作，都不能证明该拍已经消费。
-- `show-section` 必须展示每个绑定 `SF-*` 的完整 `source_dense_beats`，禁止只截前四拍或以摘要替代末端动作链；未完整读到最后一拍不得 `open-section`。
-- 关节必须使用 `当前节逐拍消费回填.json` 留证：每拍的 `target_evidence` 必须是当前正文中的独立原句且按原拍序出现；`causal_link` 与 `performance_equivalence` 禁止机械占位，任一拍缺失、重复认领、乱序或未通过都不得 `advance-section`。
+- `show-section` 必须展示每个绑定 `SF-*` 的完整 `source_dense_beats`，禁止只截前四拍或以摘要替代末端动作链；默认完整包未读完、超限分包未读到最后一包时均不得 `open-section`。
+- 关节必须使用 schema v2.1 的 `当前节逐拍消费回填.json` 留证：每拍的 `evidence` 数组固定按前态、触发、动作选择、可见结果、下一拍原因排列，每项都必须引用当前正文中不少于 6 个非空白字符的真实证据；五组件顺序、跨拍动作顺序、证据唯一性和 `performance_equivalence` 任一不合格都不得 `advance-section`。`passed` 由工具验证后生成，不要求模型手填。
+- 知乎/盐言正文从第一节关闭起就必须只含 `1.`、`2.` 连续纯数字节号；`正文.md` 不写书名标题，也不继承大纲小节标题。格式错误必须当节阻断，不得拖到全文结束。
+- 知乎/盐言正文对白必须按说话轮次独立成段；单个自然段最多 2 句、100 个非空白字符，单句超过 42 字或连续超过 2 个 22 字中长句时阻断。一个自然段必须独占一个物理行：两句同段要写成 `第一句。第二句。` 后再空一行，禁止写成两个相邻非空行。该硬闸专门拦“句句都不算超长，连起来却没有气口”；不鼓励一句一段，仍须保留长短句交错和连续瞬间。
 - 情绪必须包含注意偏移、非自主反应、偏见或自欺、说话失手、动作选择和余痛中的真实过程，不能缩成动作标签。
 - 同一连续瞬间优先写成连续气口；禁止动作、证据、反应各自一句一段的电报稿。
 - 对白优先试探、回避、错答和找补，不写人人都会总结主题的功能对白。

@@ -16,9 +16,11 @@ from typing import Any
 SECTION_RE = re.compile(
     r"(?m)^(?:(?:###\s*)?(\d+)\.\s*$|##\s*第\s*(\d+)\s*节(?:\s+.*)?$)"
 )
+ZHIHU_PLATFORM_RE = re.compile(r"知乎|盐言|盐选")
 MIN_SECTION_CHARS = 800
 SECTION_CHAR_RATIO = 0.45
-MAX_SHORT_PARAGRAPH_RATIO = 0.85
+MAX_SHORT_PARAGRAPH_RATIO = 0.90
+SHORT_PROSE_PARAGRAPH_CHARS = 24
 MANDATORY_CLOSE_MARKERS = (
     "event_flow=passed",
     "emotion_flow=passed",
@@ -38,6 +40,16 @@ STYLE_FIELD_DIALOGUE = "dialogue_misfire_or_avoidance"
 STYLE_FIELD_PARAGRAPH = "paragraph_breath_and_cut_points"
 STYLE_FIELD_ROUGHNESS = "narrator_interjection_and_roughness"
 STYLE_FIELD_SENTENCE_RELATION = "sentence_relation_and_rhythm"
+BEAT_RECEIPT_SCHEMA_VERSION = "2.1"
+LEGACY_BEAT_RECEIPT_SCHEMA_VERSIONS = {"2.0"}
+BEAT_EVIDENCE_FIELDS = (
+    ("pre_state_evidence", "前态"),
+    ("trigger_evidence", "触发"),
+    ("action_choice_evidence", "动作选择"),
+    ("visible_result_evidence", "可见结果"),
+    ("next_beat_cause_evidence", "推动下一拍的原因"),
+)
+MIN_BEAT_EVIDENCE_CHARS = 6
 
 
 def now_iso() -> str:
@@ -79,6 +91,36 @@ def load_sibling_module(name: str) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def infer_draft_format(draft: Path) -> str:
+    setting = draft.parent / "设定.md"
+    if not setting.is_file():
+        return "platform_default"
+    try:
+        text = setting.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return "platform_default"
+    platform_lines = [
+        line.strip()
+        for line in text.splitlines()
+        if "目标平台" in line or "正文使用" in line or "正文格式" in line
+    ]
+    return "zhihu_numeric" if ZHIHU_PLATFORM_RE.search("\n".join(platform_lines)) else "platform_default"
+
+
+def validate_draft_format(draft: Path, draft_format: str) -> list[str]:
+    if draft_format != "zhihu_numeric" or not draft.is_file():
+        return []
+    module = load_sibling_module("validate_zhihu_section_format")
+    errors, _ = module.validate_text(draft.read_text(encoding="utf-8"))
+    if not errors:
+        return []
+    return [
+        "知乎/盐言正文格式错误：只允许 `1.`、`2.` 这类独占一行的连续纯数字节号，"
+        "正文文件不得包含书名标题或小节标题；" + error
+        for error in errors
+    ]
 
 
 def validate_outline_contract_receipt(outline_contract: Path) -> list[str]:
@@ -133,6 +175,11 @@ def non_whitespace_chars(text: str) -> int:
 
 def nonempty_paragraphs(text: str) -> list[str]:
     return [item.strip() for item in re.split(r"\n\s*\n+", text) if item.strip()]
+
+
+def is_standalone_dialogue(paragraph: str) -> bool:
+    text = paragraph.strip()
+    return text.startswith(("「", "“")) and text.endswith(("」", "”"))
 
 
 def sentence_like_segments(text: str) -> list[str]:
@@ -220,6 +267,7 @@ def validate_required_sequence_receipts(
     bindings: Any,
     content: str,
     receipts: Any,
+    schema_version: str = "",
 ) -> list[str]:
     if not isinstance(bindings, list):
         return []
@@ -244,6 +292,14 @@ def validate_required_sequence_receipts(
                 required.append((subflow_id, beat_index, source_beat_text))
     if not required:
         return []
+    if schema_version not in {
+        BEAT_RECEIPT_SCHEMA_VERSION,
+        *LEGACY_BEAT_RECEIPT_SCHEMA_VERSIONS,
+    }:
+        return [
+            "逐拍消费回填版本过旧：必须 reopen-section 后重新 open-section，"
+            f"生成 schema_version={BEAT_RECEIPT_SCHEMA_VERSION} 的五组件证据回执"
+        ]
     if not isinstance(receipts, list):
         return ["逐拍消费回填缺失：仿写 required_sequence 必须逐拍零容缺验收"]
 
@@ -269,7 +325,8 @@ def validate_required_sequence_receipts(
             + " / ".join(f"{subflow_id}#{beat_index}" for subflow_id, beat_index in sorted(extra_keys))
         )
 
-    evidence_positions: list[int] = []
+    action_positions: list[int] = []
+    beat_ranges: list[tuple[int, int]] = []
     seen_evidence: set[str] = set()
     for subflow_id, beat_index, source_beat in required:
         label = f"{subflow_id} 第{beat_index}拍"
@@ -279,29 +336,68 @@ def validate_required_sequence_receipts(
             continue
         if str(item.get("source_beat") or "").strip() != source_beat:
             errors.append(f"{label}.source_beat 与完整来源合同不一致")
-        evidence = str(item.get("target_evidence") or "").strip()
-        if not evidence:
-            errors.append(f"{label}.target_evidence 必须引用当前正文独立原句")
-        elif evidence not in content:
-            errors.append(f"{label}.target_evidence 不在当前正文中: {evidence!r}")
-        elif evidence in seen_evidence:
-            errors.append(f"{label}.target_evidence 不得与其他拍重复认领同一句")
+        component_spans: list[tuple[int, int]] = []
+        compact_evidence = item.get("evidence")
+        if schema_version == BEAT_RECEIPT_SCHEMA_VERSION:
+            if not isinstance(compact_evidence, list) or len(compact_evidence) != len(BEAT_EVIDENCE_FIELDS):
+                errors.append(
+                    f"{label}.evidence 必须按前态/触发/动作/结果/下一拍原因填写 5 条正文证据"
+                )
+                compact_evidence = [""] * len(BEAT_EVIDENCE_FIELDS)
         else:
+            compact_evidence = [item.get(field) for field, _ in BEAT_EVIDENCE_FIELDS]
+        for (field, field_label), raw_evidence in zip(BEAT_EVIDENCE_FIELDS, compact_evidence):
+            evidence = str(raw_evidence or "").strip()
+            if not evidence:
+                errors.append(f"{label}.{field} 必须引用正文中的{field_label}证据")
+                continue
+            if non_whitespace_chars(evidence) < MIN_BEAT_EVIDENCE_CHARS:
+                errors.append(
+                    f"{label}.{field} 证据过短，不能用关键词冒充{field_label}: {evidence!r}"
+                )
+                continue
+            if evidence not in content:
+                errors.append(f"{label}.{field} 不在当前正文中: {evidence!r}")
+                continue
+            if content.count(evidence) != 1:
+                errors.append(f"{label}.{field} 在当前正文中不是唯一片段，无法精确定位: {evidence!r}")
+                continue
+            if evidence in seen_evidence:
+                errors.append(f"{label}.{field} 不得与其他组件或其他拍重复认领同一证据")
+                continue
             seen_evidence.add(evidence)
-            evidence_positions.append(content.index(evidence))
-        for field, field_label in (
-            ("causal_link", "前态、触发、动作与下一拍因果"),
-            ("performance_equivalence", "心理、动作与情绪表演等强判断"),
-        ):
-            value = str(item.get(field) or "").strip()
-            if not value:
-                errors.append(f"{label}.{field} 必须说明{field_label}")
-            elif any(marker in value for marker in ("机械预填", "待确认", "待复核", "待当前模型")):
-                errors.append(f"{label}.{field} 不得使用机械占位话")
-        if item.get("status") != "passed":
+            position = content.index(evidence)
+            component_spans.append((position, position + len(evidence)))
+            if field == "action_choice_evidence":
+                action_positions.append(position)
+        if len(component_spans) == len(BEAT_EVIDENCE_FIELDS):
+            if any(
+                current_start < previous_end
+                for (_, previous_end), (current_start, _) in zip(
+                    component_spans,
+                    component_spans[1:],
+                )
+            ):
+                errors.append(
+                    f"{label} 的五组件证据必须按前态 -> 触发 -> 动作 -> 结果 -> 下一拍原因"
+                    "顺序出现且不得重叠"
+                )
+            else:
+                beat_ranges.append((component_spans[0][0], component_spans[-1][1]))
+        performance = str(item.get("performance_equivalence") or "").strip()
+        if not performance:
+            errors.append(f"{label}.performance_equivalence 必须说明表演等强判断")
+        elif any(marker in performance for marker in ("机械预填", "待确认", "待复核", "待当前模型")):
+            errors.append(f"{label}.performance_equivalence 不得使用机械占位话")
+        if item.get("status") not in (None, "passed"):
             errors.append(f"{label}.status 必须为 passed")
-    if evidence_positions != sorted(evidence_positions):
-        errors.append("逐拍消费回填的正文证据顺序与 required_sequence 不一致")
+    if action_positions != sorted(action_positions) or len(action_positions) != len(required):
+        errors.append("逐拍消费回填的动作选择证据顺序与 required_sequence 不一致")
+    if len(beat_ranges) == len(required) and any(
+        current_start < previous_end
+        for (_, previous_end), (current_start, _) in zip(beat_ranges, beat_ranges[1:])
+    ):
+        errors.append("逐拍消费回填的整拍证据区间发生交叉，未按 required_sequence 完整推进")
     return errors
 
 
@@ -514,11 +610,16 @@ def validate_close_content_signals(
             errors.append(
                 f"正文段落承载不足：要求至少 {minimum_paragraphs} 段以承接 paragraph_break_reasons，当前仅 {len(paragraphs)} 段"
             )
-        if len(paragraphs) >= 8:
-            short_paragraphs = [item for item in paragraphs if non_whitespace_chars(item) <= 40]
+        prose_paragraphs = [item for item in paragraphs if not is_standalone_dialogue(item)]
+        if len(prose_paragraphs) >= 8:
+            short_paragraphs = [
+                item
+                for item in prose_paragraphs
+                if non_whitespace_chars(item) <= SHORT_PROSE_PARAGRAPH_CHARS
+            ]
             if (
                 short_paragraphs
-                and len(short_paragraphs) / len(paragraphs)
+                and len(short_paragraphs) / len(prose_paragraphs)
                 >= MAX_SHORT_PARAGRAPH_RATIO
             ):
                 errors.append(
@@ -583,6 +684,7 @@ def validate_close_content_signals(
             bindings,
             content,
             sequence_receipts,
+            str(target.get("beat_receipt_schema_version") or ""),
         )
     )
     if not isinstance(sequence_receipts, list) or not sequence_receipts:
@@ -732,6 +834,7 @@ def validate_receipt(
     if section_source_bundle is not None and deep_static_validation:
         errors.extend(validate_section_source_bundle_receipt(section_source_bundle))
     draft = Path(str(data.get("draft_path") or "")).expanduser().resolve()
+    draft_format = str(data.get("draft_format") or infer_draft_format(draft))
     sections = data.get("sections")
     if not isinstance(sections, list) or not sections:
         return data, errors + ["sections 必须是非空数组"]
@@ -825,6 +928,8 @@ def validate_receipt(
             "正文小节与逐节执行状态不一致；禁止先批量写完再补回执: "
             f"正文={actual_ids}, 已放行={allowed_ids}"
         )
+    if actual_ids:
+        errors.extend(validate_draft_format(draft, draft_format))
     if require_complete:
         if completed_ids != expected_ids:
             errors.append("所有小节必须按顺序逐节完成")
@@ -915,15 +1020,17 @@ def init_receipt(
             "section_sha256": "",
             "draft_sha256_after_close": "",
             "required_sequence_receipts": [],
+            "beat_receipt_schema_version": "",
             "revision_reopen": False,
         })
     data = {
-        "version": "1.0",
+        "version": "1.1",
         "gate": "section_draft_execution",
         "outline_contract": binding(outline_contract),
         "source_receipt": binding(source_receipt),
         "section_source_bundle": binding(section_source_bundle),
         "draft_path": str(draft.resolve()),
+        "draft_format": infer_draft_format(draft),
         "sections": sections,
         "final_draft_sha256": "",
         "gate_status": "active",
@@ -983,6 +1090,13 @@ def close_section(
     if not content:
         print("section_draft_execution: blocked\n- 当前小节正文为空")
         return 2
+    format_errors = validate_draft_format(
+        draft,
+        str(data.get("draft_format") or infer_draft_format(draft)),
+    )
+    if format_errors:
+        print("section_draft_execution: blocked\n- " + "\n- ".join(format_errors))
+        return 2
     if beat_receipt is not None:
         try:
             beat_payload = read_json(beat_receipt)
@@ -998,6 +1112,9 @@ def close_section(
             print("section_draft_execution: blocked\n- 逐拍消费回填绑定的颗粒包已过期")
             return 2
         target["required_sequence_receipts"] = beat_payload.get("beats")
+        target["beat_receipt_schema_version"] = str(
+            beat_payload.get("schema_version") or ""
+        ).strip()
     bundle_path = check_binding(
         data.get("section_source_bundle"),
         "section_source_bundle",
@@ -1072,6 +1189,7 @@ def reopen_section(receipt: Path, section_id: str) -> int:
             "section_sha256": "",
             "draft_sha256_after_close": "",
             "required_sequence_receipts": [],
+            "beat_receipt_schema_version": "",
             "revision_reopen": was_completed,
         }
     )

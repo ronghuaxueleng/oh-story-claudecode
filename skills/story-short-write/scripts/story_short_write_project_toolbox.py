@@ -35,6 +35,7 @@ RULE_REVIEW_SEGMENT_TARGET_BYTES = 18_000
 MAX_STAGE_REFERENCE_BYTES = 24_000
 MAX_SECTION_READING_PACKET_BYTES = 36_000
 SECTION_READING_CHUNK_TARGET_BYTES = 18_000
+SECTION_READING_COMBINED_MAX_BYTES = 32_000
 PLACEHOLDER_PROJECT_NAMES = {
     "",
     "tbd",
@@ -143,6 +144,10 @@ SECTION_EXECUTION = load_module(
 BASIC_REVIEW = load_module(
     "validate_first_draft_basic_review.py",
     "short_write_toolbox_basic_review",
+)
+COMPLETION = load_module(
+    "validate_short_write_completion.py",
+    "short_write_toolbox_completion",
 )
 PROFILE = load_module("generate_story_profile.py", "short_write_toolbox_profile")
 
@@ -430,6 +435,7 @@ def project_paths(project: Path) -> dict[str, Path]:
         "section_beat_receipt": asset / "当前节逐拍消费回填.json",
         "first_draft_entry": asset / "首稿入口回执.json",
         "first_draft_basic_review": asset / "首稿基础审计回执.json",
+        "completion_state": asset / "短篇全流程状态.json",
         "preflight_cache": asset / "机械预检缓存.json",
         "reservation": project / PROJECT_RESERVATION_FILE,
     }
@@ -1734,7 +1740,7 @@ OUTLINE_REPAIR_GROUP_TO_KEY: dict[str, str] = {
     "global_review": "global_review",
     "auxiliary_subflow_flow_parity": "auxiliary_subflow_flow_parity",
 }
-OUTLINE_REPAIR_MAX_SECTIONS_PER_PACKET = 3
+OUTLINE_REPAIR_MAX_SECTIONS_PER_PACKET = 6
 
 
 def summarize_outline_errors(errors: list[str]) -> list[tuple[str, list[str]]]:
@@ -4453,6 +4459,8 @@ def command_init_book(paths: dict[str, Path], args: argparse.Namespace) -> int:
     writing_receipt, writing_errors = WRITING_RULE.create_receipt(
         str(paths["project"])
     )
+    if not writing_errors:
+        writing_errors.extend(WRITING_RULE.apply_builtin_rule_reviews(writing_receipt))
     if writing_errors:
         return print_result("init-book", writing_errors, [])
 
@@ -4490,7 +4498,7 @@ def command_init_book(paths: dict[str, Path], args: argparse.Namespace) -> int:
         [],
         [
             "validate-all-source-packages-before-write",
-            "initialize-writing-rule-receipt",
+            "load-sha-bound-builtin-writing-rules-without-model-review-loop",
             "initialize-source-read-receipt",
             "build-project-profile",
             *source_stage_actions,
@@ -7397,13 +7405,79 @@ def command_sync_sources(paths: dict[str, Path], args: argparse.Namespace) -> in
             [f"规则执行台账不存在: {paths['ledger']}"],
             [],
         )
+    writing_candidate: dict[str, Any] | None = None
+    if paths["writing_receipt"].is_file():
+        writing_candidate, writing_errors = WRITING_RULE.create_receipt(
+            str(paths["project"])
+        )
+        if not writing_errors:
+            writing_errors.extend(
+                WRITING_RULE.apply_builtin_rule_reviews(writing_candidate)
+            )
+        if writing_errors:
+            return print_result(
+                "sync-sources",
+                writing_errors,
+                ["保留原写作规则读取回执"],
+            )
+    if writing_candidate is not None:
+        # The ledger rebind validates the receipt SHA before rebuilding cards.
+        # Refresh the mechanical receipt first so legacy projects can migrate.
+        atomic_write_json(paths["writing_receipt"], writing_candidate)
     errors, summary = RULE_LEDGER.sync_sources(paths["ledger"])
     if errors:
         return print_result("sync-sources", errors, ["保留原台账绑定"])
+    migrated_completed_draft = False
+    if (
+        paths["first_draft_entry"].is_file()
+        and paths["section_execution_receipt"].is_file()
+        and paths["draft"].is_file()
+    ):
+        execution = read_json(paths["section_execution_receipt"])
+        if (
+            execution.get("gate_status") == "passed"
+            and execution.get("final_draft_sha256") == sha256(paths["draft"])
+        ):
+            entry_candidate = read_json(paths["first_draft_entry"])
+            for key, dependency in (
+                ("writing_receipt", paths["writing_receipt"]),
+                ("source_receipt", paths["source_receipt"]),
+                ("ledger", paths["ledger"]),
+            ):
+                if dependency.is_file():
+                    entry_candidate[key] = FIRST_DRAFT.binding(dependency)
+            migration_candidate = paths["first_draft_entry"].with_name(
+                ".首稿入口回执.sync-candidate.json"
+            )
+            atomic_write_json(migration_candidate, entry_candidate)
+            migration_errors = FIRST_DRAFT.validate_entry(
+                migration_candidate,
+                paths["draft"],
+            )
+            migration_candidate.unlink(missing_ok=True)
+            if migration_errors:
+                return print_result(
+                    "sync-sources",
+                    ["已完成首稿入口无法按新规则源重绑", *migration_errors],
+                    [],
+                )
+            atomic_write_json(paths["first_draft_entry"], entry_candidate)
+            if paths["first_draft_basic_review"].is_file():
+                review = read_json(paths["first_draft_basic_review"])
+                review["draft_entry_receipt"] = BASIC_REVIEW.source_binding(
+                    paths["first_draft_entry"]
+                )
+                atomic_write_json(paths["first_draft_basic_review"], review)
+            migrated_completed_draft = True
     result = print_result(
         "sync-sources",
         [],
-        ["增量同步规则与拆书来源", "仅重置实质变动的规则卡"],
+        [
+            "增量同步规则与拆书来源",
+            "重建当前 SHA 绑定的内置写作规则回执",
+            "仅重置实质变动的规则卡",
+            *( ["重绑已完成首稿入口与基础审计"] if migrated_completed_draft else [] ),
+        ],
     )
     for key, value in summary.items():
         print(f"{key}: {value}")
@@ -7535,10 +7609,10 @@ def command_start_draft(paths: dict[str, Path], args: argparse.Namespace) -> int
             )
             if result == 0:
                 actions.append("reinitialize-first-draft-entry-after-stale-reset")
-                return print_result("start-draft", [], actions)
+                return finish_start_draft_success(paths, actions)
             return result
         actions.append("reuse-existing-valid-first-draft-entry")
-        return print_result("start-draft", [], actions)
+        return finish_start_draft_success(paths, actions)
     result = FIRST_DRAFT.init_entry(
         project=str(paths["project"]),
         draft=paths["draft"],
@@ -7558,7 +7632,7 @@ def command_start_draft(paths: dict[str, Path], args: argparse.Namespace) -> int
     )
     if result == 0:
         actions.append("initialize-first-draft-entry-without-duplicate-release")
-        return print_result("start-draft", [], actions)
+        return finish_start_draft_success(paths, actions)
     return result
 
 
@@ -7720,6 +7794,7 @@ def _section_reading_source_bindings(bindings: list[Any]) -> list[dict[str, Any]
             "source_name": copy.deepcopy(item.get("source_name")),
             "source_role": copy.deepcopy(item.get("source_role")),
             "subflow_id": copy.deepcopy(item.get("subflow_id")),
+            "source_excerpt": copy.deepcopy(item.get("source_excerpt") or ""),
             "source_evidence": copy.deepcopy(item.get("source_evidence") or []),
             "style_fields_consumed": copy.deepcopy(item.get("style_fields_consumed") or []),
         }
@@ -7760,20 +7835,10 @@ def section_reading_packet(packet: dict[str, Any]) -> dict[str, Any]:
     section_contract = payload.get("section_contract")
     if not isinstance(section_contract, dict):
         raise ValueError("section packet 缺少 section_contract")
+    scene_logic = _deepcopy_mapping(payload.get("scene_logic_contract"))
+    first_draft = _deepcopy_mapping(payload.get("first_draft_generation_contract"))
     source_emotion = _deepcopy_mapping(payload.get("source_emotion_parity"))
-    source_emotion.pop("source_excerpt", None)
-    source_emotion["source_emotion_sequence"] = _compact_emotion_sequence(
-        source_emotion.get("source_emotion_sequence")
-    )
-    source_emotion["target_emotion_sequence"] = _compact_emotion_sequence(
-        source_emotion.get("target_emotion_sequence")
-    )
-    first_draft_generation_contract = copy.deepcopy(
-        payload.get("first_draft_generation_contract") or {}
-    )
-    if isinstance(first_draft_generation_contract, dict):
-        first_draft_generation_contract.pop("source_slice_bindings", None)
-        first_draft_generation_contract.pop("source_performance_excerpt", None)
+    original_scene = _deepcopy_mapping(payload.get("original_scene_granularity"))
     section_heading = str(
         section_contract.get("section_heading")
         or section_contract.get("title")
@@ -7782,30 +7847,69 @@ def section_reading_packet(packet: dict[str, Any]) -> dict[str, Any]:
         or ((payload.get("original_scene_granularity") or {}).get("source_scene"))
         or f"第{str(payload.get('section_id') or packet.get('section_id') or '').strip()}节"
     ).strip()
-    full_section_contract = copy.deepcopy(section_contract)
-    if section_heading:
-        full_section_contract.setdefault("title", section_heading)
-        full_section_contract.setdefault("section_heading", section_heading)
-    for duplicated_field in (
-        "scene_logic_contract",
-        "source_emotion_parity",
-        "first_draft_generation_contract",
-        "original_scene_granularity",
-    ):
-        full_section_contract.pop(duplicated_field, None)
+    target_scene_contract = {
+        key: copy.deepcopy(scene_logic.get(key))
+        for key in (
+            "target_entry_causes",
+            "target_knowledge_state",
+            "scene_entry_state",
+            "beat_dependency_chain",
+            "knowledge_state_chain",
+            "scene_exit_state",
+            "manual_judgment",
+        )
+        if key in scene_logic
+    }
+    target_style_contract = {
+        key: copy.deepcopy(first_draft.get(key))
+        for key in (
+            "emotion_process",
+            "first_draft_style_plan",
+            "anti_verbatim_transfer_contract",
+            "continuous_moment_groups",
+            "paragraph_break_reasons",
+            "sentence_relation_plan",
+            "function_word_strategy",
+            "telegraphic_risk",
+            "emotion_shorthand_to_avoid",
+            "manual_judgment",
+        )
+        if key in first_draft
+    }
+    target_emotion_contract = {
+        "target_emotion_sequence": _compact_emotion_sequence(
+            source_emotion.get("target_emotion_sequence")
+        ),
+        "target_intensity_score": copy.deepcopy(
+            source_emotion.get("target_intensity_score")
+        ),
+        "manual_judgment": copy.deepcopy(source_emotion.get("manual_judgment")),
+        "adaptation_boundary": copy.deepcopy(source_emotion.get("adaptation_boundary")),
+    }
+    section_guardrails = {
+        key: copy.deepcopy(section_contract.get(key))
+        for key in (
+            "irreversible_action",
+            "character_missteps",
+            "forbidden_items",
+            "manual_judgment",
+        )
+        if key in section_contract
+    }
+    if original_scene.get("scene_end_residue"):
+        section_guardrails["scene_end_residue"] = copy.deepcopy(
+            original_scene.get("scene_end_residue")
+        )
     reading_payload = {
         "section_id": str(payload.get("section_id") or packet.get("section_id") or "").strip(),
         "section_heading": section_heading,
         "source_slice_bindings": _section_reading_source_bindings(
             payload.get("source_slice_bindings") or []
         ),
-        "section_contract": full_section_contract,
-        "first_draft_generation_contract": first_draft_generation_contract,
-        "scene_logic_contract": _deepcopy_mapping(payload.get("scene_logic_contract")),
-        "source_emotion_parity": source_emotion,
-        "original_scene_granularity": copy.deepcopy(
-            payload.get("original_scene_granularity") or {}
-        ),
+        "target_scene_contract": target_scene_contract,
+        "target_style_contract": target_style_contract,
+        "target_emotion_contract": target_emotion_contract,
+        "section_guardrails": section_guardrails,
     }
     reading_packet = {
         "packet_id": str(packet.get("packet_id") or "").strip(),
@@ -7938,52 +8042,21 @@ def section_reading_packet_chunks(packet: dict[str, Any]) -> list[dict[str, Any]
                 "part_kind": "source_bindings",
             }
         )
-    chunks.extend(
-        _mapping_payload_chunks(
-            chunk_base,
-            shared_header,
-            "section_contract",
-            "section_contract",
-            payload.get("section_contract") or {},
+    for field_name in (
+        "target_scene_contract",
+        "target_style_contract",
+        "target_emotion_contract",
+        "section_guardrails",
+    ):
+        chunks.extend(
+            _mapping_payload_chunks(
+                chunk_base,
+                shared_header,
+                field_name,
+                field_name,
+                payload.get(field_name) or {},
+            )
         )
-    )
-    first_draft_chunks = _mapping_payload_chunks(
-        chunk_base,
-        shared_header,
-        "first_draft_generation_contract",
-        "first_draft_generation_contract",
-        payload.get("first_draft_generation_contract") or {},
-    )
-    for item in first_draft_chunks:
-        item["payload"]["source_slice_bindings"] = []
-    chunks.extend(first_draft_chunks)
-    chunks.extend(
-        _mapping_payload_chunks(
-            chunk_base,
-            shared_header,
-            "scene_logic_contract",
-            "scene_logic_contract",
-            payload.get("scene_logic_contract") or {},
-        )
-    )
-    chunks.extend(
-        _mapping_payload_chunks(
-            chunk_base,
-            shared_header,
-            "source_emotion_parity",
-            "source_emotion_parity",
-            payload.get("source_emotion_parity") or {},
-        )
-    )
-    chunks.extend(
-        _mapping_payload_chunks(
-            chunk_base,
-            shared_header,
-            "original_scene_granularity",
-            "original_scene_granularity",
-            payload.get("original_scene_granularity") or {},
-        )
-    )
     total_parts = len(chunks)
     for index, chunk in enumerate(chunks, start=1):
         chunk["part_index"] = index
@@ -8016,11 +8089,32 @@ def print_packet(packet: dict[str, Any], selected_part: int | None = None) -> No
     total_parts = len(chunks)
     if total_parts <= 0:
         raise ValueError("section packet 分包失败")
+    complete_packet = section_reading_packet(packet)
+    packet_payload = packet.get("payload") if isinstance(packet, dict) else None
+    minimum_section_chars = SECTION_EXECUTION.expected_min_section_chars(
+        packet_payload if isinstance(packet_payload, dict) else {}
+    )
+    if selected_part is None and _json_bytes(complete_packet) <= SECTION_READING_COMBINED_MAX_BYTES:
+        print("section_source_packet: complete bounded packet; read every field below; do not reuse source wording")
+        print("section_source_packet_mode: combined")
+        print(f"section_source_packet_bytes: {_json_bytes(complete_packet)}")
+        print(f"section_source_packet_parts_saved: {total_parts}")
+        print(f"minimum_section_chars: {minimum_section_chars}")
+        print(f"minimum_evidence_chars: {SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS}")
+        print("evidence_order_note: 每拍五条证据必须按正文中的唯一首次出现位置递增，不得重叠")
+        print(json.dumps(complete_packet, ensure_ascii=False, indent=2))
+        for key, value in section_required_judgments(packet).items():
+            print(f"{key}: {value}")
+        return
     if selected_part is None:
         selected_part = 1
     if selected_part < 1 or selected_part > total_parts:
         raise ValueError(f"part 超出范围：1-{total_parts}")
     print("section_source_packet: read every source_evidence / dense_beats / complete contracts below; do not reuse source wording")
+    print("section_source_packet_mode: chunked")
+    print(f"minimum_section_chars: {minimum_section_chars}")
+    print(f"minimum_evidence_chars: {SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS}")
+    print("evidence_order_note: 每拍五条证据必须按正文中的唯一首次出现位置递增，不得重叠")
     print(f"section_source_packet_parts: {len(chunks)}")
     print(f"section_source_packet_current_part: {selected_part}/{total_parts}")
     print("section_source_packet_manifest:")
@@ -8066,6 +8160,35 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
             ["packet-sha 与当前完整颗粒包不一致；必须重新 show-section 并完整读取"],
             [],
         )
+    read_judgment = str(getattr(args, "read_judgment", "") or "").strip()
+    if not read_judgment:
+        supplied_token = str(getattr(args, "read_token", "") or "").strip()
+        expected_token = SECTION_EXECUTION.section_read_token(args.packet_sha)
+        if supplied_token != expected_token:
+            return print_result(
+                "open-section",
+                ["分包读取完成后必须传入最后一包给出的 --read-token"],
+                [],
+            )
+        read_judgment = section_required_judgments(packet)["required_read_judgment"]
+    result = SECTION_EXECUTION.open_section(
+        paths["section_execution_receipt"],
+        args.section,
+        read_judgment,
+    )
+    if result != 0:
+        return result
+    prepare_current_section_beat_receipt(paths, str(args.section), packet)
+    print(f"beat_receipt: {paths['section_beat_receipt']}")
+    print("next_action: 正文与紧凑逐拍证据同次落盘后直接运行 advance-section。")
+    return 0
+
+
+def prepare_current_section_beat_receipt(
+    paths: dict[str, Path],
+    section_id: str,
+    packet: dict[str, Any],
+) -> None:
     packet_payload = packet.get("payload") if isinstance(packet, dict) else None
     packet_bindings = (
         packet_payload.get("execution_source_bindings")
@@ -8081,7 +8204,7 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
                 item
                 for item in execution.get("sections", [])
                 if isinstance(item, dict)
-                and str(item.get("section_id") or "").strip() == str(args.section)
+                and str(item.get("section_id") or "").strip() == section_id
             ),
             None,
         )
@@ -8093,13 +8216,6 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
             ]
             execution_target.setdefault("required_sequence_receipts", [])
             atomic_write_json(paths["section_execution_receipt"], execution)
-    result = SECTION_EXECUTION.open_section(
-        paths["section_execution_receipt"],
-        args.section,
-        args.read_judgment,
-    )
-    if result != 0:
-        return result
     beats: list[dict[str, Any]] = []
     payload = packet.get("payload") if isinstance(packet, dict) else None
     bindings = payload.get("execution_source_bindings") if isinstance(payload, dict) else None
@@ -8128,23 +8244,93 @@ def command_open_section(paths: dict[str, Path], args: argparse.Namespace) -> in
                     "subflow_id": subflow_id,
                     "beat_index": beat_index,
                     "source_beat": str(source_beat).strip(),
-                    "target_evidence": "",
-                    "causal_link": "",
+                    "evidence": ["", "", "", "", ""],
                     "performance_equivalence": "",
-                    "status": "pending",
                 }
             )
     atomic_write_json(
         paths["section_beat_receipt"],
         {
-            "section_id": str(args.section),
+            "schema_version": SECTION_EXECUTION.BEAT_RECEIPT_SCHEMA_VERSION,
+            "section_id": section_id,
             "granularity_packet_sha256": str(packet.get("packet_sha256") or ""),
+            "minimum_section_chars": SECTION_EXECUTION.expected_min_section_chars(
+                payload if isinstance(payload, dict) else {}
+            ),
+            "minimum_evidence_chars": SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS,
+            "evidence_order_note": "每拍 evidence 五条必须按正文中的唯一首次出现位置递增，不得重复或重叠",
             "beats": beats,
         },
     )
+
+
+def open_and_print_section_when_compact(
+    paths: dict[str, Path],
+    section_id: str,
+) -> int:
+    packet = packet_for_section(
+        paths["section_source_bundle"],
+        section_id,
+        validate_bundle=False,
+    )
+    packet_bytes = _json_bytes(section_reading_packet(packet))
+    if packet_bytes > SECTION_READING_COMBINED_MAX_BYTES:
+        print("当前节完整包超过安全上限，需按分包读取；本节尚未打开。")
+        print_packet(packet)
+        return 0
+    read_judgment = section_required_judgments(packet)["required_read_judgment"]
+    result = SECTION_EXECUTION.open_section(
+        paths["section_execution_receipt"],
+        section_id,
+        read_judgment,
+    )
+    if result != 0:
+        return result
+    prepare_current_section_beat_receipt(paths, section_id, packet)
+    print(f"section_draft_execution: section {section_id} auto-opened from complete compact packet")
     print(f"beat_receipt: {paths['section_beat_receipt']}")
-    print("next_action: 写完当前节后逐拍填写 target_evidence / causal_link / performance_equivalence / status，再运行 advance-section。")
+    print_packet(packet)
+    print("next_action: 正文与紧凑逐拍证据同次落盘后直接运行 advance-section。")
     return 0
+
+
+def finish_start_draft_success(
+    paths: dict[str, Path],
+    actions: list[str],
+) -> int:
+    result = print_result("start-draft", [], actions)
+    if result != 0 or not paths["section_execution_receipt"].is_file():
+        return result
+    execution = read_json(paths["section_execution_receipt"])
+    open_section_id = next(
+        (
+            str(item.get("section_id") or "")
+            for item in execution.get("sections", [])
+            if isinstance(item, dict) and item.get("status") == "open"
+        ),
+        "",
+    )
+    if open_section_id:
+        print(f"section_draft_execution: section {open_section_id} already open")
+        print_packet(
+            packet_for_section(
+                paths["section_source_bundle"],
+                open_section_id,
+                validate_bundle=False,
+            )
+        )
+        return 0
+    pending_section_id = next(
+        (
+            str(item.get("section_id") or "")
+            for item in execution.get("sections", [])
+            if isinstance(item, dict) and item.get("status") == "pending"
+        ),
+        "",
+    )
+    if not pending_section_id:
+        return 0
+    return open_and_print_section_when_compact(paths, pending_section_id)
 
 
 def command_reopen_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
@@ -8167,10 +8353,30 @@ def command_reopen_section(paths: dict[str, Path], args: argparse.Namespace) -> 
 
 
 def command_advance_section(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    execution_before = read_json(paths["section_execution_receipt"])
+    current_target = next(
+        (
+            item
+            for item in execution_before.get("sections", [])
+            if isinstance(item, dict)
+            and str(item.get("section_id") or "") == str(args.section)
+        ),
+        None,
+    )
+    current_packet_payload = SECTION_EXECUTION.packet_payload_for_section(
+        paths["section_source_bundle"],
+        str(args.section),
+    )
+    judgment = str(getattr(args, "judgment", "") or "").strip()
+    if not judgment and isinstance(current_target, dict):
+        judgment = SECTION_EXECUTION.required_close_judgment_template(
+            current_target,
+            current_packet_payload,
+        )
     result = SECTION_EXECUTION.close_section(
         paths["section_execution_receipt"],
         args.section,
-        args.judgment,
+        judgment,
         paths["section_beat_receipt"],
     )
     if result != 0:
@@ -8186,18 +8392,38 @@ def command_advance_section(paths: dict[str, Path], args: argparse.Namespace) ->
     )
     if not next_section:
         print("project_toolbox: advance-section completed; all sections are closed")
+        if not paths["first_draft_basic_review"].exists():
+            source_paths: list[Path] = []
+            seen_sources: set[str] = set()
+            for section in execution.get("sections", []):
+                if not isinstance(section, dict):
+                    continue
+                for binding in section.get("source_slice_bindings", []):
+                    if not isinstance(binding, dict):
+                        continue
+                    raw_source = str(binding.get("source_path") or "").strip()
+                    if not raw_source:
+                        continue
+                    source_path = Path(raw_source).expanduser().resolve()
+                    if str(source_path) not in seen_sources:
+                        source_paths.append(source_path)
+                        seen_sources.add(str(source_path))
+            review_result = BASIC_REVIEW.init_receipt(
+                paths["draft"],
+                paths["first_draft_basic_review"],
+                False,
+                imitation_mode=bool(source_paths),
+                source_paths=source_paths,
+                section_execution_receipt=paths["section_execution_receipt"],
+                draft_entry_receipt=paths["first_draft_entry"],
+            )
+            if review_result != 0:
+                return review_result
+        print(f"basic_review_receipt: {paths['first_draft_basic_review']}")
+        print("next_action: 一次回填首稿基础审计回执后，直接运行 finalize-basic-review；通过后自动停靠 draft_preview。")
         return 0
     print(f"project_toolbox: advance-section closed {args.section}; next={next_section}")
-    print("下一节尚未打开。完整读取以下颗粒包后，再运行 open-section 并传回 packet_sha256。")
-    print_packet(
-        packet_for_section(
-            paths["section_source_bundle"],
-            next_section,
-            validate_bundle=False,
-        ),
-        selected_part=args.part,
-    )
-    return 0
+    return open_and_print_section_when_compact(paths, next_section)
 
 
 def command_finalize_basic_review(
@@ -8210,10 +8436,70 @@ def command_finalize_basic_review(
         paths["draft"],
         paths["section_execution_receipt"],
     )
+    if errors:
+        return print_result("finalize-basic-review", errors, [])
+
+    state_path = paths["completion_state"]
+    if not state_path.exists():
+        init_result = COMPLETION.init_state(state_path, paths["project"], False)
+        if init_result != 0:
+            return init_result
+    state = read_json(state_path)
+    state["imitation_mode"] = bool(
+        read_json(paths["first_draft_basic_review"]).get("imitation_mode")
+    )
+    preview_bindings = {
+        "writing_rule_gate": paths["writing_receipt"],
+        "source_read_gate": paths["source_receipt"],
+        "first_draft_entry": paths["first_draft_entry"],
+        "sequence_contract": paths["sequence_receipt"],
+        "opening_contract": paths["opening_contract"],
+        "section_draft_execution": paths["section_execution_receipt"],
+        "first_draft_basic_review": paths["first_draft_basic_review"],
+    }
+    for check in state.get("checks", []):
+        if not isinstance(check, dict):
+            continue
+        label = str(check.get("label") or "")
+        bound_path = preview_bindings.get(label)
+        if bound_path is None:
+            continue
+        check.update(
+            {
+                "kind": "json_field",
+                "path": str(bound_path.relative_to(paths["project"])),
+                "field": "gate_status",
+                "expected": "passed",
+            }
+        )
+    atomic_write_json(state_path, state)
+    _, preview_errors = COMPLETION.validate_state(
+        state_path,
+        target_status="draft_preview",
+    )
+    if preview_errors:
+        return print_result("finalize-basic-review", preview_errors, [])
+    state = read_json(state_path)
+    state.update(
+        {
+            "status": "draft_preview",
+            "preview_ready_at": now_iso(),
+            "deep_review_user_confirmed": False,
+            "deep_review_confirmed_at": "",
+            "deep_review_confirmation_note": "",
+            "next_action": "首稿已交用户确认；未获明确确认前禁止进入人工分窗、原文基线和正式审计。",
+        }
+    )
+    atomic_write_json(state_path, state)
     return print_result(
         "finalize-basic-review",
-        errors,
-        [] if errors else ["validate-dual-baseline-evidence", "rebind-current-draft-sha"],
+        [],
+        [
+            "validate-dual-baseline-evidence",
+            "rebind-current-draft-sha",
+            "bind-completion-state",
+            "mark-draft-preview",
+        ],
     )
 
 
@@ -8411,7 +8697,8 @@ def build_parser() -> argparse.ArgumentParser:
     opening = subparsers.add_parser("open-section")
     opening.add_argument("--section", required=True)
     opening.add_argument("--packet-sha", required=True)
-    opening.add_argument("--read-judgment", required=True)
+    opening.add_argument("--read-token")
+    opening.add_argument("--read-judgment")
     opening.set_defaults(func=command_open_section)
 
     reopen = subparsers.add_parser("reopen-section")
@@ -8421,8 +8708,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     advance = subparsers.add_parser("advance-section")
     advance.add_argument("--section", required=True)
-    advance.add_argument("--judgment", required=True)
-    advance.add_argument("--part", type=int)
+    advance.add_argument("--judgment")
     advance.set_defaults(func=command_advance_section)
 
     finalize = subparsers.add_parser("finalize-basic-review")
