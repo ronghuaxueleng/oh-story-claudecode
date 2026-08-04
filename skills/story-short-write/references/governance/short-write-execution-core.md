@@ -90,7 +90,7 @@ python3 "$TOOLBOX" --project "项目目录" prepare-setting
 17. 当前模型只新填大纲顺序证据、冲突裁决和 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：先建立跨节 `story_fact_state_ledger` 与覆盖所有相邻小节的 `section_handoff_chain`；再逐节用 `scene_entry_state / beat_dependency_chain / knowledge_state_chain / causal_risk_reviews / scene_exit_state` 验证节内每一拍的前态、触发、知情、空间或物件权限和后态首尾相接，同时核对原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据。融合仿写还必须绑定拆文读取回执，并用 `auxiliary_subflow_flow_parity` 完整逐步迁移每个已选辅助 SF；最后逐节填完 `first_draft_generation_contract`，绑定原文因果颗粒、情感颗粒、连续瞬间、断段理由和句间关系。修闸阶段先运行 `story_short_write_project_toolbox.py outline-precheck --only {sections|handoff|bridges|first-draft}` 收缩当前改动块，只有局部预检通过后，才运行 `story_short_write_project_toolbox.py outline-validate` 触发一次正式全量放行
-20. 运行 `story_short_write_project_toolbox.py start-draft`：工具箱先自动吸收当前项目里已经填好且已更新的 `opening / sequence / draft-capacity / outline` 修闸回填，再复用或刷新同一内容指纹下的机械预检，编译含完整 `source_excerpt / section_contract / first_draft_generation_contract` 的逐节原文颗粒包，只执行一次 `validate_write_release_gate.py draft`，再初始化首稿入口与逐节执行回执。工具箱输出只含一次完整原文切片、一次逐拍链和一次目标写作合同的紧凑包；安全大小的第一节及后续节自动打开。当前模型每节只需同次落正文与 schema v2.1 紧凑五证据数组，再运行一次 `advance-section --section N`。超限包才按 `show-section --part` 读取，并用最后一包的 token 显式 `open-section`。
+20. 运行 `story_short_write_project_toolbox.py start-draft`：工具箱先自动吸收当前项目里已经填好且已更新的 `opening / sequence / draft-capacity / outline` 修闸回填，再复用或刷新同一内容指纹下的机械预检，编译含完整 `source_excerpt / section_contract / first_draft_generation_contract` 的逐节原文颗粒包，只执行一次 `validate_write_release_gate.py draft`，再初始化首稿入口与逐节执行回执。紧凑包保留完整原文、全部逐拍链、因果/信息/控制权/情绪/文风颗粒和目标场景链，只对目标合同中的逐字重复长句使用包内 `text_aliases` 无损代换。安全大小的第一节及后续节自动打开。当前模型每节只需同次落正文与 schema v2.1 紧凑五证据数组，再运行一次 `advance-section --section N`。超限包才按 `show-section --part` 读取，并用最后一包的 token 显式 `open-section`。
 21. 全文落笔后立即初始化人工基础审计回执并固定母稿；仿写稿同步绑定本轮涉及小节的原文切片，只查 `句间关系与虚词 / 段落气口与电报文 / 人物情感过程与动作标签化 / 人物口气与明显剧情断裂`；发现基础硬伤时按母稿与原文双基线回修，填写真实 `revision_blocks` 后运行工具箱 `finalize-basic-review`。只有原文、母稿和改后正文证据全部通过时，脚本才机械重算并重绑正文 SHA；禁止手工静默重绑或重建母稿
 22. 基础审计通过后执行 `mark-draft-preview`，第一时间交付首稿并停靠；此时不得继续跑原文基线、窗口前回修、人工分窗、正式审计、最终台账重绑或人工语义复核
 23. 只有用户看过首稿并明确确认继续后，才执行 `confirm-deep-review`，进入以下深审流程
@@ -569,7 +569,7 @@ python3 "$TOOLBOX" --project "{项目目录}" open-section \
   --section 1 --packet-sha "{packet_sha256}" --read-token "{read_token}"
 ```
 
-`advance-section` 对安全大小的下一节紧凑包会自动打开；只有输出标记为 `section_source_packet_mode: chunked` 时，下一节保持 pending，继续按 `--part` 读取剩余包并以最后一包 token 打开。禁止无条件重复六次 `show-section`。
+`advance-section` 会先对当前节唯一出现、同一物理行内且不跨相邻证据的短证据做安全扩展，再执行原有唯一性、顺序与逐拍零容缺校验；无法安全扩展时仍硬失败。对安全大小的下一节紧凑包会自动打开；只有输出标记为 `section_source_packet_mode: chunked` 时，下一节保持 pending，继续按 `--part` 读取剩余包并以最后一包 token 打开。禁止无条件重复六次 `show-section`。
 
 机械预检缓存只保存依赖文件内容指纹和通过状态，字段 `semantic_payload` 固定为 `null`。来源、规则、台账、profile 或验证脚本任一内容变化时缓存自动失效；禁止把细纲语义、原文摘要或模型判断写入该缓存。
 

@@ -5955,6 +5955,89 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual("掉位成立", payload["section_guardrails"]["irreversible_action"])
         self.assertNotIn("source_emotion_sequence", payload["target_emotion_contract"])
 
+    def test_section_reading_packet_aliases_repeated_target_goal_without_touching_source(self) -> None:
+        goal = "林俏带着残页闯入公开听证，乔予用授权短问夺回题面。"
+        packet = {
+            "packet_id": "section-8",
+            "section_id": "8",
+            "packet_sha256": "packet-sha",
+            "payload": {
+                "section_id": "8",
+                "source_slice_bindings": [
+                    {
+                        "source_excerpt": f"原文中完整保留这句话：{goal}",
+                        "source_subflow_contract": {"required_sequence": ["第一拍"]},
+                    }
+                ],
+                "section_contract": {
+                    "section_heading": goal,
+                    "irreversible_action": goal,
+                },
+                "first_draft_generation_contract": {
+                    "manual_judgment": f"正文必须围绕“{goal}”落笔。",
+                },
+                "scene_logic_contract": {"manual_judgment": goal},
+                "source_emotion_parity": {
+                    "target_emotion_sequence": [
+                        {"role": "反刀", "trigger": "残页", "intensity": 9, "evidence": goal}
+                    ]
+                },
+                "original_scene_granularity": {},
+            },
+        }
+
+        reading = TOOLBOX.section_reading_packet(packet)["payload"]
+
+        self.assertEqual({"<SECTION_GOAL>": goal}, reading["text_aliases"])
+        self.assertEqual(
+            f"原文中完整保留这句话：{goal}",
+            reading["source_slice_bindings"][0]["source_excerpt"],
+        )
+        self.assertEqual("<SECTION_GOAL>", reading["section_guardrails"]["irreversible_action"])
+        self.assertNotIn(
+            "evidence",
+            reading["target_emotion_contract"]["target_emotion_sequence"][0],
+        )
+
+    def test_auto_expand_short_beat_evidence_stays_unique_ordered_and_on_same_line(self) -> None:
+        self.paths["draft"].write_text(
+            "1.\n\n第二天早上六点，直播切片爬上热门榜。\n\n我没有回头。\n",
+            encoding="utf-8",
+        )
+        TOOLBOX.atomic_write_json(
+            self.paths["section_beat_receipt"],
+            {
+                "section_id": "1",
+                "beats": [
+                    {
+                        "evidence": [
+                            "第二天早上",
+                            "直播切片",
+                            "爬上热门榜",
+                            "我没有回头",
+                            "",
+                        ]
+                    }
+                ],
+            },
+        )
+
+        changed = TOOLBOX.auto_expand_short_beat_evidence(
+            self.paths["draft"],
+            self.paths["section_beat_receipt"],
+            "1",
+        )
+        receipt = json.loads(self.paths["section_beat_receipt"].read_text(encoding="utf-8"))
+        evidence = receipt["beats"][0]["evidence"]
+
+        self.assertGreaterEqual(changed, 1)
+        self.assertGreaterEqual(TOOLBOX._non_whitespace_length(evidence[0]), 6)
+        self.assertIn(evidence[0], TOOLBOX.SECTION_EXECUTION.section_text(self.paths["draft"], "1"))
+        self.assertLess(
+            TOOLBOX.SECTION_EXECUTION.section_text(self.paths["draft"], "1").index(evidence[0]),
+            TOOLBOX.SECTION_EXECUTION.section_text(self.paths["draft"], "1").index(evidence[1]),
+        )
+
     def test_section_execution_packet_scopes_and_deduplicates_source_beats(self) -> None:
         def binding(subflow_id: str, sequence: list[str], source_range: str) -> dict[str, object]:
             return {

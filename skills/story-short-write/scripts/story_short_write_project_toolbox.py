@@ -7810,22 +7810,55 @@ def _section_reading_source_bindings(bindings: list[Any]) -> list[dict[str, Any]
     return reading_bindings
 
 
-def _compact_emotion_sequence(entries: Any) -> list[dict[str, Any]]:
+def _compact_emotion_sequence(
+    entries: Any,
+    *,
+    redundant_evidence: set[str] | None = None,
+) -> list[dict[str, Any]]:
     if not isinstance(entries, list):
         return []
     compacted: list[dict[str, Any]] = []
     for item in entries:
         if not isinstance(item, dict):
             continue
-        compacted.append(
-            {
-                "role": copy.deepcopy(item.get("role")),
-                "trigger": copy.deepcopy(item.get("trigger")),
-                "intensity": copy.deepcopy(item.get("intensity")),
-                "evidence": copy.deepcopy(item.get("evidence")),
-            }
-        )
+        compacted_item = {
+            "role": copy.deepcopy(item.get("role")),
+            "trigger": copy.deepcopy(item.get("trigger")),
+            "intensity": copy.deepcopy(item.get("intensity")),
+        }
+        evidence = copy.deepcopy(item.get("evidence"))
+        if str(evidence or "").strip() not in (redundant_evidence or set()):
+            compacted_item["evidence"] = evidence
+        compacted.append(compacted_item)
     return compacted
+
+
+def _replace_repeated_target_text(
+    value: Any,
+    repeated_text: str,
+    alias: str,
+) -> tuple[Any, int]:
+    """Replace only exact repeated target text; source bindings never pass through here."""
+    if isinstance(value, str):
+        count = value.count(repeated_text) if repeated_text else 0
+        return (value.replace(repeated_text, alias), count) if count else (value, 0)
+    if isinstance(value, list):
+        replaced: list[Any] = []
+        total = 0
+        for item in value:
+            updated, count = _replace_repeated_target_text(item, repeated_text, alias)
+            replaced.append(updated)
+            total += count
+        return replaced, total
+    if isinstance(value, dict):
+        replaced_mapping: dict[str, Any] = {}
+        total = 0
+        for key, item in value.items():
+            updated, count = _replace_repeated_target_text(item, repeated_text, alias)
+            replaced_mapping[key] = updated
+            total += count
+        return replaced_mapping, total
+    return copy.deepcopy(value), 0
 
 
 def section_reading_packet(packet: dict[str, Any]) -> dict[str, Any]:
@@ -7878,7 +7911,8 @@ def section_reading_packet(packet: dict[str, Any]) -> dict[str, Any]:
     }
     target_emotion_contract = {
         "target_emotion_sequence": _compact_emotion_sequence(
-            source_emotion.get("target_emotion_sequence")
+            source_emotion.get("target_emotion_sequence"),
+            redundant_evidence={section_heading},
         ),
         "target_intensity_score": copy.deepcopy(
             source_emotion.get("target_intensity_score")
@@ -7900,16 +7934,28 @@ def section_reading_packet(packet: dict[str, Any]) -> dict[str, Any]:
         section_guardrails["scene_end_residue"] = copy.deepcopy(
             original_scene.get("scene_end_residue")
         )
+    target_contracts, alias_replacements = _replace_repeated_target_text(
+        {
+            "target_scene_contract": target_scene_contract,
+            "target_style_contract": target_style_contract,
+            "target_emotion_contract": target_emotion_contract,
+            "section_guardrails": section_guardrails,
+        },
+        section_heading,
+        "<SECTION_GOAL>",
+    )
     reading_payload = {
         "section_id": str(payload.get("section_id") or packet.get("section_id") or "").strip(),
         "section_heading": section_heading,
         "source_slice_bindings": _section_reading_source_bindings(
             payload.get("source_slice_bindings") or []
         ),
-        "target_scene_contract": target_scene_contract,
-        "target_style_contract": target_style_contract,
-        "target_emotion_contract": target_emotion_contract,
-        "section_guardrails": section_guardrails,
+        **(
+            {"text_aliases": {"<SECTION_GOAL>": section_heading}}
+            if alias_replacements
+            else {}
+        ),
+        **target_contracts,
     }
     reading_packet = {
         "packet_id": str(packet.get("packet_id") or "").strip(),
@@ -8004,6 +8050,11 @@ def section_reading_packet_chunks(packet: dict[str, Any]) -> list[dict[str, Any]
     shared_header = {
         "section_id": payload["section_id"],
         "section_heading": copy.deepcopy(payload.get("section_heading")),
+        **(
+            {"text_aliases": copy.deepcopy(payload.get("text_aliases"))}
+            if payload.get("text_aliases")
+            else {}
+        ),
     }
     bindings = payload.get("source_slice_bindings") or []
     if not isinstance(bindings, list):
@@ -8373,6 +8424,13 @@ def command_advance_section(paths: dict[str, Path], args: argparse.Namespace) ->
             current_target,
             current_packet_payload,
         )
+    expanded_evidence = auto_expand_short_beat_evidence(
+        paths["draft"],
+        paths["section_beat_receipt"],
+        str(args.section),
+    )
+    if expanded_evidence:
+        print(f"section_draft_execution: auto-expanded {expanded_evidence} short evidence quote(s)")
     result = SECTION_EXECUTION.close_section(
         paths["section_execution_receipt"],
         args.section,
@@ -8424,6 +8482,98 @@ def command_advance_section(paths: dict[str, Path], args: argparse.Namespace) ->
         return 0
     print(f"project_toolbox: advance-section closed {args.section}; next={next_section}")
     return open_and_print_section_when_compact(paths, next_section)
+
+
+def _non_whitespace_length(value: str) -> int:
+    return len(re.sub(r"\s+", "", value))
+
+
+def _unique_span(text: str, quote: str) -> tuple[int, int] | None:
+    start = text.find(quote)
+    if start < 0 or text.find(quote, start + 1) >= 0:
+        return None
+    return start, start + len(quote)
+
+
+def _expand_quote_in_line(
+    text: str,
+    quote: str,
+    *,
+    lower_bound: int,
+    upper_bound: int,
+    preferred_chars: int = 8,
+) -> str:
+    span = _unique_span(text, quote)
+    if span is None:
+        return quote
+    start, end = span
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", end)
+    if line_end < 0:
+        line_end = len(text)
+    minimum = max(line_start, lower_bound)
+    maximum = min(line_end, upper_bound)
+    while _non_whitespace_length(text[start:end]) < preferred_chars:
+        if end < maximum:
+            end += 1
+            continue
+        if start > minimum:
+            start -= 1
+            continue
+        break
+    candidate = text[start:end].strip()
+    if (
+        _non_whitespace_length(candidate) < SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS
+        or _unique_span(text, candidate) is None
+    ):
+        return quote
+    return candidate
+
+
+def auto_expand_short_beat_evidence(
+    draft: Path,
+    beat_receipt: Path,
+    section_id: str,
+) -> int:
+    """Expand unique short quotes without changing their semantic anchor or order."""
+    if not draft.is_file() or not beat_receipt.is_file():
+        return 0
+    section = SECTION_EXECUTION.section_text(draft, section_id)
+    if not section:
+        return 0
+    receipt = read_json(beat_receipt)
+    if str(receipt.get("section_id") or "").strip() != str(section_id).strip():
+        return 0
+    changed = 0
+    for beat in receipt.get("beats", []):
+        if not isinstance(beat, dict) or not isinstance(beat.get("evidence"), list):
+            continue
+        evidence = [str(item or "") for item in beat["evidence"]]
+        spans = [_unique_span(section, quote) if quote else None for quote in evidence]
+        for index, quote in enumerate(evidence):
+            if not quote or _non_whitespace_length(quote) >= 8 or spans[index] is None:
+                continue
+            previous_end = spans[index - 1][1] if index > 0 and spans[index - 1] else 0
+            next_start = (
+                spans[index + 1][0]
+                if index + 1 < len(spans) and spans[index + 1]
+                else len(section)
+            )
+            expanded = _expand_quote_in_line(
+                section,
+                quote,
+                lower_bound=previous_end,
+                upper_bound=next_start,
+            )
+            if expanded == quote:
+                continue
+            evidence[index] = expanded
+            spans[index] = _unique_span(section, expanded)
+            changed += 1
+        beat["evidence"] = evidence
+    if changed:
+        atomic_write_json(beat_receipt, receipt)
+    return changed
 
 
 def command_finalize_basic_review(
