@@ -69,6 +69,7 @@ metadata:
 - `validate_write_release_gate.py`
 - `validate_sequence_contract.py`
 - `validate_outline_performance_contract.py`
+- `validate_prose_granularity_contract.py`
 - `validate_post_write_human_review_gate.py`
 - `validate_zhihu_section_format.py`
 - `count_words.py`
@@ -87,6 +88,7 @@ metadata:
 
 - [references/governance/short-write-execution-core.md](references/governance/short-write-execution-core.md)
 - [references/governance/source-baseline-imitation-audit.md](references/governance/source-baseline-imitation-audit.md)
+- [references/governance/prose-granularity-contract.md](references/governance/prose-granularity-contract.md)
 - [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
 - [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
 - [references/integration/rule-onboarding-checklist.md](references/integration/rule-onboarding-checklist.md)
@@ -207,6 +209,7 @@ metadata:
 89. **基线差值必须按规则 ID 人工裁决**：`compare_source_baseline_audit.py` 的总分差只能诊断，不得单独输出正文回炉结论；必须同时查看 `heavy_rule_comparison.shared_baseline_rules` 与 `draft_extra_rules`。原文和新稿共同命中的重审计规则属于基线噪声，不得因总分差机械降分；只对新增轻审计类型或新增重审计规则按整场/段落簇检查“人物有没有偏手、对白有没有真实接招、冲突载体有没有换主、手续有没有阻力”。只有确认是新稿新增机械壳，才进入正文回修。
 90. **审计回执必须区分保留项和返修项**：正式审计或回炉计划中必须把问题标为 `source_like / craft_tradeoff / draft_extra_ai_shell` 之一。`source_like` 和 `craft_tradeoff` 可以保留但要说明情节功能；`draft_extra_ai_shell` 才能进修改单。禁止把所有脚本命中统一写成“AI 味待删”。
 91. **只迁移颗粒度必须使用独立模式**：用户明确要求“借原文颗粒度、自造情节”时，细纲表演验收必须使用 `source_mode: granularity_only`。该模式不要求迁移主体 BID 身份或完整桥段流程，但仍须逐节绑定原文真实场面，迁移同级事件拍密度、信息延迟、动作/物件/空间控制权变化和情绪烈度，并在 `granularity_transfer_contract` 中列出目标原创场景及明确拒绝的原文人物、职业、物件、关系和结局表层元素。禁止为了通过旧的逐桥对齐闸，把原创实验偷写成换皮复刻。
+92. **文字颗粒度与场面颗粒度必须分轨**：仿写、融合、同桥仿写和用户要求参照原文文风时，第一本主体原文固定为唯一正文声线源；辅助书只供应事件与场面机制。正文前必须通过 `validate_prose_granularity_contract.py validate-prewrite`，按连续原文片段建立句子运动、词语口语度、叙述者声音、段落气口、对白衔接、情绪落字和有效毛边七维合同。正文写作时逐节回填，初稿停靠前必须通过 `validate-draft` 覆盖所有小节。功能、BID、情绪拍或物件换主对齐均不得冒充文字对齐；只要目标稿相对主体原文新增工整复合钩子、总结式短句、解释性盖章或其他 GPT 默认句面壳，就必须在首写阶段修正。
 
 ---
 
@@ -308,6 +311,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
   --sequence-receipt 写作资产/顺序契约回执.json \
   --opening-contract 写作资产/开头承重契约回执.json \
   --outline-contract 写作资产/细纲表演验收回执.json \
+  --prose-contract 写作资产/全文文字颗粒度契约回执.json \
+  --primary-source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --profile profiles/{项目名}.project.profile.json
 ```
 
@@ -422,6 +427,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 - [references/governance/opening-contract-gate.md](references/governance/opening-contract-gate.md)
 
+### 全文文字颗粒度硬闸
+
+仿写、融合和原文声线参照任务在写正文前必须建立独立合同。该合同不问桥段做了什么，只问主体原文怎样说、目标稿是否仍按同类句间关系说话。主体原文独占声线权，辅助来源不得混入。
+
+初始化、写前校准、逐节复核和初稿停靠前验证的完整命令见：
+
+- [references/governance/prose-granularity-contract.md](references/governance/prose-granularity-contract.md)
+
+`validate-prewrite` 未通过不得写正文；`validate-draft` 未覆盖每一个数字小节，不得报告“正文初稿已完成”。本门禁属于首写质量控制，不等同于用户尚未授权的深审。
+
 ### 必备输入
 
 默认至少需要：
@@ -469,24 +484,26 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 14. 对大纲执行开头承重契约硬闸
 15. 对大纲执行细纲表演验收硬闸；主流程仿写必须先在回执中完成 `source_bridge_flow_inventory` 和 `outline_bridge_flow_parity`
 16. 逐项确认原文 BID/关键子桥段在细纲中均为 `matched/adapted`，缺失、弱化或只做功能映射时先重写细纲
-17. 通过正文写作放行闸，再写正文并逐项更新台账
-18. 正文初稿落盘后，只运行 `count_words.py`；知乎 / 盐言正文再运行纯数字分节格式校验
-19. **立即停靠并把正文交给用户预览**；禁止自动继续顺序重绑、正文开头契约、窗口前回修、人工分窗、正式审计、回炉、最终台账或人工语义复核
-20. 只有用户看过初稿并明确回复“继续深审”“继续完整流程”或同义指令后，才补正文顺序节点证据并重新通过完整顺序契约
-21. 对正文执行开头承重契约硬闸
-22. 按通用规则和拆书资产定向回修
-23. 通过窗口前回修闸，再做人工模型切窗、逐窗流程硬化/证据清单感人工复核和正式审计
-24. 生成包含人工窗口病灶汇总的回修任务单
-25. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
-26. 重新审计
-27. 绑定最终写作产物并通过 `rule_execution_gate`
-28. 全文人工语义复扫并通过 `post_write_human_review_gate`
-29. 高风险任务再过第二闸门
+17. 初始化并通过全文文字颗粒度写前合同；主体原文独占声线，完成连续片段基线与三组原创校准
+18. 通过正文写作放行闸，再写正文；每写完一节立即回填该节文字颗粒度复核和台账，不把全文声线检查拖到深审
+19. 正文初稿落盘后，绑定最终正文 SHA 并运行全文文字颗粒度 `validate-draft`；再运行 `count_words.py`，知乎 / 盐言正文另运行纯数字分节格式校验
+20. **立即停靠并把正文交给用户预览**；禁止自动继续顺序重绑、正文开头契约、窗口前回修、人工分窗、正式审计、回炉、最终台账或完整人工语义复核
+21. 只有用户看过初稿并明确回复“继续深审”“继续完整流程”或同义指令后，才补正文顺序节点证据并重新通过完整顺序契约
+22. 对正文执行开头承重契约硬闸
+23. 按通用规则和拆书资产定向回修
+24. 通过窗口前回修闸，再做人工模型切窗、逐窗流程硬化/证据清单感人工复核和正式审计
+25. 生成包含人工窗口病灶汇总的回修任务单
+26. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
+27. 重新审计
+28. 绑定最终写作产物并通过 `rule_execution_gate`
+29. 全文人工语义复扫并通过 `post_write_human_review_gate`
+30. 高风险任务再过第二闸门
 
 ### 正文初稿停靠硬闸
 
 正文初稿全部写入 `正文.md` 后必须结束当前轮，不得把用户最初提出的“完整流程”“整套写完”解释为授权连续进入深审。停靠前只允许：
 
+- 绑定并验证逐节维护的 `全文文字颗粒度契约回执.json`；该动作只裁决主体原文声线是否覆盖全文，不得顺带运行 AI 审计或开启新一轮回炉。
 - 运行 `count_words.py`，报告统一番茄口径字数。
 - 平台为知乎 / 盐言时运行 `validate_zhihu_section_format.py`。
 - 确认正文文件可读取；不得借基础检查之名修改、润色或回炉正文。
@@ -571,6 +588,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
   --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json" \
   --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
   --target "{项目目录}/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --draft "{项目目录}/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --draft "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" --text "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -759,6 +786,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 ### Phase 3：正文
 
 正文按场景写，不按说明文写。
+
+仿写或融合稿必须按主体原文声线逐节写、逐节复核。每节都要同时核对七个文字维度，禁止等全文写完后再用短句、反问或禁词替换做表面去味。
 
 每场落笔前先回答：
 

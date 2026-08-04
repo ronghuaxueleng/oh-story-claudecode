@@ -96,9 +96,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据
-20. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --profile "profiles/项目名.project.profile.json"`，再写正文
-21. 正文初稿落盘后，只运行统一字数统计；知乎 / 盐言稿再运行平台格式校验
-22. 立即向用户交付初稿并停靠，明确报告正文路径、字数、格式和“尚未执行深审与回炉”；禁止自动运行后续步骤
+20. 仿写 / 融合任务先初始化并通过 `validate_prose_granularity_contract.py validate-prewrite`，由第一本主体原文独占正文声线
+21. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --profile "profiles/项目名.project.profile.json"`，再写正文
+22. 正文逐节写、逐节回填文字颗粒度证据；初稿落盘后绑定最终 SHA 并通过 `validate_prose_granularity_contract.py validate-draft`
+23. 只再运行统一字数统计；知乎 / 盐言稿另运行平台格式校验
+24. 立即向用户交付初稿并停靠，明确报告正文路径、字数、格式和“尚未执行深审与回炉”；禁止自动运行后续步骤
 23. 只有用户明确回复“继续深审”“继续完整流程”或同义指令后，才补正文节点证据并通过 `validate_sequence_contract.py validate --receipt "项目目录/写作资产/顺序契约回执.json" --setting "项目目录/设定.md" --outline "项目目录/小节大纲.md" --draft "项目目录/正文.md"`
 24. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
 25. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
@@ -401,7 +403,26 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 只要任务说明先于关系钩子、主体三拍功能顺序被打乱，或题面未在前 `80 / 120` 字兑现，就返回 blocked。详见 [opening-contract-gate.md](opening-contract-gate.md)。
 
-### 5. 生成并校验写后人工语义复核回执
+### 5. 建立并校验全文文字颗粒度合同
+
+完整初始化、写前和初稿停靠前命令见 [prose-granularity-contract.md](prose-granularity-contract.md)。固定入口为：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --draft "{项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --draft "{项目目录}/正文.md"
+```
+
+### 6. 生成并校验写后人工语义复核回执
 
 全新正文：
 

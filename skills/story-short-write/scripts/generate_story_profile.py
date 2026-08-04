@@ -31,6 +31,32 @@ def collect_original_source_text(roots: list[Path]) -> str:
     return "\n".join(chunks)
 
 
+def build_prose_style_contract(root: Path) -> dict[str, object]:
+    """Keep prose guidance owned by one source instead of merging voices."""
+    dna_path = root / "写作资产" / "作者DNA指纹.md"
+    if not dna_path.is_file():
+        return {}
+    text = read_text(dna_path)
+    return {
+        "source_role": "primary_only",
+        "source_root": str(root.resolve()),
+        "author_dna_path": str(dna_path.resolve()),
+        "sentence_motion": collect_heading_block_lines(
+            text, ("句长", "切句", "停顿"), max_items=12
+        ),
+        "narrator_voice": collect_heading_block_lines(
+            text, ("视角", "情绪落点", "收口"), max_items=12
+        ),
+        "dialogue_and_character_voice": collect_heading_block_lines(
+            text, ("人物不同脸", "口气差", "全文对白"), max_items=12
+        ),
+        "anti_patterns": collect_heading_block_lines(
+            text, ("反面句型", "禁写", "禁学"), max_items=12
+        ),
+        "contract_note": "该字段只提供主体声线依据；正式正文仍须建立全文文字颗粒度回执。",
+    }
+
+
 DYNAMIC_OBJECT_CATEGORIES = ("核心物件", "证据载体")
 PRECHECK_FACT_CATEGORIES = ("核心物件", "证据载体")
 PRECHECK_ACTION_CATEGORIES = ("动作与微动作",)
@@ -2875,6 +2901,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     if consequence_out:
         story_guardrails["consequence_structure"] = consequence_out
 
+    prose_style_contract = build_prose_style_contract(sources[0]) if sources else {}
     profile = {
         "meta": {
             "name": name,
@@ -2897,6 +2924,8 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "derived_patterns": derived_patterns,
         "migration_assets": migration_assets,
     }
+    if prose_style_contract:
+        profile["prose_style_contract"] = prose_style_contract
     precheck_overrides: dict[str, object] = {}
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
@@ -3063,6 +3092,14 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
         "derived_patterns": merge_string_lists(profiles, "derived_patterns"),
         "migration_assets": migration_assets,
     }
+    primary_prose_contract = profiles[0].get("prose_style_contract") if profiles else None
+    if isinstance(primary_prose_contract, dict) and primary_prose_contract:
+        merged["prose_style_contract"] = {
+            **primary_prose_contract,
+            "source_role": "primary_only",
+            "primary_profile_path": str(profile_paths[0].resolve()),
+            "auxiliary_profiles_supply_prose": False,
+        }
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
     if fact_patterns or action_patterns:

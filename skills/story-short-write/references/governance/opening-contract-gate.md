@@ -21,8 +21,20 @@
 5. 当前目标前 `20 / 60 / 80 / 120` 字逐项裁决
 6. 原文真实开口样本、共性和目标开头应用方式
 7. 开头叙述流复核：是否仍像分镜清单或规则施工单
+8. 主体原文与目标第一句的句面复核：句法骨架、口语度、信息负载、叙述者位置和新增 AI 壳
 
 不得硬编码主体书中的人物、职业、动作或物件，只继承功能顺序。
+
+功能顺序通过不代表文字颗粒度通过。正文回执必须填写 `prose_form_comparison`，其中：
+
+- `source_sentence_quote` 必须来自主体原文真实开口。
+- `source_sentence_skeleton / source_lexical_register / source_information_load / source_narrator_position` 必须逐项判断。
+- `target_first_sentence` 必须是目标正文真实原句。
+- `source_unlike_patterns` 至少两条。
+- `functional_alignment_used_as_prose_proof` 必须为 `false`。
+- `target_extra_ai_shell` 必须为 `false`。
+
+例如主体原文是“对方具体行为 + 我方直接反应”的完整口语句，目标却写成“当 X 时，Y 正……”并同时塞入动作、声音、身份和象征，即使钩子功能相同也必须阻断。
 
 ## 原文开口对照
 

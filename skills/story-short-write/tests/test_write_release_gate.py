@@ -51,7 +51,14 @@ class WriteReleaseGateTest(unittest.TestCase):
         source_root = self.root / "拆文库" / "测试书"
         self.source_original = source_root / "原文" / "原文.txt"
         self.source_original.parent.mkdir(parents=True)
-        self.source_original.write_text("原文场面", encoding="utf-8")
+        self.source_original.write_text(
+            "原文场面里，他先伸手拦我，我把他的手推开。"
+            "我没想到他还会替别人解释。解释什么？我从头到尾一句话都没说。"
+            "钥匙放在桌上，她先拿走了。有意思，现在倒像是我进错了门。"
+            "我懒得再问，转身去收自己的东西。身后有人叫我，我也没停。"
+            "最后门关上了。外面还有声音，反正和我没什么关系了。",
+            encoding="utf-8",
+        )
         bridge_catalog = source_root / "写作资产" / "桥段施工卡.md"
         bridge_catalog.parent.mkdir(parents=True)
         bridge_catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
@@ -64,6 +71,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             "profile",
             "sequence",
             "setting_sequence",
+            "prose",
         ):
             path = self.root / f"{name}.json"
             payload = {"gate_status": "passed"}
@@ -112,6 +120,8 @@ class WriteReleaseGateTest(unittest.TestCase):
                 }
             elif name == "outline_contract":
                 payload = self.outline_contract_payload()
+            elif name == "prose":
+                payload = self.prose_contract_payload()
             path.write_text(
                 json.dumps(payload),
                 encoding="utf-8",
@@ -265,6 +275,48 @@ class WriteReleaseGateTest(unittest.TestCase):
         payload["gate_status"] = "passed"
         return payload
 
+    def prose_contract_payload(self) -> dict:
+        prose_gate = GATE._PROSE_GRANULARITY_MODULE
+        payload = prose_gate.create_receipt("测试", self.source_original)
+        payload["reviewed_by_current_model"] = True
+        payload["prewrite_status"] = "passed"
+        source_text = self.source_original.read_text(encoding="utf-8")
+        payload["source_baseline"]["continuous_excerpts"] = [
+            {
+                "quote": source_text[start : start + 70],
+                "purpose": purpose,
+                "language_judgment": "连续口语叙述，判断跟着现场发生。",
+            }
+            for start, purpose in zip(
+                (0, 20, 40, 60, 80),
+                ("开口", "冲突", "对白", "日常", "收口"),
+            )
+        ]
+        anchors = ["原文场面里，他先伸手拦我，我把他的手推开。", "有意思"]
+        for name in prose_gate.REQUIRED_DIMENSIONS:
+            payload["source_baseline"]["dimensions"][name] = {
+                "rule": f"{name} 采用主体原文口语。",
+                "source_quotes": anchors,
+                "transfer_rule": "迁移句间关系，不复制表层情节。",
+                "ai_drift_to_reject": "拒绝工整复合钩子和总结句。",
+            }
+        payload["source_baseline"]["anti_patterns"] = [
+            {"pattern": f"AI模板{i}", "why_unlike_source": "原文不会这样说。"}
+            for i in range(3)
+        ]
+        payload["source_baseline"]["manual_judgment"] = "主体声线已经人工建立。"
+        payload["calibration_samples"] = [
+            {
+                "source_quote": "原文场面里，他先伸手拦我，我把他的手推开。",
+                "target_sample": f"我没想到回来拿第{i}样东西，也会看见他们站在门里。",
+                "comparison": "均为直白口语陈述。",
+                "functional_alignment_used_as_prose_proof": False,
+                "extra_ai_shell": False,
+            }
+            for i in range(3)
+        ]
+        return payload
+
     @staticmethod
     def binding(path: Path) -> dict[str, str]:
         import hashlib
@@ -295,6 +347,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertTrue(any("规则执行门禁未通过" in item for item in errors))
 
@@ -312,6 +366,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertTrue(any("重新校验失败" in item for item in errors))
         self.assertTrue(any("skill 规则源已变化" in item for item in errors))
@@ -329,6 +385,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertTrue(any("未完成写前分类与执行计划" in item for item in errors))
         self.assertTrue(any("缺少 canonical_rule_text" in item for item in errors))
@@ -343,6 +401,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.assertTrue(any("开头承重契约" in item for item in errors))
         self.assertTrue(any("细纲表演验收" in item for item in errors))
         self.assertTrue(any("profile" in item for item in errors))
+        self.assertTrue(any("全文文字颗粒度" in item for item in errors))
 
     def test_all_preconditions_pass(self) -> None:
         errors = GATE.validate_release(
@@ -354,6 +413,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertEqual([], errors)
 
@@ -366,6 +427,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             opening_contract=self.files["opening"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertTrue(any("细纲表演验收" in item for item in errors))
 
@@ -386,6 +449,8 @@ class WriteReleaseGateTest(unittest.TestCase):
             outline_contract=self.files["outline_contract"],
             profile=self.files["profile"],
             sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
         )
         self.assertTrue(any("matched/adapted" in item for item in errors))
 

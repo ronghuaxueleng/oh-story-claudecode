@@ -43,6 +43,19 @@ assert _RULE_LEDGER_SPEC and _RULE_LEDGER_SPEC.loader
 _RULE_LEDGER_MODULE = importlib.util.module_from_spec(_RULE_LEDGER_SPEC)
 _RULE_LEDGER_SPEC.loader.exec_module(_RULE_LEDGER_MODULE)
 
+_PROSE_GRANULARITY_GATE_PATH = Path(__file__).with_name(
+    "validate_prose_granularity_contract.py"
+)
+_PROSE_GRANULARITY_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_prose_granularity_contract",
+    _PROSE_GRANULARITY_GATE_PATH,
+)
+assert _PROSE_GRANULARITY_SPEC and _PROSE_GRANULARITY_SPEC.loader
+_PROSE_GRANULARITY_MODULE = importlib.util.module_from_spec(
+    _PROSE_GRANULARITY_SPEC
+)
+_PROSE_GRANULARITY_SPEC.loader.exec_module(_PROSE_GRANULARITY_MODULE)
+
 
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
     if not path.is_file():
@@ -157,6 +170,8 @@ def validate_release(
     profile: Path | None = None,
     sequence_receipt: Path | None = None,
     setting_sequence_receipt: Path | None = None,
+    prose_contract: Path | None = None,
+    primary_source_original: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
     require_passed(
@@ -230,6 +245,18 @@ def validate_release(
                 )
 
     if phase == "draft":
+        if prose_contract is None or primary_source_original is None:
+            errors.append("正文写作放行必须提供全文文字颗粒度合同和主体原文")
+        else:
+            prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
+            if prose_data is not None:
+                prose_errors, _ = _PROSE_GRANULARITY_MODULE.validate_prewrite_data(
+                    prose_data,
+                    primary_source_original,
+                )
+                if prose_errors:
+                    errors.append("全文文字颗粒度写前门禁未通过")
+                    errors.extend(prose_errors)
         if opening_contract is None:
             errors.append("正文写作放行必须提供开头承重契约回执")
         else:
@@ -294,6 +321,8 @@ def main() -> int:
     parser.add_argument("--profile")
     parser.add_argument("--sequence-receipt")
     parser.add_argument("--setting-sequence-receipt")
+    parser.add_argument("--prose-contract")
+    parser.add_argument("--primary-source-original")
     args = parser.parse_args()
 
     errors = validate_release(
@@ -307,6 +336,10 @@ def main() -> int:
         Path(args.sequence_receipt).resolve() if args.sequence_receipt else None,
         Path(args.setting_sequence_receipt).resolve()
         if args.setting_sequence_receipt
+        else None,
+        Path(args.prose_contract).resolve() if args.prose_contract else None,
+        Path(args.primary_source_original).resolve()
+        if args.primary_source_original
         else None,
     )
     if errors:

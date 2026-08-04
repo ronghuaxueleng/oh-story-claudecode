@@ -24,6 +24,7 @@ REQUIRED_CHECK_LABELS = {
 }
 IMITATION_REQUIRED_CHECK_LABELS = {
     "source_baseline_audit",
+    "prose_granularity_contract",
 }
 VALID_STATUSES = {"active", "complete", "paused", "blocked"}
 

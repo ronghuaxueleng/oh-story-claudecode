@@ -110,6 +110,19 @@ def create_receipt(
             "narrative_flow_evidence": [],
             "revision_method": [],
         },
+        "prose_form_comparison": {
+            "source_sentence_quote": "",
+            "source_sentence_skeleton": "",
+            "source_lexical_register": "",
+            "source_information_load": "",
+            "source_narrator_position": "",
+            "target_first_sentence": "",
+            "target_sentence_skeleton": "",
+            "source_unlike_patterns": [],
+            "functional_alignment_used_as_prose_proof": None,
+            "target_extra_ai_shell": None,
+            "comparison": "",
+        },
         "source_evidence": [],
         "checks": {check_id: None for check_id in REQUIRED_CHECKS},
         "target_evidence": [],
@@ -215,6 +228,52 @@ def validate_opening_flow_review(data: dict[str, Any], errors: list[str]) -> Non
         errors.append("正文开头回炉必须记录至少两条去分镜/去施工单改法")
 
 
+def validate_prose_form_comparison(
+    data: dict[str, Any], target_text: str, errors: list[str]
+) -> None:
+    if data.get("artifact_kind") != "draft":
+        return
+    value = data.get("prose_form_comparison")
+    if not isinstance(value, dict):
+        errors.append("正文开头必须填写 prose_form_comparison")
+        return
+    comparison = data.get("original_opening_comparison")
+    samples = comparison.get("samples") if isinstance(comparison, dict) else []
+    primary_source_text = ""
+    if isinstance(samples, list):
+        for item in samples:
+            if not isinstance(item, dict):
+                continue
+            if item.get("role") not in (None, "primary"):
+                continue
+            path = Path(str(item.get("path") or "")).expanduser().resolve()
+            if path.is_file():
+                primary_source_text = read_text(path)
+                break
+    source_quote = str(value.get("source_sentence_quote") or "").strip()
+    if not source_quote or not primary_source_text or source_quote not in canonical_body(primary_source_text)[:1000]:
+        errors.append("prose_form_comparison.source_sentence_quote 必须来自主体原文真实开口")
+    for field in (
+        "source_sentence_skeleton",
+        "source_lexical_register",
+        "source_information_load",
+        "source_narrator_position",
+        "target_sentence_skeleton",
+        "comparison",
+    ):
+        if not str(value.get(field) or "").strip():
+            errors.append(f"prose_form_comparison.{field} 不能为空")
+    target_sentence = str(value.get("target_first_sentence") or "").strip()
+    if not target_sentence or target_sentence not in target_text:
+        errors.append("prose_form_comparison.target_first_sentence 必须是目标正文真实原句")
+    if len(nonempty_strings(value.get("source_unlike_patterns"))) < 2:
+        errors.append("正文开头至少需要 2 条主体原文明显不会采用的句面模式")
+    if value.get("functional_alignment_used_as_prose_proof") is not False:
+        errors.append("开头不得用功能对齐冒充文字颗粒度对齐")
+    if value.get("target_extra_ai_shell") is not False:
+        errors.append("目标第一句仍含相对主体原文新增的 AI 句面壳")
+
+
 def validate_receipt(
     receipt_path: Path,
     source_path: Path,
@@ -264,6 +323,7 @@ def validate_receipt(
         errors.append("artifact_kind 必须为 outline 或 draft")
     validate_original_opening_comparison(data, errors)
     validate_opening_flow_review(data, errors)
+    validate_prose_form_comparison(data, target_text, errors)
 
     contract = data.get("source_contract")
     if not isinstance(contract, dict):

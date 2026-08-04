@@ -67,6 +67,7 @@ class OpeningContractGateTest(unittest.TestCase):
                     "sha256": GATE.sha256(self.original),
                     "opening_quote": "丈夫为了女同事当众求情",
                     "opening_pattern": "先用当众求情暴露关系错位，再补任务和规则。",
+                    "role": "primary",
                 }
             ],
             "common_patterns": [
@@ -95,6 +96,22 @@ class OpeningContractGateTest(unittest.TestCase):
                 "把任务说明后移，不让开头先报流程。",
                 "用手压审批表承载规则冲突，不分行列证据。",
             ],
+        }
+        receipt["prose_form_comparison"] = {
+            "source_sentence_quote": "丈夫为了女同事当众求情，我把他的手从审批表上拿开。",
+            "source_sentence_skeleton": "对方具体动作，我方直接反应。",
+            "source_lexical_register": "完整、直白的日常口语。",
+            "source_information_load": "一句只承载一组冲突与反应。",
+            "source_narrator_position": "叙述者贴着现场动作说话。",
+            "target_first_sentence": "丈夫替女同事当众求情，我把他的手从审批表上拿开。",
+            "target_sentence_skeleton": "对方具体动作，我方直接反应。",
+            "source_unlike_patterns": [
+                "当X时，Y正发生",
+                "一句同时挤入动作、声音、身份和象征",
+            ],
+            "functional_alignment_used_as_prose_proof": False,
+            "target_extra_ai_shell": False,
+            "comparison": "目标沿用主体的完整口语陈述，没有增加精密复合钩子。",
         }
         receipt["source_evidence"] = [
             {
@@ -233,6 +250,24 @@ class OpeningContractGateTest(unittest.TestCase):
         )
         errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
         self.assertTrue(any("opening_flow_review 必须是对象" in error for error in errors))
+
+    def test_function_alignment_cannot_replace_prose_form(self) -> None:
+        receipt = self._completed_receipt()
+        receipt["prose_form_comparison"]["functional_alignment_used_as_prose_proof"] = True
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
+        self.assertTrue(any("功能对齐冒充文字颗粒度" in error for error in errors))
+
+    def test_extra_ai_shell_blocks_opening(self) -> None:
+        receipt = self._completed_receipt()
+        receipt["prose_form_comparison"]["target_extra_ai_shell"] = True
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
+        self.assertTrue(any("新增的 AI 句面壳" in error for error in errors))
 
 
 if __name__ == "__main__":
