@@ -76,6 +76,7 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             "reopen-section",
             "advance-section",
             "finalize-basic-review",
+            "workflow-timing",
         ):
             self.assertIn(command, subparsers.choices)
 
@@ -2207,6 +2208,96 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertIn("draft_prereq_reason[sequence-precheck]: 顺序契约门禁未通过", text)
         self.assertIn("draft_prereq_reason[draft-capacity-precheck]: 第 1 节缺少 source_style_granularity", text)
 
+    def test_current_draft_gate_states_keeps_passed_outline_with_internal_gaps_pending(self) -> None:
+        for key in (
+            "opening_contract",
+            "sequence_receipt",
+            "draft_capacity_contract",
+            "outline_contract",
+        ):
+            TOOLBOX.atomic_write_json(self.paths[key], {"gate_status": "passed"})
+
+        with patch.object(
+            TOOLBOX,
+            "validate_opening_receipt_from_binding",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX,
+            "validate_sequence_receipt_from_binding",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX.DRAFT_CAPACITY,
+            "validate",
+            return_value=[],
+        ), patch.object(
+            TOOLBOX,
+            "outline_precheck_errors",
+            return_value=(["第 1 节人工判断仍是机械占位"], []),
+        ):
+            states = TOOLBOX.current_draft_gate_states(self.paths)
+
+        self.assertEqual(
+            [("outline-validate", ["第 1 节人工判断仍是机械占位"])],
+            states,
+        )
+
+    def test_current_draft_gate_states_stops_after_first_failing_gate(self) -> None:
+        for key in (
+            "opening_contract",
+            "sequence_receipt",
+            "draft_capacity_contract",
+            "outline_contract",
+        ):
+            TOOLBOX.atomic_write_json(self.paths[key], {"gate_status": "pending"})
+
+        with patch.object(
+            TOOLBOX,
+            "validate_opening_receipt_from_binding",
+            return_value=["开头承重契约门禁未通过"],
+        ), patch.object(
+            TOOLBOX,
+            "validate_sequence_receipt_from_binding",
+        ) as sequence_validate, patch.object(
+            TOOLBOX.DRAFT_CAPACITY,
+            "validate",
+        ) as capacity_validate, patch.object(
+            TOOLBOX,
+            "outline_precheck_errors",
+        ) as outline_validate:
+            states = TOOLBOX.current_draft_gate_states(self.paths)
+
+        self.assertEqual(
+            [("opening-precheck", ["开头承重契约门禁未通过"])],
+            states,
+        )
+        sequence_validate.assert_not_called()
+        capacity_validate.assert_not_called()
+        outline_validate.assert_not_called()
+
+    def test_prepare_helpers_reuse_precomputed_gate_states(self) -> None:
+        pending = [("opening-precheck", ["开头承重契约门禁未通过"])]
+        output = StringIO()
+
+        with patch.object(
+            TOOLBOX,
+            "current_draft_gate_states",
+        ) as calculate_states, patch.object(
+            TOOLBOX,
+            "export_opening_repair_packet",
+        ), redirect_stdout(output):
+            actions = TOOLBOX.seed_pending_draft_gate_repair_packets(
+                self.paths,
+                include_outline=False,
+                emit_output=False,
+                only_commands={"opening-precheck"},
+                pending_state_items=pending,
+            )
+            TOOLBOX.print_prepare_draft_gates_next_action(self.paths, pending)
+
+        calculate_states.assert_not_called()
+        self.assertEqual(["seed-opening-repair-packet"], actions)
+        self.assertIn("draft_prereq_primary_command: opening-precheck", output.getvalue())
+
     def test_print_draft_prereq_blocked_commands_uses_generic_start_draft_for_unmapped_errors(self) -> None:
         output = StringIO()
 
@@ -2394,6 +2485,40 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual("主体 `SF-12`；主体 `SF-13`", section["source_mechanism"])
         self.assertEqual("现场要有短评句，例如“真行。”", section["source_style_granularity"])
         self.assertEqual("现场要有短评句，例如“真行。”", section["first_draft_style_plan"])
+        self.assertEqual("passed", receipt["gate_status"])
+        self.assertEqual("outline_compiled", receipt["execution_mode"])
+
+    def test_draft_capacity_compiles_current_outline_labels_without_model_restatement(self) -> None:
+        self.paths["outline"].write_text(
+            "\n".join(
+                [
+                    "## 第1节",
+                    "### 标题：门开了",
+                    "- 主事件：女主在现场发现丈夫先护住第三人。",
+                    "- 主体来源绑定：主体::SF-01。",
+                    "- 场景出口状态：女主冻结权限，婚姻风险转成现实后果。",
+                    "- 本节现实争夺权：谁能定义现场事实。",
+                    "- 逐拍因果链：",
+                    "  1. 女主按任务进入现场。",
+                    "  2. 丈夫错答并阻拦封存。",
+                    "- 情绪过程：冷静 -> 发冷 -> 失位。",
+                    "- 对话压力交换：丈夫回避，女主把问题压回授权来源。",
+                    "- 表演证据锚点：她先看编号，再看他的站位。",
+                    "- 场末钩子：旧设备日志将在下一节恢复。",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        receipt = TOOLBOX.DRAFT_CAPACITY.init("测试项目", self.paths["outline"], 9000)
+
+        section = receipt["sections"][0]
+        self.assertEqual("女主在现场发现丈夫先护住第三人。", section["scene_completion"])
+        self.assertEqual("女主在现场发现丈夫先护住第三人。", section["opening_or_turn"])
+        self.assertEqual("主体::SF-01。", section["source_mechanism"])
+        self.assertEqual("冷静 -> 发冷 -> 失位。", section["emotion_escalation"])
+        self.assertEqual("旧设备日志将在下一节恢复。", section["end_change"])
+        self.assertEqual("她先看编号，再看他的站位。", section["source_style_granularity"])
 
     def test_draft_capacity_apply_merges_focus_sections(self) -> None:
         self.paths["draft_capacity_contract"].write_text(
@@ -5089,16 +5214,18 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertTrue(self.paths["outline_contract"].is_file())
         self.assertTrue(self.paths["opening_repair_packet"].is_file())
         self.assertTrue(self.paths["opening_repair_item_output"].is_file())
-        self.assertTrue(self.paths["draft_capacity_packet"].is_file())
-        self.assertTrue(self.paths["draft_capacity_item_output"].is_file())
-        self.assertTrue(self.paths["outline_repair_packet"].is_file())
-        self.assertTrue(self.paths["outline_repair_item_output"].is_file())
+        self.assertFalse(self.paths["draft_capacity_packet"].is_file())
+        self.assertFalse(self.paths["outline_repair_packet"].is_file())
         self.assertIn("require-all-four-draft-gates-passed-before-start-draft", output.getvalue())
         self.assertIn("project_toolbox_progress: 正在运行写前机械预检", output.getvalue())
         self.assertIn("project_toolbox_progress: 正在初始化细纲表演验收契约", output.getvalue())
-        self.assertIn("outline-precheck --only sections/handoff/bridges/first-draft", output.getvalue())
-        self.assertIn("未到 start-draft 前不得收口", output.getvalue())
-        self.assertIn("禁止搜索其他项目回执当模板", output.getvalue())
+        self.assertIn("draft_prereq_primary_command: opening-precheck", output.getvalue())
+        self.assertIn(
+            f"draft_prereq_primary_file: {self.paths['opening_repair_item_output']}",
+            output.getvalue(),
+        )
+        self.assertIn("然后直接重跑 start-draft", output.getvalue())
+        self.assertIn("正常写作禁止再串行运行分项 precheck/apply", output.getvalue())
 
     def test_prepare_draft_gates_reads_profile_from_receipt_root_not_workspace_root(self) -> None:
         args = argparse.Namespace(force=False, force_preflight=False)
@@ -5870,6 +5997,9 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
         self.assertEqual(800, beat_receipt["minimum_section_chars"])
         self.assertEqual(6, beat_receipt["minimum_evidence_chars"])
         self.assertIn("唯一首次出现位置递增", beat_receipt["evidence_order_note"])
+        self.assertIn("全局递增", beat_receipt["evidence_order_note"])
+        self.assertEqual(900, beat_receipt["write_budget"]["recommended_section_chars"])
+        self.assertEqual(["SF-01#1"], beat_receipt["write_budget"]["global_ordered_beats"])
         self.assertEqual(["", "", "", "", ""], beat_receipt["beats"][0]["evidence"])
 
     def test_section_reading_packet_keeps_full_sha_and_preserves_full_granularity_contracts(self) -> None:
@@ -6037,6 +6167,96 @@ class StoryShortWriteProjectToolboxTest(unittest.TestCase):
             TOOLBOX.SECTION_EXECUTION.section_text(self.paths["draft"], "1").index(evidence[0]),
             TOOLBOX.SECTION_EXECUTION.section_text(self.paths["draft"], "1").index(evidence[1]),
         )
+
+    def test_auto_expand_repairs_unique_punctuation_only_evidence(self) -> None:
+        self.paths["draft"].write_text(
+            "1.\n\n三天后，听证正式开始。她把封存单推到桌上。\n",
+            encoding="utf-8",
+        )
+        TOOLBOX.atomic_write_json(
+            self.paths["section_beat_receipt"],
+            {
+                "section_id": "1",
+                "beats": [{"evidence": ["三天后听证正式开始", "她把封存单推到桌上", "", "", ""]}],
+            },
+        )
+
+        changed = TOOLBOX.auto_expand_short_beat_evidence(
+            self.paths["draft"], self.paths["section_beat_receipt"], "1"
+        )
+        receipt = json.loads(self.paths["section_beat_receipt"].read_text(encoding="utf-8"))
+
+        self.assertGreaterEqual(changed, 1)
+        self.assertEqual("三天后，听证正式开始", receipt["beats"][0]["evidence"][0])
+
+    def test_punctuation_evidence_repair_rejects_ambiguous_normalized_match(self) -> None:
+        receipt = {"beats": [{"evidence": ["听证正式开始", "", "", "", ""]}]}
+
+        changed = TOOLBOX.repair_unique_punctuation_evidence(
+            "听证，正式开始。稍后，听证正式开始。", receipt
+        )
+
+        self.assertEqual(0, changed)
+        self.assertEqual("听证正式开始", receipt["beats"][0]["evidence"][0])
+
+    def test_section_write_budget_exposes_global_order_and_question_budget(self) -> None:
+        payload = {
+            "source_slice_bindings": [
+                {
+                    "subflow_id": "SF-04",
+                    "source_subflow_contract": {
+                        "required_sequence": ["先追问", "连续反问后离场"],
+                        "source_beat_indices": [2, 3],
+                    },
+                    "style_fields_consumed": ["sentence_relation_and_rhythm"],
+                },
+                {
+                    "subflow_id": "SF-01",
+                    "source_subflow_contract": {"required_sequence": ["证据落桌"]},
+                },
+            ],
+            "first_draft_generation_contract": {"sentence_relation_plan": ["用问句施压"]},
+        }
+
+        budget = TOOLBOX.section_write_budget(payload)
+
+        self.assertEqual(["SF-04#2", "SF-04#3", "SF-01#1"], budget["global_ordered_beats"])
+        self.assertEqual(2, budget["required_question_marks"])
+        self.assertIn("不得在切换 subflow 时重新计序", budget["global_evidence_order"])
+
+    def test_workflow_timing_summary_counts_failures_and_section_retries(self) -> None:
+        summary = TOOLBOX.workflow_timing_summary(
+            {
+                "events": [
+                    {"command": "section-write-window-open", "stage": "逐节正文", "section": "1", "started_at": "2026-08-04T01:00:00+00:00", "ended_at": "2026-08-04T01:00:00+00:00", "duration_ms": 0, "result_code": 0},
+                    {"command": "advance-section", "stage": "逐节正文", "section": "1", "started_at": "2026-08-04T01:10:00+00:00", "ended_at": "2026-08-04T01:10:01.200000+00:00", "duration_ms": 1200, "result_code": 2},
+                    {"command": "advance-section", "stage": "逐节正文", "section": "1", "started_at": "2026-08-04T01:20:00+00:00", "ended_at": "2026-08-04T01:20:00.800000+00:00", "duration_ms": 800, "result_code": 0},
+                    {"command": "start-draft", "stage": "正文前契约", "section": "", "duration_ms": 500, "result_code": 0},
+                ]
+            }
+        )
+
+        self.assertEqual(2500, summary["total_duration_ms"])
+        self.assertEqual(1, summary["sections"]["1"]["retries"])
+        self.assertEqual(1200800, summary["sections"]["1"]["write_window_ms"])
+        self.assertEqual(1, summary["commands"]["advance-section"]["failures"])
+        self.assertEqual(2000, summary["stages"]["逐节正文"]["duration_ms"])
+
+    def test_record_workflow_timing_persists_result(self) -> None:
+        TOOLBOX.record_workflow_timing(
+            self.paths,
+            command="advance-section",
+            section="3",
+            started_at="2026-08-04T01:00:00+00:00",
+            ended_at="2026-08-04T01:00:02+00:00",
+            duration_ms=2000,
+            result_code=2,
+        )
+
+        data = json.loads(self.paths["workflow_timing"].read_text(encoding="utf-8"))
+        self.assertEqual("1.0", data["schema_version"])
+        self.assertEqual("逐节正文", data["events"][0]["stage"])
+        self.assertEqual(2, data["events"][0]["result_code"])
 
     def test_section_execution_packet_scopes_and_deduplicates_source_beats(self) -> None:
         def binding(subflow_id: str, sequence: list[str], source_range: str) -> dict[str, object]:

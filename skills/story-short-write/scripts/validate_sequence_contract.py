@@ -64,8 +64,11 @@ def text_evidence(
         quote = str(item.get("quote") or "")
         if not quote or quote not in text:
             errors.append(f"{label}原句不在绑定产物中[{index}]")
-        if not str(item.get("judgment") or "").strip():
+        judgment = str(item.get("judgment") or "").strip()
+        if not judgment:
             errors.append(f"{label}缺少人工判断[{index}]")
+        elif "机械预填" in judgment or "待当前模型" in judgment:
+            errors.append(f"{label}人工判断仍是机械占位[{index}]")
         if require_offset:
             raw_offset = item.get("offset")
             if not isinstance(raw_offset, int) or raw_offset < 0:
@@ -108,6 +111,22 @@ def quote_with_offset(text: str, quote: str) -> list[dict[str, Any]]:
     return [{"quote": quote, "judgment": "机械预填：待当前模型复核顺序判断", "offset": offset}]
 
 
+def outline_sequence_evidence_lines(text: str) -> list[str]:
+    matches = list(SECTION_HEADING_RE.finditer(text))
+    evidence: list[str] = []
+    for index, match in enumerate(matches):
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        block = text[match.start() : end]
+        selected = ""
+        for raw_line in block.splitlines()[1:]:
+            stripped = raw_line.strip()
+            if re.match(r"^[-*]\s*(?:主事件|不可逆动作|逐拍因果链)[：:]", stripped):
+                selected = stripped
+                break
+        evidence.append(selected or match.group(0).strip())
+    return evidence
+
+
 def seed_canonical_sequence(setting_text: str, outline_text: str) -> list[dict[str, Any]]:
     setting_nodes = numbered_block_lines(setting_text, "不可打乱的事件顺序")
     if not setting_nodes:
@@ -115,6 +134,7 @@ def seed_canonical_sequence(setting_text: str, outline_text: str) -> list[dict[s
     if not setting_nodes:
         setting_nodes = numbered_block_lines(setting_text, "来源功能绑定")
     outline_nodes = list(SECTION_HEADING_RE.finditer(outline_text))
+    outline_evidence_lines = outline_sequence_evidence_lines(outline_text)
     sequence: list[dict[str, Any]] = []
     if setting_nodes:
         count = min(len(setting_nodes), len(outline_nodes))
@@ -124,7 +144,7 @@ def seed_canonical_sequence(setting_text: str, outline_text: str) -> list[dict[s
         setting_line = setting_nodes[index].strip() if index < len(setting_nodes) else ""
         outline_match = outline_nodes[index]
         section_id = outline_match.group(1)
-        outline_line = outline_match.group(0).strip()
+        outline_line = outline_evidence_lines[index]
         outline_title = str(outline_match.group(2) or "").strip()
         label = outline_title or setting_line or f"第{section_id}节"
         sequence.append(
@@ -438,11 +458,20 @@ def extend_setting_receipt(
     if not outline_path.is_file():
         return [f"大纲不存在: {outline_path}"]
     outline_text = outline_path.read_text(encoding="utf-8")
+    outline_evidence_lines = outline_sequence_evidence_lines(outline_text)
     sequence = []
-    for node in data.get("canonical_sequence", []):
+    for index, node in enumerate(data.get("canonical_sequence", [])):
         if isinstance(node, dict):
             inherited = dict(node)
-            inherited["outline_evidence"] = []
+            outline_line = (
+                outline_evidence_lines[index]
+                if index < len(outline_evidence_lines)
+                else ""
+            )
+            inherited["outline_evidence"] = quote_with_offset(
+                outline_text,
+                outline_line,
+            )
             inherited.pop("draft_evidence", None)
             sequence.append(inherited)
     payload = {

@@ -9,7 +9,7 @@ description: |
 
 执行短篇网文完整写作流程。优先保证原文事件、因果、情绪、表演和文风颗粒真正进入首写，不用事后润色补救写前缺失。
 
-当前流程版本：`1.14.4`。
+当前流程版本：`1.15.1`。
 
 ## 边界
 
@@ -119,65 +119,24 @@ python3 "$TOOLBOX" --project "{项目目录}" stage-reference --stage outline
 python3 "$TOOLBOX" --project "{项目目录}" prepare-draft-gates
 ```
 
-该命令只负责机械初始化四张正文前契约骨架：
+该命令机械初始化并联合调度四张正文前契约：
 
 - `开头承重契约回执.json`：绑定 `小节大纲.md` 的首段开口，不允许等 `正文.md` 先写出来再补
 - `细纲表演验收回执.json`
 - `顺序契约回执.json`
 - `首写容量契约回执.json`
 
-初始化后，必须由当前模型把四张回执补到 `gate_status=passed`，再继续 `start-draft`。禁止先落 `正文.md` 再回头补闸。
+容量契约完全由 `目标字数 / 主事件 / 逐拍因果链 / 情绪过程 / 场景出口状态 / 来源绑定 / 表演证据` 编译；只有完整机械校验通过时才自动 `passed`，不得要求模型复述七组容量说明。入口/出口状态、字数、精确 offset 和相邻交接端点等可计算字段同样由工具箱负责。
 
-补 `细纲表演验收回执.json` 时，禁止每改一小块就直接全量跑正式校验。工具箱默认把同一错误组中最多 6 个连续小节放进一个有界修闸包；当前模型应一次补完包内全部小节，再用工具箱快速预检当前批次：
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only sections
-python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only handoff
-python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only bridges
-python3 "$TOOLBOX" --project "{项目目录}" outline-precheck --only first-draft
-```
-
-`outline-precheck` 只读 `小节大纲.md + 细纲表演验收回执.json`，用于快速发现空字段、证据句不命中、交接状态不一致和跨节模板复用。修闸包会从当前细纲的 `场景入口状态 / 场景出口状态` 机械预填节内状态；小节写回时会同步更新相邻交接的 `from_exit_state / to_entry_state`。禁止手工改写这四个可机械派生字段；只需人工处理不可逆动作、人物偏手、因果拍链、知情变化和情绪等强判断。只有当前批次预检通过后，才运行正式全量：
-
-`opening-precheck / sequence-precheck / draft-capacity-precheck` 本身会在失败时生成当前修闸包和回填模板；对应写回命令只能是 `opening-apply / sequence-apply / draft-capacity-apply`。不存在 `opening-repair-next / sequence-repair-next / draft-capacity-repair-next`。细纲才使用 `outline-repair-next / outline-repair-apply`。
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" outline-validate
-```
-
-`outline-validate` 会先跑快速预检；预检有错时直接阻断并跳过正式全量校验。只有预检通过，才补跑一次 `validate_outline_performance_contract.py validate` 作为最终放行。
-
-如果 `outline-precheck` 或 `outline-validate` 失败，工具箱会自动刷新当前最优先的修闸包与局部回填模板；失败后禁止继续用 `cat / sed / jq` 逐层探测整张回执、禁止手搓整张大补丁、禁止写项目专用临时脚本。固定动作只有：
-
-1. 只编辑 `写作资产/当前细纲修闸回填.json`
-2. 直接重跑 `start-draft`
-3. 仍被阻断时，只处理工具箱这次重新打印出来的当前修闸包，不得回头扫旧项目
-
-如需手动重新刷新当前包，再运行固定修闸入口，而不是手搓整张回执或临时写项目脚本：
-
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" outline-repair-next
-```
-
-该命令会把当前最优先的错误分组导出到：
-
-- `写作资产/当前细纲修闸包.json`
-- `写作资产/当前细纲修闸回填.json`
-
-当前模型只编辑 `当前细纲修闸回填.json` 这一份局部模板。若模板同时含 2-3 节，必须在同一次回填中全部完成，不得只留第一节或拆回逐节串行。填完后默认直接重跑：
+正常写作只处理工具输出的 `draft_prereq_primary_file`。每轮只编辑这一份当前焦点回填，补不可机械判断的来源—目标等价性、因果替代阻断、开口机制、换壳边界、情绪反刀和表演强度；禁止同时展开四张正式回执。编辑后直接运行：
 
 ```bash
 python3 "$TOOLBOX" --project "{项目目录}" start-draft
 ```
 
-`start-draft` 会先自动吸收已完成且已更新的 `opening/sequence/draft-capacity/outline` 修闸回填，再继续 preflight、颗粒包和正文放行。只有需要隔离单张修闸回执调试时，才单独运行：
+`start-draft` 自动吸收已更新的当前回填、运行相应局部预检，再执行一次联合正式放行；仍有错误时只刷新下一个 `draft_prereq_primary_file`。继续“编辑当前文件 → `start-draft`”，直到自动打开第一节。正常写作禁止串行运行 `outline-precheck / opening-precheck / sequence-precheck / draft-capacity-precheck / *-apply / outline-validate`；这些命令只供工具开发或明确隔离单张契约诊断。
 
-```bash
-python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
-  --packet-sha "{outline-repair-next 输出的 packet_sha256}"
-```
-
-工具箱会原子写回正式 `细纲表演验收回执.json`。写回后仍应立刻重跑 `start-draft`，不要停在单张回执成功提示上。禁止在修闸阶段手写项目专用临时脚本、临时 `/tmp/*.json` 依赖或整张回执大补丁。
+细纲焦点包仍按字段级 delta 导出，同一错误组最多 6 个连续小节；若模板含 2-6 节，必须一次补完。失败后禁止 `cat / sed / jq` 探测整张回执，禁止手写临时脚本或整张大补丁，禁止搜索其他项目模板。
 
 局部回填是字段级 delta：只能包含当前批次最多 6 个同错误组失败小节、失败字段或失败交接，不得复制整本 `sections` 或全部交接链。`outline_evidence` 必须从修闸包的 `eligible_outline_evidence` 逐字复制，不得同义改写。节内状态链采用精确相等合同：首拍 `from_state == scene_entry_state`，每拍 `to_state == 下一拍 from_state`，末拍 `to_state == scene_exit_state`；知情链同样要求 `initial_state -> transitions` 逐项首尾精确相等，最后一次 `to_state == final_state`。交接包中的两端状态由工具箱自动同步；人工只补 `handoff_trigger`、人物/知情/物件连续、未解线头、证据和语义判断。
 
@@ -215,14 +174,14 @@ python3 "$TOOLBOX" --project "{项目目录}" outline-repair-apply \
 - 已真正执行到 `start-draft`，并进入 `show-section -> 完整阅读 -> open-section` 的正文首写链。
 - 遇到脚本硬错误、文件缺失或校验失败，且当前回合已经给出下一条固定续跑动作；此时只能报告“未完成 + 下一步修哪一张回执/运行哪条命令”，不能写成完成总结。
 - 只要还没到 `start-draft`，就禁止输出 `final_answer` 口径，禁止把“仍在修闸/仍在校验失败”包装成收尾消息，禁止触发任何等价于 `task_complete` 的完成判定。
-- `outline-validate` 失败后必须继续停留在当前项目、当前回执、当前脚本报错和当前阶段 reference 内修复；除非已经明确给出下一条固定续跑动作，否则不得结束当前回合。
+- `start-draft` 联合放行失败后必须继续停留在当前项目、当前焦点回填、当前脚本报错和当前阶段 reference 内修复；除非已经明确给出下一条固定续跑动作，否则不得结束当前回合。
 
 1. 锁定平台、题材壳、主卖点、核心情绪、付费期待和禁止漂移方向。
 2. 通过设定写作放行闸后写 `设定.md`。
 3. 建立并通过设定内部顺序契约。
 4. 通过大纲写作放行闸后写 `小节大纲.md`。
 5. 建立跨节事实状态链和相邻小节交接链。
-6. 运行 `prepare-draft-gates` 初始化四张正文前契约，且在写正文前补到 `passed`。
+6. 运行 `prepare-draft-gates` 初始化四张正文前契约，只编辑当前 `draft_prereq_primary_file`，每轮直接重跑 `start-draft`，直到联合放行。
 7. 每节绑定主体原文切片及全部选中辅助 SF 切片，同时迁移事件、因果、情绪和文风颗粒。
 8. 通过完整顺序契约、开头承重契约、细纲表演验收和首写容量契约。
 9. 运行：
@@ -232,11 +191,13 @@ python3 "$TOOLBOX" --project "{项目目录}" start-draft
 ```
 
 10. `start-draft` 直接输出并自动打开第一节的紧凑完整包；紧凑包必须保留一次完整原文切片、全部 `required_sequence`、因果前提、信息延迟、控制权变化、情绪序列、原文文风颗粒和目标场景链。对目标合同中逐字重复的长目标句使用 `text_aliases` 无损代换，对与小节目标完全相同的情绪证据只保留一次；禁止删除独有字段来换速度。只有完整包超过安全上限时才回退 `show-section --part` 分包，读到最后一包后用 `open-section --read-token` 打开。
-11. 只写当前节。工具箱生成 schema v2.1 的 `写作资产/当前节逐拍消费回填.json`，并在开节输出和回填顶层直接给出 `minimum_section_chars` 与 `evidence_order_note`。同一次文件编辑中写正文，并为每拍只填写固定顺序的 `evidence=[前态,触发,动作选择,可见结果,下一拍原因]` 与 `performance_equivalence`；五条证据还必须按其在正文中的唯一首次出现位置递增，不得只按语义顺序猜。证据硬门槛虽为 6 个非空白字符，首写默认截取 8—18 个非空白字符，禁止贴着 6 字边界反复返工。工具验证通过后自动判定 `passed`，禁止再让模型手填状态或复述固定字段名。
+11. 只写当前节。工具箱生成 schema v2.1 的 `写作资产/当前节逐拍消费回填.json`，并在开节输出和回填顶层给出 `minimum_section_chars / write_budget / evidence_order_note`。首写以 `recommended_section_chars` 为目标，不贴 800 字硬底线；按 `global_ordered_beats` 顺序施工，所有 subflow 的所有拍全局递增，切换 subflow 时不得重新计序。`write_budget` 同时给出段落气口和问号预算，用来提前避开电报段、连续长句与问句颗粒漏写。同一次文件编辑中写正文，并为每拍只填写固定顺序的 `evidence=[前态,触发,动作选择,可见结果,下一拍原因]` 与 `performance_equivalence`。证据硬门槛虽为 6 个非空白字符，首写默认截取 8—18 个非空白字符，禁止贴着 6 字边界反复返工。工具验证通过后自动判定 `passed`，禁止再让模型手填状态或复述固定字段名。
 12. 当前节不合格时当场整场重写，不等待全文完成后统一润色。
-13. 直接运行 `advance-section --section N`，不传固定 `judgment` 长串。工具箱机械生成关闭判断；对当前节唯一出现、同一物理行内且不会跨越相邻证据的不足 8 字短证据，先自动扩到 8 字左右，再校验逐拍回填、正文格式、原句唯一性、拍序和零容缺状态。不能安全扩展时照常阻断，禁止模糊匹配。通过后关闭当前节，并对安全大小的下一节紧凑包自动开节。正常逐节循环固定为“一次正文+回执编辑，一次 advance”；只有超限分包才增加显式读取与开节。
+13. 直接运行 `advance-section --section N`，不传固定 `judgment` 长串。工具箱机械生成关闭判断；对正文中因逗号、句号或空白差异而无法精确命中的证据，仅在去标点后全节唯一且不与其他证据重叠时回写正文原始片段；再对当前节唯一出现、同一物理行内且不会跨越相邻证据的不足 8 字短证据自动扩到 8 字左右。语义近似或多处命中仍照常阻断，禁止模糊匹配。通过后关闭当前节，并对安全大小的下一节紧凑包自动开节。正常逐节循环固定为“一次正文+回执编辑，一次 advance”；只有超限分包才增加显式读取与开节。
 14. 末节 `advance-section` 关闭后自动固定母稿并初始化首稿基础审计回执；模型一次回填四项基础检查，直接运行 `finalize-basic-review`。该命令通过后自动绑定全流程状态并停靠 `draft_preview`，禁止再手工初始化或补状态文件。
 15. 用户明确确认深审后，才进入人工切窗、正式审计、最终台账重绑和写后人工语义复核。
+
+所有项目命令会自动追加 `写作资产/流程耗时记录.json`。需要定位慢段时运行 `workflow-timing`，按阶段、命令和小节查看总耗时、失败次数与重试次数；该统计命令自身不计时。
 
 正文入口、逐节回执和停靠规则见 [short-write-execution-core.md](references/governance/short-write-execution-core.md)。
 
@@ -280,7 +241,7 @@ python3 "$TOOLBOX" --project "{项目目录}" start-draft
 
 补充约束：
 
-- `prepare-draft-gates`、`outline-precheck`、`outline-validate`、四张正文前契约人工回填，全部属于“未完成中的中间施工态”。
+- `prepare-draft-gates`、当前焦点回填和 `start-draft` 联合放行前的循环，全部属于“未完成中的中间施工态”。
 - 只要还没执行 `start-draft`，就不得把当前回合写成“已完成到某一步”，更不得触发完成口径；正确口径只能是“未完成，继续补闸/继续放行”。
 
 任一硬闸缺失只能报告“未完成”，不得用口头说明代替回执。

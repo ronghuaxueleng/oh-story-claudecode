@@ -9,9 +9,12 @@ import fcntl
 import hashlib
 import importlib.util
 import json
+import math
 import re
 import shlex
 import shutil
+import time
+import unicodedata
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -19,7 +22,7 @@ from typing import Any
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-CACHE_VERSION = "651-batched-outline-repair-v1"
+CACHE_VERSION = "652-single-focus-prewrite-v1"
 PROJECT_RESERVATION_FILE = ".story-short-write-reservation.json"
 SOURCE_REVIEW_PACKET_KIND = "source_semantic_review_packet"
 SOURCE_REVIEW_ITEM_RESULT_KIND = "source_semantic_review_item_result"
@@ -181,6 +184,173 @@ def atomic_write_json_value(path: Path, data: Any) -> None:
         encoding="utf-8",
     )
     temporary.replace(path)
+
+
+def workflow_stage(command: str) -> str:
+    if command in {
+        "advance-section", "open-section", "reopen-section", "show-section",
+        "section-write-window-open",
+    }:
+        return "逐节正文"
+    if command in {
+        "prepare-draft-gates", "opening-precheck", "opening-apply",
+        "sequence-precheck", "sequence-apply", "draft-capacity-precheck",
+        "draft-capacity-apply", "outline-precheck", "outline-validate",
+        "outline-repair-next", "outline-repair-apply", "start-draft",
+    }:
+        return "正文前契约"
+    if command in {
+        "init-book", "preflight-book", "validate-prewrite-reads",
+        "prepare-setting", "setting-context", "stage-reference", "outline-progress",
+    }:
+        return "起盘与设定"
+    if command == "finalize-basic-review":
+        return "基础审计"
+    return "其他"
+
+
+def record_workflow_timing(
+    paths: dict[str, Path],
+    *,
+    command: str,
+    section: str,
+    started_at: str,
+    ended_at: str,
+    duration_ms: int,
+    result_code: int,
+) -> None:
+    with file_lock(paths["workflow_timing_lock"]):
+        if paths["workflow_timing"].is_file():
+            try:
+                data = read_json(paths["workflow_timing"])
+            except (OSError, ValueError, json.JSONDecodeError):
+                data = {}
+        else:
+            data = {}
+        events = data.get("events")
+        if not isinstance(events, list):
+            events = []
+        events.append(
+            {
+                "command": command,
+                "stage": workflow_stage(command),
+                "section": section,
+                "started_at": started_at,
+                "ended_at": ended_at,
+                "duration_ms": max(0, int(duration_ms)),
+                "result_code": int(result_code),
+            }
+        )
+        atomic_write_json(
+            paths["workflow_timing"],
+            {"schema_version": "1.0", "updated_at": ended_at, "events": events[-2000:]},
+        )
+
+
+def workflow_timing_summary(data: dict[str, Any]) -> dict[str, Any]:
+    events = [item for item in data.get("events", []) if isinstance(item, dict)]
+    stages: dict[str, dict[str, int]] = {}
+    sections: dict[str, dict[str, int]] = {}
+    commands: dict[str, dict[str, int]] = {}
+    for event in events:
+        duration = max(0, int(event.get("duration_ms") or 0))
+        result = int(event.get("result_code") or 0)
+        for bucket, key in (
+            (stages, str(event.get("stage") or "其他")),
+            (commands, str(event.get("command") or "unknown")),
+        ):
+            item = bucket.setdefault(key, {"attempts": 0, "failures": 0, "duration_ms": 0})
+            item["attempts"] += 1
+            item["failures"] += int(result != 0)
+            item["duration_ms"] += duration
+        section = str(event.get("section") or "").strip()
+        if section:
+            item = sections.setdefault(
+                section,
+                {
+                    "advance_attempts": 0,
+                    "failures": 0,
+                    "retries": 0,
+                    "command_duration_ms": 0,
+                    "write_window_ms": 0,
+                    "opened_at": "",
+                    "completed_at": "",
+                },
+            )
+            command = str(event.get("command") or "")
+            if command == "advance-section":
+                item["advance_attempts"] += 1
+                item["failures"] += int(result != 0)
+                if result == 0:
+                    item["completed_at"] = str(event.get("ended_at") or "")
+            if command == "section-write-window-open" and not item["opened_at"]:
+                item["opened_at"] = str(event.get("started_at") or "")
+            item["command_duration_ms"] += duration
+    for item in sections.values():
+        item["retries"] = item["failures"]
+        if item["opened_at"] and item["completed_at"]:
+            try:
+                opened = datetime.fromisoformat(item["opened_at"])
+                completed = datetime.fromisoformat(item["completed_at"])
+                item["write_window_ms"] = max(0, round((completed - opened).total_seconds() * 1000))
+            except ValueError:
+                pass
+    if "逐节正文" in stages:
+        stages["逐节正文"]["workflow_window_ms"] = sum(
+            int(item["write_window_ms"]) for item in sections.values()
+        )
+    prereq_events = [
+        event
+        for event in events
+        if str(event.get("stage") or "") == "正文前契约"
+    ]
+    prereq_start = next(
+        (str(event.get("started_at") or "") for event in prereq_events if event.get("started_at")),
+        "",
+    )
+    prereq_end = next(
+        (
+            str(event.get("ended_at") or "")
+            for event in reversed(prereq_events)
+            if str(event.get("command") or "") == "start-draft"
+            and int(event.get("result_code") or 0) == 0
+            and event.get("ended_at")
+        ),
+        "",
+    )
+    if prereq_start and prereq_end and "正文前契约" in stages:
+        try:
+            stages["正文前契约"]["workflow_window_ms"] = max(
+                0,
+                round(
+                    (
+                        datetime.fromisoformat(prereq_end)
+                        - datetime.fromisoformat(prereq_start)
+                    ).total_seconds()
+                    * 1000
+                ),
+            )
+        except ValueError:
+            pass
+    total_command_duration = sum(
+        max(0, int(item.get("duration_ms") or 0)) for item in events
+    )
+    return {
+        "total_duration_ms": total_command_duration,
+        "total_command_duration_ms": total_command_duration,
+        "event_count": len(events),
+        "stages": stages,
+        "commands": commands,
+        "sections": sections,
+    }
+
+
+def command_workflow_timing(paths: dict[str, Path], args: argparse.Namespace) -> int:
+    del args
+    data = read_json(paths["workflow_timing"]) if paths["workflow_timing"].is_file() else {"events": []}
+    summary = workflow_timing_summary(data)
+    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    return 0
 
 
 def stable_unique_paths(paths: list[str | Path]) -> list[Path]:
@@ -437,6 +607,8 @@ def project_paths(project: Path) -> dict[str, Path]:
         "first_draft_basic_review": asset / "首稿基础审计回执.json",
         "completion_state": asset / "短篇全流程状态.json",
         "preflight_cache": asset / "机械预检缓存.json",
+        "workflow_timing": asset / "流程耗时记录.json",
+        "workflow_timing_lock": asset / ".流程耗时记录.lock",
         "reservation": project / PROJECT_RESERVATION_FILE,
     }
 
@@ -554,15 +726,25 @@ def print_result(command: str, errors: list[str], actions: list[str]) -> int:
     return 0 if not errors else 2
 
 
-def print_prepare_draft_gates_next_action() -> None:
-    print("completion_state: continue_required_until_start-draft")
-    print(
-        "next_action: 继续人工补齐四张正文前契约；优先修当前缺口，循环运行 "
-        "outline-precheck --only sections/handoff/bridges/first-draft，"
-        "opening-precheck / sequence-precheck / draft-capacity-precheck / outline-validate 逐张通过后再进入 start-draft；"
-        "只能依据当前项目文件和当前脚本报错补字段，"
-        "禁止搜索其他项目回执当模板；未到 start-draft 前不得收口。"
-    )
+def draft_prereq_repair_file(paths: dict[str, Path], command: str) -> Path | None:
+    return {
+        "opening-precheck": paths["opening_repair_item_output"],
+        "sequence-precheck": paths["sequence_repair_item_output"],
+        "draft-capacity-precheck": paths["draft_capacity_item_output"],
+        "outline-validate": paths["outline_repair_item_output"],
+    }.get(command)
+
+
+def print_prepare_draft_gates_next_action(
+    paths: dict[str, Path],
+    pending: list[tuple[str, list[str]]] | None = None,
+) -> None:
+    pending = current_draft_gate_states(paths) if pending is None else pending
+    if not pending:
+        print("next_action: 四张正文前契约已通过；立即运行 start-draft。")
+        print("next_command: start-draft")
+        return
+    print_draft_prereq_blocked_commands([], paths, command_reasons=pending)
 
 
 def print_outline_progress_next_action(
@@ -758,17 +940,25 @@ def print_draft_prereq_blocked_commands(
     print("completion_state: continue_required_until_start-draft")
     print("draft_prereq_repair_commands: " + " / ".join(commands))
     print(f"draft_prereq_primary_command: {commands[0]}")
+    if paths is not None:
+        primary_file = draft_prereq_repair_file(paths, commands[0])
+        if primary_file is not None:
+            print(f"draft_prereq_primary_file: {primary_file}")
     for command, hits in command_reasons:
         if not hits:
             continue
         preview = "；".join(hits[:3])
         print(f"draft_prereq_reason[{command}]: {preview}")
-    print(
-        "next_fixed_commands: 先执行 primary_command；"
-        "该张通过后再按给出的顺序逐张补闸；"
-        "每张失败都只编辑当前修闸回填模板并立刻 apply/重跑；"
-        "四张契约全部 passed 后，再回到 start-draft。"
-    )
+    if paths is not None and draft_prereq_repair_file(paths, commands[0]) is not None:
+        print(
+            "next_fixed_commands: 只编辑 primary_file 中仍需人工判断的字段，然后直接重跑 start-draft；"
+            "start-draft 会自动 apply、联合预检并刷新下一个唯一焦点。"
+            "正常写作禁止再串行运行分项 precheck/apply；这些命令只供隔离诊断。"
+        )
+    else:
+        print(
+            "next_fixed_commands: 当前是非契约类硬错误；按 primary_command 的报错修复依赖后直接重跑 start-draft。"
+        )
 
 
 def refresh_draft_prereq_packets(
@@ -779,10 +969,12 @@ def refresh_draft_prereq_packets(
     if command_reasons is None:
         command_reasons = parse_draft_prereq_command_reasons(errors, paths)
     commands = [command for command, _hits in command_reasons]
+    primary_commands = set(commands[:1])
     seed_pending_draft_gate_repair_packets(
         paths,
-        include_outline="outline-validate" in commands,
+        include_outline="outline-validate" in primary_commands,
         emit_output=False,
+        only_commands=primary_commands,
     )
 
 
@@ -2677,21 +2869,30 @@ def current_draft_gate_states(paths: dict[str, Path]) -> list[tuple[str, list[st
         opening_errors = validate_opening_receipt_from_binding(paths["opening_contract"])
         if opening_errors:
             states.append(("opening-precheck", opening_errors))
+            return states
     if paths["sequence_receipt"].is_file():
         sequence_errors = validate_sequence_receipt_from_binding(paths["sequence_receipt"])
         if sequence_errors:
             states.append(("sequence-precheck", sequence_errors))
+            return states
     if paths["draft_capacity_contract"].is_file():
         capacity_errors = DRAFT_CAPACITY.validate(paths["draft_capacity_contract"])
         if capacity_errors:
             states.append(("draft-capacity-precheck", capacity_errors))
+            return states
     if paths["outline_contract"].is_file():
         try:
             outline_data = read_json(paths["outline_contract"])
         except (OSError, ValueError, json.JSONDecodeError):
             outline_data = {}
+        outline_errors, _outline_actions = outline_precheck_errors(
+            paths,
+            normalize_outline_precheck_groups(None),
+        )
         if str(outline_data.get("gate_status") or "").strip() != "passed":
-            states.append(("outline-validate", ["细纲表演验收门禁未通过"]))
+            outline_errors = ["细纲表演验收门禁未通过", *outline_errors]
+        if outline_errors:
+            states.append(("outline-validate", outline_errors))
     return states
 
 
@@ -6688,6 +6889,16 @@ def command_prepare_draft_gates(
         paths["outline"],
         target_words,
     )
+    if capacity_receipt.get("gate_status") == "passed":
+        compiled_capacity_errors = DRAFT_CAPACITY.validate_data(
+            capacity_receipt,
+            paths["draft_capacity_contract"],
+        )
+        if compiled_capacity_errors:
+            capacity_receipt["gate_status"] = "pending"
+            actions.append("keep-invalid-compiled-capacity-pending")
+        else:
+            actions.append("auto-pass-outline-compiled-capacity")
     capacity_state = initialize_json_receipt(
         paths["draft_capacity_contract"],
         capacity_receipt,
@@ -6696,7 +6907,20 @@ def command_prepare_draft_gates(
     actions.append(f"{capacity_state}-draft-capacity-gate")
 
     if paths["sequence_receipt"].exists() and not args.force:
-        actions.append("reused-full-sequence-contract")
+        sequence_data = read_json(paths["sequence_receipt"])
+        if str(sequence_data.get("scope") or "").strip() == "setting":
+            print("project_toolbox_progress: 正在增量扩展设定顺序契约到细纲...", flush=True)
+            sequence_errors = SEQUENCE_CONTRACT.extend_setting_receipt(
+                paths["sequence_receipt"],
+                paths["setting"],
+                paths["outline"],
+                paths["sequence_receipt"],
+            )
+            if sequence_errors:
+                return print_result("prepare-draft-gates", sequence_errors, actions)
+            actions.append("extend-passed-setting-sequence-contract-to-outline")
+        else:
+            actions.append("reused-full-sequence-contract")
     else:
         print("project_toolbox_progress: 正在初始化顺序契约...", flush=True)
         SEQUENCE_CONTRACT.init_receipt(
@@ -6736,16 +6960,20 @@ def command_prepare_draft_gates(
             actions.append("initialized-outline-performance-contract")
 
     actions.append("require-all-four-draft-gates-passed-before-start-draft")
-    print("project_toolbox_progress: 正在生成待修闸回填包...", flush=True)
+    print("project_toolbox_progress: 正在生成唯一当前修闸焦点...", flush=True)
+    pending_commands = current_draft_gate_states(paths)
+    primary_commands = {pending_commands[0][0]} if pending_commands else set()
     actions.extend(
         seed_pending_draft_gate_repair_packets(
             paths,
-            include_outline=True,
+            include_outline="outline-validate" in primary_commands,
             emit_output=False,
+            only_commands=primary_commands,
+            pending_state_items=pending_commands,
         )
     )
     result = print_result("prepare-draft-gates", [], actions)
-    print_prepare_draft_gates_next_action()
+    print_prepare_draft_gates_next_action(paths, pending_commands)
     return result
 
 
@@ -7325,11 +7553,16 @@ def seed_pending_draft_gate_repair_packets(
     *,
     include_outline: bool,
     emit_output: bool,
+    only_commands: set[str] | None = None,
+    pending_state_items: list[tuple[str, list[str]]] | None = None,
 ) -> list[str]:
     actions: list[str] = []
-    pending_state_items = current_draft_gate_states(paths)
+    if pending_state_items is None:
+        pending_state_items = current_draft_gate_states(paths)
     pending_map = {command: items for command, items in pending_state_items}
-    if "opening-precheck" in pending_map:
+    if "opening-precheck" in pending_map and (
+        only_commands is None or "opening-precheck" in only_commands
+    ):
         export_opening_repair_packet(
             paths,
             pending_map["opening-precheck"],
@@ -7338,7 +7571,9 @@ def seed_pending_draft_gate_repair_packets(
             emit_output=emit_output,
         )
         actions.append("seed-opening-repair-packet")
-    if "sequence-precheck" in pending_map:
+    if "sequence-precheck" in pending_map and (
+        only_commands is None or "sequence-precheck" in only_commands
+    ):
         export_sequence_repair_packet(
             paths,
             pending_map["sequence-precheck"],
@@ -7347,7 +7582,9 @@ def seed_pending_draft_gate_repair_packets(
             emit_output=emit_output,
         )
         actions.append("seed-sequence-repair-packet")
-    if "draft-capacity-precheck" in pending_map:
+    if "draft-capacity-precheck" in pending_map and (
+        only_commands is None or "draft-capacity-precheck" in only_commands
+    ):
         export_draft_capacity_packet(
             paths,
             pending_map["draft-capacity-precheck"],
@@ -7356,11 +7593,13 @@ def seed_pending_draft_gate_repair_packets(
             emit_output=emit_output,
         )
         actions.append("seed-draft-capacity-repair-packet")
-    if include_outline and paths["outline_contract"].is_file():
-        outline_errors, _outline_actions = outline_precheck_errors(
-            paths,
-            normalize_outline_precheck_groups(None),
-        )
+    if (
+        include_outline
+        and paths["outline_contract"].is_file()
+        and "outline-validate" in pending_map
+        and (only_commands is None or "outline-validate" in only_commands)
+    ):
+        outline_errors = pending_map["outline-validate"]
         if outline_errors:
             export_outline_repair_packet(
                 paths,
@@ -7577,7 +7816,13 @@ def command_start_draft(paths: dict[str, Path], args: argparse.Namespace) -> int
             release_errors,
             command_reasons=command_reasons,
         )
-        return print_result("start-draft", release_errors, actions)
+        result = print_result("start-draft", release_errors, actions)
+        print_draft_prereq_blocked_commands(
+            release_errors,
+            paths,
+            command_reasons=command_reasons,
+        )
+        return result
     if paths["first_draft_entry"].is_file():
         entry_errors = FIRST_DRAFT.validate_entry(
             paths["first_draft_entry"],
@@ -8135,6 +8380,56 @@ def section_required_judgments(packet: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def section_write_budget(packet_payload: dict[str, Any]) -> dict[str, Any]:
+    minimum_chars = SECTION_EXECUTION.expected_min_section_chars(packet_payload)
+    bindings = packet_payload.get("execution_source_bindings")
+    if not isinstance(bindings, list):
+        bindings = packet_payload.get("source_slice_bindings")
+    ordered_beats: list[str] = []
+    normalized_bindings = bindings if isinstance(bindings, list) else []
+    for binding in normalized_bindings:
+        if not isinstance(binding, dict):
+            continue
+        subflow_id = str(binding.get("subflow_id") or "SF").strip() or "SF"
+        contract = binding.get("source_subflow_contract")
+        sequence = contract.get("required_sequence") if isinstance(contract, dict) else None
+        source_indices = contract.get("source_beat_indices") if isinstance(contract, dict) else None
+        indices = (
+            source_indices
+            if isinstance(source_indices, list) and len(source_indices) == len(sequence or [])
+            else list(range(1, len(sequence or []) + 1))
+        )
+        ordered_beats.extend(
+            f"{subflow_id}#{index}"
+            for index, beat in zip(indices, sequence if isinstance(sequence, list) else [])
+            if str(beat).strip()
+        )
+    target = {"source_slice_bindings": normalized_bindings}
+    _, _, style_fields = SECTION_EXECUTION.unique_binding_requirements(normalized_bindings)
+    contract = packet_payload.get("first_draft_generation_contract")
+    paragraph_breaks = (
+        [item for item in contract.get("paragraph_break_reasons", []) if str(item).strip()]
+        if isinstance(contract, dict)
+        else []
+    )
+    paragraph_style = SECTION_EXECUTION.STYLE_FIELD_PARAGRAPH in set(style_fields)
+    return {
+        "recommended_section_chars": minimum_chars + max(100, math.ceil(minimum_chars * 0.10)),
+        "global_ordered_beats": ordered_beats,
+        "global_evidence_order": "所有 subflow 的所有拍按本列表全局递增；每拍五条 evidence 再按正文首次出现位置递增，不得在切换 subflow 时重新计序",
+        "minimum_paragraphs": max(2, len(paragraph_breaks) + 1) if paragraph_style else 0,
+        "recommended_prose_paragraphs": 8 if paragraph_style else 0,
+        "paragraph_breath": "至少保留一个连续多句段；不要把动作、证据、反应全部拆成单句电报段" if paragraph_style else "",
+        "required_question_marks": SECTION_EXECUTION.required_question_marks(target, packet_payload),
+    }
+
+
+def print_section_write_budget(packet_payload: dict[str, Any]) -> None:
+    print("section_write_budget: " + json.dumps(
+        section_write_budget(packet_payload), ensure_ascii=False, separators=(",", ":")
+    ))
+
+
 def print_packet(packet: dict[str, Any], selected_part: int | None = None) -> None:
     chunks = section_reading_packet_chunks(packet)
     total_parts = len(chunks)
@@ -8145,6 +8440,7 @@ def print_packet(packet: dict[str, Any], selected_part: int | None = None) -> No
     minimum_section_chars = SECTION_EXECUTION.expected_min_section_chars(
         packet_payload if isinstance(packet_payload, dict) else {}
     )
+    normalized_payload = packet_payload if isinstance(packet_payload, dict) else {}
     if selected_part is None and _json_bytes(complete_packet) <= SECTION_READING_COMBINED_MAX_BYTES:
         print("section_source_packet: complete bounded packet; read every field below; do not reuse source wording")
         print("section_source_packet_mode: combined")
@@ -8152,7 +8448,8 @@ def print_packet(packet: dict[str, Any], selected_part: int | None = None) -> No
         print(f"section_source_packet_parts_saved: {total_parts}")
         print(f"minimum_section_chars: {minimum_section_chars}")
         print(f"minimum_evidence_chars: {SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS}")
-        print("evidence_order_note: 每拍五条证据必须按正文中的唯一首次出现位置递增，不得重叠")
+        print("evidence_order_note: 所有 subflow 的所有拍按回填列表全局递增；每拍五条证据按正文中的唯一首次出现位置递增，不得重叠")
+        print_section_write_budget(normalized_payload)
         print(json.dumps(complete_packet, ensure_ascii=False, indent=2))
         for key, value in section_required_judgments(packet).items():
             print(f"{key}: {value}")
@@ -8165,7 +8462,8 @@ def print_packet(packet: dict[str, Any], selected_part: int | None = None) -> No
     print("section_source_packet_mode: chunked")
     print(f"minimum_section_chars: {minimum_section_chars}")
     print(f"minimum_evidence_chars: {SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS}")
-    print("evidence_order_note: 每拍五条证据必须按正文中的唯一首次出现位置递增，不得重叠")
+    print("evidence_order_note: 所有 subflow 的所有拍按回填列表全局递增；每拍五条证据按正文中的唯一首次出现位置递增，不得重叠")
+    print_section_write_budget(normalized_payload)
     print(f"section_source_packet_parts: {len(chunks)}")
     print(f"section_source_packet_current_part: {selected_part}/{total_parts}")
     print("section_source_packet_manifest:")
@@ -8309,9 +8607,20 @@ def prepare_current_section_beat_receipt(
                 payload if isinstance(payload, dict) else {}
             ),
             "minimum_evidence_chars": SECTION_EXECUTION.MIN_BEAT_EVIDENCE_CHARS,
-            "evidence_order_note": "每拍 evidence 五条必须按正文中的唯一首次出现位置递增，不得重复或重叠",
+            "evidence_order_note": "所有 subflow 的所有拍按 beats 列表全局递增；每拍 evidence 五条再按正文中的唯一首次出现位置递增，不得在 subflow 边界重新计序，不得重复或重叠",
+            "write_budget": section_write_budget(payload if isinstance(payload, dict) else {}),
             "beats": beats,
         },
+    )
+    marker_time = now_iso()
+    record_workflow_timing(
+        paths,
+        command="section-write-window-open",
+        section=section_id,
+        started_at=marker_time,
+        ended_at=marker_time,
+        duration_ms=0,
+        result_code=0,
     )
 
 
@@ -8495,6 +8804,62 @@ def _unique_span(text: str, quote: str) -> tuple[int, int] | None:
     return start, start + len(quote)
 
 
+def _evidence_normalized_with_positions(text: str) -> tuple[str, list[int]]:
+    normalized: list[str] = []
+    positions: list[int] = []
+    for index, character in enumerate(text):
+        if character.isspace() or unicodedata.category(character).startswith("P"):
+            continue
+        normalized.append(character)
+        positions.append(index)
+    return "".join(normalized), positions
+
+
+def _unique_punctuation_normalized_span(text: str, quote: str) -> tuple[int, int] | None:
+    """Resolve only punctuation/whitespace differences to one exact source span."""
+    normalized_text, positions = _evidence_normalized_with_positions(text)
+    normalized_quote, _ = _evidence_normalized_with_positions(quote)
+    if not normalized_quote:
+        return None
+    start = normalized_text.find(normalized_quote)
+    if start < 0 or normalized_text.find(normalized_quote, start + 1) >= 0:
+        return None
+    end_index = start + len(normalized_quote) - 1
+    return positions[start], positions[end_index] + 1
+
+
+def repair_unique_punctuation_evidence(section: str, receipt: dict[str, Any]) -> int:
+    evidence_slots: list[tuple[dict[str, Any], int]] = []
+    for beat in receipt.get("beats", []):
+        if not isinstance(beat, dict) or not isinstance(beat.get("evidence"), list):
+            continue
+        evidence_slots.extend((beat, index) for index in range(len(beat["evidence"])))
+    changed = 0
+    for beat, index in evidence_slots:
+        quote = str(beat["evidence"][index] or "")
+        if not quote or _unique_span(section, quote) is not None:
+            continue
+        span = _unique_punctuation_normalized_span(section, quote)
+        if span is None:
+            continue
+        other_spans = []
+        for other_beat, other_index in evidence_slots:
+            if other_beat is beat and other_index == index:
+                continue
+            other_quote = str(other_beat["evidence"][other_index] or "")
+            other_span = _unique_span(section, other_quote) if other_quote else None
+            if other_span is not None:
+                other_spans.append(other_span)
+        if any(span[0] < other[1] and other[0] < span[1] for other in other_spans):
+            continue
+        exact_quote = section[span[0]:span[1]]
+        if _unique_span(section, exact_quote) != span:
+            continue
+        beat["evidence"][index] = exact_quote
+        changed += 1
+    return changed
+
+
 def _expand_quote_in_line(
     text: str,
     quote: str,
@@ -8544,7 +8909,7 @@ def auto_expand_short_beat_evidence(
     receipt = read_json(beat_receipt)
     if str(receipt.get("section_id") or "").strip() != str(section_id).strip():
         return 0
-    changed = 0
+    changed = repair_unique_punctuation_evidence(section, receipt)
     for beat in receipt.get("beats", []):
         if not isinstance(beat, dict) or not isinstance(beat.get("evidence"), list):
             continue
@@ -8863,6 +9228,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     finalize = subparsers.add_parser("finalize-basic-review")
     finalize.set_defaults(func=command_finalize_basic_review)
+
+    timing = subparsers.add_parser("workflow-timing")
+    timing.set_defaults(func=command_workflow_timing)
     return parser
 
 
@@ -8876,7 +9244,24 @@ def main() -> int:
         else resolve_project(args.project)
     )
     paths = project_paths(project)
-    return args.func(paths, args)
+    if args.command == "workflow-timing":
+        return args.func(paths, args)
+    started_at = now_iso()
+    started_clock = time.perf_counter()
+    result = 1
+    try:
+        result = int(args.func(paths, args) or 0)
+        return result
+    finally:
+        record_workflow_timing(
+            paths,
+            command=str(args.command),
+            section=str(getattr(args, "section", "") or ""),
+            started_at=started_at,
+            ended_at=now_iso(),
+            duration_ms=round((time.perf_counter() - started_clock) * 1000),
+            result_code=result,
+        )
 
 
 if __name__ == "__main__":

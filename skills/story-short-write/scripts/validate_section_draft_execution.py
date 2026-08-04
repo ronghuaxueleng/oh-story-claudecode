@@ -582,6 +582,48 @@ def required_close_judgment_template(
     return "; ".join(parts)
 
 
+def required_question_marks(
+    target: dict[str, Any],
+    packet_payload: dict[str, Any] | None,
+) -> int:
+    """Return the mechanical question-mark budget implied by the source contract."""
+    if packet_payload is None:
+        return 0
+    _, _, style_fields = unique_binding_requirements(
+        target.get("source_slice_bindings")
+    )
+    if STYLE_FIELD_SENTENCE_RELATION not in set(style_fields):
+        return 0
+    contract = packet_payload.get("first_draft_generation_contract")
+    if not isinstance(contract, dict):
+        return 0
+    relation_plan = [
+        str(item).strip()
+        for item in (contract.get("sentence_relation_plan") or [])
+        if str(item).strip()
+    ]
+    required_sequence_lines: list[str] = []
+    bindings = target.get("source_slice_bindings")
+    if isinstance(bindings, list):
+        for item in bindings:
+            if not isinstance(item, dict):
+                continue
+            source_contract = item.get("source_subflow_contract")
+            if not isinstance(source_contract, dict):
+                continue
+            required_sequence = source_contract.get("required_sequence")
+            if isinstance(required_sequence, list):
+                required_sequence_lines.extend(
+                    str(step).strip() for step in required_sequence if str(step).strip()
+                )
+    has_question = any("问" in line for line in relation_plan) or any(
+        "反问" in line or "问句" in line for line in required_sequence_lines
+    )
+    if not has_question:
+        return 0
+    return 2 if any("连续反问" in line for line in required_sequence_lines) else 1
+
+
 def validate_close_content_signals(
     target: dict[str, Any],
     packet_payload: dict[str, Any] | None,
@@ -642,35 +684,13 @@ def validate_close_content_signals(
             errors.append(
                 "正文缺少对白承载信号：source_performance_excerpt 已绑定对白/错答颗粒，但正文没有形成对白落点"
             )
-    relation_plan = [
-        str(item).strip()
-        for item in (contract.get("sentence_relation_plan") or [])
-        if str(item).strip()
-    ]
-    required_sequence_lines: list[str] = []
-    if isinstance(bindings, list):
-        for item in bindings:
-            if not isinstance(item, dict):
-                continue
-            source_contract = item.get("source_subflow_contract")
-            if not isinstance(source_contract, dict):
-                continue
-            required_sequence = source_contract.get("required_sequence")
-            if isinstance(required_sequence, list):
-                required_sequence_lines.extend(
-                    str(step).strip() for step in required_sequence if str(step).strip()
-                )
-    if STYLE_FIELD_SENTENCE_RELATION in style_field_set:
-        question_hint = any("问" in line for line in relation_plan) or any(
-            "反问" in line or "问句" in line for line in required_sequence_lines
-        )
-        if question_hint:
-            required_question_marks = 2 if any("连续反问" in line for line in required_sequence_lines) else 1
-            actual_question_marks = content.count("？") + content.count("?")
-            if actual_question_marks < required_question_marks:
-                errors.append(
-                    f"正文缺少句式承载信号：已绑定问句/反问颗粒，至少需要 {required_question_marks} 个问号，当前仅 {actual_question_marks} 个"
-                )
+    question_mark_budget = required_question_marks(target, packet_payload)
+    if question_mark_budget:
+        actual_question_marks = content.count("？") + content.count("?")
+        if actual_question_marks < question_mark_budget:
+            errors.append(
+                f"正文缺少句式承载信号：已绑定问句/反问颗粒，至少需要 {question_mark_budget} 个问号，当前仅 {actual_question_marks} 个"
+            )
     if STYLE_FIELD_ROUGHNESS in style_field_set:
         rough_signal_count = sum(content.count(marker) for marker in ("！", "!", "？", "?"))
         short_paragraphs = [item for item in paragraphs if non_whitespace_chars(item) <= 28]

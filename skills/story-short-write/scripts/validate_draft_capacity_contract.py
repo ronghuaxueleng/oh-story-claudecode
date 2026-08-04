@@ -114,19 +114,54 @@ def build_section_entry(
     lines = block.get("lines") if isinstance(block.get("lines"), list) else []
     parts = subsection_map(lines)
     title = str(block.get("title") or "").strip()
-    opening = join_summary(parts.get("首段开口", []) or parts.get("本节开口", []), limit=1)
-    source_binding = join_summary(parts.get("来源绑定", []) or parts.get("对应来源", []), limit=2)
+    opening = join_summary(
+        parts.get("首段开口", [])
+        or parts.get("本节开口", [])
+        or parts.get("主事件", [])
+        or parts.get("逐拍因果链", []),
+        limit=1,
+    )
+    source_binding = join_summary(
+        parts.get("来源绑定", [])
+        or parts.get("对应来源", [])
+        or parts.get("主体来源绑定", [])
+        or parts.get("辅助来源绑定", [])
+        or parts.get("辅助机制回声", []),
+        limit=2,
+    )
     events = join_summary(
         parts.get("主事件与子事件", [])
         or parts.get("子事件", [])
-        or parts.get("本节主事件", []),
+        or parts.get("本节主事件", [])
+        or parts.get("主事件", [])
+        or parts.get("逐拍因果链", []),
         limit=3,
     )
     emotion = join_summary(parts.get("情绪过程", []), limit=2)
-    hook = join_summary(parts.get("节尾钩子", []), limit=1)
-    exit_state = join_summary(parts.get("出口状态", []) or parts.get("相邻节交接", []), limit=1)
-    performance = join_summary(parts.get("表演与对白", []) or parts.get("叙述者嘴感", []), limit=2)
-    control = join_summary(parts.get("控制权变化", []) or parts.get("冲突载体", []), limit=2)
+    hook = join_summary(parts.get("节尾钩子", []) or parts.get("场末钩子", []), limit=1)
+    exit_state = join_summary(
+        parts.get("出口状态", [])
+        or parts.get("场景出口状态", [])
+        or parts.get("相邻节交接", [])
+        or parts.get("场末余痛", []),
+        limit=1,
+    )
+    performance = join_summary(
+        parts.get("表演与对白", [])
+        or parts.get("叙述者嘴感", [])
+        or parts.get("表演证据锚点", [])
+        or parts.get("对话压力交换", [])
+        or parts.get("人物偏手", [])
+        or parts.get("叙述者气口", []),
+        limit=2,
+    )
+    control = join_summary(
+        parts.get("控制权变化", [])
+        or parts.get("冲突载体", [])
+        or parts.get("本节现实争夺权", [])
+        or parts.get("不可逆动作", []),
+        limit=2,
+    )
     return {
         "id": str(block.get("id") or ""),
         "planned_words": allocated_words(section_count, target_words, index),
@@ -160,7 +195,8 @@ def init(project: str, outline: Path, target_words: int) -> dict[str, Any]:
         "version": "1.0",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "gate_status": "pending",
+        "gate_status": "passed",
+        "execution_mode": "outline_compiled",
         "target_words": target_words,
         "outline": {"path": str(outline.resolve()), "sha256": digest(outline)},
         "sections": [

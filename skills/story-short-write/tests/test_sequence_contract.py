@@ -145,6 +145,19 @@ class SequenceContractTest(unittest.TestCase):
         full_receipt = self.root / "sequence.json"
         source = self.setting_receipt()
         setting_receipt.write_text(json.dumps(source, ensure_ascii=False), encoding="utf-8")
+        self.outline.write_text(
+            "\n".join(
+                [
+                    "## 第1节",
+                    "- 主事件：前线责任进入公开场。",
+                    "## 第2节",
+                    "- 主事件：路线授权发生换主。",
+                    "## 第3节",
+                    "- 主事件：私人物件完成回收。",
+                ]
+            ),
+            encoding="utf-8",
+        )
 
         errors = GATE.extend_setting_receipt(
             setting_receipt,
@@ -161,7 +174,25 @@ class SequenceContractTest(unittest.TestCase):
             source["canonical_sequence"][0]["setting_evidence"],
             extended["canonical_sequence"][0]["setting_evidence"],
         )
-        self.assertEqual([], extended["canonical_sequence"][0]["outline_evidence"])
+        evidence = extended["canonical_sequence"][0]["outline_evidence"][0]
+        self.assertEqual("- 主事件：前线责任进入公开场。", evidence["quote"])
+        self.assertEqual(
+            self.outline.read_text(encoding="utf-8").index(evidence["quote"]),
+            evidence["offset"],
+        )
+        self.assertIn("机械预填", evidence["judgment"])
+
+    def test_sequence_contract_rejects_mechanical_judgment_placeholder(self) -> None:
+        data = self.receipt()
+        data["canonical_sequence"][0]["outline_evidence"][0]["judgment"] = (
+            "机械预填：待当前模型复核顺序判断"
+        )
+        receipt = self.root / "sequence.json"
+        receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+        errors = GATE.validate(receipt, self.setting, self.outline, self.draft)
+
+        self.assertTrue(any("人工判断仍是机械占位" in item for item in errors))
 
     def test_seed_canonical_sequence_falls_back_to_source_binding_numbered_chain(self) -> None:
         setting_text = (
