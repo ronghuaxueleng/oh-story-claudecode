@@ -302,8 +302,8 @@
    - `rewrite_gate_receipt.json`
    - `failure_gate_receipt.json`
 5. 回填后必须分别跑：
-   - `validate_gate_receipts.py ...rewrite_gate_receipt.json --require-executed --require-complete`
-   - `validate_gate_receipts.py ...failure_gate_receipt.json --require-executed --require-complete`
+   - `python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" "项目目录/写作资产/rewrite_gate_receipt.json" --require-executed --require-complete`
+   - `python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" "项目目录/写作资产/failure_gate_receipt.json" --require-executed --require-complete`
 6. 两份回执都过后，还不能停；必须用同一轮 `label` 再跑一次 `run_rewrite_gate_cycle.py`
 7. 直到同轮产物刷新成：
    - `gate_stage: gate_passed`

@@ -96,23 +96,25 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
 19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据
-20. 通过 `validate_write_release_gate.py draft --sequence-receipt ... --outline-contract ...`，再写正文
-21. 补正文节点证据并通过 `validate_sequence_contract.py validate --draft ...`
-22. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
-23. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
-24. 通过 `validate_pre_window_revision_gate.py`
-25. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
-26. 跑正式全量审计并回填脚本产物
-27. 若属于仿写 / 融合 / 同桥任务，先对主体原文跑同一套轻审计和全量审计，再运行 `compare_source_baseline_audit.py` 生成基线对照
-28. 逐窗人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
-29. 只把 `draft_extra_ai_shell` 写进回修任务单；`source_like / craft_tradeoff` 可保留，但必须写明原文基线和情节功能
-30. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执、正式审计和原文基线对照全部失效
-31. 回到第 23 步，重新做规则/资产定向回修，再重新切窗和重审
-32. 无正文变化后，绑定最终写作产物；递归重绑规则台账中所有目标产物证据和 `source_contract_reviews`，再通过 `rule_execution_gate`
-33. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
-34. 生成人工语义复核回执并人工复扫全文
-35. 通过 `post_write_human_review_gate`
-36. 高风险任务再过第二闸门
+20. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --profile "profiles/项目名.project.profile.json"`，再写正文
+21. 正文初稿落盘后，只运行统一字数统计；知乎 / 盐言稿再运行平台格式校验
+22. 立即向用户交付初稿并停靠，明确报告正文路径、字数、格式和“尚未执行深审与回炉”；禁止自动运行后续步骤
+23. 只有用户明确回复“继续深审”“继续完整流程”或同义指令后，才补正文节点证据并通过 `validate_sequence_contract.py validate --receipt "项目目录/写作资产/顺序契约回执.json" --setting "项目目录/设定.md" --outline "项目目录/小节大纲.md" --draft "项目目录/正文.md"`
+24. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
+25. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
+26. 通过 `validate_pre_window_revision_gate.py`
+27. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
+28. 跑正式全量审计并回填脚本产物
+29. 若属于仿写 / 融合 / 同桥任务，先对主体原文跑同一套轻审计和全量审计，再运行 `compare_source_baseline_audit.py` 生成基线对照
+30. 逐窗人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
+31. 只把 `draft_extra_ai_shell` 写进回修任务单；`source_like / craft_tradeoff` 可保留，但必须写明原文基线和情节功能
+32. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执、正式审计和原文基线对照全部失效
+33. 回到第 25 步，重新做规则/资产定向回修，再重新切窗和重审
+34. 无正文变化后，绑定最终写作产物；递归重绑规则台账中所有目标产物证据和 `source_contract_reviews`，再通过 `rule_execution_gate`
+35. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
+36. 生成人工语义复核回执并人工复扫全文
+37. 通过 `post_write_human_review_gate`
+38. 高风险任务再过第二闸门
 
 关键原则：
 
@@ -129,9 +131,10 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 读取回执不能代替执行台账；执行一项标记一项，不能最后统一补“已使用”
 - 写作放行必须独立运行 `validate_write_release_gate.py`；任一前置门禁不是 `passed` 时禁止生成或修改当前阶段产物，不能先写后补
 - 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
-- 正文完成判定必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
+- 正文初稿落盘并通过字数/平台格式基础检查后必须停靠；此时只能宣称“初稿完成”，不能宣称“完整流程完成”
+- 用户明确选择继续深审后，最终完成判定才必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
 - 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执、人工分段和审计里记录的字符数/字数不得使用估算或其他脚本口径
-- 人工窗口不是首轮通用规则执行器。正文首稿完成后，必须先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
+- 人工窗口不是首轮通用规则执行器。只有用户在初稿停靠后明确选择继续深审，才先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
 - `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
 - 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
 - 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；没有汇总输出不算正式人工窗口审计闭环
@@ -520,7 +523,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" 当
 ### 10. 做题材首次校准
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" \
+  "项目目录" \
+  --audit-dir "项目目录/写作资产/正式审计" \
+  --output "项目目录/写作资产/外部分块审计对齐.csv" \
+  --summary-output "项目目录/写作资产/外部分块审计对齐摘要.json" \
+  --internal-standard-output "项目目录/写作资产/内部审计标准.json"
 ```
 
 这个只在题材校准时使用，不是每轮都跑。

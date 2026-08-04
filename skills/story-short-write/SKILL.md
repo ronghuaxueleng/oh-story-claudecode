@@ -54,6 +54,13 @@ metadata:
 
 本 skill 默认走 `profile` 驱动流程，不接受“只看题材概括 / 只看拆文摘要 / 只靠提示词临场发挥”直接开正文。
 
+### 脚本参数调用纪律
+
+- 使用系统注入的本 `SKILL.md` 路径推导 `SKILL_ROOT`，并优先直接执行本文件或对应 reference 已给出的完整命令。
+- 已有完整命令示例时，禁止先运行脚本或子命令的 `--help`，也禁止用 `rg argparse`、读取参数解析源码、目录枚举或其他项目回执反推参数。
+- 命令失败时先依据实际错误和对应治理文档修正；只有当前动作没有文档化命令，或实际错误明确表明参数接口已经变化时，才允许对该脚本执行一次 `--help`。不得连续执行顶层与多个子命令的 `--help` 探路。
+- 若后续版本提供统一 toolbox，固定流程命令以 toolbox 文档为唯一入口，不再逐个探测底层脚本参数。
+
 内置脚本位于 `story-short-write/scripts/`：
 
 - `validate_writing_rule_gate.py`
@@ -134,7 +141,7 @@ metadata:
 23. 不允许把“说明更完整、判断更清楚、台词更会总结”误当成正文变好。
 24. 任何一轮回修，如果把人物写得更懂事、更会解释、更会给主题句，先怀疑是在变假。
 25. 自动审计只能叫“脚本预扫”；作者代判、叙述者/作者边界、多余解释、现场依据和对白过度高效必须人工逐句判断。
-26. 正文写完或回炉后必须通过 `validate_post_write_human_review_gate.py`；局部或专项回炉必须绑定母稿并逐条复核全部新增/改写句。
+26. 用户在初稿停靠后明确选择继续深审，或正文进入回炉后，必须通过 `validate_post_write_human_review_gate.py`；局部或专项回炉必须绑定母稿并逐条复核全部新增/改写句。
 27. 写后必须查看 `rhythm_distribution_audit`；叙述者气口分布、跨长窗节奏落差和长窗对白效率任一未人工复核，不得放行。
 28. 通过两份读取门禁后，必须在写设定、大纲或正文前初始化 `规则执行台账.json`；缺台账直接阻断，不做兼容回退。
 29. skill 核心规则和拆书资产先由脚本按小节/资产文件压成规则卡；当前写作模型必须阅读全部 `cases`，归纳一条 `canonical_rule_text`，再区分 `workflow / format / setting / outline / draft / audit / source candidate / source prohibition`。写设定、大纲或正文前必须通过 `validate-prewrite`，确认适用性、执行方式、目标阶段/场景与裁决理由；关键词建议不能直接确认分类。
@@ -150,9 +157,9 @@ metadata:
 39. **写作放行是单独的硬闸，不得绕过或事后补票**：生成设定、大纲或正文前，必须运行 `validate_write_release_gate.py`。设定写完、开始写大纲前必须先通过 `validate_sequence_contract.py validate-setting`；大纲阶段必须传入通过的设定内部顺序回执；正文阶段必须传入通过的完整顺序契约回执。任一前置门禁不是 `passed`，立即停止当前阶段。
 40. **未通过写作放行闸时，禁止创建或修改目标产物**：不能因为“先写一版再修”“先生成正文测试流程”或“台账只是记录问题”而继续；必须先修门禁、回执、来源契约或台账，再重新运行放行闸。
 41. **完整流程不是部分检查相加**：只通过人工复核门、预检、AI 味脚本或算法长窗中的一部分，不得宣称流程完成；必须同时满足写前放行、顺序契约、规则台账、开头契约、正文人工复核和正式长窗审计。
-42. **算法窗口永远不能代替人工窗口**：未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束写作任务。
-43. **正文完成条件必须全部满足**：人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“未完成”。其中正文字符数必须统一使用 `count_words.py` 的番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符；禁止用估算、编辑器统计或其他临时脚本替代。
-44. **人工窗口前必须先做通用规则/拆书资产定向回修**：正文初稿或上一轮正文完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
+42. **算法窗口永远不能代替人工窗口**：用户确认继续深审后，未完成当前模型人工分段回执时，`run_full_ai_audit.py` 只能作为算法预扫；回执为 `pending`、缺失或正文 SHA 不一致时，禁止结束深审流程。正文初稿停靠阶段不得提前运行算法窗口或人工窗口。
+43. **完整流程完成条件必须全部满足**：用户确认继续深审后，人工模型分段回执为 `completed`、正文 SHA/字符数/边界一致、正式全量审计绑定并通过完整顺序契约、每个窗口完成顺序节点结构复核、正式全量审计使用该回执、`rhythm_distribution_audit` 已逐窗人工复核、平台格式校验通过、`validate_post_write_human_review_gate.py` 和 `validate_rule_execution_ledger.py` 均输出 `passed`。缺任何一项，只能报告“初稿已完成，完整流程未完成”。其中正文字符数必须统一使用 `count_words.py` 的番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符；禁止用估算、编辑器统计或其他临时脚本替代。
+44. **人工窗口前必须先做通用规则/拆书资产定向回修**：用户在初稿停靠后明确选择继续深审，或上一轮正文回炉完成后，先按当前 skill canonical 规则和主体拆书资产执行一轮正文回修，并通过 `validate_pre_window_revision_gate.py`；未通过时不得导出人工分段任务，也不得把窗口检测当作当前轮正式审计。
 45. **窗口检测只负责定位剩余问题**：窗口风险标签、对白比例、气口和重复统计只能作为定位证据；每窗必须由当前模型人工判断具体病因和“保留/局部回修/整块回炉”，并逐节点核对顺序契约；不能把脚本标签直接等同于正文缺陷。人工窗口还必须逐窗填写 `procedural_stiffness_review`，把 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 汇总成正式审计和施工单里的可改问题；只给 AIGC 分数、不列具体原句和改法，视为人工窗口未完成。
 46. **窗口前回修后必须重新绑定正文**：正文 SHA、字符数或任何正文句子变化都会使窗口前回修回执和人工分段回执同时失效；必须先重新执行窗口前规则/资产回修，再重新导出并人工切窗。
 47. **全局成文形状必须单独审查**：局部窗口通过不能替代全文检查；必须检查章节弧线同构、章尾收束重复、主角连续正确、专业细节功能性和全文对白模式变化。
@@ -396,8 +403,17 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 主体拆书导语资产中的“功能顺序”和“为什么不能换序”不允许只作为普通 `outline_constraint` 留在台账中。写完大纲后、正文首写或开头回炉后，分别运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init \
+  --project "{项目名}" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md" \
+  --artifact-kind draft \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md"
 ```
 
 必须由当前模型读取主体 `可直接仿写_导语拆解表.md`、所有选中主体/辅助拆文的 `原文/` 开头样本和目标前 `120` 字，逐项填写原句证据。任一检查失败就改大纲或开头；不允许用“第一节最终有冲突”“本轮只改中后段”“已读 profile”或规则台账已通过替代本闸门。开头回炉后还必须人工确认不是分镜清单或规则施工单。
@@ -454,17 +470,43 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 15. 对大纲执行细纲表演验收硬闸；主流程仿写必须先在回执中完成 `source_bridge_flow_inventory` 和 `outline_bridge_flow_parity`
 16. 逐项确认原文 BID/关键子桥段在细纲中均为 `matched/adapted`，缺失、弱化或只做功能映射时先重写细纲
 17. 通过正文写作放行闸，再写正文并逐项更新台账
-18. 知乎 / 盐言正文运行纯数字分节格式校验
-19. 补正文顺序节点证据并重新通过完整顺序契约
-20. 对正文执行开头承重契约硬闸
-21. 按通用规则和拆书资产定向回修
-22. 通过窗口前回修闸，再做人工模型切窗、逐窗流程硬化/证据清单感人工复核和正式审计
-23. 生成包含人工窗口病灶汇总的回修任务单
-24. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
-25. 重新审计
-26. 绑定最终写作产物并通过 `rule_execution_gate`
-27. 全文人工语义复扫并通过 `post_write_human_review_gate`
-28. 高风险任务再过第二闸门
+18. 正文初稿落盘后，只运行 `count_words.py`；知乎 / 盐言正文再运行纯数字分节格式校验
+19. **立即停靠并把正文交给用户预览**；禁止自动继续顺序重绑、正文开头契约、窗口前回修、人工分窗、正式审计、回炉、最终台账或人工语义复核
+20. 只有用户看过初稿并明确回复“继续深审”“继续完整流程”或同义指令后，才补正文顺序节点证据并重新通过完整顺序契约
+21. 对正文执行开头承重契约硬闸
+22. 按通用规则和拆书资产定向回修
+23. 通过窗口前回修闸，再做人工模型切窗、逐窗流程硬化/证据清单感人工复核和正式审计
+24. 生成包含人工窗口病灶汇总的回修任务单
+25. 定点回炉；正文 SHA 变化后重过平台格式、顺序、开头、窗口前回修和人工切窗
+26. 重新审计
+27. 绑定最终写作产物并通过 `rule_execution_gate`
+28. 全文人工语义复扫并通过 `post_write_human_review_gate`
+29. 高风险任务再过第二闸门
+
+### 正文初稿停靠硬闸
+
+正文初稿全部写入 `正文.md` 后必须结束当前轮，不得把用户最初提出的“完整流程”“整套写完”解释为授权连续进入深审。停靠前只允许：
+
+- 运行 `count_words.py`，报告统一番茄口径字数。
+- 平台为知乎 / 盐言时运行 `validate_zhihu_section_format.py`。
+- 确认正文文件可读取；不得借基础检查之名修改、润色或回炉正文。
+
+停靠回复必须明确区分“初稿完成”和“完整流程完成”，并包含：
+
+```text
+正文初稿已完成
+- 正文：{正文.md 路径}
+- 字数：{count_words.py 结果}
+- 平台格式：{通过 / 不适用 / 阻断原因}
+- 当前状态：已停靠，尚未执行深审与回炉
+
+下一步可选：
+1. 回复“继续深审”：继续顺序、开头、窗口前回修、人工分窗、正式审计和最终验收。
+2. 回复“修改第 X 节 / 某个情节”：先按用户意见回修初稿，再重新停靠。
+3. 回复“只做去 AI 味”：转入成稿去味流程，不自动执行完整深审。
+```
+
+用户没有明确选择下一步时，必须停止；不得把等待用户预览视为流程阻断，也不得自行替用户选择深审。
 
 这部分展开口径见：
 
@@ -510,25 +552,55 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 
 ### 脚本入口
 
-常用入口只保留下面 10 个：
+常用入口及完整参数模板如下。将 `{变量}` 替换为真实路径后直接执行，不再用 `...` 占位：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
+  --receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
+  --receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+  --ledger "{项目目录}/写作资产/规则执行台账.json"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" validate \
+  --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --target "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" --text "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "{项目目录}/正文.md"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" ...
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" 当前短篇目录
+python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+  --source "拆文库/{主体书}" \
+  --name "{主体书}" \
+  --output "拆文库/{主体书}/book.profile.json"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
+  "{项目目录}/正文.md" \
+  --output-dir "{项目目录}/写作资产/正式审计" \
+  --profile "profiles/{项目名}.project.profile.json" \
+  --audit-rulebook "$CODEX_HOME/skills/story-short-write/references/governance/audit-rulebook.json" \
+  --pre-window-revision-receipt "{项目目录}/写作资产/窗口前规则资产回修回执.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --model-segmentation-receipt "{项目目录}/写作资产/人工模型分段回执.json"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/auto_revise_ai_flavor.py" \
+  "{项目目录}/正文.md" \
+  --profile "profiles/{项目名}.project.profile.json" \
+  --output-dir "{项目目录}/auto_revise_runs"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" "{项目目录}"
 ```
 
 题材首次校准才用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" ...
+python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" \
+  "{项目目录}" \
+  --audit-dir "{项目目录}/写作资产/正式审计" \
+  --output "{项目目录}/写作资产/外部分块审计对齐.csv" \
+  --summary-output "{项目目录}/写作资产/外部分块审计对齐摘要.json" \
+  --internal-standard-output "{项目目录}/写作资产/内部审计标准.json"
 ```
 
 详细调用、产物、停机口径见：
@@ -715,7 +787,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 ### Phase 4：审计与回炉
 
-先内部审计，再决定改什么。
+只有用户在正文初稿停靠后明确选择“继续深审”“继续完整流程”或同义操作，才进入本阶段。先内部审计，再决定改什么。
 
 内部审计只负责脚本预扫和风险定位，不得凭“零命中”直接宣布作者站位、人物动机或叙述者声音已经通过。
 
