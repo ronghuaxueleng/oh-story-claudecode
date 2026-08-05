@@ -21,6 +21,54 @@ REQUIRED_DIMENSIONS = (
     "emotion_wording",
     "productive_roughness",
 )
+ULTRA_FINE_FEATURE_GROUPS = {
+    "character_punctuation": tuple(f"CP-{index:02d}" for index in range(1, 9)),
+    "lexical_morphology": tuple(f"LM-{index:02d}" for index in range(1, 9)),
+    "phrase_syntax": tuple(f"PS-{index:02d}" for index in range(1, 9)),
+    "sentence_cohesion": tuple(f"SC-{index:02d}" for index in range(1, 9)),
+    "focalization_pragmatics": tuple(f"FP-{index:02d}" for index in range(1, 13)),
+    "emotion_paragraph_distribution": tuple(f"EP-{index:02d}" for index in range(1, 9)),
+}
+ULTRA_FINE_FEATURE_IDS = tuple(
+    feature_id
+    for feature_ids in ULTRA_FINE_FEATURE_GROUPS.values()
+    for feature_id in feature_ids
+)
+SOURCE_SENTENCE_ANNOTATION_FIELDS = (
+    "character_and_punctuation",
+    "lexical_and_morphology",
+    "clause_and_syntax",
+    "reference_and_cohesion",
+    "focalization_and_knowledge_limit",
+    "speech_thought_and_pragmatics",
+    "emotion_action_sequence",
+    "paragraph_and_negative_space",
+    "transfer_constraint",
+    "permitted_deviation",
+)
+SECTION_PARAGRAPH_PLAN_FIELDS = (
+    "entry_motion",
+    "focalizer_and_knowledge_limit",
+    "cohesion_chain",
+    "dialogue_strategy",
+    "emotion_sequence",
+    "exit_cut",
+    "negative_space",
+)
+SECTION_WINDOW_PLAN_FIELDS = (
+    "sentence_length_movement",
+    "function_word_rhythm",
+    "narrator_interjection_distribution",
+    "anti_uniformity",
+)
+TARGET_SENTENCE_MAPPING_FIELDS = (
+    "clause_and_function_words",
+    "sentence_relation",
+    "reference_and_focalization",
+    "speech_and_pragmatics",
+    "emotion_and_paragraph_function",
+    "permitted_deviation",
+)
 SOURCE_STYLE_GRANULARITY_FIELDS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -29,6 +77,47 @@ SOURCE_STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+
+
+def ultra_fine_source_baseline_scaffold() -> dict[str, Any]:
+    return {
+        "methodology_reference_read": False,
+        "annotation_unit": "sentence",
+        "feature_inventory": list(ULTRA_FINE_FEATURE_IDS),
+        "source_passages": [],
+        "distribution_baseline": {
+            "measurement_method": "",
+            "metrics": {},
+            "interpretation": "",
+            "mechanical_statistical_matching_forbidden": True,
+        },
+        "manual_judgment": "",
+    }
+
+
+def section_generation_plan_scaffold(section_id: str) -> dict[str, Any]:
+    return {
+        "section_id": section_id,
+        "status": "pending",
+        "planned_before_draft": None,
+        "source_passage_ids": [],
+        "sentence_mechanisms": [],
+        "paragraph_plan": {field: "" for field in SECTION_PARAGRAPH_PLAN_FIELDS},
+        "window_plan": {field: "" for field in SECTION_WINDOW_PLAN_FIELDS},
+        "surface_copy_rejected": None,
+        "manual_judgment": "",
+    }
+
+
+def target_sentence_mapping_scaffold() -> dict[str, Any]:
+    return {
+        "target_sentence": "",
+        "source_anchor_sentence": "",
+        "feature_ids": [],
+        **{field: "" for field in TARGET_SENTENCE_MAPPING_FIELDS},
+        "contract_used_during_writing": None,
+        "surface_copy_rejected": None,
+    }
 
 
 def normalized_manual_text(value: Any) -> str:
@@ -131,7 +220,7 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
     if any(not subflow_id for subflow_id in subflow_ids) or len(set(subflow_ids)) != len(subflow_ids):
         raise ValueError(f"主体原文子流程索引存在空或重复 subflow_id: {subflow_catalog}")
     return {
-        "version": "1.0",
+        "version": "2.0",
         "project": project,
         "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "gate_status": "pending",
@@ -163,6 +252,9 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
             "anti_patterns": [],
             "manual_judgment": "",
         },
+        "ultra_fine_source_baseline": ultra_fine_source_baseline_scaffold(),
+        "outline": None,
+        "section_generation_plans": [],
         "calibration_samples": [],
         "draft": None,
         "section_reviews": [],
@@ -271,8 +363,269 @@ def validate_subflow_catalog_data(
     return records
 
 
+def sentence_units(text: str) -> list[str]:
+    units: list[str] = []
+    buffer: list[str] = []
+    pending_terminal = False
+    for char in text:
+        if char.isspace() and not buffer:
+            continue
+        if pending_terminal and char not in "」』”’":
+            unit = "".join(buffer).strip()
+            if unit:
+                units.append(unit)
+            buffer = []
+            pending_terminal = False
+            if char.isspace():
+                continue
+        buffer.append(char)
+        if char in "。！？?!":
+            pending_terminal = True
+        elif pending_terminal and char in "」』”’":
+            unit = "".join(buffer).strip()
+            if unit:
+                units.append(unit)
+            buffer = []
+            pending_terminal = False
+    unit = "".join(buffer).strip()
+    if unit:
+        units.append(unit)
+    return units
+
+
+def validate_ultra_fine_source_baseline(
+    data: dict[str, Any], source_text: str, errors: list[str]
+) -> dict[str, dict[str, Any]]:
+    if data.get("version") != "2.0":
+        errors.append("超细文字颗粒度契约版本必须为 2.0")
+    baseline = data.get("ultra_fine_source_baseline")
+    if not isinstance(baseline, dict):
+        errors.append("ultra_fine_source_baseline 必须是对象")
+        return {}
+    if baseline.get("methodology_reference_read") is not True:
+        errors.append("必须阅读超细颗粒度方法 reference")
+    if baseline.get("annotation_unit") != "sentence":
+        errors.append("超细源文标注单位必须为 sentence")
+    if baseline.get("feature_inventory") != list(ULTRA_FINE_FEATURE_IDS):
+        errors.append("超细契约必须完整绑定 52 项特征库")
+
+    passages = baseline.get("source_passages")
+    passage_map: dict[str, dict[str, Any]] = {}
+    purposes: set[str] = set()
+    annotation_signatures: dict[str, list[str]] = {}
+    if not isinstance(passages, list) or len(passages) < 5:
+        errors.append("超细写前基线至少需要 5 组连续原文逐句标注")
+        passages = []
+    for index, passage in enumerate(passages, start=1):
+        label = f"超细原文段[{index}]"
+        if not isinstance(passage, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        passage_id = str(passage.get("id") or "").strip()
+        quote = str(passage.get("quote") or "").strip()
+        purpose = str(passage.get("purpose") or "").strip()
+        if not passage_id or passage_id in passage_map:
+            errors.append(f"{label}.id 为空或重复")
+            continue
+        passage_map[passage_id] = passage
+        if len(quote) < 80 or quote not in source_text:
+            errors.append(f"{label}.quote 必须是 80 字以上的连续主体原文")
+        if not purpose:
+            errors.append(f"{label}.purpose 不能为空")
+        else:
+            purposes.add(purpose)
+        annotations = passage.get("sentence_annotations")
+        if not isinstance(annotations, list):
+            errors.append(f"{label}.sentence_annotations 必须是列表")
+            continue
+        expected_units = sentence_units(quote)
+        annotated_units = [
+            str(item.get("source_sentence") or "").strip()
+            for item in annotations
+            if isinstance(item, dict)
+        ]
+        if annotated_units != expected_units:
+            errors.append(f"{label} 必须按顺序逐句覆盖连续原文，不得抽样")
+        for sentence_index, annotation in enumerate(annotations, start=1):
+            sentence_label = f"{label}.句[{sentence_index}]"
+            if not isinstance(annotation, dict):
+                errors.append(f"{sentence_label} 必须是对象")
+                continue
+            source_sentence = str(annotation.get("source_sentence") or "").strip()
+            if not source_sentence or source_sentence not in quote:
+                errors.append(f"{sentence_label}.source_sentence 不在该连续原文中")
+            feature_ids = nonempty_strings(annotation.get("feature_ids"))
+            if not feature_ids or any(
+                feature_id not in ULTRA_FINE_FEATURE_IDS for feature_id in feature_ids
+            ):
+                errors.append(f"{sentence_label}.feature_ids 必须引用 52 项特征库")
+            for field in SOURCE_SENTENCE_ANNOTATION_FIELDS:
+                value = str(annotation.get(field) or "").strip()
+                if len(value) < 8:
+                    errors.append(f"{sentence_label}.{field} 必须具体标注")
+                elif field not in ("transfer_constraint", "permitted_deviation"):
+                    annotation_signatures.setdefault(
+                        normalized_manual_text(value), []
+                    ).append(f"{passage_id}:{sentence_index}:{field}")
+    if len(purposes) < 4:
+        errors.append("超细连续原文必须覆盖至少 4 类场景")
+    for labels in annotation_signatures.values():
+        if len(labels) > 2:
+            errors.append("超细逐句标注不得大面积复用模板: " + ", ".join(labels[:6]))
+
+    distribution = baseline.get("distribution_baseline")
+    if not isinstance(distribution, dict):
+        errors.append("distribution_baseline 必须是对象")
+    else:
+        if not str(distribution.get("measurement_method") or "").strip():
+            errors.append("distribution_baseline.measurement_method 不能为空")
+        metrics = distribution.get("metrics")
+        required_metrics = (
+            "non_whitespace_chars",
+            "sentence_count",
+            "sentence_length_median",
+            "sentence_length_p90",
+            "question_count",
+            "ellipsis_count",
+            "paragraph_length_median",
+            "function_word_counts",
+        )
+        if not isinstance(metrics, dict):
+            errors.append("distribution_baseline.metrics 必须是对象")
+        else:
+            for field in required_metrics:
+                if field not in metrics or metrics.get(field) in (None, "", {}):
+                    errors.append(f"distribution_baseline.metrics.{field} 不能为空")
+        if len(str(distribution.get("interpretation") or "").strip()) < 20:
+            errors.append("distribution_baseline.interpretation 必须解释分布而非只报数")
+        if distribution.get("mechanical_statistical_matching_forbidden") is not True:
+            errors.append("禁止机械对齐主体原文统计量")
+    if len(str(baseline.get("manual_judgment") or "").strip()) < 20:
+        errors.append("ultra_fine_source_baseline.manual_judgment 不能为空")
+    return passage_map
+
+
+def validate_outline_generation_plans(
+    data: dict[str, Any],
+    outline_path: Path | None,
+    passage_map: dict[str, dict[str, Any]],
+    errors: list[str],
+) -> int:
+    binding = data.get("outline")
+    if not isinstance(binding, dict):
+        errors.append("超细文字契约必须在写正文前 bind-outline")
+        return 0
+    bound_path = Path(str(binding.get("path") or "")).resolve()
+    if outline_path is not None and bound_path != outline_path.resolve():
+        errors.append("超细文字契约绑定的细纲路径不一致")
+    if not bound_path.is_file():
+        errors.append(f"超细文字契约绑定细纲不存在: {bound_path}")
+        return 0
+    if binding.get("sha256") != sha256(bound_path):
+        errors.append("细纲已变化，必须重新生成逐节落笔包")
+    sections = extract_sections(read_text(bound_path))
+    plans = data.get("section_generation_plans")
+    if not isinstance(plans, list):
+        errors.append("section_generation_plans 必须是列表")
+        return 0
+    plan_map = {
+        str(item.get("section_id") or ""): item
+        for item in plans
+        if isinstance(item, dict) and str(item.get("section_id") or "")
+    }
+    for section_id in sorted(set(sections) - set(plan_map)):
+        errors.append(f"正文落笔前缺少小节颗粒度包: {section_id}")
+    for section_id in sorted(set(plan_map) - set(sections)):
+        errors.append(f"颗粒度包引用不存在的细纲小节: {section_id}")
+    passed = 0
+    judgment_signatures: dict[str, list[str]] = {}
+    for section_id, section_text in sections.items():
+        plan = plan_map.get(section_id)
+        if not plan:
+            continue
+        label = f"第 {section_id} 节落笔包"
+        valid = True
+        if plan.get("status") != "passed" or plan.get("planned_before_draft") is not True:
+            errors.append(f"{label} 必须在写正文前完成并通过")
+            valid = False
+        passage_ids = nonempty_strings(plan.get("source_passage_ids"))
+        if not passage_ids or any(item not in passage_map for item in passage_ids):
+            errors.append(f"{label}.source_passage_ids 必须绑定已逐句标注的原文段")
+            valid = False
+        allowed_source_sentences = {
+            str(annotation.get("source_sentence") or "").strip()
+            for passage_id in passage_ids
+            for annotation in (passage_map.get(passage_id, {}).get("sentence_annotations") or [])
+            if isinstance(annotation, dict)
+        }
+        mechanisms = plan.get("sentence_mechanisms")
+        if not isinstance(mechanisms, list) or len(mechanisms) < 3:
+            errors.append(f"{label}.sentence_mechanisms 至少需要 3 个逐句生成机制")
+            mechanisms = []
+            valid = False
+        for index, mechanism in enumerate(mechanisms, start=1):
+            item_label = f"{label}.机制[{index}]"
+            if not isinstance(mechanism, dict):
+                errors.append(f"{item_label} 必须是对象")
+                valid = False
+                continue
+            source_sentence = str(mechanism.get("source_sentence") or "").strip()
+            if source_sentence not in allowed_source_sentences:
+                errors.append(f"{item_label}.source_sentence 不在本节绑定原文段中")
+                valid = False
+            feature_ids = nonempty_strings(mechanism.get("feature_ids"))
+            if len(feature_ids) < 2 or any(
+                feature_id not in ULTRA_FINE_FEATURE_IDS for feature_id in feature_ids
+            ):
+                errors.append(f"{item_label}.feature_ids 至少绑定 2 项超细特征")
+                valid = False
+            for field in (
+                "mechanism",
+                "target_intent",
+                "allowed_deviation",
+                "prohibited_shell",
+            ):
+                if len(str(mechanism.get(field) or "").strip()) < 8:
+                    errors.append(f"{item_label}.{field} 必须具体")
+                    valid = False
+            if mechanism.get("surface_copy_rejected") is not True:
+                errors.append(f"{item_label}.surface_copy_rejected 必须为 true")
+                valid = False
+        for group_name, fields in (
+            ("paragraph_plan", SECTION_PARAGRAPH_PLAN_FIELDS),
+            ("window_plan", SECTION_WINDOW_PLAN_FIELDS),
+        ):
+            group = plan.get(group_name)
+            if not isinstance(group, dict):
+                errors.append(f"{label}.{group_name} 必须是对象")
+                valid = False
+                continue
+            for field in fields:
+                if len(str(group.get(field) or "").strip()) < 8:
+                    errors.append(f"{label}.{group_name}.{field} 必须具体")
+                    valid = False
+        if plan.get("surface_copy_rejected") is not True:
+            errors.append(f"{label}.surface_copy_rejected 必须为 true")
+            valid = False
+        judgment = str(plan.get("manual_judgment") or "").strip()
+        if len(judgment) < 20:
+            errors.append(f"{label}.manual_judgment 必须说明如何用于本节落笔")
+            valid = False
+        else:
+            judgment_signatures.setdefault(normalized_manual_text(judgment), []).append(section_id)
+        if not str(section_text).strip():
+            errors.append(f"{label} 绑定的细纲小节为空")
+            valid = False
+        if valid:
+            passed += 1
+    for section_ids in judgment_signatures.values():
+        if len(section_ids) > 1:
+            errors.append("不同小节不得复用模板化落笔裁决: " + ", ".join(section_ids))
+    return passed
+
+
 def validate_prewrite_data(
-    data: dict[str, Any], source_original: Path
+    data: dict[str, Any], source_original: Path, outline_path: Path | None = None
 ) -> tuple[list[str], dict[str, int]]:
     errors: list[str] = []
     source_text = validate_source_binding(data, source_original, errors)
@@ -285,6 +638,12 @@ def validate_prewrite_data(
         errors.append("必须由当前写作模型人工建立文字颗粒度基线")
     if data.get("auxiliary_sources_supply_prose") is not False:
         errors.append("辅助来源不得供应正文声线，只能供应情节与场面机制")
+    ultra_fine_passages = validate_ultra_fine_source_baseline(
+        data, source_text, errors
+    )
+    passed_generation_plans = validate_outline_generation_plans(
+        data, outline_path, ultra_fine_passages, errors
+    )
 
     baseline = data.get("source_baseline")
     if not isinstance(baseline, dict):
@@ -392,6 +751,8 @@ def validate_prewrite_data(
         "required_dimensions": len(REQUIRED_DIMENSIONS),
         "valid_calibration_samples": valid_samples,
         "required_subflows": len(subflow_records),
+        "ultra_fine_source_passages": len(ultra_fine_passages),
+        "passed_generation_plans": passed_generation_plans,
     }
 
 
@@ -409,6 +770,22 @@ def extract_sections(text: str) -> dict[str, str]:
     if not sections:
         return {"full": text}
     return {key: "\n".join(lines) for key, lines in sections.items()}
+
+
+def bind_outline(data: dict[str, Any], outline_path: Path) -> dict[str, Any]:
+    outline = outline_path.resolve()
+    if not outline.is_file():
+        raise FileNotFoundError(f"细纲不存在: {outline}")
+    sections = extract_sections(read_text(outline))
+    data["version"] = "2.0"
+    data["gate_status"] = "pending"
+    data["prewrite_status"] = "pending"
+    data["outline"] = {"path": str(outline), "sha256": sha256(outline)}
+    data["section_generation_plans"] = [
+        section_generation_plan_scaffold(section_id) for section_id in sections
+    ]
+    data["blocking_failures"] = []
+    return data
 
 
 def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
@@ -429,6 +806,9 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
             "functional_alignment_used_as_prose_proof": None,
             "extra_ai_shell": None,
             "comparison": "",
+            "generation_plan_consumed": None,
+            "sentence_mappings": [],
+            "section_write_judgment": "",
         }
         for section_id in sections
     ]
@@ -727,6 +1107,19 @@ def validate_draft_data(
         errors.append(f"文字颗粒度复核引用不存在的小节: {section_id}")
 
     source_text = read_text(source_original.resolve())
+    ultra_fine_baseline = data.get("ultra_fine_source_baseline") or {}
+    annotated_source_sentences = {
+        str(annotation.get("source_sentence") or "").strip()
+        for passage in (ultra_fine_baseline.get("source_passages") or [])
+        if isinstance(passage, dict)
+        for annotation in (passage.get("sentence_annotations") or [])
+        if isinstance(annotation, dict)
+    }
+    generation_plan_map = {
+        str(item.get("section_id") or ""): item
+        for item in (data.get("section_generation_plans") or [])
+        if isinstance(item, dict) and str(item.get("section_id") or "")
+    }
     passed_sections = 0
     anchor_signatures: dict[tuple[str, ...], list[str]] = {}
     comparison_signatures: dict[str, list[str]] = {}
@@ -774,6 +1167,71 @@ def validate_draft_data(
             valid = False
         else:
             comparison_signatures.setdefault(comparison, []).append(section_id)
+        if review.get("generation_plan_consumed") is not True:
+            errors.append(f"正文小节必须在落笔时消费超细颗粒度包: {section_id}")
+            valid = False
+        plan = generation_plan_map.get(section_id)
+        if not plan or plan.get("status") != "passed":
+            errors.append(f"正文小节没有已通过的写前落笔包: {section_id}")
+            valid = False
+        mappings = review.get("sentence_mappings")
+        minimum_mappings = min(4, len(sentence_units(section_text)))
+        if not isinstance(mappings, list) or len(mappings) < minimum_mappings:
+            errors.append(
+                f"正文小节至少需要 {minimum_mappings} 条逐句超细映射: {section_id}"
+            )
+            mappings = []
+            valid = False
+        mapped_targets: set[str] = set()
+        mapping_signatures: dict[str, list[int]] = {}
+        for mapping_index, mapping in enumerate(mappings, start=1):
+            label = f"正文小节 {section_id}.逐句映射[{mapping_index}]"
+            if not isinstance(mapping, dict):
+                errors.append(f"{label} 必须是对象")
+                valid = False
+                continue
+            target_sentence = str(mapping.get("target_sentence") or "").strip()
+            if not target_sentence or target_sentence not in section_text:
+                errors.append(f"{label}.target_sentence 不在当前小节中")
+                valid = False
+            if target_sentence in mapped_targets:
+                errors.append(f"{label}.target_sentence 不得重复充数")
+                valid = False
+            mapped_targets.add(target_sentence)
+            source_anchor = str(mapping.get("source_anchor_sentence") or "").strip()
+            if source_anchor not in annotated_source_sentences:
+                errors.append(f"{label}.source_anchor_sentence 必须来自写前逐句标注")
+                valid = False
+            feature_ids = nonempty_strings(mapping.get("feature_ids"))
+            if len(feature_ids) < 2 or any(
+                feature_id not in ULTRA_FINE_FEATURE_IDS for feature_id in feature_ids
+            ):
+                errors.append(f"{label}.feature_ids 至少绑定 2 项超细特征")
+                valid = False
+            signature_parts: list[str] = []
+            for field in TARGET_SENTENCE_MAPPING_FIELDS:
+                value = str(mapping.get(field) or "").strip()
+                if len(value) < 8:
+                    errors.append(f"{label}.{field} 必须具体对照")
+                    valid = False
+                signature_parts.append(normalized_manual_text(value))
+            mapping_signatures.setdefault("|".join(signature_parts), []).append(mapping_index)
+            if mapping.get("contract_used_during_writing") is not True:
+                errors.append(f"{label}.contract_used_during_writing 必须为 true")
+                valid = False
+            if mapping.get("surface_copy_rejected") is not True:
+                errors.append(f"{label}.surface_copy_rejected 必须为 true")
+                valid = False
+        for mapping_indexes in mapping_signatures.values():
+            if len(mapping_indexes) > 1:
+                errors.append(
+                    f"正文小节 {section_id} 逐句映射不得复用模板: "
+                    + ", ".join(str(item) for item in mapping_indexes)
+                )
+                valid = False
+        if len(str(review.get("section_write_judgment") or "").strip()) < 20:
+            errors.append(f"正文小节缺少落笔中使用契约的人工裁决: {section_id}")
+            valid = False
         if valid:
             passed_sections += 1
 
@@ -831,9 +1289,13 @@ def main() -> int:
     init_parser.add_argument("--project", required=True)
     init_parser.add_argument("--source-original", required=True)
     init_parser.add_argument("--receipt", required=True)
+    outline_parser = subparsers.add_parser("bind-outline")
+    outline_parser.add_argument("--receipt", required=True)
+    outline_parser.add_argument("--outline", required=True)
     prewrite_parser = subparsers.add_parser("validate-prewrite")
     prewrite_parser.add_argument("--receipt", required=True)
     prewrite_parser.add_argument("--source-original", required=True)
+    prewrite_parser.add_argument("--outline", required=True)
     bind_parser = subparsers.add_parser("bind-draft")
     bind_parser.add_argument("--receipt", required=True)
     bind_parser.add_argument("--draft", required=True)
@@ -859,13 +1321,17 @@ def main() -> int:
         print(f"prose_granularity_contract: blocked ({args.command})")
         print(f"- 文字颗粒度合同回执不是有效 JSON: {exc}")
         return 2
+    if args.command == "bind-outline":
+        write_json(receipt, bind_outline(data, Path(args.outline)))
+        print(f"prose_granularity_contract: outline bound -> {receipt}")
+        return 0
     if args.command == "bind-draft":
         write_json(receipt, bind_draft(data, Path(args.draft)))
         print(f"prose_granularity_contract: draft bound -> {receipt}")
         return 0
     source = Path(args.source_original).resolve()
     if args.command == "validate-prewrite":
-        errors, summary = validate_prewrite_data(data, source)
+        errors, summary = validate_prewrite_data(data, source, Path(args.outline))
         label = "prewrite"
     else:
         errors, summary = validate_draft_data(data, source, Path(args.draft))

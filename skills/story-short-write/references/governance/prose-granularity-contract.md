@@ -24,6 +24,10 @@
 
 不得把原文拆成几个漂亮金句充当连续气口，不得用“冲突更快、信息更密、钩子更强”替代句面判断。
 
+上述七维合同是书级声线摘要，不是最细执行单位。v2 回执还必须完成 [ultra-fine-prose-granularity.md](ultra-fine-prose-granularity.md) 的 52 项特征库、5 组 80 字以上连续片段逐句全标注和分布解释。连续片段中的每一句都必须进入 `sentence_annotations`，不得抽样。
+
+细纲定稿后、正文放行前必须先执行 `bind-outline`。当前模型随后逐节填写 `section_generation_plans`：每个细纲小节至少绑定 3 个源文逐句机制，并完成段落计划、句群窗口计划和表层复刻拒绝。缺一节即阻断 `validate-prewrite`。
+
 ## 全文覆盖
 
 正文写作时逐节维护 `section_reviews`，每个数字小节必须：
@@ -35,6 +39,10 @@
 - 明确 `functional_alignment_used_as_prose_proof=false`。
 - 明确 `extra_ai_shell=false`。
 - 写出原文与目标稿的具体句面对照，不能只写“已检查”。
+- 在落笔前读取本节 `section_generation_plans`，并在写完本节后立即填写 `generation_plan_consumed=true`。
+- 回填最多取实际句数、至少取 4 条的 `sentence_mappings`；不足 4 句时覆盖全部句子。
+- 每条映射绑定已标注源文句、至少 2 个超细特征，并逐项说明句法虚词、句间关系、指代聚焦、话语语用、情绪段落作用和允许偏移。
+- 每条映射明确 `contract_used_during_writing=true` 与 `surface_copy_rejected=true`。
 
 不同小节不得复用完全相同的 `source_anchors` 组合，也不得复用完全相同的 `comparison`。逐节复核必须使用与该节实际场面相符的主体声线锚，不能用两条万能原句给全书批量盖章。
 
@@ -59,7 +67,7 @@
 
 脚本只能初始化骨架、校验 SHA/完整性，或把当前模型已经逐字段明确写出的数据确定性序列化到回执。禁止用循环从章节首尾自动抽两句，再批量生成 `status / comparison / manual_judgment / target_section_rationale` 等语义裁决。验证器输出 `passed` 仍不替代当前模型逐项判断。
 
-正文全部写完后，只允许运行本合同的 `validate-draft`、字数统计和平台格式校验，然后立即执行初稿停靠。该窄门禁属于首写质量控制，不代表已进入 AI 深审、滑窗审计或正文回炉。
+固定执行顺序是“读取本节落笔包 -> 写本节 -> 立即回填本节逐句映射 -> 下一节”。禁止先写完整篇正文，再批量生成 `generation_plan_consumed`、`sentence_mappings` 或人工裁决。正文全部写完后，只允许运行本合同的 `validate-draft`、字数统计和平台格式校验，然后立即执行初稿停靠。该窄门禁属于首写质量控制，不代表已进入 AI 深审、滑窗审计或正文回炉。
 
 ## 完整命令
 
@@ -75,9 +83,18 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 当前模型完成写前基线与校准样本后：
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-outline \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --outline "{项目目录}/小节大纲.md"
+```
+
+当前模型逐节完成落笔包后：
+
+```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
-  --source-original "拆文库/{主体书}/原文/{主体书}.txt"
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --outline "{项目目录}/小节大纲.md"
 ```
 
 正文初稿落盘后，先绑定最终 SHA 并自动生成全部小节复核骨架：

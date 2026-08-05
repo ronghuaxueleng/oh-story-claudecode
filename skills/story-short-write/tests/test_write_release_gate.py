@@ -318,6 +318,7 @@ class WriteReleaseGateTest(unittest.TestCase):
     def prose_contract_payload(self) -> dict:
         prose_gate = GATE._PROSE_GRANULARITY_MODULE
         payload = prose_gate.create_receipt("测试", self.source_original)
+        payload = prose_gate.bind_outline(payload, self.outline)
         payload["reviewed_by_current_model"] = True
         payload["prewrite_status"] = "passed"
         source_text = self.source_original.read_text(encoding="utf-8")
@@ -345,6 +346,84 @@ class WriteReleaseGateTest(unittest.TestCase):
             for i in range(3)
         ]
         payload["source_baseline"]["manual_judgment"] = "主体声线已经人工建立。"
+        source_sentences = prose_gate.sentence_units(source_text)
+        passages = []
+        purposes = ("开口", "冲突", "对白", "日常", "收口")
+        for passage_index, purpose in enumerate(purposes, start=1):
+            annotations = []
+            for sentence_index, sentence in enumerate(source_sentences, start=1):
+                annotation = {
+                    "source_sentence": sentence,
+                    "feature_ids": ["CP-01", "SC-01"],
+                }
+                for field_index, field in enumerate(
+                    prose_gate.SOURCE_SENTENCE_ANNOTATION_FIELDS, start=1
+                ):
+                    annotation[field] = (
+                        f"{purpose}样本第{sentence_index}句的第{field_index}类句面证据，"
+                        "结合当句词序和停顿作出局部判断。"
+                    )
+                annotations.append(annotation)
+            passages.append(
+                {
+                    "id": f"P-{passage_index}",
+                    "quote": source_text,
+                    "purpose": purpose,
+                    "sentence_annotations": annotations,
+                }
+            )
+        payload["ultra_fine_source_baseline"] = {
+            "methodology_reference_read": True,
+            "annotation_unit": "sentence",
+            "feature_inventory": list(prose_gate.ULTRA_FINE_FEATURE_IDS),
+            "source_passages": passages,
+            "distribution_baseline": {
+                "measurement_method": "逐句人工复核后记录字符、句长、问句、省略号、段长与虚词次数。",
+                "metrics": {
+                    "non_whitespace_chars": len(source_text),
+                    "sentence_count": len(source_sentences),
+                    "sentence_length_median": 18,
+                    "sentence_length_p90": 28,
+                    "question_count": 2,
+                    "ellipsis_count": 0,
+                    "paragraph_length_median": len(source_text),
+                    "function_word_counts": {"我": 7, "了": 5},
+                },
+                "interpretation": "原文以中短口语句推进现场，问句承担关系错位，极短判断只在受压节点出现。",
+                "mechanical_statistical_matching_forbidden": True,
+            },
+            "manual_judgment": "连续片段已经逐句检查，正文只迁移句法、焦点和语用机制，不迁移人物事件。",
+        }
+        for plan in payload["section_generation_plans"]:
+            plan.update(
+                {
+                    "status": "passed",
+                    "planned_before_draft": True,
+                    "source_passage_ids": ["P-1"],
+                    "sentence_mechanisms": [
+                        {
+                            "source_sentence": source_sentences[index],
+                            "feature_ids": ["CP-01", "SC-01"],
+                            "mechanism": f"机制{index}保留动作先于判断的句间次序。",
+                            "target_intent": f"服务细纲现场的第{index}个关系压力点。",
+                            "allowed_deviation": "允许替换人物物件与句长，不复制表层故事。",
+                            "prohibited_shell": "禁止意义总结、排比判词与工整复合钩子。",
+                            "surface_copy_rejected": True,
+                        }
+                        for index in range(3)
+                    ],
+                    "paragraph_plan": {
+                        field: f"{field}按动作变化切段并保留关系空白。"
+                        for field in prose_gate.SECTION_PARAGRAPH_PLAN_FIELDS
+                    },
+                    "window_plan": {
+                        field: f"{field}用长短句差和有限插嘴控制窗口。"
+                        for field in prose_gate.SECTION_WINDOW_PLAN_FIELDS
+                    },
+                    "surface_copy_rejected": True,
+                    "manual_judgment": "起事节在落笔前绑定拦手与反问的句面机制，让冲突从即时知觉进入。",
+                }
+            )
         payload["calibration_samples"] = [
             {
                 "source_quote": "原文场面里，他先伸手拦我，我把他的手推开。",

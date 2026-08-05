@@ -24,6 +24,7 @@ class ProseGranularityContractTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.source = self.root / "拆文库" / "测试书" / "原文" / "原文.txt"
         self.draft = self.root / "正文.md"
+        self.outline = self.root / "小节大纲.md"
         self.receipt = self.root / "全文文字颗粒度契约回执.json"
         self.source_text = (
             "我没想到今天会在这里遇见他。他伸手拦我，我直接把他的手推了回去。"
@@ -60,12 +61,18 @@ class ProseGranularityContractTest(unittest.TestCase):
             "# 测试\n\n1.\n\n我没想到来取东西会撞见他们。\n\n他伸手拦我，我把钥匙收了回来。\n\n2.\n\n她先哭了。\n\n有意思，我还什么都没问。\n",
             encoding="utf-8",
         )
+        self.outline.write_text(
+            "## 1. 撞见\n\n取东西时撞见两人，先收回钥匙。\n\n"
+            "## 2. 关门\n\n对方用哭回避，女主拒绝解释并关门。\n",
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
 
     def completed_receipt(self, include_draft: bool = True) -> dict:
         receipt = GATE.create_receipt("测试", self.source)
+        receipt = GATE.bind_outline(receipt, self.outline)
         receipt["reviewed_by_current_model"] = True
         receipt["prewrite_status"] = "passed"
         long_quotes = [
@@ -97,6 +104,91 @@ class ProseGranularityContractTest(unittest.TestCase):
             for i in range(3)
         ]
         receipt["source_baseline"]["manual_judgment"] = "主体声线基线已人工建立。"
+        passages = []
+        for passage_index, purpose in enumerate(("开口", "冲突", "对白", "日常", "收口"), start=1):
+            annotations = []
+            for sentence_index, sentence in enumerate(GATE.sentence_units(self.source_text), start=1):
+                annotation = {
+                    "source_sentence": sentence,
+                    "feature_ids": [
+                        GATE.ULTRA_FINE_FEATURE_IDS[(passage_index + sentence_index) % 52],
+                        GATE.ULTRA_FINE_FEATURE_IDS[(passage_index + sentence_index + 17) % 52],
+                    ],
+                }
+                for field_index, field in enumerate(GATE.SOURCE_SENTENCE_ANNOTATION_FIELDS, start=1):
+                    annotation[field] = (
+                        f"{purpose}段第{sentence_index}句的{field_index}号句面判断，"
+                        f"依据词序与停顿说明其局部作用。"
+                    )
+                annotations.append(annotation)
+            passages.append(
+                {
+                    "id": f"P-{passage_index}",
+                    "quote": self.source_text,
+                    "purpose": purpose,
+                    "sentence_annotations": annotations,
+                }
+            )
+        receipt["ultra_fine_source_baseline"] = {
+            "methodology_reference_read": True,
+            "annotation_unit": "sentence",
+            "feature_inventory": list(GATE.ULTRA_FINE_FEATURE_IDS),
+            "source_passages": passages,
+            "distribution_baseline": {
+                "measurement_method": "按逐句切分结果人工复核字符、句长、问句、省略号、段长与虚词出现次数。",
+                "metrics": {
+                    "non_whitespace_chars": len(self.source_text),
+                    "sentence_count": len(GATE.sentence_units(self.source_text)),
+                    "sentence_length_median": 16,
+                    "sentence_length_p90": 24,
+                    "question_count": 3,
+                    "ellipsis_count": 0,
+                    "paragraph_length_median": len(self.source_text),
+                    "function_word_counts": {"我": 8, "了": 6, "也": 2},
+                },
+                "interpretation": "主体以中短口语陈述推进，反问和极短插句只在关系受压处出现，数字只作边界参照。",
+                "mechanical_statistical_matching_forbidden": True,
+            },
+            "manual_judgment": "五组连续片段已经逐句检查，迁移对象是句法选择与语用动作，不是人物事件表层。",
+        }
+        source_sentences = GATE.sentence_units(self.source_text)
+        section_judgments = {
+            "1": "撞见节在落笔前锁定先看见再收钥匙的知觉顺序，让惊讶只从手部反应露出。",
+            "2": "关门节在落笔前锁定哭声错答与拒绝解释，让关系终止停在门外余音里。",
+        }
+        for section_index, plan in enumerate(receipt["section_generation_plans"], start=1):
+            plan.update(
+                {
+                    "status": "passed",
+                    "planned_before_draft": True,
+                    "source_passage_ids": [f"P-{section_index}"],
+                    "surface_copy_rejected": True,
+                    "manual_judgment": section_judgments[str(section_index)],
+                }
+            )
+            plan["sentence_mechanisms"] = [
+                {
+                    "source_sentence": source_sentences[(section_index + mechanism_index) % len(source_sentences)],
+                    "feature_ids": [
+                        GATE.ULTRA_FINE_FEATURE_IDS[mechanism_index],
+                        GATE.ULTRA_FINE_FEATURE_IDS[mechanism_index + 20],
+                    ],
+                    "mechanism": f"机制{mechanism_index}保留先见动作后出判断的句间次序。",
+                    "target_intent": f"用于本节第{mechanism_index}处关系压力的即时落字。",
+                    "allowed_deviation": "允许替换人物物件和句长，不复制原句表层。",
+                    "prohibited_shell": "禁止补写意义总结、排比判词与工整复合钩子。",
+                    "surface_copy_rejected": True,
+                }
+                for mechanism_index in range(3)
+            ]
+            plan["paragraph_plan"] = {
+                field: f"第{section_index}节的{field}按现场动作切段并保留关系空白。"
+                for field in GATE.SECTION_PARAGRAPH_PLAN_FIELDS
+            }
+            plan["window_plan"] = {
+                field: f"第{section_index}节的{field}使用长短句差和有限插嘴控制窗口。"
+                for field in GATE.SECTION_WINDOW_PLAN_FIELDS
+            }
         receipt["calibration_samples"] = [
             {
                 "source_quote": "我没想到今天会在这里遇见他。他伸手拦我，我直接把他的手推了回去。",
@@ -132,6 +224,22 @@ class ProseGranularityContractTest(unittest.TestCase):
                     "functional_alignment_used_as_prose_proof": False,
                     "extra_ai_shell": False,
                     "comparison": f"第 {section_id} 节目标句保持主体原文的直白口语和临场判断。",
+                    "generation_plan_consumed": True,
+                    "sentence_mappings": [
+                        {
+                            "target_sentence": target_sentence,
+                            "source_anchor_sentence": source_sentences[(int(section_id) + mapping_index) % len(source_sentences)],
+                            "feature_ids": ["CP-01", "SC-01"],
+                            **{
+                                field: f"第{section_id}节第{mapping_index}句在{field}上保留现场先后关系并允许原创偏移。"
+                                for field in GATE.TARGET_SENTENCE_MAPPING_FIELDS
+                            },
+                            "contract_used_during_writing": True,
+                            "surface_copy_rejected": True,
+                        }
+                        for mapping_index, target_sentence in enumerate(quotes, start=1)
+                    ],
+                    "section_write_judgment": f"第{section_id}节落笔时逐句调用了预先绑定的句法、指代和语用机制，并拒绝表层照抄。",
                 }
                 for section_id, quotes in section_quotes.items()
             ]
@@ -213,9 +321,23 @@ class ProseGranularityContractTest(unittest.TestCase):
     def test_complete_prewrite_contract_passes(self) -> None:
         self.completed_receipt(include_draft=False)
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
-        errors, summary = GATE.validate_prewrite_data(data, self.source)
+        errors, summary = GATE.validate_prewrite_data(data, self.source, self.outline)
         self.assertEqual([], errors)
         self.assertEqual(3, summary["valid_calibration_samples"])
+
+    def test_missing_source_sentence_annotation_blocks(self) -> None:
+        receipt = self.completed_receipt(include_draft=False)
+        receipt["ultra_fine_source_baseline"]["source_passages"][0][
+            "sentence_annotations"
+        ].pop()
+        errors, _ = GATE.validate_prewrite_data(receipt, self.source, self.outline)
+        self.assertTrue(any("不得抽样" in item for item in errors))
+
+    def test_missing_section_generation_plan_blocks(self) -> None:
+        receipt = self.completed_receipt(include_draft=False)
+        receipt["section_generation_plans"].pop()
+        errors, _ = GATE.validate_prewrite_data(receipt, self.source, self.outline)
+        self.assertTrue(any("正文落笔前缺少小节颗粒度包" in item for item in errors))
 
     def test_all_draft_sections_must_be_reviewed(self) -> None:
         receipt = self.completed_receipt()
@@ -244,6 +366,20 @@ class ProseGranularityContractTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(2, summary["passed_sections"])
         self.assertEqual(1, summary["passed_subflows"])
+
+    def test_contract_must_be_used_during_writing(self) -> None:
+        receipt = self.completed_receipt()
+        receipt["section_reviews"][0]["sentence_mappings"][0][
+            "contract_used_during_writing"
+        ] = False
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("contract_used_during_writing" in item for item in errors))
+
+    def test_generation_plan_consumption_is_required(self) -> None:
+        receipt = self.completed_receipt()
+        receipt["section_reviews"][0]["generation_plan_consumed"] = False
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("落笔时消费超细颗粒度包" in item for item in errors))
 
     def test_reused_section_anchor_pair_blocks(self) -> None:
         receipt = self.completed_receipt()

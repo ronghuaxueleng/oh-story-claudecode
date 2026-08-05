@@ -258,8 +258,8 @@
 3. 立即初始化 `规则执行台账.json`，逐项确认脚本 / 人工 / 混合分工和适用性
 4. 再读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
 5. 大纲完成后先通过 `validate_opening_contract.py`
-6. 仿写 / 融合正文前通过 `validate_prose_granularity_contract.py validate-prewrite`
-7. 正文逐节维护文字颗粒度回执，初稿停靠前通过 `validate-draft`
+6. 仿写 / 融合正文前完成超细源文逐句标注，执行 `bind-outline`，逐节建立落笔包并通过 `validate-prewrite`
+7. 正文每节先读落笔包、写完立即维护逐句映射，初稿停靠前通过 `validate-draft`；禁止全文后批量补回执
 8. 用户授权深审后，再对正文通过 `validate_opening_contract.py`
 9. 再读 `references/governance/audit-rulebook.json`
 10. 再读 `references/governance/precheck_rewrite_gate.config.json`

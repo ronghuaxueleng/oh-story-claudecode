@@ -245,18 +245,12 @@ def validate_release(
                 )
 
     if phase == "draft":
+        prose_data: dict[str, Any] | None = None
+        bound_outline_path: Path | None = None
         if prose_contract is None or primary_source_original is None:
             errors.append("正文写作放行必须提供全文文字颗粒度合同和主体原文")
         else:
             prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
-            if prose_data is not None:
-                prose_errors, _ = _PROSE_GRANULARITY_MODULE.validate_prewrite_data(
-                    prose_data,
-                    primary_source_original,
-                )
-                if prose_errors:
-                    errors.append("全文文字颗粒度写前门禁未通过")
-                    errors.extend(prose_errors)
         if opening_contract is None:
             errors.append("正文写作放行必须提供开头承重契约回执")
         else:
@@ -288,6 +282,7 @@ def validate_release(
                 )
                 if isinstance(binding, dict):
                     outline_path = Path(str(binding.get("path") or "")).resolve()
+                    bound_outline_path = outline_path
                     if outline_path.is_file():
                         errors.extend(
                             _OUTLINE_PERFORMANCE_MODULE.validate_receipt(
@@ -295,6 +290,15 @@ def validate_release(
                                 outline_path,
                             )
                         )
+        if prose_data is not None and primary_source_original is not None:
+            prose_errors, _ = _PROSE_GRANULARITY_MODULE.validate_prewrite_data(
+                prose_data,
+                primary_source_original,
+                bound_outline_path,
+            )
+            if prose_errors:
+                errors.append("全文文字颗粒度写前门禁未通过")
+                errors.extend(prose_errors)
         if profile is None:
             errors.append("正文写作放行必须提供单书或融合 profile")
         elif not profile.is_file():
