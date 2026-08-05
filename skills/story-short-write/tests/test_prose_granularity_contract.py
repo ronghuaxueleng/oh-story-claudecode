@@ -22,7 +22,7 @@ class ProseGranularityContractTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.source = self.root / "原文.txt"
+        self.source = self.root / "拆文库" / "测试书" / "原文" / "原文.txt"
         self.draft = self.root / "正文.md"
         self.receipt = self.root / "全文文字颗粒度契约回执.json"
         self.source_text = (
@@ -32,7 +32,30 @@ class ProseGranularityContractTest(unittest.TestCase):
             "有意思。明明从头到尾我一句话都没说，现在倒像是我欺负了人。"
             "最后我把门关上。外面还有人在说话，我没再听，反正也不重要了。"
         )
+        self.source.parent.mkdir(parents=True)
         self.source.write_text(self.source_text, encoding="utf-8")
+        self.subflow_catalog = self.source.parent.parent / "写作资产" / "子流程索引.jsonl"
+        self.subflow_catalog.parent.mkdir(parents=True)
+        source_style = {
+            field: {
+                "analysis": f"{field} 的主体原文局部颗粒分析。",
+                "source_evidence": ["我没想到今天会在这里遇见他。", "有意思。"],
+            }
+            for field in GATE.SOURCE_STYLE_GRANULARITY_FIELDS
+        }
+        self.subflow_catalog.write_text(
+            json.dumps(
+                {
+                    "subflow_id": "SF-01",
+                    "parent_bridge_id": "BID-01",
+                    "source_range": "L1-L5",
+                    "source_style_granularity": source_style,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self.draft.write_text(
             "# 测试\n\n1.\n\n我没想到来取东西会撞见他们。\n\n他伸手拦我，我把钥匙收了回来。\n\n2.\n\n她先哭了。\n\n有意思，我还什么都没问。\n",
             encoding="utf-8",
@@ -94,20 +117,85 @@ class ProseGranularityContractTest(unittest.TestCase):
                 "1": ["我没想到来取东西会撞见他们。", "他伸手拦我，我把钥匙收了回来。"],
                 "2": ["她先哭了。", "有意思，我还什么都没问。"],
             }
+            section_anchors = {
+                "1": ["我没想到今天会在这里遇见他。", "他伸手拦我，我直接把他的手推了回去。"],
+                "2": ["有意思。", "最后我把门关上。"],
+            }
             receipt["section_reviews"] = [
                 {
                     "section_id": section_id,
                     "status": "passed",
                     "target_quotes": quotes,
-                    "source_anchors": anchors,
+                    "source_anchors": section_anchors[section_id],
                     "dimensions_checked": list(GATE.REQUIRED_DIMENSIONS),
                     "source_voice_preserved": True,
                     "functional_alignment_used_as_prose_proof": False,
                     "extra_ai_shell": False,
-                    "comparison": "目标句保持主体原文的直白口语和临场判断。",
+                    "comparison": f"第 {section_id} 节目标句保持主体原文的直白口语和临场判断。",
                 }
                 for section_id, quotes in section_quotes.items()
             ]
+            subflow_review = receipt["source_subflow_reviews"][0]
+            subflow_review.update(
+                {
+                    "status": "passed",
+                    "target_sections": ["1", "2"],
+                    "target_section_rationale": "撞见、拦手和钥匙换主都发生在前两节，完整承接该 SF 的现场压力。",
+                    "semantic_review_method": "current_model_manual",
+                    "automation_used_for_semantic_judgment": False,
+                    "source_voice_preserved": True,
+                    "functional_alignment_used_as_prose_proof": False,
+                    "extra_ai_shell": False,
+                    "manual_judgment": "SF-01 的六类局部颗粒均已在两节目标正文中逐项核对。",
+                }
+            )
+            field_reviews = {
+                "narrative_voice_and_attitude": (
+                    "女主先压住惊讶再用反问露出不耐，保留主体的嘴硬观察位。",
+                    "同两句在这里证明叙述态度由克制转为带刺，不用于替代节奏判断。",
+                ),
+                "sentence_relation_and_rhythm": (
+                    "陈述句铺开撞见事实，短反问随后截断，让句速在受压处突然加快。",
+                    "同两句在这里形成一长一短的速度落差，不用于证明叙述态度。",
+                ),
+                "paragraph_breath_and_cut_points": (
+                    "撞见句独立起段，反问句另起一拍，段落切点把人物错位留在空白里。",
+                    "同两句在这里负责段落停顿和换气，不用于证明对白错答。",
+                ),
+                "dialogue_misfire_or_avoidance": (
+                    "对方用哭回避钥匙归属，女主不接解释，只用反问缩窄回答范围。",
+                    "同两句在这里呈现问钥匙却收到哭声的错答，不用于证明动作织入。",
+                ),
+                "action_perception_emotion_weave": (
+                    "先看见他们再收回钥匙，感知和手部动作替代了抽象的受伤总结。",
+                    "同两句在这里连接看见、拦手和收钥匙，不用于证明口语毛边。",
+                ),
+                "narrator_interjection_and_roughness": (
+                    "有意思是一句不够端正的现场插嘴，把委屈拧成带火气的自嘲。",
+                    "同两句在这里保留口语插嘴和不体面火气，不用于证明段落结构。",
+                ),
+            }
+            for field in GATE.SOURCE_STYLE_GRANULARITY_FIELDS:
+                comparison, reuse_reason = field_reviews[field]
+                subflow_review["dimension_transfers"][field] = {
+                    "source_evidence": ["我没想到今天会在这里遇见他。", "有意思。"],
+                    "evidence_mappings": [
+                        {
+                            "source_quote": "我没想到今天会在这里遇见他。",
+                            "target_quotes": ["我没想到来取东西会撞见他们。"],
+                            "comparison": comparison + "第一条原文证据对应目标的撞见开场。",
+                        },
+                        {
+                            "source_quote": "有意思。",
+                            "target_quotes": ["有意思，我还什么都没问。"],
+                            "comparison": comparison + "第二条原文证据对应目标的反问收束。",
+                        },
+                    ],
+                    "target_quotes": ["我没想到来取东西会撞见他们。", "有意思，我还什么都没问。"],
+                    "comparison": comparison,
+                    "cross_dimension_reuse_justification": reuse_reason,
+                    "surface_copy_rejected": True,
+                }
             receipt["full_text_review"] = {
                 "reviewed_full_text": True,
                 "all_sections_reviewed": True,
@@ -142,6 +230,7 @@ class ProseGranularityContractTest(unittest.TestCase):
         self.assertEqual(["1", "2"], [item["section_id"] for item in bound["section_reviews"]])
         self.assertEqual("pending", bound["gate_status"])
         self.assertEqual(GATE.sha256(self.draft), bound["draft"]["sha256"])
+        self.assertEqual("pending", bound["source_subflow_reviews"][0]["status"])
 
     def test_function_alignment_cannot_replace_prose_comparison(self) -> None:
         receipt = self.completed_receipt()
@@ -154,6 +243,74 @@ class ProseGranularityContractTest(unittest.TestCase):
         errors, summary = GATE.validate_draft_data(receipt, self.source, self.draft)
         self.assertEqual([], errors)
         self.assertEqual(2, summary["passed_sections"])
+        self.assertEqual(1, summary["passed_subflows"])
+
+    def test_reused_section_anchor_pair_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        receipt["section_reviews"][1]["source_anchors"] = receipt["section_reviews"][0]["source_anchors"]
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("不得复用同一组主体声线锚" in item for item in errors))
+
+    def test_reused_section_comparison_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        receipt["section_reviews"][1]["comparison"] = receipt["section_reviews"][0]["comparison"]
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("不得复用模板化" in item for item in errors))
+
+    def test_missing_subflow_dimension_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        review = receipt["source_subflow_reviews"][0]
+        del review["dimension_transfers"]["narrator_interjection_and_roughness"]
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("缺少正文颗粒迁移" in item for item in errors))
+
+    def test_partial_source_evidence_consumption_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        transfer = receipt["source_subflow_reviews"][0]["dimension_transfers"][
+            "sentence_relation_and_rhythm"
+        ]
+        transfer["source_evidence"] = transfer["source_evidence"][:1]
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("必须完整原样覆盖主体字段证据" in item for item in errors))
+
+    def test_missing_per_evidence_mapping_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        transfer = receipt["source_subflow_reviews"][0]["dimension_transfers"][
+            "dialogue_misfire_or_avoidance"
+        ]
+        transfer["evidence_mappings"] = transfer["evidence_mappings"][:1]
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("必须逐条覆盖全部主体证据" in item for item in errors))
+
+    def test_cross_dimension_quote_reuse_without_reasons_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        review = receipt["source_subflow_reviews"][0]
+        for transfer in review["dimension_transfers"].values():
+            transfer["cross_dimension_reuse_justification"] = ""
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("跨字段复用同一组目标句" in item for item in errors))
+
+    def test_normalized_dimension_comparison_template_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        review = receipt["source_subflow_reviews"][0]
+        for field, transfer in review["dimension_transfers"].items():
+            transfer["comparison"] = f"SF-01 的 {field} 在第 1 节已经完成具体句面对照。"
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("comparison 不得只替换字段名" in item for item in errors))
+
+    def test_automated_semantic_judgment_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        review = receipt["source_subflow_reviews"][0]
+        review["automation_used_for_semantic_judgment"] = True
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("禁止用自动脚本生成语义裁决" in item for item in errors))
+
+    def test_missing_target_section_rationale_blocks(self) -> None:
+        receipt = self.completed_receipt()
+        review = receipt["source_subflow_reviews"][0]
+        review["target_section_rationale"] = ""
+        errors, _ = GATE.validate_draft_data(receipt, self.source, self.draft)
+        self.assertTrue(any("target_section_rationale" in item for item in errors))
 
     def test_changed_draft_invalidates_contract(self) -> None:
         receipt = self.completed_receipt()

@@ -62,6 +62,30 @@ class WriteReleaseGateTest(unittest.TestCase):
         bridge_catalog = source_root / "写作资产" / "桥段施工卡.md"
         bridge_catalog.parent.mkdir(parents=True)
         bridge_catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+        subflow_catalog = source_root / "写作资产" / "子流程索引.jsonl"
+        style_granularity = {
+            field: {
+                "analysis": f"{field} 的主体原文局部分析。",
+                "source_evidence": [
+                    "原文场面里，他先伸手拦我，我把他的手推开。",
+                    "有意思，现在倒像是我进错了门。",
+                ],
+            }
+            for field in GATE._OUTLINE_PERFORMANCE_MODULE.SOURCE_STYLE_GRANULARITY_FIELDS
+        }
+        subflow_catalog.write_text(
+            json.dumps(
+                {
+                    "subflow_id": "SF-01",
+                    "parent_bridge_id": "BID-01",
+                    "source_range": "L1-L5",
+                    "source_style_granularity": style_granularity,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         for name in (
             "writing",
             "source",
@@ -145,6 +169,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "source_subflow_granularity_coverage_reviewed": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
             "global_storyboard_or_process_list": False,
@@ -188,6 +213,21 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "manual_judgment": "细纲已经写出施压、接招和位置变化。",
             }
         ]
+        coverage = payload["source_subflow_granularity_coverage"][0]
+        coverage.update(
+            {
+                "target_outline_sections": ["1"],
+                "coverage_status": "adapted",
+                "adaptation_boundary": "只迁移六类局部颗粒，不复制人物、职业、原句或完整桥壳。",
+                "manual_judgment": "主体 SF-01 的六类颗粒均已分别落到细纲原句。",
+            }
+        )
+        for field in GATE._OUTLINE_PERFORMANCE_MODULE.SOURCE_STYLE_GRANULARITY_FIELDS:
+            coverage["transferred_style_fields"][field] = {
+                "target_outline_evidence": ["动作一"],
+                "transfer_method": f"将 {field} 转为目标场面的动作与句面安排。",
+                "surface_copy_rejected": True,
+            }
         section = payload["sections"][0]
         section.update(
             {

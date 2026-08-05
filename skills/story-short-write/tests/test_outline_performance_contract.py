@@ -52,10 +52,31 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.book_root = self.root / "拆文库" / "测试书"
         self.source = self.book_root / "原文" / "原文.txt"
         self.source.parent.mkdir(parents=True)
-        self.source.write_text("原文场面", encoding="utf-8")
+        self.source.write_text("原文场面\n第二条原文证据", encoding="utf-8")
         self.catalog = self.book_root / "写作资产" / "桥段施工卡.md"
         self.catalog.parent.mkdir(parents=True)
         self.catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
+        self.subflow_catalog = self.book_root / "写作资产" / "子流程索引.jsonl"
+        style_granularity = {
+            field: {
+                "analysis": f"{field} 的主体原文人工分析。",
+                "source_evidence": ["原文场面", "第二条原文证据"],
+            }
+            for field in GATE.SOURCE_STYLE_GRANULARITY_FIELDS
+        }
+        self.subflow_catalog.write_text(
+            json.dumps(
+                {
+                    "subflow_id": "SF-01",
+                    "parent_bridge_id": "BID-01",
+                    "source_range": "L1-L2",
+                    "source_style_granularity": style_granularity,
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         self.receipt = self.root / "细纲表演验收回执.json"
         data = GATE.create_receipt("测试", self.outline, [self.source])
         source_path = str(self.source.resolve())
@@ -98,6 +119,17 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "manual_judgment": "两节连续完成施压、失位和状态变化。",
             }
         ]
+        coverage = data["source_subflow_granularity_coverage"][0]
+        coverage["target_outline_sections"] = ["1"]
+        coverage["coverage_status"] = "adapted"
+        coverage["adaptation_boundary"] = "只迁移六类局部表演颗粒，不复制原人物和事件。"
+        coverage["manual_judgment"] = "六类颗粒均已分别落到第一节的真实场面原句。"
+        for field in GATE.SOURCE_STYLE_GRANULARITY_FIELDS:
+            coverage["transferred_style_fields"][field] = {
+                "target_outline_evidence": ["动作一"],
+                "transfer_method": f"将 {field} 转为目标场面中的动作与句面安排。",
+                "surface_copy_rejected": True,
+            }
         for section in data["sections"]:
             section.update(
                 {
@@ -195,6 +227,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "source_subflow_granularity_coverage_reviewed": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
             "global_storyboard_or_process_list": False,
@@ -207,6 +240,53 @@ class OutlinePerformanceContractTest(unittest.TestCase):
 
     def test_complete_contract_passes(self) -> None:
         self.assertEqual([], GATE.validate_receipt(self.receipt, self.outline))
+
+    def test_missing_primary_subflow_coverage_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["source_subflow_granularity_coverage"] = []
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("必须覆盖主体原文全部 SF" in error for error in errors))
+
+    def test_missing_one_subflow_style_field_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        coverage = data["source_subflow_granularity_coverage"][0]
+        del coverage["transferred_style_fields"]["narrator_interjection_and_roughness"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("未迁移颗粒字段" in error for error in errors))
+
+    def test_init_scaffolds_every_primary_catalog_bridge(self) -> None:
+        self.catalog.write_text(
+            "## BID-01 公开掉位\n\n## BID-02 私域换主\n",
+            encoding="utf-8",
+        )
+        data = GATE.create_receipt("测试", self.outline, [self.source])
+        self.assertEqual(
+            ["BID-01", "BID-02"],
+            [item["bridge_id"] for item in data["source_bridge_flow_inventory"]],
+        )
+        self.assertEqual(
+            ["BID-01", "BID-02"],
+            [item["source_bridge_id"] for item in data["outline_bridge_flow_parity"]],
+        )
+
+    def test_auxiliary_selection_error_lists_available_bridges(self) -> None:
+        auxiliary_root = self.root / "拆文库" / "辅助书"
+        auxiliary = auxiliary_root / "原文" / "辅助书.txt"
+        auxiliary.parent.mkdir(parents=True)
+        auxiliary.write_text("辅助原文", encoding="utf-8")
+        auxiliary_catalog = auxiliary_root / "写作资产" / "桥段施工卡.md"
+        auxiliary_catalog.parent.mkdir(parents=True)
+        auxiliary_catalog.write_text("## BID-03 稀缺资源撤回\n", encoding="utf-8")
+
+        data = GATE.create_receipt("测试", self.outline, [self.source, auxiliary])
+        path = self.root / "待选择回执.json"
+        path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(path, self.outline)
+        self.assertTrue(
+            any("必须人工选择" in error and "BID-03" in error for error in errors)
+        )
 
     def test_outline_change_invalidates_receipt(self) -> None:
         self.outline.write_text("## 1. 改写\n\n动作一\n动作二\n", encoding="utf-8")

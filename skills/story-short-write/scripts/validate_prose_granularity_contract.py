@@ -21,6 +21,24 @@ REQUIRED_DIMENSIONS = (
     "emotion_wording",
     "productive_roughness",
 )
+SOURCE_STYLE_GRANULARITY_FIELDS = (
+    "narrative_voice_and_attitude",
+    "sentence_relation_and_rhythm",
+    "paragraph_breath_and_cut_points",
+    "dialogue_misfire_or_avoidance",
+    "action_perception_emotion_weave",
+    "narrator_interjection_and_roughness",
+)
+
+
+def normalized_manual_text(value: Any) -> str:
+    """Normalize identifiers away so templated semantic judgments compare equal."""
+    text = str(value or "").strip().lower()
+    text = re.sub(r"sf[-_ ]?\d+", "<sf>", text, flags=re.IGNORECASE)
+    text = re.sub(r"第?\s*\d+\s*节", "<section>", text)
+    for field in (*SOURCE_STYLE_GRANULARITY_FIELDS, *REQUIRED_DIMENSIONS):
+        text = text.replace(field.lower(), "<field>")
+    return re.sub(r"[\W_]+", "", text, flags=re.UNICODE)
 
 
 def read_text(path: Path) -> str:
@@ -36,10 +54,82 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def subflow_catalog_path(source: Path) -> Path:
+    return source.parent.parent / "写作资产" / "子流程索引.jsonl"
+
+
+def subflow_records_from_catalog(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"主体原文子流程索引不存在: {path}")
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(read_text(path).splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"子流程索引 JSONL 第 {line_number} 行无效: {path}: {exc}") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"子流程索引第 {line_number} 行必须是对象: {path}")
+        records.append(record)
+    if not records:
+        raise ValueError(f"主体原文子流程索引为空: {path}")
+    return records
+
+
+def source_subflow_review_scaffold(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "subflow_id": record.get("subflow_id", ""),
+        "parent_bridge_id": record.get("parent_bridge_id", ""),
+        "source_range": record.get("source_range", ""),
+        "source_style_granularity": record.get("source_style_granularity", {}),
+        "status": "pending",
+        "target_sections": [],
+        "target_section_rationale": "",
+        "semantic_review_method": "current_model_manual",
+        "automation_used_for_semantic_judgment": None,
+        "dimension_transfers": {
+            field: {
+                "source_evidence": nonempty_strings(
+                    (record.get("source_style_granularity") or {}).get(field, {}).get(
+                        "source_evidence"
+                    )
+                ),
+                "evidence_mappings": [
+                    {
+                        "source_quote": quote,
+                        "target_quotes": [],
+                        "comparison": "",
+                    }
+                    for quote in nonempty_strings(
+                        (record.get("source_style_granularity") or {})
+                        .get(field, {})
+                        .get("source_evidence")
+                    )
+                ],
+                "target_quotes": [],
+                "comparison": "",
+                "cross_dimension_reuse_justification": "",
+                "surface_copy_rejected": None,
+            }
+            for field in SOURCE_STYLE_GRANULARITY_FIELDS
+        },
+        "source_voice_preserved": None,
+        "functional_alignment_used_as_prose_proof": None,
+        "extra_ai_shell": None,
+        "manual_judgment": "",
+    }
+
+
 def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
     source = source_original.resolve()
     if not source.is_file():
         raise FileNotFoundError(f"主体原文不存在: {source}")
+    subflow_catalog = subflow_catalog_path(source)
+    subflow_records = subflow_records_from_catalog(subflow_catalog)
+    subflow_ids = [str(record.get("subflow_id") or "").strip() for record in subflow_records]
+    if any(not subflow_id for subflow_id in subflow_ids) or len(set(subflow_ids)) != len(subflow_ids):
+        raise ValueError(f"主体原文子流程索引存在空或重复 subflow_id: {subflow_catalog}")
     return {
         "version": "1.0",
         "project": project,
@@ -54,6 +144,11 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
             "role": "primary_only",
         },
         "auxiliary_sources_supply_prose": False,
+        "primary_subflow_catalog": {
+            "path": str(subflow_catalog.resolve()),
+            "sha256": sha256(subflow_catalog),
+            "required_subflow_ids": subflow_ids,
+        },
         "source_baseline": {
             "continuous_excerpts": [],
             "dimensions": {
@@ -71,6 +166,9 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
         "calibration_samples": [],
         "draft": None,
         "section_reviews": [],
+        "source_subflow_reviews": [
+            source_subflow_review_scaffold(record) for record in subflow_records
+        ],
         "full_text_review": {
             "reviewed_full_text": False,
             "all_sections_reviewed": False,
@@ -119,11 +217,68 @@ def validate_source_quote(
     return True
 
 
+def validate_subflow_catalog_data(
+    data: dict[str, Any],
+    source_original: Path,
+    source_text: str,
+    errors: list[str],
+) -> list[dict[str, Any]]:
+    source = source_original.resolve()
+    expected_path = subflow_catalog_path(source).resolve()
+    binding = data.get("primary_subflow_catalog")
+    if not isinstance(binding, dict):
+        errors.append("primary_subflow_catalog 必须绑定主体子流程索引")
+        return []
+    if str(binding.get("path") or "") != str(expected_path):
+        errors.append("文字颗粒度合同绑定的主体子流程索引路径不一致")
+    if not expected_path.is_file():
+        errors.append(f"主体原文子流程索引不存在: {expected_path}")
+        return []
+    if binding.get("sha256") != sha256(expected_path):
+        errors.append("主体子流程索引已变化，必须重建文字颗粒度合同")
+    try:
+        records = subflow_records_from_catalog(expected_path)
+    except (FileNotFoundError, ValueError) as exc:
+        errors.append(str(exc))
+        return []
+    ids: list[str] = []
+    for index, record in enumerate(records, start=1):
+        label = f"主体子流程[{index}]"
+        subflow_id = str(record.get("subflow_id") or "").strip()
+        if not subflow_id:
+            errors.append(f"{label}.subflow_id 不能为空")
+        ids.append(subflow_id)
+        style = record.get("source_style_granularity")
+        if not isinstance(style, dict):
+            errors.append(f"{label}.source_style_granularity 必须是对象")
+            continue
+        for field in SOURCE_STYLE_GRANULARITY_FIELDS:
+            item = style.get(field)
+            if not isinstance(item, dict):
+                errors.append(f"{label} 缺少六类颗粒字段: {field}")
+                continue
+            if not str(item.get("analysis") or "").strip():
+                errors.append(f"{label}.{field}.analysis 不能为空")
+            evidence = nonempty_strings(item.get("source_evidence"))
+            if len(evidence) < 2:
+                errors.append(f"{label}.{field}.source_evidence 至少两条")
+            for quote in evidence:
+                validate_source_quote(quote, source_text, f"{label}.{field}", errors)
+    if len(set(ids)) != len(ids):
+        errors.append("主体子流程索引 subflow_id 不得重复")
+    if binding.get("required_subflow_ids") != ids:
+        errors.append("primary_subflow_catalog.required_subflow_ids 必须覆盖全部 SF")
+    return records
+
+
 def validate_prewrite_data(
     data: dict[str, Any], source_original: Path
 ) -> tuple[list[str], dict[str, int]]:
     errors: list[str] = []
     source_text = validate_source_binding(data, source_original, errors)
+    subflow_records = validate_subflow_catalog_data(
+        data, source_original, source_text, errors
+    )
     if data.get("execution_mode") != "current_model_manual":
         errors.append("execution_mode 必须为 current_model_manual")
     if data.get("reviewed_by_current_model") is not True:
@@ -236,6 +391,7 @@ def validate_prewrite_data(
         "valid_excerpts": valid_excerpts,
         "required_dimensions": len(REQUIRED_DIMENSIONS),
         "valid_calibration_samples": valid_samples,
+        "required_subflows": len(subflow_records),
     }
 
 
@@ -276,6 +432,14 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
         }
         for section_id in sections
     ]
+    existing_subflows = data.get("source_subflow_reviews")
+    if not isinstance(existing_subflows, list):
+        existing_subflows = []
+    data["source_subflow_reviews"] = [
+        source_subflow_review_scaffold(item)
+        for item in existing_subflows
+        if isinstance(item, dict)
+    ]
     data["full_text_review"] = {
         "reviewed_full_text": False,
         "all_sections_reviewed": False,
@@ -287,6 +451,243 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
     }
     data["blocking_failures"] = []
     return data
+
+
+def validate_source_subflow_reviews(
+    data: dict[str, Any],
+    source_original: Path,
+    sections: dict[str, str],
+    errors: list[str],
+) -> int:
+    source = source_original.resolve()
+    source_text = read_text(source)
+    try:
+        records = subflow_records_from_catalog(subflow_catalog_path(source))
+    except (FileNotFoundError, ValueError) as exc:
+        errors.append(str(exc))
+        return 0
+    records_by_id = {
+        str(record.get("subflow_id") or "").strip(): record for record in records
+    }
+    reviews = data.get("source_subflow_reviews")
+    if not isinstance(reviews, list):
+        errors.append("source_subflow_reviews 必须逐 SF 证明正文消费了全部颗粒")
+        return 0
+    reviews_by_id: dict[str, dict[str, Any]] = {}
+    for index, review in enumerate(reviews, start=1):
+        label = f"主体 SF 正文复核[{index}]"
+        if not isinstance(review, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        subflow_id = str(review.get("subflow_id") or "").strip()
+        if not subflow_id:
+            errors.append(f"{label}.subflow_id 不能为空")
+            continue
+        if subflow_id in reviews_by_id:
+            errors.append(f"{label}.subflow_id 重复: {subflow_id}")
+            continue
+        reviews_by_id[subflow_id] = review
+
+    passed = 0
+    rationale_signatures: dict[str, list[str]] = {}
+    judgment_signatures: dict[str, list[str]] = {}
+    for subflow_id, record in records_by_id.items():
+        label = f"主体 SF {subflow_id}"
+        review = reviews_by_id.get(subflow_id)
+        if review is None:
+            errors.append(f"主体原文 SF 未进入正文颗粒复核: {subflow_id}")
+            continue
+        valid = True
+        for field in ("parent_bridge_id", "source_range", "source_style_granularity"):
+            if review.get(field) != record.get(field):
+                errors.append(f"{label}.{field} 与主体子流程索引不一致")
+                valid = False
+        if review.get("status") != "passed":
+            errors.append(f"{label}.status 必须为 passed")
+            valid = False
+        if review.get("semantic_review_method") != "current_model_manual":
+            errors.append(f"{label}.semantic_review_method 必须为 current_model_manual")
+            valid = False
+        if review.get("automation_used_for_semantic_judgment") is not False:
+            errors.append(f"{label} 禁止用自动脚本生成语义裁决")
+            valid = False
+        target_sections = nonempty_strings(review.get("target_sections"))
+        if not target_sections:
+            errors.append(f"{label}.target_sections 不能为空")
+            valid = False
+        target_text = "\n".join(
+            sections[section_id]
+            for section_id in target_sections
+            if section_id in sections
+        )
+        for section_id in target_sections:
+            if section_id not in sections:
+                errors.append(f"{label}.target_sections 引用了不存在的小节: {section_id}")
+                valid = False
+        target_section_rationale = str(review.get("target_section_rationale") or "").strip()
+        if len(target_section_rationale) < 12:
+            errors.append(f"{label}.target_section_rationale 必须具体说明 SF 为何落到目标小节")
+            valid = False
+        else:
+            rationale_signatures.setdefault(
+                normalized_manual_text(target_section_rationale), []
+            ).append(subflow_id)
+        transfers = review.get("dimension_transfers")
+        if not isinstance(transfers, dict):
+            errors.append(f"{label}.dimension_transfers 必须逐项覆盖六类颗粒")
+            transfers = {}
+            valid = False
+        quote_signatures: dict[tuple[str, ...], list[str]] = {}
+        transfer_comparison_signatures: dict[str, list[str]] = {}
+        mapping_comparison_signatures: dict[str, list[str]] = {}
+        for field in SOURCE_STYLE_GRANULARITY_FIELDS:
+            transfer = transfers.get(field)
+            if not isinstance(transfer, dict):
+                errors.append(f"{label} 缺少正文颗粒迁移: {field}")
+                valid = False
+                continue
+            quotes = nonempty_strings(transfer.get("target_quotes"))
+            if not quotes:
+                errors.append(f"{label}.{field}.target_quotes 至少一条目标原句")
+                valid = False
+            for quote in quotes:
+                if quote not in target_text:
+                    errors.append(f"{label}.{field} 目标原句不在绑定小节中: {quote!r}")
+                    valid = False
+            if quotes:
+                quote_signatures.setdefault(tuple(sorted(set(quotes))), []).append(field)
+            source_evidence = nonempty_strings(transfer.get("source_evidence"))
+            expected_source_evidence = nonempty_strings(
+                (record.get("source_style_granularity") or {}).get(field, {}).get(
+                    "source_evidence"
+                )
+            )
+            if source_evidence != expected_source_evidence:
+                errors.append(
+                    f"{label}.{field}.source_evidence 必须完整原样覆盖主体字段证据"
+                )
+                valid = False
+            for quote in source_evidence:
+                if quote not in source_text:
+                    errors.append(f"{label}.{field} 主体证据不在原文中: {quote!r}")
+                    valid = False
+            mappings = transfer.get("evidence_mappings")
+            if not isinstance(mappings, list):
+                errors.append(f"{label}.{field}.evidence_mappings 必须逐条映射主体证据")
+                mappings = []
+                valid = False
+            mapped_source_quotes = [
+                str(item.get("source_quote") or "").strip()
+                for item in mappings
+                if isinstance(item, dict)
+            ]
+            if mapped_source_quotes != expected_source_evidence:
+                errors.append(
+                    f"{label}.{field}.evidence_mappings 必须逐条覆盖全部主体证据"
+                )
+                valid = False
+            for mapping_index, mapping in enumerate(mappings, start=1):
+                if not isinstance(mapping, dict):
+                    errors.append(f"{label}.{field}.evidence_mappings[{mapping_index}] 必须是对象")
+                    valid = False
+                    continue
+                mapped_targets = nonempty_strings(mapping.get("target_quotes"))
+                if not mapped_targets:
+                    errors.append(
+                        f"{label}.{field}.evidence_mappings[{mapping_index}] 至少绑定一条目标原句"
+                    )
+                    valid = False
+                for quote in mapped_targets:
+                    if quote not in target_text:
+                        errors.append(
+                            f"{label}.{field}.evidence_mappings[{mapping_index}] 目标原句不在绑定小节中: {quote!r}"
+                        )
+                        valid = False
+                mapping_comparison = str(mapping.get("comparison") or "").strip()
+                if not mapping_comparison:
+                    errors.append(
+                        f"{label}.{field}.evidence_mappings[{mapping_index}].comparison 不能为空"
+                    )
+                    valid = False
+                else:
+                    mapping_comparison_signatures.setdefault(
+                        normalized_manual_text(mapping_comparison), []
+                    ).append(f"{field}[{mapping_index}]")
+            transfer_comparison = str(transfer.get("comparison") or "").strip()
+            if not transfer_comparison:
+                errors.append(f"{label}.{field}.comparison 不能为空")
+                valid = False
+            else:
+                transfer_comparison_signatures.setdefault(
+                    normalized_manual_text(transfer_comparison), []
+                ).append(field)
+            if transfer.get("surface_copy_rejected") is not True:
+                errors.append(f"{label}.{field}.surface_copy_rejected 必须为 true")
+                valid = False
+        for fields in quote_signatures.values():
+            if len(fields) < 2:
+                continue
+            justifications: dict[str, list[str]] = {}
+            for field in fields:
+                transfer = transfers.get(field) or {}
+                justification = str(
+                    transfer.get("cross_dimension_reuse_justification") or ""
+                ).strip()
+                if len(justification) < 12:
+                    errors.append(
+                        f"{label} 跨字段复用同一组目标句时必须逐字段说明: {field}"
+                    )
+                    valid = False
+                    continue
+                justifications.setdefault(
+                    normalized_manual_text(justification), []
+                ).append(field)
+            for reused_fields in justifications.values():
+                if len(reused_fields) > 1:
+                    errors.append(
+                        f"{label} 跨字段复用理由不得模板化: " + ", ".join(reused_fields)
+                    )
+                    valid = False
+        for fields in transfer_comparison_signatures.values():
+            if len(fields) > 1:
+                errors.append(
+                    f"{label} 六类颗粒 comparison 不得只替换字段名: " + ", ".join(fields)
+                )
+                valid = False
+        for mappings in mapping_comparison_signatures.values():
+            if len(mappings) > 1:
+                errors.append(
+                    f"{label} 逐证据句面对照不得模板化: " + ", ".join(mappings)
+                )
+                valid = False
+        for field, expected in (
+            ("source_voice_preserved", True),
+            ("functional_alignment_used_as_prose_proof", False),
+            ("extra_ai_shell", False),
+        ):
+            if review.get(field) is not expected:
+                errors.append(f"{label}.{field} 必须为 {expected}")
+                valid = False
+        manual_judgment = str(review.get("manual_judgment") or "").strip()
+        if len(manual_judgment) < 12:
+            errors.append(f"{label}.manual_judgment 不能为空")
+            valid = False
+        else:
+            judgment_signatures.setdefault(
+                normalized_manual_text(manual_judgment), []
+            ).append(subflow_id)
+        if valid:
+            passed += 1
+    for subflows in rationale_signatures.values():
+        if len(subflows) > 1:
+            errors.append("不同 SF 不得复用模板化目标小节理由: " + ", ".join(subflows))
+    for subflows in judgment_signatures.values():
+        if len(subflows) > 1:
+            errors.append("不同 SF 不得复用模板化人工裁决: " + ", ".join(subflows))
+    extra = sorted(set(reviews_by_id) - set(records_by_id))
+    if extra:
+        errors.append("正文颗粒复核引用不存在的主体 SF: " + ", ".join(extra))
+    return passed
 
 
 def validate_draft_data(
@@ -327,6 +728,8 @@ def validate_draft_data(
 
     source_text = read_text(source_original.resolve())
     passed_sections = 0
+    anchor_signatures: dict[tuple[str, ...], list[str]] = {}
+    comparison_signatures: dict[str, list[str]] = {}
     for section_id, section_text in sections.items():
         review = review_map.get(section_id)
         if not review:
@@ -351,6 +754,8 @@ def validate_draft_data(
             if quote not in source_text:
                 errors.append(f"声线锚不在主体原文中: {section_id}[{index}]")
                 valid = False
+        if anchors:
+            anchor_signatures.setdefault(tuple(anchors), []).append(section_id)
         checked = set(nonempty_strings(review.get("dimensions_checked")))
         if checked != set(REQUIRED_DIMENSIONS):
             errors.append(f"正文小节未覆盖全部文字颗粒度维度: {section_id}")
@@ -363,11 +768,29 @@ def validate_draft_data(
             if review.get(field) is not expected:
                 errors.append(f"正文小节 {field} 必须为 {expected}: {section_id}")
                 valid = False
-        if not str(review.get("comparison") or "").strip():
+        comparison = str(review.get("comparison") or "").strip()
+        if not comparison:
             errors.append(f"正文小节缺少原文—目标文字对照: {section_id}")
             valid = False
+        else:
+            comparison_signatures.setdefault(comparison, []).append(section_id)
         if valid:
             passed_sections += 1
+
+    for section_group in anchor_signatures.values():
+        if len(section_group) > 1:
+            errors.append(
+                "正文小节不得复用同一组主体声线锚: " + ", ".join(section_group)
+            )
+    for section_group in comparison_signatures.values():
+        if len(section_group) > 1:
+            errors.append(
+                "正文小节不得复用模板化原文—目标判断: " + ", ".join(section_group)
+            )
+
+    passed_subflows = validate_source_subflow_reviews(
+        data, source_original, sections, errors
+    )
 
     full_review = data.get("full_text_review")
     if not isinstance(full_review, dict):
@@ -392,6 +815,7 @@ def validate_draft_data(
         errors.append("仍有文字颗粒度阻断项，不能完成初稿停靠")
     summary["draft_sections"] = len(sections)
     summary["passed_sections"] = passed_sections
+    summary["passed_subflows"] = passed_subflows
     return errors, summary
 
 
@@ -425,7 +849,16 @@ def main() -> int:
         write_json(receipt, create_receipt(args.project, source))
         print(f"prose_granularity_contract: initialized -> {receipt}")
         return 0
-    data = json.loads(receipt.read_text(encoding="utf-8"))
+    if not receipt.is_file():
+        print(f"prose_granularity_contract: blocked ({args.command})")
+        print(f"- 文字颗粒度合同回执不存在: {receipt}")
+        return 2
+    try:
+        data = json.loads(receipt.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        print(f"prose_granularity_contract: blocked ({args.command})")
+        print(f"- 文字颗粒度合同回执不是有效 JSON: {exc}")
+        return 2
     if args.command == "bind-draft":
         write_json(receipt, bind_draft(data, Path(args.draft)))
         print(f"prose_granularity_contract: draft bound -> {receipt}")

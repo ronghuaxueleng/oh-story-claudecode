@@ -36,6 +36,29 @@
 - 明确 `extra_ai_shell=false`。
 - 写出原文与目标稿的具体句面对照，不能只写“已检查”。
 
+不同小节不得复用完全相同的 `source_anchors` 组合，也不得复用完全相同的 `comparison`。逐节复核必须使用与该节实际场面相符的主体声线锚，不能用两条万能原句给全书批量盖章。
+
+除逐节七维复核外，`source_subflow_reviews` 必须覆盖主体 `子流程索引.jsonl` 的全部 `SF-*`。每个 SF 的六类局部颗粒都要分别填写：
+
+- `target_sections`：实际消费该颗粒的正文数字小节。
+- `dimension_transfers.{field}.target_quotes`：绑定小节中的真实正文原句。
+- `dimension_transfers.{field}.source_evidence`：必须与该 SF 字段在主体索引中的全部证据完全一致，不得只挑最容易迁移的一条。
+- `dimension_transfers.{field}.evidence_mappings`：每条主体证据必须单独绑定目标正文原句和句面对照，映射数量与顺序必须和主体字段证据一致。
+- `dimension_transfers.{field}.comparison`：说明目标句面如何消费该局部颗粒，而非只对齐剧情功能。
+- `dimension_transfers.{field}.surface_copy_rejected=true`：确认没有复制原人物、职业、原句或完整事件壳。
+
+任一 SF、任一局部颗粒或任一已抽取原文证据没有正文对照，`validate-draft` 必须失败。全局七维都出现过，不等于主体原文颗粒已经全量消费。
+
+语义回填还必须满足：
+
+- `target_section_rationale` 逐 SF 说明为什么由这些正文小节消费，禁止按 `SF-01 -> 第1节` 机械顺排。
+- `semantic_review_method=current_model_manual`，且 `automation_used_for_semantic_judgment=false`。
+- 同一组目标句跨多个颗粒字段复用时，每个字段分别填写 `cross_dimension_reuse_justification`，说明该句在本字段承担的不同语言作用；复用理由不得同文复制。
+- 六类字段的 `comparison` 与逐证据 `evidence_mappings[].comparison` 必须具体到句面作用。仅替换 SF 编号、字段名或章节号的文本按模板重复处理并阻断。
+- 不同 SF 的目标小节理由和人工裁决不得使用同一模板。
+
+脚本只能初始化骨架、校验 SHA/完整性，或把当前模型已经逐字段明确写出的数据确定性序列化到回执。禁止用循环从章节首尾自动抽两句，再批量生成 `status / comparison / manual_judgment / target_section_rationale` 等语义裁决。验证器输出 `passed` 仍不替代当前模型逐项判断。
+
 正文全部写完后，只允许运行本合同的 `validate-draft`、字数统计和平台格式校验，然后立即执行初稿停靠。该窄门禁属于首写质量控制，不代表已进入 AI 深审、滑窗审计或正文回炉。
 
 ## 完整命令

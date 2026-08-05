@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Count draft words with the agreed Fanqie-style rule.
+"""Count draft words with the story-short-write non-whitespace rule.
 
 Rule:
     Remove Markdown heading lines that start with "#", then count every
@@ -78,7 +78,7 @@ def print_table(result: dict[str, object]) -> None:
     files = result["files"]
     assert isinstance(files, list)
     print("=" * 60)
-    print("番茄小说字数统计")
+    print("短篇小说字数统计")
     print("=" * 60)
     print(f"{'章节文件':<38} {'字数':>8}")
     print("-" * 60)
@@ -92,7 +92,7 @@ def print_table(result: dict[str, object]) -> None:
     print(f"{'合计':<38} {int(result['total_word_count']):>8}")
     print("=" * 60)
     print(f"\n共 {int(result['file_count'])} 章，总计 {int(result['total_word_count'])} 字")
-    print(f"按番茄签约标准（千字计费）：{float(result['total_k_words']):.1f} 千字")
+    print(f"按非空白字符口径：{float(result['total_k_words']):.1f} 千字")
 
 
 def main() -> int:

@@ -210,6 +210,7 @@ metadata:
 90. **审计回执必须区分保留项和返修项**：正式审计或回炉计划中必须把问题标为 `source_like / craft_tradeoff / draft_extra_ai_shell` 之一。`source_like` 和 `craft_tradeoff` 可以保留但要说明情节功能；`draft_extra_ai_shell` 才能进修改单。禁止把所有脚本命中统一写成“AI 味待删”。
 91. **只迁移颗粒度必须使用独立模式**：用户明确要求“借原文颗粒度、自造情节”时，细纲表演验收必须使用 `source_mode: granularity_only`。该模式不要求迁移主体 BID 身份或完整桥段流程，但仍须逐节绑定原文真实场面，迁移同级事件拍密度、信息延迟、动作/物件/空间控制权变化和情绪烈度，并在 `granularity_transfer_contract` 中列出目标原创场景及明确拒绝的原文人物、职业、物件、关系和结局表层元素。禁止为了通过旧的逐桥对齐闸，把原创实验偷写成换皮复刻。
 92. **文字颗粒度与场面颗粒度必须分轨**：仿写、融合、同桥仿写和用户要求参照原文文风时，第一本主体原文固定为唯一正文声线源；辅助书只供应事件与场面机制。正文前必须通过 `validate_prose_granularity_contract.py validate-prewrite`，按连续原文片段建立句子运动、词语口语度、叙述者声音、段落气口、对白衔接、情绪落字和有效毛边七维合同。正文写作时逐节回填，初稿停靠前必须通过 `validate-draft` 覆盖所有小节。功能、BID、情绪拍或物件换主对齐均不得冒充文字对齐；只要目标稿相对主体原文新增工整复合钩子、总结式短句、解释性盖章或其他 GPT 默认句面壳，就必须在首写阶段修正。
+93. **主体原文颗粒度必须全量消费，不得抽样或用模板回执代替**：`validate_outline_performance_contract.py init` 与 `validate_prose_granularity_contract.py init` 必须读取主体原文同书目录的 `写作资产/子流程索引.jsonl`，锁定全部 `SF-*`。正文前，每个 SF 的 `narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness` 六类局部颗粒都必须分别绑定目标细纲小节、细纲原句、迁移方法和表层复刻拒绝项；初稿后还必须逐 SF 绑定真实正文小节和目标原句，并原样带出每个字段的全部 `source_evidence`，逐项写出目标句面对照。任一 SF、任一颗粒字段、任一原文颗粒证据缺失，或多个小节复用同一组声线锚、同一段人工判断，均阻断正文放行或初稿停靠。允许更换人物、职业、物件和事件表层，不允许把原文已抽取的有效颗粒降级成抽样参考。脚本只准初始化骨架或序列化当前模型已逐项写明的数据，禁止按 SF 序号机械对应章节、从章节首尾自动抽万能句，或循环生成 `comparison / manual_judgment / target_section_rationale`。同一目标句跨字段复用时必须逐字段解释不同句面作用；只替换 SF、字段、章节编号的判断一律按模板回执阻断。
 
 ---
 

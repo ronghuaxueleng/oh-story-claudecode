@@ -64,6 +64,14 @@ EMOTION_BEAT_FIELDS = (
     "evidence",
 )
 STRONG_EMOTION_MIN_BEATS = 5
+SOURCE_STYLE_GRANULARITY_FIELDS = (
+    "narrative_voice_and_attitude",
+    "sentence_relation_and_rhythm",
+    "paragraph_breath_and_cut_points",
+    "dialogue_misfire_or_avoidance",
+    "action_perception_emotion_weave",
+    "narrator_interjection_and_roughness",
+)
 
 
 def sha256(path: Path) -> str:
@@ -104,6 +112,52 @@ def bridge_ids_from_catalog(path: Path) -> list[str]:
     return list(dict.fromkeys(BRIDGE_HEADING_PATTERN.findall(read_text(path))))
 
 
+def subflow_catalog_path(source: Path) -> Path:
+    return source.parent.parent / "写作资产" / "子流程索引.jsonl"
+
+
+def subflow_records_from_catalog(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        return []
+    records: list[dict[str, Any]] = []
+    for line_number, line in enumerate(read_text(path).splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"子流程索引 JSONL 第 {line_number} 行无效: {path}: {exc}") from exc
+        if not isinstance(record, dict):
+            raise ValueError(f"子流程索引第 {line_number} 行必须是对象: {path}")
+        records.append(record)
+    return records
+
+
+def subflow_coverage_scaffold(
+    source: dict[str, Any], record: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "source_path": source["path"],
+        "source_sha256": source["sha256"],
+        "subflow_id": record.get("subflow_id", ""),
+        "parent_bridge_id": record.get("parent_bridge_id", ""),
+        "source_range": record.get("source_range", ""),
+        "source_style_granularity": record.get("source_style_granularity", {}),
+        "target_outline_sections": [],
+        "transferred_style_fields": {
+            field: {
+                "target_outline_evidence": [],
+                "transfer_method": "",
+                "surface_copy_rejected": None,
+            }
+            for field in SOURCE_STYLE_GRANULARITY_FIELDS
+        },
+        "coverage_status": "pending",
+        "adaptation_boundary": "",
+        "manual_judgment": "",
+    }
+
+
 def create_receipt(
     project: str,
     outline_path: Path,
@@ -125,6 +179,17 @@ def create_receipt(
         if not available_bridge_ids:
             raise ValueError(f"桥段施工卡未识别到 BID: {catalog}")
         role = "primary" if index == 0 else "auxiliary"
+        subflow_catalog = subflow_catalog_path(source)
+        if role == "primary" and not subflow_catalog.is_file():
+            raise FileNotFoundError(f"主体原文子流程索引不存在: {subflow_catalog}")
+        subflow_records = (
+            subflow_records_from_catalog(subflow_catalog) if role == "primary" else []
+        )
+        subflow_ids = [
+            str(record.get("subflow_id") or "").strip() for record in subflow_records
+        ]
+        if role == "primary" and (not subflow_ids or any(not item for item in subflow_ids)):
+            raise ValueError(f"主体原文子流程索引缺少有效 subflow_id: {subflow_catalog}")
         sources.append(
             {
                 "path": str(source),
@@ -145,11 +210,25 @@ def create_receipt(
                     if role == "primary" and source_mode == "full_bridge"
                     else []
                 ),
+                "subflow_catalog": (
+                    {
+                        "path": str(subflow_catalog.resolve()),
+                        "sha256": sha256(subflow_catalog),
+                    }
+                    if role == "primary"
+                    else None
+                ),
+                "available_subflow_ids": subflow_ids,
+                "required_subflow_ids": subflow_ids if role == "primary" else [],
             }
         )
 
     sections = outline_sections(read_text(outline))
     first_source = sources[0]
+    primary_bridge_ids = first_source["required_bridge_ids"]
+    primary_subflow_records = subflow_records_from_catalog(
+        Path(first_source["subflow_catalog"]["path"])
+    )
     return {
         "version": "1.2",
         "project": project,
@@ -168,6 +247,7 @@ def create_receipt(
             "relationship_legibility_reviewed_before_draft": False,
             "professional_shell_translation_reviewed_before_draft": False,
             "source_emotion_flow_parity_reviewed_before_draft": False,
+            "source_subflow_granularity_coverage_reviewed": False,
             "granularity_transfer_contract_reviewed": False,
             "strong_emotion_required": False,
             "mechanism_transfer_boundary": "",
@@ -175,11 +255,15 @@ def create_receipt(
             "manual_judgment": "",
         },
         "granularity_transfer_contract": [],
+        "source_subflow_granularity_coverage": [
+            subflow_coverage_scaffold(first_source, record)
+            for record in primary_subflow_records
+        ],
         "source_bridge_flow_inventory": [
             {
                 "source_path": first_source["path"],
                 "source_sha256": first_source["sha256"],
-                "bridge_id": "BID-01",
+                "bridge_id": bridge_id,
                 "bridge_name": "",
                 "source_required_sequence": [],
                 "source_must_keep_actions": [],
@@ -187,10 +271,11 @@ def create_receipt(
                 "source_end_state_change": "",
                 "cannot_merge_or_drop_reason": "",
             }
+            for bridge_id in primary_bridge_ids
         ],
         "outline_bridge_flow_parity": [
             {
-                "source_bridge_id": "BID-01",
+                "source_bridge_id": bridge_id,
                 "source_bridge_name": "",
                 "source_path": first_source["path"],
                 "source_sha256": first_source["sha256"],
@@ -212,6 +297,7 @@ def create_receipt(
                 "missing_or_weakened_risk": "",
                 "manual_judgment": "",
             }
+            for bridge_id in primary_bridge_ids
         ],
         "sections": [
             {
@@ -807,6 +893,132 @@ def validate_bridge_parity(
         )
 
 
+def validate_subflow_granularity_coverage(
+    value: Any,
+    source_metadata: dict[str, dict[str, Any]],
+    source_texts: dict[str, str],
+    section_ids: list[str],
+    outline_text: str,
+    errors: list[str],
+) -> None:
+    primary_items = [
+        (path, metadata)
+        for path, metadata in source_metadata.items()
+        if metadata.get("role") == "primary"
+    ]
+    if len(primary_items) != 1:
+        errors.append("主体原文必须且只能有一本，才能验证全部 SF 颗粒度")
+        return
+    source_key, metadata = primary_items[0]
+    catalog_binding = metadata.get("subflow_catalog")
+    catalog_path = validate_binding(catalog_binding, "主体原文子流程索引", errors)
+    if catalog_path is None:
+        return
+    try:
+        records = subflow_records_from_catalog(catalog_path)
+    except ValueError as exc:
+        errors.append(str(exc))
+        return
+    records_by_id = {
+        str(record.get("subflow_id") or "").strip(): record for record in records
+    }
+    actual_ids = list(records_by_id)
+    if metadata.get("available_subflow_ids") != actual_ids:
+        errors.append("主体来源 available_subflow_ids 与子流程索引不一致")
+    if metadata.get("required_subflow_ids") != actual_ids:
+        errors.append("主体来源 required_subflow_ids 必须覆盖子流程索引全部 SF")
+    if not isinstance(value, list) or not value:
+        errors.append("source_subflow_granularity_coverage 必须覆盖主体原文全部 SF")
+        return
+
+    coverage_by_id: dict[str, dict[str, Any]] = {}
+    for index, entry in enumerate(value, start=1):
+        label = f"主体 SF 颗粒度覆盖[{index}]"
+        if not isinstance(entry, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        subflow_id = str(entry.get("subflow_id") or "").strip()
+        if not subflow_id:
+            errors.append(f"{label}.subflow_id 不能为空")
+            continue
+        if subflow_id in coverage_by_id:
+            errors.append(f"{label}.subflow_id 重复: {subflow_id}")
+            continue
+        coverage_by_id[subflow_id] = entry
+        record = records_by_id.get(subflow_id)
+        if record is None:
+            errors.append(f"{label}.subflow_id 不在主体子流程索引中: {subflow_id}")
+            continue
+        if str(Path(str(entry.get("source_path") or "")).expanduser().resolve()) != source_key:
+            errors.append(f"{label}.source_path 必须绑定主体原文")
+        if entry.get("source_sha256") != sha256(Path(source_key)):
+            errors.append(f"{label}.source_sha256 与主体原文不一致")
+        for field in ("parent_bridge_id", "source_range"):
+            if entry.get(field) != record.get(field):
+                errors.append(f"{label}.{field} 与子流程索引不一致")
+        source_style = record.get("source_style_granularity")
+        if entry.get("source_style_granularity") != source_style:
+            errors.append(f"{label}.source_style_granularity 必须原样绑定子流程索引")
+        if not isinstance(source_style, dict):
+            errors.append(f"{label} 子流程索引缺少 source_style_granularity")
+            source_style = {}
+        source_text = source_texts.get(source_key, "")
+        for field in SOURCE_STYLE_GRANULARITY_FIELDS:
+            item = source_style.get(field)
+            if not isinstance(item, dict):
+                errors.append(f"{label} 缺少主体颗粒字段: {field}")
+                continue
+            if not nonempty_text(item.get("analysis")):
+                errors.append(f"{label}.{field}.analysis 不能为空")
+            evidence = item.get("source_evidence")
+            if not nonempty_list(evidence, minimum=2):
+                errors.append(f"{label}.{field}.source_evidence 至少两条")
+            else:
+                for quote in evidence:
+                    if str(quote).strip() not in source_text:
+                        errors.append(f"{label}.{field} 原文证据不在主体原文中: {quote!r}")
+
+        target_sections = [
+            str(item).strip()
+            for item in entry.get("target_outline_sections") or []
+            if str(item).strip()
+        ]
+        if not target_sections:
+            errors.append(f"{label}.target_outline_sections 不能为空")
+        for section_id in target_sections:
+            if section_id not in section_ids:
+                errors.append(f"{label} 引用了不存在的小节: {section_id}")
+        transferred = entry.get("transferred_style_fields")
+        if not isinstance(transferred, dict):
+            errors.append(f"{label}.transferred_style_fields 必须逐项覆盖六类颗粒")
+            transferred = {}
+        for field in SOURCE_STYLE_GRANULARITY_FIELDS:
+            transfer = transferred.get(field)
+            if not isinstance(transfer, dict):
+                errors.append(f"{label} 未迁移颗粒字段: {field}")
+                continue
+            target_evidence = transfer.get("target_outline_evidence")
+            if not nonempty_list(target_evidence):
+                errors.append(f"{label}.{field}.target_outline_evidence 至少一条细纲原句")
+            else:
+                for quote in target_evidence:
+                    if str(quote).strip() not in outline_text:
+                        errors.append(f"{label}.{field} 目标证据不在细纲中: {quote!r}")
+            if not nonempty_text(transfer.get("transfer_method")):
+                errors.append(f"{label}.{field}.transfer_method 不能为空")
+            if transfer.get("surface_copy_rejected") is not True:
+                errors.append(f"{label}.{field}.surface_copy_rejected 必须为 true")
+        if entry.get("coverage_status") not in {"matched", "adapted"}:
+            errors.append(f"{label}.coverage_status 必须是 matched/adapted")
+        for field in ("adaptation_boundary", "manual_judgment"):
+            if not nonempty_text(entry.get(field)):
+                errors.append(f"{label}.{field} 不能为空")
+
+    missing = [subflow_id for subflow_id in actual_ids if subflow_id not in coverage_by_id]
+    if missing:
+        errors.append("主体原文 SF 颗粒度未覆盖: " + ", ".join(missing))
+
+
 def validate_granularity_transfer_contract(
     value: Any,
     source_paths: set[str],
@@ -926,6 +1138,29 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         errors.append(
                             f"选中原文[{index}].available_bridge_ids 与桥段施工卡不一致"
                         )
+                if expected_role == "primary":
+                    subflow_path = validate_binding(
+                        source.get("subflow_catalog"),
+                        "主体原文子流程索引",
+                        errors,
+                    )
+                    if subflow_path is not None:
+                        try:
+                            actual_subflow_ids = [
+                                str(record.get("subflow_id") or "").strip()
+                                for record in subflow_records_from_catalog(subflow_path)
+                            ]
+                        except ValueError as exc:
+                            errors.append(str(exc))
+                            actual_subflow_ids = []
+                        if source.get("available_subflow_ids") != actual_subflow_ids:
+                            errors.append(
+                                "主体来源 available_subflow_ids 与子流程索引不一致"
+                            )
+                        if source.get("required_subflow_ids") != actual_subflow_ids:
+                            errors.append(
+                                "主体来源 required_subflow_ids 必须覆盖子流程索引全部 SF"
+                            )
                 source_mode = str(data.get("source_mode") or "full_bridge").strip()
                 if expected_role == "primary" and source_mode == "full_bridge":
                     if source.get("required_bridge_ids") != source.get(
@@ -934,8 +1169,16 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                         errors.append(
                             "主体来源 required_bridge_ids 必须覆盖桥段施工卡全部 BID"
                         )
-                elif expected_role == "auxiliary" and source_mode == "full_bridge" and not nonempty_list(source.get("selected_bridge_ids")):
-                    errors.append("辅助来源 selected_bridge_ids 至少选择一个 BID")
+                elif (
+                    expected_role == "auxiliary"
+                    and source_mode == "full_bridge"
+                    and not nonempty_list(source.get("selected_bridge_ids"))
+                ):
+                    available = ", ".join(source.get("available_bridge_ids") or [])
+                    errors.append(
+                        "辅助来源必须人工选择至少一个 selected_bridge_ids: "
+                        f"{source_path}；可选 BID: {available or '无'}"
+                    )
 
     global_review = data.get("global_review")
     if not isinstance(global_review, dict):
@@ -957,6 +1200,8 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须在正文前完成职业外壳白话翻译，禁止术语承担情绪")
         if global_review.get("source_emotion_flow_parity_reviewed_before_draft") is not True:
             errors.append("必须在正文前逐节核对原文情绪流程、反刀时机和烈度")
+        if global_review.get("source_subflow_granularity_coverage_reviewed") is not True:
+            errors.append("必须在正文前逐 SF 核对主体原文全部六类颗粒度")
         if str(data.get("source_mode") or "full_bridge") == "granularity_only":
             if global_review.get("granularity_transfer_contract_reviewed") is not True:
                 errors.append("granularity_only 模式必须人工确认颗粒度迁移契约")
@@ -1005,6 +1250,14 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors,
             strong_emotion_required=strong_emotion_required,
         )
+    validate_subflow_granularity_coverage(
+        data.get("source_subflow_granularity_coverage"),
+        source_metadata,
+        source_texts,
+        section_ids,
+        outline_text,
+        errors,
+    )
     section_entries = data.get("sections")
     if not isinstance(section_entries, list):
         errors.append("sections 必须是列表")

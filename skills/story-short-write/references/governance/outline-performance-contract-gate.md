@@ -25,6 +25,8 @@
 - 新稿情绪烈度低于原文，却用“控制权已经换主”冒充同级仿写
 - 连续小节复制同一套场面颗粒度或人工判断，批量制造假通过回执
 - 连续小节复制同一套原文情绪拍、触发和证据，只换目标桥段名称
+- 只迁移主体原文部分 SF，或只挑每个 SF 中最显眼的一两类颗粒
+- 用同一条目标细纲原句批量声称已经迁移全部局部颗粒，却不填写各字段迁移方法
 
 ## 强情绪仿写四硬闸
 
@@ -128,6 +130,19 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 只写“迁移公开掉位 / 补救失败 / 公开反噬”，但没有细纲原句证明动作顺序、控制权变化和场末状态。
 - 目标细纲把两个以上承重 BID 合并成一场，并且说不清哪个动作链、信息延迟和状态变化分别承担原文功能。
 - 只证明新故事内部顺序合理，没有证明原文桥段流程如何迁移。
+
+## 主体 SF 六类颗粒全量覆盖
+
+主体原文的 `写作资产/子流程索引.jsonl` 是全量清单，不是抽样素材池。`init` 必须绑定该文件 SHA，并把全部 `SF-*` 写入 `source_subflow_granularity_coverage`。每个 SF 必须逐项覆盖：
+
+1. `narrative_voice_and_attitude`：叙述者在这一局部场面的态度如何变化。
+2. `sentence_relation_and_rhythm`：长短句、承接、加速和骤停如何组织。
+3. `paragraph_breath_and_cut_points`：段落在哪里换气、断开和留白。
+4. `dialogue_misfire_or_avoidance`：谁错答、回避、重复或把问题拽向别处。
+5. `action_perception_emotion_weave`：动作、感知和情绪如何在同一链条里互相触发。
+6. `narrator_interjection_and_roughness`：现场插嘴、口语棱角和有效毛边如何保留。
+
+每个字段必须有 `target_outline_evidence / transfer_method / surface_copy_rejected=true`。每个 SF 还必须绑定目标小节，填写 `matched/adapted`、迁移边界和人工判断。缺任一 SF 或任一字段即失败；不能用 BID 已覆盖、七维全局基线已填写、情绪拍已对齐来替代。
 
 ## 逐节必填
 
