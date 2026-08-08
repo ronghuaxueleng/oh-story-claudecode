@@ -13,18 +13,21 @@ from typing import Any
 REQUIRED_CHECK_LABELS = {
     "writing_rule_gate",
     "source_read_gate",
+    "write_release_gate",
     "rule_execution_gate",
     "sequence_contract",
     "opening_contract",
+    "prose_granularity_contract",
+    "emotional_granularity_contract",
     "pre_window_revision",
     "model_segmentation",
     "formal_audit",
     "post_write_human_review",
     "anti_false_pass_review",
+    "platform_format_gate",
 }
 IMITATION_REQUIRED_CHECK_LABELS = {
     "source_baseline_audit",
-    "prose_granularity_contract",
 }
 VALID_STATUSES = {"active", "complete", "paused", "blocked"}
 

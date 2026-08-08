@@ -513,6 +513,77 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertTrue(any("写作产物已变化" in error for error in errors))
         self.assertTrue(any("证据原句不在产物中" in error for error in errors))
 
+    def test_final_rebind_preflight_passes_without_old_evidence_debt(self) -> None:
+        self._write_completed_ledger()
+        errors, report = GATE.preflight_final_rebind(
+            self.ledger_path, [f"正文={self.text}"]
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(0, report["estimated_manual_rebind_count"])
+        self.assertEqual(0, report["stale_artifact_bindings"])
+
+    def test_final_rebind_preflight_estimates_all_draft_debt_before_rewrite(self) -> None:
+        self._write_completed_ledger()
+        errors, report = GATE.preflight_final_rebind(
+            self.ledger_path,
+            [f"正文={self.text}"],
+            assume_full_rewrite=True,
+        )
+        self.assertEqual([], errors)
+        self.assertTrue(report["assume_full_rewrite"])
+        self.assertGreater(report["invalid_text_evidence"], 0)
+        self.assertGreater(report["estimated_manual_rebind_count"], 0)
+
+    def test_final_rebind_preflight_counts_stale_quotes_by_scope(self) -> None:
+        self._write_completed_ledger()
+        self.text.write_text("# 正文\n\n这是重写后的新正文。\n", encoding="utf-8")
+        errors, report = GATE.preflight_final_rebind(
+            self.ledger_path, [f"正文={self.text}"]
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, report["stale_artifact_bindings"])
+        self.assertGreater(report["invalid_text_evidence"], 0)
+        self.assertGreater(report["by_scope"]["skill_rules"], 0)
+        self.assertGreater(report["by_scope"]["asset_rules"], 0)
+        self.assertEqual(
+            report["invalid_text_evidence"],
+            report["estimated_manual_rebind_count"],
+        )
+
+    def test_final_rebind_preflight_finds_scope_path_and_contract_debt(self) -> None:
+        ledger = self._write_completed_ledger()
+        entry = next(
+            item
+            for item in GATE.iter_execution_entries(ledger)
+            if item.get("source_contract_reviews")
+        )
+        entry["human_scope_reviews"] = [
+            {"artifact": "", "scope": "全文", "judgment": "旧范围复核。"}
+        ]
+        entry["script_artifacts"] = [
+            {
+                "path": str(
+                    self.project
+                    / self.project.name
+                    / "写作资产"
+                    / "旧审计.json"
+                ),
+                "sha256": "old",
+                "summary": "旧路径。",
+            }
+        ]
+        entry["source_contract_reviews"] = []
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False), encoding="utf-8"
+        )
+        errors, report = GATE.preflight_final_rebind(
+            self.ledger_path, [f"正文={self.text}"]
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, report["invalid_scope_reviews"])
+        self.assertEqual(1, report["duplicated_script_paths"])
+        self.assertGreater(report["missing_source_contract_reviews"], 0)
+
     def test_workflow_failure_does_not_require_draft_change(self) -> None:
         ledger = self._write_completed_ledger()
         entry = next(

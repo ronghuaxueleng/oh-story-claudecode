@@ -103,6 +103,53 @@ class WritingRuleGateTest(unittest.TestCase):
         )
         self.assertTrue(any("事后补填" in error for error in validation_errors))
 
+    def test_draft_stage_reread_can_follow_existing_upstream_artifacts(self) -> None:
+        setting = self.root / "项目" / "设定.md"
+        setting.parent.mkdir(parents=True, exist_ok=True)
+        setting.write_text("设定", encoding="utf-8")
+        old_time = time.time() - 20
+        os.utime(setting, (old_time, old_time))
+        self._write_completed_receipt()
+
+        draft = self.root / "项目" / "正文.md"
+        validation_errors, _ = GATE.validate_receipt(
+            self.receipt_path,
+            [draft],
+            self.skill_root,
+            artifact_stage="draft",
+        )
+
+        self.assertEqual([], validation_errors)
+
+    def test_stage_rejects_upstream_artifact_as_current_target(self) -> None:
+        self._write_completed_receipt()
+        setting = self.root / "项目" / "设定.md"
+        validation_errors, _ = GATE.validate_receipt(
+            self.receipt_path,
+            [setting],
+            self.skill_root,
+            artifact_stage="draft",
+        )
+
+        self.assertTrue(any("只能校验当前阶段目标" in error for error in validation_errors))
+
+    def test_retroactive_draft_receipt_is_still_blocked_in_draft_stage(self) -> None:
+        draft = self.root / "项目" / "正文.md"
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text("正文", encoding="utf-8")
+        old_time = time.time() - 20
+        os.utime(draft, (old_time, old_time))
+        self._write_completed_receipt()
+
+        validation_errors, _ = GATE.validate_receipt(
+            self.receipt_path,
+            [draft],
+            self.skill_root,
+            artifact_stage="draft",
+        )
+
+        self.assertTrue(any("事后补填" in error for error in validation_errors))
+
 
 if __name__ == "__main__":
     unittest.main()

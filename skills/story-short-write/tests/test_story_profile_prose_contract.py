@@ -71,6 +71,13 @@ class StoryProfileProseContractTest(unittest.TestCase):
         self.assertFalse(contract["auxiliary_profiles_supply_prose"])
         self.assertNotIn("辅助口气", json.dumps(contract, ensure_ascii=False))
 
+    def test_dynamic_object_term_is_not_rejected_by_closed_suffix_list(self) -> None:
+        term = "她留下的旧怀表"
+        self.assertTrue(PROFILE.keep_object_pressure_asset(term, {term}))
+
+    def test_unknown_object_without_source_dictionary_still_needs_evidence(self) -> None:
+        self.assertFalse(PROFILE.keep_object_pressure_asset("她留下的旧怀表", set()))
+
 
 if __name__ == "__main__":
     unittest.main()

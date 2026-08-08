@@ -24,7 +24,9 @@
 - `gate_status: passed`
 - `confirmed_before_outline: true`
 - `confirmed_before_draft: true`
-- 回执时间早于 `设定.md`、`小节大纲.md` 和 `正文.md`
+- 回执时间早于当前即将生成的阶段目标：`setting -> 设定.md`、`outline -> 小节大纲.md`、`draft -> 正文.md`
+
+规则更新后允许在后续阶段重新读取。比如设定和大纲已经验收、正文尚未生成时，新的读取回执可以晚于旧设定和旧大纲，但必须早于 `正文.md`。旧设定和旧大纲继续由各自阶段门禁、SHA 绑定与顺序契约负责，不能在正文阶段把它们再次作为 `--output` 传入。这样既不把合法重读误判为事后补票，也不允许正文生成后补回执。
 
 ## 标准命令
 
@@ -35,9 +37,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
   --receipt "{项目目录}/写作资产/写作规则读取回执.json" \
-  --output "{项目目录}/设定.md" \
-  --output "{项目目录}/小节大纲.md" \
+  --stage draft \
   --output "{项目目录}/正文.md"
 ```
 
-只有输出 `writing_rule_gate: passed` 才能起盘、写大纲或写正文。正文回炉前必须再次读取并校验当前回执；规则文件变化时禁止沿用旧结论。
+设定和大纲阶段把 `--stage` 及 `--output` 分别换成 `setting / 设定.md`、`outline / 小节大纲.md`。`--output` 只接收当前阶段目标；尚未生成也必须传预定路径。只有输出 `writing_rule_gate: passed` 才能起盘、写大纲或写正文。正文回炉前必须再次读取并校验当前回执；规则文件变化时禁止沿用旧结论。

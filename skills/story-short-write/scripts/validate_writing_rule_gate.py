@@ -19,6 +19,12 @@ REQUIRED_RULES = (
     "references/craft/narrator-voice.md",
 )
 
+STAGE_TARGET_NAMES = {
+    "setting": "设定.md",
+    "outline": "小节大纲.md",
+    "draft": "正文.md",
+}
+
 
 def read_text(path: Path) -> str:
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
@@ -84,6 +90,7 @@ def validate_receipt(
     receipt_path: Path,
     output_paths: list[Path] | None = None,
     skill_root: Path = SKILL_ROOT,
+    artifact_stage: str | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     data = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -149,8 +156,15 @@ def validate_receipt(
         if evidence_terms and takeaways and used_for:
             read_count += 1
 
+    expected_target_name = STAGE_TARGET_NAMES.get(artifact_stage or "")
     for output in output_paths or []:
         resolved = output.resolve()
+        if expected_target_name and resolved.name != expected_target_name:
+            errors.append(
+                f"--stage {artifact_stage} 只能校验当前阶段目标 {expected_target_name}，"
+                f"不得把上游产物当成本阶段目标传入: {resolved}"
+            )
+            continue
         if resolved.exists() and receipt_path.stat().st_mtime > resolved.stat().st_mtime:
             errors.append(f"规则读取回执晚于写作产物，属于事后补填: {resolved}")
 
@@ -174,10 +188,16 @@ def main() -> int:
     validate_parser = subparsers.add_parser("validate", help="校验规则读取回执")
     validate_parser.add_argument("--receipt", required=True)
     validate_parser.add_argument(
+        "--stage",
+        choices=tuple(STAGE_TARGET_NAMES),
+        required=True,
+        help="当前即将生成的产物阶段；时序只和本阶段目标比较",
+    )
+    validate_parser.add_argument(
         "--output",
         action="append",
         required=True,
-        help="必须检查的设定、大纲或正文路径；可重复传入",
+        help="当前阶段目标路径；尚未生成时也传预定路径，可重复传入",
     )
 
     args = parser.parse_args()
@@ -209,7 +229,9 @@ def main() -> int:
     errors, summary = validate_receipt(
         receipt_path,
         [Path(raw) for raw in args.output],
+        artifact_stage=args.stage,
     )
+    print(f"stage: {args.stage}")
     print(f"receipt: {receipt_path}")
     print(f"file_count: {summary['file_count']}")
     print(f"read_count: {summary['read_count']}")

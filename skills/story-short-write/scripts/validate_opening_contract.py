@@ -22,6 +22,7 @@ REQUIRED_CHECKS = (
     "source_sequence_preserved_at_function_level",
     "original_opening_samples_compared_before_revision",
     "opening_not_storyboard_or_construction_list",
+    "single_emotional_misread_established",
 )
 
 
@@ -109,6 +110,16 @@ def create_receipt(
             "symptoms_checked": [],
             "narrative_flow_evidence": [],
             "revision_method": [],
+        },
+        "single_emotional_misread_review": {
+            "temporary_reader_answer": "",
+            "terminal_reframe": "",
+            "sentence_reviews": [],
+            "delete_sentence_test_completed": False,
+            "outline_like_sentences_remaining": None,
+            "future_resolution_preview_removed": False,
+            "remaining_open_question": "",
+            "judgment": "",
         },
         "prose_form_comparison": {
             "source_sentence_quote": "",
@@ -228,6 +239,60 @@ def validate_opening_flow_review(data: dict[str, Any], errors: list[str]) -> Non
         errors.append("正文开头回炉必须记录至少两条去分镜/去施工单改法")
 
 
+def validate_single_emotional_misread_review(
+    data: dict[str, Any], target_text: str, errors: list[str]
+) -> None:
+    review = data.get("single_emotional_misread_review")
+    if not isinstance(review, dict):
+        errors.append("single_emotional_misread_review 必须是对象")
+        return
+
+    for field in (
+        "temporary_reader_answer",
+        "terminal_reframe",
+        "remaining_open_question",
+        "judgment",
+    ):
+        if not str(review.get(field) or "").strip():
+            errors.append(f"single_emotional_misread_review.{field} 不能为空")
+
+    sentence_reviews = review.get("sentence_reviews")
+    valid_reviews = 0
+    if not isinstance(sentence_reviews, list):
+        errors.append("single_emotional_misread_review.sentence_reviews 必须是列表")
+    else:
+        for index, item in enumerate(sentence_reviews, start=1):
+            if not isinstance(item, dict):
+                errors.append(f"导语逐句统一轴复核格式错误: [{index}]")
+                continue
+            quote = str(item.get("quote") or "").strip()
+            judgment = str(item.get("judgment") or "").strip()
+            if not quote:
+                errors.append(f"导语逐句统一轴复核缺少 quote: [{index}]")
+            elif quote not in target_text:
+                errors.append(f"导语逐句统一轴复核 quote 不在当前目标文本: [{index}]")
+            if item.get("deepens_same_axis") is not True:
+                errors.append(f"导语仍有未加深统一误读的独立节点: [{index}]")
+            if not judgment:
+                errors.append(f"导语逐句统一轴复核缺少判断: [{index}]")
+            if (
+                quote
+                and quote in target_text
+                and item.get("deepens_same_axis") is True
+                and judgment
+            ):
+                valid_reviews += 1
+    if valid_reviews < 3:
+        errors.append("导语至少需要三组可核验的统一情绪轴句段")
+
+    if review.get("delete_sentence_test_completed") is not True:
+        errors.append("必须完成导语删句依赖测试")
+    if review.get("outline_like_sentences_remaining") is not False:
+        errors.append("导语仍含节点播报式梗概句")
+    if review.get("future_resolution_preview_removed") is not True:
+        errors.append("必须删除或改写单纯预告未来求回/后悔的结算句")
+
+
 def validate_prose_form_comparison(
     data: dict[str, Any], target_text: str, errors: list[str]
 ) -> None:
@@ -323,6 +388,7 @@ def validate_receipt(
         errors.append("artifact_kind 必须为 outline 或 draft")
     validate_original_opening_comparison(data, errors)
     validate_opening_flow_review(data, errors)
+    validate_single_emotional_misread_review(data, target_text, errors)
     validate_prose_form_comparison(data, target_text, errors)
 
     contract = data.get("source_contract")

@@ -97,6 +97,32 @@ class OpeningContractGateTest(unittest.TestCase):
                 "用手压审批表承载规则冲突，不分行列证据。",
             ],
         }
+        receipt["single_emotional_misread_review"] = {
+            "temporary_reader_answer": "丈夫为了女同事破坏规则，妻子只是在争回工作边界。",
+            "terminal_reframe": "拿开他的手说明妻子正在收回丈夫也无权越过的关系边界。",
+            "sentence_reviews": [
+                {
+                    "quote": "丈夫替女同事当众求情",
+                    "deepens_same_axis": True,
+                    "judgment": "先建立丈夫公开站错边的暂时答案。",
+                },
+                {
+                    "quote": "我把他的手从审批表上拿开",
+                    "deepens_same_axis": True,
+                    "judgment": "妻子的动作把工作争执推进为关系边界争夺。",
+                },
+                {
+                    "quote": "值班任务这才落到我手里",
+                    "deepens_same_axis": True,
+                    "judgment": "现实后果继续落在同一项越界上。",
+                },
+            ],
+            "delete_sentence_test_completed": True,
+            "outline_like_sentences_remaining": False,
+            "future_resolution_preview_removed": True,
+            "remaining_open_question": "丈夫下一次会继续替谁越过这条边界？",
+            "judgment": "三句持续加深同一项公开站错边，没有播报后续求回。",
+        }
         receipt["prose_form_comparison"] = {
             "source_sentence_quote": "丈夫为了女同事当众求情，我把他的手从审批表上拿开。",
             "source_sentence_skeleton": "对方具体动作，我方直接反应。",
@@ -268,6 +294,28 @@ class OpeningContractGateTest(unittest.TestCase):
         )
         errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
         self.assertTrue(any("新增的 AI 句面壳" in error for error in errors))
+
+    def test_outline_like_intro_is_blocking(self) -> None:
+        receipt = self._completed_receipt()
+        receipt["single_emotional_misread_review"][
+            "outline_like_sentences_remaining"
+        ] = True
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
+        self.assertTrue(any("节点播报式梗概句" in error for error in errors))
+
+    def test_single_emotional_misread_review_is_required(self) -> None:
+        receipt = self._completed_receipt()
+        receipt.pop("single_emotional_misread_review")
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        errors, _ = GATE.validate_receipt(self.receipt, self.source, self.target)
+        self.assertTrue(
+            any("single_emotional_misread_review 必须是对象" in error for error in errors)
+        )
 
 
 if __name__ == "__main__":

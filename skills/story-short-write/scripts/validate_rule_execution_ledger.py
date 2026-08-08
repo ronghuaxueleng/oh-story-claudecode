@@ -900,6 +900,214 @@ def bind_artifacts(ledger_path: Path, artifact_args: list[str]) -> list[str]:
     return []
 
 
+def parse_prospective_artifacts(
+    artifact_args: list[str],
+) -> tuple[list[str], dict[str, dict[str, str]], dict[str, str]]:
+    errors: list[str] = []
+    bindings: dict[str, dict[str, str]] = {}
+    artifact_texts: dict[str, str] = {}
+    for raw in artifact_args:
+        if "=" not in raw:
+            errors.append(f"artifact 参数必须是 名称=路径: {raw}")
+            continue
+        name, raw_path = raw.split("=", 1)
+        name = name.strip()
+        path = Path(raw_path).resolve()
+        if not name or not path.is_file():
+            errors.append(f"写作产物不存在或名称为空: {raw}")
+            continue
+        if name in bindings:
+            errors.append(f"artifact 名称重复: {name}")
+            continue
+        bindings[name] = {
+            "name": name,
+            "path": str(path),
+            "sha256": sha256(path),
+        }
+        artifact_texts[name] = read_text(path)
+    return errors, bindings, artifact_texts
+
+
+def iter_scoped_execution_entries(
+    data: dict[str, Any],
+) -> Iterable[tuple[str, str, dict[str, Any]]]:
+    for entry in data.get("skill_rules", []):
+        if isinstance(entry, dict):
+            yield "skill_rules", str(entry.get("id") or "未命名规则"), entry
+    for asset in data.get("source_assets", []):
+        if not isinstance(asset, dict):
+            continue
+        rules = asset.get("rules")
+        if isinstance(rules, list) and rules:
+            for entry in rules:
+                if isinstance(entry, dict):
+                    yield "asset_rules", str(entry.get("id") or "未命名资产规则"), entry
+        else:
+            yield "source_assets", str(asset.get("id") or "未命名来源资产"), asset
+
+
+def required_source_contract_paths(entry: dict[str, Any]) -> set[str]:
+    required: set[str] = set()
+    for ref in entry.get("source_refs", []):
+        if not isinstance(ref, dict):
+            continue
+        source_path = Path(str(ref.get("source_path") or "")).resolve()
+        if normalized_contract_name(source_path) in SOURCE_CONTRACT_ASSET_NAMES:
+            required.add(str(source_path))
+    return required
+
+
+def preflight_final_rebind(
+    ledger_path: Path,
+    artifact_args: list[str],
+    assume_full_rewrite: bool = False,
+) -> tuple[list[str], dict[str, Any]]:
+    argument_errors, bindings, artifact_texts = parse_prospective_artifacts(
+        artifact_args
+    )
+    report: dict[str, Any] = {
+        "prospective_artifacts": len(bindings),
+        "assume_full_rewrite": assume_full_rewrite,
+        "stale_artifact_bindings": 0,
+        "invalid_text_evidence": 0,
+        "invalid_scope_reviews": 0,
+        "duplicated_script_paths": 0,
+        "missing_source_contract_reviews": 0,
+        "stale_source_contract_sha": 0,
+        "by_scope": {
+            "skill_rules": 0,
+            "asset_rules": 0,
+            "source_assets": 0,
+        },
+        "estimated_manual_rebind_count": 0,
+        "details": [],
+    }
+    if argument_errors:
+        return argument_errors, report
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    current_bindings = {
+        str(item.get("name") or "").strip(): item
+        for item in (data.get("artifacts") or [])
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    }
+    for name, binding in bindings.items():
+        current = current_bindings.get(name)
+        if not current or current.get("path") != binding["path"] or current.get(
+            "sha256"
+        ) != binding["sha256"]:
+            report["stale_artifact_bindings"] += 1
+            report["details"].append(f"artifact_binding:{name}")
+
+    project_root = ledger_path.resolve().parent.parent
+
+    def add_debt(scope: str, debt_type: str, detail: str) -> None:
+        report[debt_type] += 1
+        report["by_scope"][scope] += 1
+        report["details"].append(detail)
+
+    for scope, label, entry in iter_scoped_execution_entries(data):
+        if entry.get("applicability") == "merged":
+            continue
+        for index, evidence in enumerate(entry.get("text_evidence") or [], start=1):
+            if not isinstance(evidence, dict):
+                add_debt(scope, "invalid_text_evidence", f"{label}.text_evidence[{index}]")
+                continue
+            artifact = str(evidence.get("artifact") or "").strip()
+            quote = str(evidence.get("quote") or "").strip()
+            if (
+                artifact not in artifact_texts
+                or not quote
+                or quote not in artifact_texts[artifact]
+                or (assume_full_rewrite and artifact == "正文")
+            ):
+                add_debt(
+                    scope,
+                    "invalid_text_evidence",
+                    f"{label}.text_evidence[{index}]:{artifact or '空产物'}",
+                )
+        for index, review in enumerate(entry.get("human_scope_reviews") or [], start=1):
+            artifact = (
+                str(review.get("artifact") or "").strip()
+                if isinstance(review, dict)
+                else ""
+            )
+            if artifact not in artifact_texts or (
+                assume_full_rewrite and artifact == "正文"
+            ):
+                add_debt(
+                    scope,
+                    "invalid_scope_reviews",
+                    f"{label}.human_scope_reviews[{index}]:{artifact or '空产物'}",
+                )
+        for index, artifact in enumerate(entry.get("script_artifacts") or [], start=1):
+            raw_path = (
+                str(artifact.get("path") or "").strip()
+                if isinstance(artifact, dict)
+                else ""
+            )
+            path_parts = Path(raw_path).parts if raw_path else ()
+            if project_root.name and path_parts.count(project_root.name) > 1:
+                add_debt(
+                    scope,
+                    "duplicated_script_paths",
+                    f"{label}.script_artifacts[{index}]:{raw_path}",
+                )
+        required_contracts = required_source_contract_paths(entry)
+        actual_contracts = {
+            str(Path(str(review.get("source_path") or "")).resolve()): review
+            for review in (entry.get("source_contract_reviews") or [])
+            if isinstance(review, dict) and review.get("source_path")
+        }
+        for source_path in sorted(required_contracts - set(actual_contracts)):
+            add_debt(
+                scope,
+                "missing_source_contract_reviews",
+                f"{label}.source_contract_reviews:{source_path}",
+            )
+        for source_path in sorted(required_contracts & set(actual_contracts)):
+            source = Path(source_path)
+            review = actual_contracts[source_path]
+            if not source.is_file() or review.get("source_sha256") != sha256(source):
+                add_debt(
+                    scope,
+                    "stale_source_contract_sha",
+                    f"{label}.source_contract_sha:{source_path}",
+                )
+            for index, evidence in enumerate(review.get("target_evidence") or [], start=1):
+                if not isinstance(evidence, dict):
+                    add_debt(
+                        scope,
+                        "invalid_text_evidence",
+                        f"{label}.source_contract_target_evidence[{index}]",
+                    )
+                    continue
+                artifact = str(evidence.get("artifact") or "").strip()
+                quote = str(evidence.get("quote") or "").strip()
+                if (
+                    artifact not in artifact_texts
+                    or not quote
+                    or quote not in artifact_texts[artifact]
+                    or (assume_full_rewrite and artifact == "正文")
+                ):
+                    add_debt(
+                        scope,
+                        "invalid_text_evidence",
+                        f"{label}.source_contract_target_evidence[{index}]:{artifact or '空产物'}",
+                    )
+
+    report["estimated_manual_rebind_count"] = sum(
+        report[key]
+        for key in (
+            "invalid_text_evidence",
+            "invalid_scope_reviews",
+            "duplicated_script_paths",
+            "missing_source_contract_reviews",
+            "stale_source_contract_sha",
+        )
+    )
+    return [], report
+
+
 def iter_execution_entries(data: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for entry in data.get("skill_rules", []):
         if isinstance(entry, dict):
@@ -2364,6 +2572,24 @@ def main() -> int:
         help="名称=路径，可重复传入，例如 正文=/path/to/正文.md",
     )
 
+    rebind_parser = subparsers.add_parser(
+        "preflight-final-rebind",
+        help="正式绑定前只读统计旧证据与来源契约债务",
+    )
+    rebind_parser.add_argument("--ledger", required=True)
+    rebind_parser.add_argument("--artifact", action="append", required=True)
+    rebind_parser.add_argument(
+        "--max-debt",
+        type=int,
+        default=None,
+        help="允许的人工重绑债务上限；最终复查默认 0，重写预估默认只报告",
+    )
+    rebind_parser.add_argument(
+        "--assume-full-rewrite",
+        action="store_true",
+        help="重写前把全部正文证据与正文范围复核预估为待重绑",
+    )
+
     refresh_parser = subparsers.add_parser("refresh-summary", help="按逐项状态刷新执行汇总")
     refresh_parser.add_argument("--ledger", required=True)
 
@@ -2446,6 +2672,39 @@ def main() -> int:
             return 2
         print("rule_execution_gate: artifacts_bound")
         print(f"ledger: {ledger_path}")
+        return 0
+    if args.command == "preflight-final-rebind":
+        errors, report = preflight_final_rebind(
+            ledger_path,
+            args.artifact,
+            assume_full_rewrite=args.assume_full_rewrite,
+        )
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if errors:
+            print("rule_execution_gate: rebind_preflight_blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        if args.max_debt is not None and args.max_debt < 0:
+            print("rule_execution_gate: rebind_preflight_blocked")
+            print("- max-debt 不得小于 0")
+            return 2
+        debt_threshold = (
+            args.max_debt
+            if args.max_debt is not None
+            else (
+                report["estimated_manual_rebind_count"]
+                if args.assume_full_rewrite
+                else 0
+            )
+        )
+        if report["estimated_manual_rebind_count"] > debt_threshold:
+            print("rule_execution_gate: rebind_preflight_blocked")
+            print(
+                "- 旧证据债务超过阈值，必须先按规则目标重建台账证据，再执行 bind-artifacts"
+            )
+            return 2
+        print("rule_execution_gate: rebind_preflight_passed")
         return 0
     if args.command == "refresh-summary":
         refresh_summary(ledger_path)

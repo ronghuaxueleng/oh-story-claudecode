@@ -56,7 +56,17 @@ class WriteReleaseGateTest(unittest.TestCase):
             "我没想到他还会替别人解释。解释什么？我从头到尾一句话都没说。"
             "钥匙放在桌上，她先拿走了。有意思，现在倒像是我进错了门。"
             "我懒得再问，转身去收自己的东西。身后有人叫我，我也没停。"
-            "最后门关上了。外面还有声音，反正和我没什么关系了。",
+            "最后门关上了。外面还有声音，反正和我没什么关系了。"
+            "他追到门边按住钥匙。"
+            "「你先别拿走，我们回去再说行不行？」"
+            "「钥匙是谁给她的？」"
+            "「她刚哭过，你别在这个时候跟她计较。」"
+            "「所以你先松手。」"
+            "门都要关了，他还在解释。"
+            "「你一定要把事情弄得这么难看吗？」"
+            "「我问的是谁动了我的东西。」"
+            "「我现在跟你说的是一家人的体面。」"
+            "「那就别碰我的门。」",
             encoding="utf-8",
         )
         bridge_catalog = source_root / "写作资产" / "桥段施工卡.md"
@@ -96,6 +106,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             "sequence",
             "setting_sequence",
             "prose",
+            "emotional",
         ):
             path = self.root / f"{name}.json"
             payload = {"gate_status": "passed"}
@@ -146,6 +157,8 @@ class WriteReleaseGateTest(unittest.TestCase):
                 payload = self.outline_contract_payload()
             elif name == "prose":
                 payload = self.prose_contract_payload()
+            elif name == "emotional":
+                payload = self.emotional_contract_payload()
             path.write_text(
                 json.dumps(payload),
                 encoding="utf-8",
@@ -347,6 +360,22 @@ class WriteReleaseGateTest(unittest.TestCase):
         ]
         payload["source_baseline"]["manual_judgment"] = "主体声线已经人工建立。"
         source_sentences = prose_gate.sentence_units(source_text)
+        dialogue_source_excerpts = [
+            (
+                "他追到门边按住钥匙。"
+                "「你先别拿走，我们回去再说行不行？」"
+                "「钥匙是谁给她的？」"
+                "「她刚哭过，你别在这个时候跟她计较。」"
+                "「所以你先松手。」"
+            ),
+            (
+                "门都要关了，他还在解释。"
+                "「你一定要把事情弄得这么难看吗？」"
+                "「我问的是谁动了我的东西。」"
+                "「我现在跟你说的是一家人的体面。」"
+                "「那就别碰我的门。」"
+            ),
+        ]
         passages = []
         purposes = ("开口", "冲突", "对白", "日常", "收口")
         for passage_index, purpose in enumerate(purposes, start=1):
@@ -356,6 +385,25 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "source_sentence": sentence,
                     "feature_ids": ["CP-01", "SC-01"],
                 }
+                if prose_gate.explicit_relation_markers(sentence):
+                    annotation["feature_ids"] += ["LM-02", "SC-05"]
+                relation_markers = prose_gate.explicit_relation_markers(sentence)
+                fallback_evidence = sentence[:8].strip()
+                annotation["feature_evidence"] = [
+                    {
+                        "feature_id": feature_id,
+                        "source_evidence": (
+                            relation_markers[0]
+                            if feature_id in ("LM-02", "SC-05") and relation_markers
+                            else fallback_evidence
+                        ),
+                        "mechanism": (
+                            f"{feature_id} 由当前句的具体词序、停顿或话语动作提供，"
+                            "只记录实际可见的句面机制。"
+                        ),
+                    }
+                    for feature_id in annotation["feature_ids"]
+                ]
                 for field_index, field in enumerate(
                     prose_gate.SOURCE_SENTENCE_ANNOTATION_FIELDS, start=1
                 ):
@@ -376,6 +424,12 @@ class WriteReleaseGateTest(unittest.TestCase):
             "methodology_reference_read": True,
             "annotation_unit": "sentence",
             "feature_inventory": list(prose_gate.ULTRA_FINE_FEATURE_IDS),
+            "feature_assignment_policy": {
+                "method": "current_model_sentence_semantic",
+                "mechanical_quota_or_rotation_used": False,
+                "full_inventory_occurrence_required": False,
+                "manual_judgment": "逐句按真实句面选择特征，不用序号轮转或强制覆盖 52 项。",
+            },
             "source_passages": passages,
             "distribution_baseline": {
                 "measurement_method": "逐句人工复核后记录字符、句长、问句、省略号、段长与虚词次数。",
@@ -394,11 +448,206 @@ class WriteReleaseGateTest(unittest.TestCase):
             },
             "manual_judgment": "连续片段已经逐句检查，正文只迁移句法、焦点和语用机制，不迁移人物事件。",
         }
+        liveliness_asset_file = self.root / "成文活性层资产.md"
+        liveliness_asset_file.write_text("测试成文活性资产", encoding="utf-8")
+        liveliness_assets = []
+        source_quotes = [
+            "原文场面里，他先伸手拦我，我把他的手推开。",
+            "我没想到他还会替别人解释。",
+            "有意思，现在倒像是我进错了门。",
+        ]
+        for asset_type in prose_gate.LIVELINESS_ASSET_TYPES:
+            for asset_index, source_quote in enumerate(source_quotes, start=1):
+                liveliness_assets.append(
+                    {
+                        "id": f"LIVE-{asset_type}-{asset_index}",
+                        "type": asset_type,
+                        "source_quote": source_quote,
+                        "live_core": "动作和判断带着人物当场的脾气与注意力偏差。",
+                        "transfer_mechanism": "迁移临场反应顺序，不复制原文人物和事件表层。",
+                        "surface_copy_boundary": "拒绝复制原人物、职业、物件和完整原句组合。",
+                        "surface_copy_rejected": True,
+                    }
+                )
+        payload["prose_liveliness_layer"] = {
+            "status": "passed",
+            "source_extraction_mode": "current_model_manual",
+            "primary_source_only": True,
+            "asset_file": self.binding(liveliness_asset_file),
+            "asset_types": list(prose_gate.LIVELINESS_ASSET_TYPES),
+            "assets": liveliness_assets,
+            "stiffness_prohibitions": [
+                {
+                    "pattern": f"作者替人物总结的僵硬句面模式{i}",
+                    "why_stiff": "作者替人物整理了完整意义，现场动作失去作用。",
+                    "replacement_action": "回到人物动作、错答和物件阻力，保留直接主观声音。",
+                }
+                for i in range(6)
+            ],
+            "manual_judgment": "七类资产均从主体原文真实句面提取，用于首写时保住人物现场和不工整的活性。",
+        }
+        personality_assets = []
+        personality_quotes = [
+            "原文场面里，他先伸手拦我，我把他的手推开。",
+            "有意思，现在倒像是我进错了门。",
+        ]
+        for asset_type in prose_gate.CHARACTER_PERSONALITY_ASSET_TYPES:
+            for asset_index in range(1, 4):
+                personality_assets.append(
+                    {
+                        "id": f"PERSON-{asset_type}-{asset_index}",
+                        "type": asset_type,
+                        "source_quotes": personality_quotes,
+                        "personality_core": f"第{asset_index}种{asset_type}体现稳定偏手和临场破绽。",
+                        "transfer_mechanism": "迁移注意、错答与动作选择，不复制人物身份和事件。",
+                        "surface_copy_boundary": "拒绝复制原职业、物件、关系称谓和完整情节表层。",
+                        "surface_copy_rejected": True,
+                    }
+                )
+        personality_file = self.root / "人物性格颗粒度资产.md"
+        personality_file.write_text("测试人物性格颗粒度资产", encoding="utf-8")
+        protagonist_assets = [personality_assets[index]["id"] for index in (0, 3, 6, 9, 12)]
+        counterpart_assets = [personality_assets[index]["id"] for index in (1, 4, 7, 10, 13)]
+        payload["character_personality_layer"] = {
+            "status": "passed",
+            "source_extraction_mode": "current_model_manual",
+            "primary_source_only": True,
+            "asset_file": self.binding(personality_file),
+            "asset_types": list(prose_gate.CHARACTER_PERSONALITY_ASSET_TYPES),
+            "assets": personality_assets,
+            "target_character_profiles": [
+                {
+                    "name": "林初",
+                    "role": "protagonist",
+                    "source_asset_ids": protagonist_assets,
+                    "attention_bias": "先看钥匙和拦门的手，再听对方解释。",
+                    "desire_and_shame": "想被挽留，却羞于承认自己还在等。",
+                    "defense_strategy": "用短问和收回物件保护自己，不解释委屈。",
+                    "speech_pattern": "追具体名词，受伤后才插一句冷话。",
+                    "misfire_pattern": "真正想问关系，却故意只问钥匙归谁。",
+                    "action_bias": "一受压就控制门、钥匙和离场方向。",
+                    "self_contradiction": "声称不在意，动作却会等对方追上来。",
+                    "private_relation_language": "最软时漏出旧昵称，随后立刻收回。",
+                    "generic_shells_rejected": ["清醒判词", "全程正确", "只会冷笑"],
+                    "surface_copy_rejected": True,
+                    "manual_judgment": "她由归属敏感、嘴硬等待和物件控制构成，不能替换成通用清醒女主。",
+                },
+                {
+                    "name": "周远",
+                    "role": "relationship_counterpart",
+                    "source_asset_ids": counterpart_assets,
+                    "attention_bias": "先看现场是否难看，再迟一步看伴侣。",
+                    "desire_and_shame": "想维持好人位置，害怕承认偏护来自私心。",
+                    "defense_strategy": "把具体归属问题改写成人情和体面问题。",
+                    "speech_pattern": "先叫名字缓和，再用长解释拖延回答。",
+                    "misfire_pattern": "被问钥匙时先解释别人为什么哭。",
+                    "action_bias": "习惯先伸手拦门，再补迟到的照顾。",
+                    "self_contradiction": "自认公平，身体却总先挡在别人前面。",
+                    "private_relation_language": "失去控制时才叫旧昵称，平时保持克制。",
+                    "generic_shells_rejected": ["只会别闹", "工具渣男", "精准递反刀"],
+                    "surface_copy_rejected": True,
+                    "manual_judgment": "他由体面自证、下意识拦挡和迟到照顾构成，不能只负责说错话。",
+                },
+            ],
+            "manual_judgment": "两名目标人物分别迁移原文的归属偏看与体面回避，不能共享同一反应方案。",
+        }
         for plan in payload["section_generation_plans"]:
+            chain_excerpts = [
+                "".join(source_sentences[:5]),
+                "".join(source_sentences[5:]),
+            ]
             plan.update(
                 {
                     "status": "passed",
                     "planned_before_draft": True,
+                    "generation_driver": "continuous_source_chain",
+                    "single_sentence_features_secondary": True,
+                    "continuous_source_chain_packets": [
+                        {
+                            "source_excerpt": excerpt,
+                            "source_sentence_chain": prose_gate.sentence_units(excerpt),
+                            "chain_motion": f"正例句链{index}先给异常和追问，再让错答或动作改变当前话轮。",
+                            "target_scene_use": f"第{index}组用于钥匙归属争夺，让关系压力在可见动作里加重。",
+                            "target_sentence_relation": f"第{index}组保留看见、追问、回避、收物件的顺序，不补心理算法。",
+                            "explanation_to_omit": f"删掉第{index}组动作后关于人物本质、权衡过程和象征意义的翻译。",
+                            "surface_copy_rejected": True,
+                            "manual_judgment": f"第{index}组只迁移连续反应链，不复制测试原文的人物、钥匙事件和原句表层。",
+                        }
+                        for index, excerpt in enumerate(chain_excerpts, start=1)
+                    ],
+                    "contrastive_examples": [
+                        {
+                            "positive_source_excerpt": excerpt,
+                            "positive_effect": f"正例{index}让异常、错答和动作自己递进，判断不越过人物所见。",
+                            "negative_example": f"错误反例{index}先列完现场事项，再解释他正在权衡利弊并总结人物本质。",
+                            "negative_failure": f"反例{index}以全知说明替代人物接招，具体争夺被抽象心理算法盖住。",
+                            "rewrite_instruction": f"反例{index}应删除解释，让追问逼出错答，再由物件换主收掉话轮。",
+                            "surface_copy_rejected": True,
+                        }
+                        for index, excerpt in enumerate(chain_excerpts, start=1)
+                    ],
+                    "relation_micro_examples": [
+                        {
+                            "source_excerpt": "「她刚哭过，你别在这个时候跟她计较。」「所以你先松手。」",
+                            "source_relation_type": "cause_effect",
+                            "target_relation_type": "cause_effect",
+                            "source_marking_mode": "explicit",
+                            "target_marking_mode": "explicit",
+                            "source_markers": ["所以"],
+                            "target_markers": ["所以"],
+                            "source_function_word_skeleton": "先摆出第三人的哭，再用所以把松手包装成唯一结论。",
+                            "target_rehearsal": "「她现在还在哭，所以钥匙先放我这里，等回家我再给你。」",
+                            "negative_example": "「她现在还在哭，钥匙先放我这里，等回家我再给你。」",
+                            "negative_failure": "错例去掉所以后，男人强行拿第三人推导妻子让步的自以为讲理感变弱。",
+                            "transfer_instruction": "保留用所以强行建立因果的错答口气，但替换人物、物件和请求内容。",
+                            "mechanical_marker_insertion_forbidden": True,
+                            "surface_copy_rejected": True,
+                            "manual_judgment": "这一组显式因果属于人物的自证逻辑，连接词本身就是压迫口气的一部分。",
+                        },
+                        {
+                            "source_excerpt": "原文场面里，他先伸手拦我，我把他的手推开。",
+                            "source_relation_type": "succession",
+                            "target_relation_type": "succession",
+                            "source_marking_mode": "implicit",
+                            "target_marking_mode": "implicit",
+                            "source_markers": [],
+                            "target_markers": [],
+                            "source_function_word_skeleton": "拦手后直接接推开，动作方向已经把接招关系说明白。",
+                            "target_rehearsal": "他把手压到钥匙上，我抽回钥匙，顺手关上了门。",
+                            "negative_example": "他把手压到钥匙上，所以我抽回钥匙，以此表达拒绝。",
+                            "negative_failure": "错例机械补因果和意义解释，两个连续动作原有的现场速度被拖慢。",
+                            "transfer_instruction": "保留动作接动作的隐式顺承，不为了形式完整添加连接词和主题说明。",
+                            "mechanical_marker_insertion_forbidden": True,
+                            "surface_copy_rejected": True,
+                            "manual_judgment": "这一组由动作方向自然衔接，若加所以反而偏离主体原文的短促反应。",
+                        },
+                    ],
+                    "dialogue_voice_packets": [
+                        {
+                            "source_excerpt": excerpt,
+                            "source_dialogue_turns": prose_gate.dialogue_turn_units(excerpt),
+                            "target_character": "周远",
+                            "turn_motion": f"原文对白{index}先叫住关系人，再找补，随后用第三人的难处压过具体归属追问。",
+                            "target_scene_use": f"第{index}组用于当前门口冲突，让压迫者先缓和称呼再答偏钥匙问题。",
+                            "target_rehearsal": (
+                                f"周远伸手按住第{index}把钥匙。"
+                                "「你先别拿，等我安顿完她，我们回去慢慢说。」"
+                                "「我只问钥匙是谁给的。」"
+                                "「她刚哭过，你非得现在逼她吗？」"
+                            ),
+                            "oral_texture_transfer": "保留叫住、以后解释、弱者理由和再次追问的口头展开，不压成一句命令。",
+                            "relationship_leverage": "压迫者利用旧关系仍可私下谈和主角过去总会体谅的习惯施压。",
+                            "functional_compression_to_avoid": "禁止压成你先走、她留下的剧情调度句。",
+                            "negative_example": f"「你先处理第{index}件事，她留在这里。」",
+                            "negative_failure": "错句只交付人物移动与剧情信息，没有称呼、找补、关系杠杆和接招。",
+                            "rewrite_instruction": "恢复叫人、承诺稍后解释、借弱者施压和对方追具体归属四步话轮。",
+                            "surface_copy_rejected": True,
+                            "manual_judgment": "试演保留主体丈夫自认讲理却不断答偏的口条，当前人物和钥匙场面已经换新。",
+                        }
+                        for index, excerpt in enumerate(
+                            dialogue_source_excerpts, start=1
+                        )
+                    ],
                     "source_passage_ids": ["P-1"],
                     "sentence_mechanisms": [
                         {
@@ -420,6 +669,52 @@ class WriteReleaseGateTest(unittest.TestCase):
                         field: f"{field}用长短句差和有限插嘴控制窗口。"
                         for field in prose_gate.SECTION_WINDOW_PLAN_FIELDS
                     },
+                    "liveliness_plan": {
+                        "planned_before_draft": True,
+                        "asset_ids": [
+                            liveliness_assets[index]["id"] for index in (0, 3, 6, 9)
+                        ],
+                        **{
+                            field: f"{field} 按本节人物受压后的临场偏手具体落笔。"
+                            for field in prose_gate.LIVELINESS_SECTION_PLAN_FIELDS
+                        },
+                        "stiffness_patterns_rejected": [
+                            "作者主题总结",
+                            "对话轮流答题",
+                            "物件意义立刻说透",
+                        ],
+                        "manual_judgment": "本节先让动作、身体和错答暴露关系，再允许叙述者给一句当场的直接判断。",
+                    },
+                    "character_plan": {
+                        "planned_before_draft": True,
+                        "active_character_names": ["林初", "周远"],
+                        "participants": [
+                            {
+                                "character_name": "林初",
+                                "source_asset_ids": protagonist_assets[:2],
+                                "scene_want": "想拿回钥匙又不肯承认还在等解释。",
+                                "attention_first": "先看拦门的手和钥匙，不听体面理由。",
+                                "misread_or_avoidance": "故意把关系伤害缩成钥匙归属。",
+                                "speech_boundary": "只追一个名词，不做清醒总结。",
+                                "action_or_object_bias": "先收钥匙，用物件决定话轮。",
+                                "relationship_private_trigger": "对方拦手时旧有照顾惯性短暂回跳。",
+                                "generic_function_line_to_reject": "拒绝直接总结背叛和边界。",
+                            },
+                            {
+                                "character_name": "周远",
+                                "source_asset_ids": counterpart_assets[:2],
+                                "scene_want": "想维持现场体面并阻止她离开。",
+                                "attention_first": "先看门外旁观者，再看她的手。",
+                                "misread_or_avoidance": "把归属质问错答成不要闹。",
+                                "speech_boundary": "先叫名字再解释，没有直接认错。",
+                                "action_or_object_bias": "先伸手拦门，不先回答问题。",
+                                "relationship_private_trigger": "门真的关上时才漏出旧昵称。",
+                                "generic_function_line_to_reject": "拒绝只说为了她好和别闹。",
+                            },
+                        ],
+                        "interchangeability_risk": "若两人都用冷问和收钥匙，本节会退成同声线答题对白。",
+                        "manual_judgment": "林初的归属敏感与周远的体面回避相撞，动作方向必须相反。",
+                    },
                     "surface_copy_rejected": True,
                     "manual_judgment": "起事节在落笔前绑定拦手与反问的句面机制，让冲突从即时知觉进入。",
                 }
@@ -434,6 +729,60 @@ class WriteReleaseGateTest(unittest.TestCase):
             }
             for i in range(3)
         ]
+        return payload
+
+    def emotional_contract_payload(self) -> dict:
+        emotional_gate = GATE._EMOTIONAL_GRANULARITY_MODULE
+        payload = emotional_gate.create_receipt("测试", self.source_original)
+        payload = emotional_gate.bind_outline(payload, self.outline)
+        source_quotes = [
+            "原文场面里，他先伸手拦我，我把他的手推开。",
+            "我没想到他还会替别人解释。",
+            "解释什么？",
+            "钥匙放在桌上，她先拿走了。",
+            "有意思，现在倒像是我进错了门。",
+            "最后门关上了。",
+        ]
+        roles = emotional_gate.REQUIRED_BEAT_ROLES
+        item = payload["section_contracts"][0]
+        item.update(
+            {
+                "status": "passed",
+                "source_excerpt": self.source_original.read_text(encoding="utf-8")[:90],
+                "immediate_subjective_judgment_plan": "保留女主看见偏护后的直接冷刺，不改成无主语的身体反应。",
+                "untidy_thought_or_emotional_crack_plan": "让她短暂盼丈夫解释，随后因错答露出不体面的失望。",
+                "embodied_or_object_action_plan": "用拦手、推手和钥匙换主承接情绪，动作必须改变现场。",
+                "old_wound_trigger_plan": "本节不展开旧伤，只用进入权失效预埋后续空间触发。",
+                "opponent_pressure_plan": "丈夫先替别人解释并拦手，迫使女主从等待转为反抗。",
+                "loss_of_control_or_equivalent_plan": "女主直接推开阻拦，形成与原文同级的动作升级。",
+                "source_like_direct_emotion_preserved": True,
+                "surface_copy_rejected": True,
+                "manual_judgment": "这一节保留主体原文从期待解释到直接冷刺的情绪锯齿，目标动作不低于原文。",
+            }
+        )
+        for index, role in enumerate(roles):
+            source_beat = item["source_emotion_beats"][index]
+            source_beat.update(
+                {
+                    "trigger": f"原文第{index + 1}个情绪触发",
+                    "relationship_position_change": "丈夫偏护后，妻子的位置继续下降。",
+                    "reader_effect": "读者先看见期待，再被偏护动作反刺。",
+                    "intensity": 7,
+                    "source_evidence": [source_quotes[index]],
+                }
+            )
+            target_beat = item["target_outline_beats"][index]
+            target_beat.update(
+                {
+                    "trigger": f"目标第{index + 1}个情绪触发",
+                    "relationship_position_change": "动作迫使主角失去原有位置并立刻反抗。",
+                    "reader_effect": "读者感到关系偏向和位置伤害。",
+                    "intensity": 7,
+                    "outline_evidence": ["动作一", "动作二"],
+                }
+            )
+        payload["reviewed_by_current_model"] = True
+        payload["prewrite_status"] = "passed"
         return payload
 
     @staticmethod
@@ -521,6 +870,7 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.assertTrue(any("细纲表演验收" in item for item in errors))
         self.assertTrue(any("profile" in item for item in errors))
         self.assertTrue(any("全文文字颗粒度" in item for item in errors))
+        self.assertTrue(any("全文情绪颗粒度" in item for item in errors))
 
     def test_all_preconditions_pass(self) -> None:
         errors = GATE.validate_release(
@@ -534,8 +884,32 @@ class WriteReleaseGateTest(unittest.TestCase):
             sequence_receipt=self.files["sequence"],
             prose_contract=self.files["prose"],
             primary_source_original=self.source_original,
+            emotional_contract=self.files["emotional"],
         )
         self.assertEqual([], errors)
+
+    def test_source_dominant_policy_blocks_first_draft_cleanup(self) -> None:
+        payload = json.loads(self.files["emotional"].read_text(encoding="utf-8"))
+        payload["first_draft_policy"][
+            "anti_ai_cleanup_applied_during_first_draft"
+        ] = True
+        self.files["emotional"].write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
+            emotional_contract=self.files["emotional"],
+        )
+        self.assertTrue(any("anti_ai_cleanup" in item for item in errors))
 
     def test_draft_requires_outline_performance_contract(self) -> None:
         errors = GATE.validate_release(

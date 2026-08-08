@@ -56,6 +56,19 @@ _PROSE_GRANULARITY_MODULE = importlib.util.module_from_spec(
 )
 _PROSE_GRANULARITY_SPEC.loader.exec_module(_PROSE_GRANULARITY_MODULE)
 
+_EMOTIONAL_GRANULARITY_GATE_PATH = Path(__file__).with_name(
+    "validate_emotional_granularity_contract.py"
+)
+_EMOTIONAL_GRANULARITY_SPEC = importlib.util.spec_from_file_location(
+    "story_short_write_emotional_granularity_contract",
+    _EMOTIONAL_GRANULARITY_GATE_PATH,
+)
+assert _EMOTIONAL_GRANULARITY_SPEC and _EMOTIONAL_GRANULARITY_SPEC.loader
+_EMOTIONAL_GRANULARITY_MODULE = importlib.util.module_from_spec(
+    _EMOTIONAL_GRANULARITY_SPEC
+)
+_EMOTIONAL_GRANULARITY_SPEC.loader.exec_module(_EMOTIONAL_GRANULARITY_MODULE)
+
 
 def load_json(path: Path, label: str, errors: list[str]) -> dict[str, Any] | None:
     if not path.is_file():
@@ -172,6 +185,7 @@ def validate_release(
     setting_sequence_receipt: Path | None = None,
     prose_contract: Path | None = None,
     primary_source_original: Path | None = None,
+    emotional_contract: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
     require_passed(
@@ -246,11 +260,20 @@ def validate_release(
 
     if phase == "draft":
         prose_data: dict[str, Any] | None = None
+        emotional_data: dict[str, Any] | None = None
         bound_outline_path: Path | None = None
         if prose_contract is None or primary_source_original is None:
             errors.append("正文写作放行必须提供全文文字颗粒度合同和主体原文")
         else:
             prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
+        if emotional_contract is None or primary_source_original is None:
+            errors.append("正文写作放行必须提供全文情绪颗粒度合同和主体原文")
+        else:
+            emotional_data = load_json(
+                emotional_contract,
+                "全文情绪颗粒度合同",
+                errors,
+            )
         if opening_contract is None:
             errors.append("正文写作放行必须提供开头承重契约回执")
         else:
@@ -299,6 +322,21 @@ def validate_release(
             if prose_errors:
                 errors.append("全文文字颗粒度写前门禁未通过")
                 errors.extend(prose_errors)
+        if (
+            emotional_data is not None
+            and primary_source_original is not None
+            and bound_outline_path is not None
+        ):
+            emotional_errors, _ = (
+                _EMOTIONAL_GRANULARITY_MODULE.validate_prewrite_data(
+                    emotional_data,
+                    primary_source_original,
+                    bound_outline_path,
+                )
+            )
+            if emotional_errors:
+                errors.append("全文情绪颗粒度写前门禁未通过")
+                errors.extend(emotional_errors)
         if profile is None:
             errors.append("正文写作放行必须提供单书或融合 profile")
         elif not profile.is_file():
@@ -326,6 +364,7 @@ def main() -> int:
     parser.add_argument("--sequence-receipt")
     parser.add_argument("--setting-sequence-receipt")
     parser.add_argument("--prose-contract")
+    parser.add_argument("--emotional-contract")
     parser.add_argument("--primary-source-original")
     args = parser.parse_args()
 
@@ -345,6 +384,7 @@ def main() -> int:
         Path(args.primary_source_original).resolve()
         if args.primary_source_original
         else None,
+        Path(args.emotional_contract).resolve() if args.emotional_contract else None,
     )
     if errors:
         for error in errors:

@@ -243,6 +243,21 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 
 正文或大纲发生变化后，重新绑定最终产物；原句证据消失时台账会阻断。阻断后不能机械把所有旧证据替换成同一句正文开头，必须按规则实际目标重绑到设定、大纲、正文或人工复核证据；否则虽然可能消除“原句不存在”，但仍属于伪执行。
 
+## 全文重写与最终绑定前的债务预检
+
+`preflight-final-rebind` 是只读诊断，不修改台账，也不替代人工重绑。它必须执行两次：第一次在全文重写前，用于估算旧证据债务并决定是否先整理台账；第二次在正文最后一次修改后、正式 `bind-artifacts` 前，用于确认准备绑定的最终产物没有遗留旧引句、空/错 `human_scope_reviews.artifact`、重复拼接项目目录的脚本路径、缺失来源契约或旧来源 SHA。
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" preflight-final-rebind \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact "设定={项目目录}/设定.md" \
+  --artifact "大纲={项目目录}/小节大纲.md" \
+  --artifact "正文={项目目录}/正文.md" \
+  --assume-full-rewrite
+```
+
+重写前必须带 `--assume-full-rewrite`，即使旧引句此刻仍存在，也把所有绑定“正文”的原句证据和全文范围复核预估为待重做；这一步默认只报告施工量。若团队设有人工重绑容量上限，可显式传 `--max-debt N`，超过即阻断本轮全文重写。正文最后一次修改后再次运行同一命令，但去掉 `--assume-full-rewrite`，此时默认 `--max-debt 0`，任何真实遗留债务都阻断正式绑定。报告按 `skill_rules / asset_rules / source_assets` 统计，并给出 `estimated_manual_rebind_count`；`stale_artifact_bindings` 仅表示正式绑定将更新，不计入人工重绑量。只有逐条按真实规则目标重建证据后才可临时提高阈值复查，不能用高阈值绕过正式 `validate`。
+
 逐项状态更新后刷新汇总：
 
 ```bash

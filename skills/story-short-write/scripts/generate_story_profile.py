@@ -1616,13 +1616,13 @@ def keep_object_pressure_asset(
     stripped = strip_asset_wrappers(text)
     if not keep_explicit_style_asset(stripped):
         return False
-    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not matches_dynamic_object_term(
-        stripped,
-        dynamic_terms,
-    ):
+    dynamic_match = matches_dynamic_object_term(stripped, dynamic_terms)
+    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not dynamic_match:
         return False
     if OBJECT_PRESSURE_BAD_RE.search(stripped):
         return False
+    if dynamic_match:
+        return True
     if OBJECT_PRESSURE_SENTENCE_RE.search(stripped) and not stripped.endswith(("视频", "录音", "录像", "钥匙", "花束", "礼物", "截图", "照片", "协议", "证据册", "副驾驶", "座位", "家属栏", "离婚证")):
         return False
     if len(stripped) > 18 and not stripped.endswith(("视频", "录音", "录像", "证据册")):

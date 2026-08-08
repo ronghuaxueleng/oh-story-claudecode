@@ -1405,12 +1405,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 ### 正式写前，再把必要参考补一遍（同时别超过 3 个）
 
 - 必读：`format-and-structure.md`
-- 必读：`anti-ai-writing.md`（写作时自检 AI 腔，**先查篇章级骨架味**）
-- 必读：`craft/narrator-voice.md`（第一人称叙述者有没有"嘴"——实时评价、骤断短句、幽默/自嘲；去AI味核心，回炉时必查）
+- 必读：`anti-ai-writing.md`（首稿只读阶段边界，不执行清洗；初稿停靠且用户授权后才进入去味）
+- 必读：`craft/narrator-voice.md`（第一人称叙述者有没有"嘴"；有主体原文时按原文密度与位置生成，不按检测指标配平）
+- 仿写 / 融合必读：`governance/source-dominant-first-draft.md`、`governance/character-personality-granularity.md` 与 `governance/emotional-granularity-contract.md`
 - 硬闸：三份必读文件必须逐项回填 `写作规则读取回执.json` 并通过 `validate_writing_rule_gate.py`；任一文件变化后必须重新读取，不能沿用旧回执。
 - 硬闸：读取通过后必须初始化 `规则执行台账.json`。所有拆书文件逐文件判断，16 表和承重资产逐规则展开；额外挂载的参考规则用 `--skill-rule-file` 加入台账。
 - 分类硬闸：脚本先按小节和资产文件形成规则族；当前写作模型再逐族分流流程、格式、设定、大纲、正文、审计、拆书候选和禁用规则。完全重复族自动合并，近义族由模型归入 canonical。台账全量执行不等于全量修改正文。
 - 脚本项只做 SHA、格式、频率、禁词、固定模式和完整性；人物偏手、失控说话、注意力漂移、认知局限、作者代判和对白生活性必须人工执行；长窗节奏、对白效率、桥段相似度和 profile 覆盖必须混合执行。
+- 人物硬闸：主角和核心关系人必须分别建立注意力偏向、欲望羞耻、防御、错答、动作偏手、自我矛盾和私域语言；逐节执行换人测试。零散冷刺、哭泣和沉默不能冒充性格。
 - 按题材加载 1 个：`genre-writing-formulas.md` 中对应题材速查表
 - 按需加载：`writing-craft.md` / `villain-and-reveal.md` / `emotional-methods.md`
 
@@ -1489,9 +1491,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - [ ] 章末有钩子（悬念或余韵）？
 
 ### AI 腔
+
+本组只用于初稿停靠后的授权审计。首稿阶段不按下列频率和禁词改文，只检查是否明显偏离主体原文；主体原文有效用法可以保留。
 - [ ] 无禁止比喻：「命运的齿轮」「如潮水般」「仿佛春风」「心猛地一沉」「眼眶泛红」
-- [ ] 同一身体部位/情绪描写不超 5 次（统计：手指/心/膝盖/眼睛，超限必须替换）
-- [ ] 「像」使用频率：全文不超 10 处（含「像是」「不像」）
+- [ ] 同一身体部位/情绪描写的重复已结合主体原文和语境人工裁决，不设固定 5 次上限
+- [ ] 「像」的使用已结合语境人工裁决，不设固定 10 处上限
 - [ ] 没有连续多段都写成「动作一句 + 心理一句 + 台词一句」的模板节拍
 - [ ] 没有“作者替人物说透了”的代判句
 - [ ] “作者站位过高 0”是否仅被当成脚本结果，而不是人工通过结论？
@@ -1505,7 +1509,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 - [ ] 完整 AI 腔黑名单见 `anti-ai-writing.md`
 
 ### 技法
-- [ ] 身体细节：有无情绪词可替换为身体状态？
+- [ ] 情绪表达：身体状态、动作和直接心理是否共同符合主体原文；不得把所有情绪词机械替换成身体反应
 - [ ] 结构物件：三现是否完整？（查设定.md追踪表）
 - [ ] 一动一静：每节是否有动有静？
 - [ ] 开头密度：前 100 字事件 ≥ 3？

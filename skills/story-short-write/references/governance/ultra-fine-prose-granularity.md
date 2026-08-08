@@ -10,6 +10,8 @@
 
 统计量用于识别倾向和异常，不是模仿目标。不得按句长、虚词或标点频率机械凑数，不得让指标替代逐句人工判断。
 
+本规范只描述语言结构。结构齐全但正文明显僵硬时，必须继续执行 [prose-liveliness-layer.md](prose-liveliness-layer.md)，从主体全文提取并逐节消费活词、身体感知、对白毛边、残句、物件承情和反工整表达。不得用 52 项特征已覆盖为由跳过成文活性层。
+
 ## 52 项特征库
 
 ### 字符与标点 `CP`
@@ -87,6 +89,7 @@
 每条 `sentence_annotations` 必须原样绑定一个完整源文句，并填写：
 
 - `feature_ids`：至少指出该句实际涉及的特征编号。
+- `feature_evidence`：与 `feature_ids` 一一对应；每项填写 `feature_id / source_evidence / mechanism`，其中 `source_evidence` 必须原样存在于当前源句，`mechanism` 必须说明该特征在这句话里的具体作用。
 - `character_and_punctuation`
 - `lexical_and_morphology`
 - `clause_and_syntax`
@@ -100,6 +103,10 @@
 
 标注必须说明“这一句具体怎样运作”，不得把同一段套话复制到不同句子。`transfer_constraint` 说明必须保留的生成机制，`permitted_deviation` 说明为了原创和当前故事允许改变的表层。
 
+`feature_inventory` 绑定完整 52 项方法库，但不要求 52 项在五组样本里各出现一次。真实样本没有出现的特征可以不标；禁止为了“覆盖完整”按句子序号、数组下标、取模或轮转分派 ID，也禁止给每句固定附加同一组泛化特征。基线必须填写 `feature_assignment_policy`，明确使用 `current_model_sentence_semantic`、没有机械配额或轮转、没有强制全库出现，并说明人工判断方法。找不到当前源句内证据的 ID 必须删除。
+
+显式关系词必须与特征编号一致。源句出现 `而 / 但 / 却 / 可 / 反倒 / 反而 / 偏偏 / 于是 / 所以 / 因为 / 毕竟 / 果然` 时，`feature_ids` 必须同时包含 `LM-02` 和 `SC-05`；只标泛化的 `SC-01` 不算完成。这里不是统计连接词频率，而是确认这一个虚词究竟把前后分句接成转折、因果、反证还是语气回弹。
+
 ## 每节落笔包
 
 `section_generation_plans` 必须与已绑定细纲逐节一一对应。每节至少包含：
@@ -107,6 +114,7 @@
 - 3 个 `sentence_mechanisms`：每个绑定一条已标注源文句、至少 2 个特征编号、目标意图、允许偏移、禁用句壳和表层复刻拒绝。
 - `paragraph_plan`：进入动作、聚焦与知识上限、衔接链、对白策略、情绪次序、退出切点、负空间。
 - `window_plan`：句长运动、虚词节奏、叙述者插嘴分布、反均匀策略。
+- 至少 2 组 `relation_micro_examples`：每组直接绑定主体原文关系句，标明 `source_relation_type / source_marking_mode / source_markers / source_function_word_skeleton`，并给出当前场景的自然正例、错误反例、正误理由和迁移边界。显式关系的正例必须真的出现对应连接词；隐式关系不得伪填连接词。
 - 本节独有的 `manual_judgment`，说明这些机制怎样服务本节细纲，而非只替换章节号。
 
 写作顺序固定为：读取本节细纲与落笔包，写本节，立即回填本节逐句映射，再进入下一节。禁止先写完全文后批量补回执。
@@ -125,6 +133,8 @@
 - `surface_copy_rejected=true`
 
 这些字段证明合同参与了生成，不只是写后相似度说明。不同目标句不得复用同一组模板判断；目标句存在于正文、源锚存在于写前逐句标注、细纲包已经通过，三者缺一即阻断。
+
+每节还必须逐组填写 `relation_micro_reviews`，引用正文真实原句，记录实际 `relation_type / marking_mode / target_markers`，并确认源文虚词逻辑已迁移、没有机械补词。随后填写 `sentence_relation_review`：逐条裁决脚本定位的硬并列候选，并人工通读脚本未覆盖的全部句间关系。自动候选只能定位，不能代替“这里该显式转折还是该让动作自然并置”的人工判断。
 
 ## 放行边界
 

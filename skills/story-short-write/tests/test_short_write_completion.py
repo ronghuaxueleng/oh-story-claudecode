@@ -91,6 +91,26 @@ class ShortWriteCompletionTest(unittest.TestCase):
         self.assertEqual("block", payload["decision"])
         self.assertIn("期望 'passed'", payload["reason"])
 
+    def test_completion_requires_prose_emotion_release_and_format_gates(self) -> None:
+        state = self.create_passed_state()
+        state["checks"] = [
+            item
+            for item in state["checks"]
+            if item["label"]
+            not in {
+                "prose_granularity_contract",
+                "emotional_granularity_contract",
+                "write_release_gate",
+                "platform_format_gate",
+            }
+        ]
+        GATE.write_state(self.state, state)
+        _, errors = GATE.validate_state(self.state)
+        self.assertTrue(any("prose_granularity_contract" in item for item in errors))
+        self.assertTrue(any("emotional_granularity_contract" in item for item in errors))
+        self.assertTrue(any("write_release_gate" in item for item in errors))
+        self.assertTrue(any("platform_format_gate" in item for item in errors))
+
     def test_blocked_state_requires_three_attempts_and_resume_entry(self) -> None:
         state = self.create_passed_state(status="blocked")
         state["blocker"] = {
@@ -117,6 +137,13 @@ class ShortWriteCompletionTest(unittest.TestCase):
             GATE.REQUIRED_CHECK_LABELS,
             {item["label"] for item in data["checks"]},
         )
+
+    def test_all_required_checks_allow_complete_state(self) -> None:
+        state = self.create_passed_state(status="complete")
+        GATE.write_state(self.state, state)
+        data, errors = GATE.validate_state(self.state)
+        self.assertEqual("complete", data["status"])
+        self.assertEqual([], errors)
 
 
 if __name__ == "__main__":
