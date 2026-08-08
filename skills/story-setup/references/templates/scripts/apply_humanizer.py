@@ -74,25 +74,21 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n")
 
 
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def resolve_support_file(filename: str) -> Path:
     script_dir = Path(__file__).resolve().parent
     candidates = [
         script_dir / filename,
-        script_dir.parents[1] / "agent-references" / filename,
-        script_dir.parent / "references" / "agent-references" / filename,
         script_dir.parent / "references" / "governance" / filename,
-        script_dir.parent / ".codex" / "skills" / "story-setup" / "references" / "agent-references" / filename,
-        script_dir.parent / "skills" / "story-setup" / "references" / "agent-references" / filename,
     ]
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
     return candidates[0].resolve()
-
-
-def write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8", newline="\n")
 
 
 def split_paragraphs(text: str) -> list[str]:

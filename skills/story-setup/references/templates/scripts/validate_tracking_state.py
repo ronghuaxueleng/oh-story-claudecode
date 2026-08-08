@@ -22,21 +22,22 @@ CONCLUSION_TOKENS = (
     "就是主使",
 )
 SOFT_OUTCOME_TOKENS = ("雏形", "资格", "名分", "候选", "暂挂", "先记事实", "待补", "待定", "占位")
+POSTCHECK_PREFIXES = ("写后验收", "写后检查")
 OUTCOME_RISK_RULES = (
     {
         "name": "先定说法资格高判",
-        "needles": ("解释权",),
+        "needles": ("解释权", "先定说法资格"),
         "strong": ("生效", "拿到", "持有", "到手", "正式"),
-        "body_needles": ("解释权",),
-        "enemy_loss_needles": ("失去", "改口", "让位", "交出", "被迫", "收走", "关在外面", "改写"),
-        "contested_needles": ("不能证明", "不是解释权", "先写事实", "给谁", "谁有资格", "要求补清除"),
+        "body_needles": ("解释权", "先定说法资格"),
+        "enemy_loss_needles": ("失去", "把原话收回去", "让位", "交出", "被迫", "收走", "关在外面", "改写"),
+        "contested_needles": ("不能证明", "不是解释权", "不是先定说法资格", "先写事实", "给谁", "谁有资格", "要求补清除"),
     },
     {
         "name": "链路/归属高判",
         "needles": ("接触链路持有人", "归后勤", "归夜巡", "样本链路", "押送主导"),
         "strong": ("拿到", "持有", "归", "正式", "到手"),
         "body_needles": ("链路", "押送", "交接", "上车", "转运"),
-        "enemy_loss_needles": ("失去", "改口", "改手", "被挡", "被迫", "关门", "收走"),
+        "enemy_loss_needles": ("失去", "把原话收回去", "改手", "被挡", "被迫", "关门", "收走"),
         "contested_needles": ("不能证明", "暂缓", "先押送", "临时", "别在这儿耗", "试试"),
     },
 )
@@ -81,9 +82,10 @@ def chapter_group_postchecks(project_root: Path) -> list[Path]:
     if not tracking_dir.exists():
         return []
     files: list[Path] = []
-    for path in tracking_dir.glob("写后验收_第*.md"):
-        if canonical_chapter_range(path.name) is not None:
-            files.append(path)
+    for prefix in POSTCHECK_PREFIXES:
+        for path in tracking_dir.glob(f"{prefix}_第*.md"):
+            if canonical_chapter_range(path.name) is not None:
+                files.append(path)
     return sorted(files)
 
 
@@ -92,9 +94,10 @@ def single_chapter_postchecks(project_root: Path) -> list[Path]:
     if not tracking_dir.exists():
         return []
     files: list[Path] = []
-    for path in tracking_dir.glob("写后验收_第*.md"):
-        if canonical_single_chapter(path.name) is not None:
-            files.append(path)
+    for prefix in POSTCHECK_PREFIXES:
+        for path in tracking_dir.glob(f"{prefix}_第*.md"):
+            if canonical_single_chapter(path.name) is not None:
+                files.append(path)
     return sorted(files)
 
 
@@ -109,7 +112,7 @@ def canonical_chapter_range(name: str) -> tuple[int, int] | None:
 
 
 def canonical_single_chapter(name: str) -> int | None:
-    match = re.fullmatch(r"写后验收_第(\d+)章(?:_.+)?\.md", name)
+    match = re.fullmatch(r"(?:写后验收|写后检查)_第(\d+)章(?:_.+)?\.md", name)
     if match:
         return int(match.group(1))
     return None
@@ -134,7 +137,7 @@ def validate_postcheck_presence(project_root: Path, chapters: list[Path]) -> lis
     groups = chapter_group_postchecks(project_root)
     tracking_dir = project_root / "追踪"
     if not groups:
-        issues.append(make_issue(tracking_dir, "章组总表", "warn", "正文已有连续两章及以上，但未发现 `写后验收_第XXX-XXX章.md` 章组总表"))
+        issues.append(make_issue(tracking_dir, "章组总表", "warn", "正文已有连续两章及以上，但未发现 `写后检查_第XXX-XXX章.md` 或 `写后验收_第XXX-XXX章.md` 章组总表"))
         return issues
     latest = chapters[-4:]
     if len(latest) >= 2:
@@ -174,7 +177,10 @@ def validate_duplicate_postchecks(project_root: Path) -> list[Issue]:
 def validate_unique_fact_source(project_root: Path) -> list[Issue]:
     issues: list[Issue] = []
     tracking_dir = project_root / "追踪"
-    paths = sorted(tracking_dir.glob("写后验收_第*.md"))
+    paths: list[Path] = []
+    for prefix in POSTCHECK_PREFIXES:
+        paths.extend(sorted(tracking_dir.glob(f"{prefix}_第*.md")))
+    paths = sorted(set(paths))
     sources: dict[tuple[int, int], list[Path]] = {}
     for path in paths:
         text = path.read_text(encoding="utf-8")
@@ -293,7 +299,7 @@ def validate_scene_narrowness_acceptance(project_root: Path) -> list[Issue]:
                     postcheck,
                     "过程写窄消费",
                     "error",
-                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，但写后验收未填写 `scene_narrowness_lint 结果`",
+                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，但写后检查未填写 `scene_narrowness_lint 结果`",
                 )
             )
         if missing_answers:
@@ -302,16 +308,16 @@ def validate_scene_narrowness_acceptance(project_root: Path) -> list[Issue]:
                     postcheck,
                     "过程写窄消费",
                     "error",
-                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，但写后验收缺少三问：{'、'.join(missing_answers)}",
+                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，但写后检查缺少三问：{'、'.join(missing_answers)}",
                 )
             )
-        if final_code == "F0" or "可并入主正文" in verdict:
+        if final_code == "F0" or verdict.strip() == "可并入主正文":
             issues.append(
                 make_issue(
                     postcheck,
                     "过程写窄消费",
                     "error",
-                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，写后验收仍高判为 `{final_code or '未写失败码'} / {verdict or '未写并入裁决'}`",
+                    f"第{chapter_no:03d}章正文已命中 `scene_narrowness_lint.warn`，写后检查仍高判为 `{final_code or '未写失败码'} / {verdict or '未写并入裁决'}`",
                 )
             )
     return issues

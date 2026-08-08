@@ -18,6 +18,19 @@
 
 如果上面有一项打勾，这轮都不能当成完成轮。
 
+## 一点五、写作放行硬闸
+
+- [ ] 已运行 `validate_write_release_gate.py`
+- [ ] 输出明确为 `write_release_gate: passed`
+- [ ] 设定写完后已单独运行 `validate_sequence_contract.py validate-setting`
+- [ ] 大纲放行绑定了 `scope: setting` 且已通过的设定内部顺序回执
+- [ ] 正文放行绑定了 `scope: full` 且已通过的设定—大纲—正文顺序回执
+- [ ] 正文阶段已同时绑定开头承重契约和有效 profile
+- [ ] 任一前置门禁为 `pending / blocked / failed` 时，本轮没有创建或修改目标产物
+
+正文阶段不得以“正文已经生成”替代写作放行；放行失败必须先修前置门禁。
+设定内部顺序未过闸时，不得先写大纲再回头解释；大纲/正文顺序回执未通过时，不得继续下一阶段。
+
 ---
 
 ## 二、标准执行顺序
@@ -91,6 +104,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py"
   - [ ] `gate_overall_status: passed`
 
 少一条都不算真正完成。
+
+### 正文完整流程附加条件
+
+- [ ] 初稿已先按 skill canonical 规则和主体拆书资产完成定向回修
+- [ ] 已逐项读取并消费主体拆书中的 `全局结构形状 / 章尾收束模式 / 主角不规则性 / 专业细节功能性 / 全文对白模式`
+- [ ] 上述五项已在规则执行台账中分别标记 `applied / not_selected / prohibition_checked`，并绑定当前设定、大纲、正文或人工审计证据
+- [ ] 没有把拆书反面规则机械变成正文新增；每个正文修改项都能回指适用性和失败证据
+- [ ] `validate_pre_window_revision_gate.py` 输出 `pre_window_revision_gate: passed`
+- [ ] 人工模型分段回执为 `completed`
+- [ ] 正文 SHA、字符数和边界与当前正文一致
+- [ ] 正式全量审计使用人工分段回执，不是算法滑窗预扫
+- [ ] 每个窗口已由当前模型人工写明病因、证据和处理决策
+- [ ] `rhythm_distribution_audit` 已逐窗人工复核
+- [ ] 写后人工语义复核通过
+- [ ] 规则执行台账通过
+- [ ] 缺任一项，只能标记为“未完成”，不能用部分检查结果代替
 
 ---
 

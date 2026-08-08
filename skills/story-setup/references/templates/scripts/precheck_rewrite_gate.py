@@ -14,25 +14,7 @@ SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?])")
 DIALOGUE_RE = re.compile(
     r'“([^”\n]{1,120})”|"([^"\n]{1,120})"|「([^」\n]{1,120})」|『([^』\n]{1,120})』'
 )
-
-
-def resolve_support_file(filename: str) -> Path:
-    script_dir = Path(__file__).resolve().parent
-    candidates = [
-        script_dir / filename,
-        script_dir.parents[1] / "agent-references" / filename,
-        script_dir.parent / "references" / "agent-references" / filename,
-        script_dir.parent / "references" / "governance" / filename,
-        script_dir.parent / ".codex" / "skills" / "story-setup" / "references" / "agent-references" / filename,
-        script_dir.parent / "skills" / "story-setup" / "references" / "agent-references" / filename,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    return candidates[0].resolve()
-
-
-DEFAULT_CONFIG = resolve_support_file("precheck_rewrite_gate.config.json")
+DEFAULT_CONFIG = Path(__file__).resolve().parents[1] / "references" / "governance" / "precheck_rewrite_gate.config.json"
 
 
 @dataclass
@@ -265,7 +247,7 @@ def write_report(path: Path, findings: dict[str, list[Finding]]) -> tuple[Path, 
 def main() -> None:
     parser = argparse.ArgumentParser(description="重写前闸门预检脚本")
     parser.add_argument("path", help="待检查的 md/txt 文件")
-    parser.add_argument("--config", help="可选：预检配置 JSON；不传时默认读取部署后的 story-setup agent-references 或 skill 内对应配置")
+    parser.add_argument("--config", help="可选：预检配置 JSON；不传时默认读取 skill 内 references/governance/precheck_rewrite_gate.config.json")
     parser.add_argument("--profile", help="可选：book/project profile JSON；不传时自动读取正文同级 profiles/ 中最新 profile")
     parser.add_argument("--override", help="可选：项目级预检覆盖 JSON；不传时自动读取正文同级 override 文件")
     args = parser.parse_args()

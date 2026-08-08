@@ -55,7 +55,7 @@ def lint(project_root: Path, skill_script_dir: Path) -> list[Issue]:
             issues.append(make_issue(project_path, "error", f"项目缺少脚本 `{name}`，应从 skill 同步最新版"))
             continue
         if sha256(skill_path) != sha256(project_path):
-            issues.append(make_issue(project_path, "error", f"项目脚本 `{name}` 与 skill 版本不一致，需先同步后再写后验收/复审"))
+            issues.append(make_issue(project_path, "error", f"项目脚本 `{name}` 与 skill 版本不一致，需先同步后再做写后检查/复审"))
     return issues
 
 

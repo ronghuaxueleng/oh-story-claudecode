@@ -7,6 +7,7 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 
 def read_text(path: Path) -> str:
@@ -18,16 +19,74 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
-def collect_original_source_text(root: Path) -> str:
-    source_dir = root / "原文"
-    if not source_dir.is_dir():
-        return ""
-    chunks = [
-        read_text(path)
-        for path in sorted(source_dir.rglob("*"))
-        if path.is_file() and path.suffix.lower() in {".txt", ".md"}
-    ]
+def collect_original_source_text(roots: list[Path]) -> str:
+    chunks: list[str] = []
+    for root in roots:
+        source_dir = root / "原文"
+        if not source_dir.is_dir():
+            continue
+        for path in sorted(source_dir.rglob("*")):
+            if path.is_file() and path.suffix.lower() in {".txt", ".md"}:
+                chunks.append(read_text(path))
     return "\n".join(chunks)
+
+
+def build_prose_style_contract(root: Path) -> dict[str, object]:
+    """Keep prose guidance owned by one source instead of merging voices."""
+    dna_path = root / "写作资产" / "作者DNA指纹.md"
+    if not dna_path.is_file():
+        return {}
+    text = read_text(dna_path)
+    return {
+        "source_role": "primary_only",
+        "source_root": str(root.resolve()),
+        "author_dna_path": str(dna_path.resolve()),
+        "sentence_motion": collect_heading_block_lines(
+            text, ("句长", "切句", "停顿"), max_items=12
+        ),
+        "narrator_voice": collect_heading_block_lines(
+            text, ("视角", "情绪落点", "收口"), max_items=12
+        ),
+        "dialogue_and_character_voice": collect_heading_block_lines(
+            text, ("人物不同脸", "口气差", "全文对白"), max_items=12
+        ),
+        "anti_patterns": collect_heading_block_lines(
+            text, ("反面句型", "禁写", "禁学"), max_items=12
+        ),
+        "contract_note": "该字段只提供主体声线依据；正式正文仍须建立全文文字颗粒度回执。",
+    }
+
+
+DYNAMIC_OBJECT_CATEGORIES = ("核心物件", "证据载体")
+PRECHECK_FACT_CATEGORIES = ("核心物件", "证据载体")
+PRECHECK_ACTION_CATEGORIES = ("动作与微动作",)
+
+
+def collect_dynamic_object_terms(root: Path) -> set[str]:
+    path = root / "写作资产" / "本书动态信号字典.json"
+    if not path.is_file():
+        return set()
+    try:
+        data = json.loads(read_text(path))
+    except (json.JSONDecodeError, OSError):
+        return set()
+    categories = data.get("categories")
+    if not isinstance(categories, dict):
+        return set()
+
+    source_text = collect_original_source_text([root])
+    terms: set[str] = set()
+    for category in DYNAMIC_OBJECT_CATEGORIES:
+        entries = categories.get(category, [])
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            term = str(entry.get("term", "")).strip()
+            if 2 <= len(term) <= 32 and term in source_text:
+                terms.add(term)
+    return terms
 
 
 def collect_dynamic_precheck_overrides(root: Path) -> dict[str, list[str]]:
@@ -42,7 +101,7 @@ def collect_dynamic_precheck_overrides(root: Path) -> dict[str, list[str]]:
     if not isinstance(categories, dict):
         return {}
 
-    source_text = collect_original_source_text(root)
+    source_text = collect_original_source_text([root])
 
     def collect_patterns(category_names: tuple[str, ...]) -> list[str]:
         terms: list[str] = []
@@ -58,8 +117,8 @@ def collect_dynamic_precheck_overrides(root: Path) -> dict[str, list[str]]:
                     terms.append(re.escape(term))
         return normalize_items(terms)
 
-    fact_patterns = collect_patterns(("核心物件", "证据载体"))
-    action_patterns = collect_patterns(("动作与微动作",))
+    fact_patterns = collect_patterns(PRECHECK_FACT_CATEGORIES)
+    action_patterns = collect_patterns(PRECHECK_ACTION_CATEGORIES)
     overrides: dict[str, list[str]] = {}
     if fact_patterns:
         overrides["fact_anchor_patterns"] = fact_patterns
@@ -255,14 +314,14 @@ def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
         if not stripped.startswith("- "):
             continue
         body = stripped[2:].strip()
-        if body.startswith("桥段"):
-            current_parent = body
-            result[current_parent]
-            continue
         if raw.startswith("  - ") and current_parent:
             key, _, value = body.partition("：")
             if value:
                 result[f"{current_parent}::{key.strip()}"].append(value.strip())
+            continue
+        if re.match(r"^桥段[：:]", body):
+            current_parent = body
+            result[current_parent]
             continue
         key, _, value = body.partition("：")
         if value:
@@ -352,7 +411,16 @@ ASSET_LABEL_PREFIXES = (
 
 def strip_asset_wrappers(text: str) -> str:
     stripped = text.strip().strip("：:，。；;、 ")
-    stripped = re.sub(r"^(证据\d*|反面\d*|典型口气|常见模式|禁句型|禁写法|空总结句|成品体面对话|轻飘过渡句)\s*[：:]\s*", "", stripped)
+    stripped = re.sub(
+        r"^(证据\d*|反面\d*|典型口气|常见模式|禁句型|禁写法|空总结句|成品体面对话|轻飘过渡句"
+        r"|推荐迁移顺序|不能丢的顺序|为什么这个顺序不能乱|原文为什么能过|原文为什么过检"
+        r"|最容易写假的点|新稿最容易写假的点|人物不同脸证据|谁先解释谁先压场|不同角色的动作权限差"
+        r"|重大证据前隔开的现实后果|后果回灌方式|尾声入口归属|尾声入口给了谁"
+        r"|不给另一条线的原因|尾声入口给了谁\s*/\s*为什么不给另一条线"
+        r")\s*[：:]\s*",
+        "",
+        stripped,
+    )
     stripped = stripped.strip("：:，。；;、 ")
     return stripped
 
@@ -457,15 +525,20 @@ def looks_like_asset_fragment(text: str) -> bool:
 
 
 def clean_scene_asset_terms(items: list[str]) -> list[str]:
+    """Preserve event-level scene assets instead of reducing them to short tags."""
     cleaned: list[str] = []
     for item in items:
-        fragments = split_scene_fragments(item)
+        stripped = strip_asset_wrappers(item).strip("。！？；; ")
+        fragments = re.split(r"\s*/\s*|；|;", stripped)
         if not fragments:
-            fragments = [item]
+            fragments = [stripped]
         for fragment in fragments:
-            frag = strip_asset_wrappers(fragment)
-            if looks_like_asset_fragment(frag):
-                cleaned.append(frag)
+            frag = strip_asset_wrappers(fragment).strip("。！？；; ")
+            if not frag:
+                continue
+            if len(frag) > 80 or re.search(r"[`#|]", frag):
+                continue
+            cleaned.append(frag)
     return normalize_items(cleaned)
 
 
@@ -506,6 +579,14 @@ def collect_profile_source_reason_lines(values: list[str]) -> list[str]:
                 continue
             cleaned.append(frag)
     return normalize_items(cleaned)
+
+
+def filter_character_guardrail_lines(values: list[str]) -> list[str]:
+    role_pattern = re.compile(
+        r"(男主|女主|主角|反派|配角|旧爱|第三人|丈夫|妻子|姐姐|妹妹|母亲|父亲|医生|护士|长辈|客户|上司|同事|周|唐|宋)"
+    )
+    filtered = [value for value in values if role_pattern.search(value)]
+    return normalize_items(filtered)
 
 
 def collect_profile_source_bridge_fragments(values: list[str], max_len: int = 40) -> list[str]:
@@ -553,22 +634,73 @@ def collect_bridge_reason_terms(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
-def collect_profile_source_style_fragments(values: list[str]) -> list[str]:
+BRIDGE_EMOTION_LABELS = (
+    "情绪进入点",
+    "刺痛/受辱拍",
+    "短暂希望或反抗",
+    "反刀拍",
+    "峰值拍",
+    "场末余痛",
+)
+
+
+def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
+    text = clean_bridge_line(value)
+    if not text:
+        return None
+    intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
+    evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
+    content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
+    result: dict[str, object] = {
+        "beat": beat,
+        "content": content,
+        "source_evidence": evidence_match.group(1).strip() if evidence_match else "",
+    }
+    if intensity_match:
+        result["intensity"] = int(intensity_match.group(1))
+    return result
+
+
+def collect_bridge_emotion_sequence(
+    collect_aliases: Callable[..., list[str]],
+) -> list[dict[str, object]]:
+    sequence: list[dict[str, object]] = []
+    for label in BRIDGE_EMOTION_LABELS:
+        values = collect_aliases(label)
+        if not values:
+            continue
+        item = parse_bridge_emotion_beat(label, values[0])
+        if item:
+            sequence.append(item)
+    return sequence
+
+
+def collect_profile_source_style_fragments(
+    values: list[str],
+    preserve_commas: bool = False,
+) -> list[str]:
     cleaned: list[str] = []
     for value in values:
-        fragments = re.split(r"[；;]| -> |\+|、|，", value)
+        pattern = r"[；;]| -> |\+" if preserve_commas else r"[；;]| -> |\+|、|，"
+        fragments = re.split(pattern, value)
         for fragment in fragments:
             frag = strip_asset_wrappers(fragment)
-            if keep_style_asset(frag):
+            if keep_explicit_style_asset(frag):
                 cleaned.append(frag)
     return normalize_items(cleaned)
 
 
 def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequence_pairs: dict[str, list[str]]) -> dict[str, object]:
     character_face_split = {
-        "different_face_evidence": collect_profile_source_reason_lines(author_pairs.get("人物不同脸证据", [])),
-        "reaction_order_split": collect_profile_source_reason_lines(author_pairs.get("谁先解释谁先压场", [])),
-        "action_authority_split": collect_profile_source_reason_lines(author_pairs.get("不同角色的动作权限差", [])),
+        "different_face_evidence": collect_profile_source_reason_lines(
+            author_pairs.get("人物不同脸证据", [])
+        ),
+        "reaction_order_split": collect_profile_source_reason_lines(
+            author_pairs.get("谁先解释谁先压场", [])
+        ),
+        "action_authority_split": collect_profile_source_reason_lines(
+            author_pairs.get("不同角色的动作权限差", [])
+        ),
     }
     character_face_split = {
         key: value for key, value in character_face_split.items() if value
@@ -601,15 +733,19 @@ def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequen
 
 
 def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[str, object]:
-    face_evidence = collect_labeled_values(text, ("人物不同脸证据", "不同脸证据")) or collect_text_lines_with_keywords(
+    shared_face_bundle = collect_labeled_values(
+        text,
+        ("人物不同脸证据 / 谁先解释谁先压场 / 动作权限差",),
+    )
+    face_evidence = collect_labeled_values(text, ("人物不同脸证据", "不同脸证据")) or shared_face_bundle or collect_text_lines_with_keywords(
         text, ("说话怎么伤人", "身体怎么反应", "遇事先偏向谁", "失控时会干什么", "遮住名字"), max_items=6
     ) or collect_heading_block_lines(
         text, ("人物不同脸", "去同脸", "一张脸"), max_items=8
     )
-    reaction_order = collect_labeled_values(text, ("谁先解释谁先压场", "第一反应偏向", "第一反应")) or collect_text_lines_with_keywords(
+    reaction_order = collect_labeled_values(text, ("谁先解释谁先压场", "第一反应偏向", "第一反应")) or shared_face_bundle or collect_text_lines_with_keywords(
         text, ("先解释", "先压场", "第一反应"), max_items=6
     )
-    action_authority = collect_labeled_values(text, ("动作权限差", "权限差")) or collect_text_lines_with_keywords(
+    action_authority = collect_labeled_values(text, ("动作权限差", "权限差")) or shared_face_bundle or collect_text_lines_with_keywords(
         text, ("权限差", "先把人护住", "先过去处理", "找靠山", "站边上"), max_items=6
     )
 
@@ -630,14 +766,20 @@ def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[st
     ) or collect_heading_block_lines(
         text, ("尾声入口",), max_items=6
     )
-    tail_exclusion = collect_labeled_values(text, ("不给另一条线的原因", "尾声入口为什么不给次线")) or collect_text_lines_with_keywords(
+    tail_exclusion = collect_labeled_values(text, ("不给另一条线的原因", "尾声入口为什么不给次线", "尾声入口给了谁 / 为什么不给另一条线")) or collect_text_lines_with_keywords(
         text, ("余波区", "不给另一条线", "不准重新吃掉尾声入口", "抢尾声入口"), max_items=6
     )
 
     character_face_split = {
-        "different_face_evidence": collect_profile_source_reason_lines(face_evidence),
-        "reaction_order_split": collect_profile_source_reason_lines(reaction_order),
-        "action_authority_split": collect_profile_source_reason_lines(action_authority),
+        "different_face_evidence": filter_character_guardrail_lines(
+            collect_profile_source_reason_lines(face_evidence)
+        ),
+        "reaction_order_split": filter_character_guardrail_lines(
+            collect_profile_source_reason_lines(reaction_order)
+        ),
+        "action_authority_split": filter_character_guardrail_lines(
+            collect_profile_source_reason_lines(action_authority)
+        ),
     }
     character_face_split = {key: value for key, value in character_face_split.items() if value}
 
@@ -676,12 +818,56 @@ def merge_story_guardrail_dicts(*guardrails_list: dict) -> dict[str, object]:
                 if isinstance(items, list):
                     consequence_structure[key].extend(item for item in items if isinstance(item, str))
     out: dict[str, object] = {}
-    face_out = {key: normalize_items(value) for key, value in character_face_split.items() if value}
-    consequence_out = {key: normalize_items(value) for key, value in consequence_structure.items() if value}
+    face_out = {
+        key: normalize_items(value)[:GUARDRAIL_ITEM_LIMITS.get(key, 4)]
+        for key, value in character_face_split.items()
+        if value
+    }
+    consequence_out = {
+        key: normalize_items(value)[:GUARDRAIL_ITEM_LIMITS.get(key, 4)]
+        for key, value in consequence_structure.items()
+        if value
+    }
     if face_out:
         out["character_face_split"] = face_out
     if consequence_out:
         out["consequence_structure"] = consequence_out
+    return out
+
+
+def collect_explicit_story_guardrails(text: str) -> dict[str, object]:
+    explicit: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("- profile_story_guardrail::"):
+            continue
+        payload = line[2:].strip()
+        if "：" in payload:
+            key_part, value_part = payload.split("：", 1)
+        elif ":" in payload:
+            key_part, value_part = payload.split(":", 1)
+        else:
+            continue
+        if not key_part.startswith("profile_story_guardrail::"):
+            continue
+        parts = key_part.split("::")
+        if len(parts) != 3:
+            continue
+        _, group_name, key_name = parts
+        value = value_part.strip()
+        if not value:
+            continue
+        explicit[group_name][key_name].append(value)
+
+    out: dict[str, object] = {}
+    for group_name, group in explicit.items():
+        normalized_group = {
+            key: normalize_items(items)[:GUARDRAIL_ITEM_LIMITS.get(key, 4)]
+            for key, items in group.items()
+            if items
+        }
+        if normalized_group:
+            out[group_name] = normalized_group
     return out
 
 
@@ -712,7 +898,13 @@ def parse_sample_grading_text(text: str) -> dict[str, object]:
     source_score_policy = normalize_items(
         collect_profile_source_reason_lines(level_pairs.get("分数使用口径", []))
     )
-    if level or summary or dna_usable or source_score_judgement or source_score_overall or source_score_high_blocks or source_score_policy:
+    layer_grades = {
+        key: normalize_items(
+            collect_profile_source_reason_lines(level_pairs.get(key, []))
+        )
+        for key in SAMPLE_LAYER_GRADE_KEYS
+    }
+    if level or summary or dna_usable or source_score_judgement or source_score_overall or source_score_high_blocks or source_score_policy or any(layer_grades.values()):
         result["sample_grading"] = {}
         if level:
             result["sample_grading"]["level"] = level[0]
@@ -728,6 +920,9 @@ def parse_sample_grading_text(text: str) -> dict[str, object]:
             result["sample_grading"]["source_score_high_blocks"] = source_score_high_blocks
         if source_score_policy:
             result["sample_grading"]["source_score_policy"] = source_score_policy[0]
+        for key, values in layer_grades.items():
+            if values:
+                result["sample_grading"][key] = values[0]
 
     learn_lines = sections.get("2. 可学层", [])
     learn_pairs = collect_profile_source_pairs(learn_lines)
@@ -739,6 +934,14 @@ def parse_sample_grading_text(text: str) -> dict[str, object]:
     )
     if learnable_layers:
         result["learnable_layers"] = learnable_layers
+    for label, key in (
+        ("正向DNA层", "positive_dna_layers"),
+        ("仅骨架层", "skeleton_only_layers"),
+        ("反面规则层", "negative_rule_layers"),
+    ):
+        values = collect_profile_source_fragments(learn_pairs.get(label, []))
+        if values:
+            result[key] = values
 
     avoid_lines = sections.get("3. 禁学层", [])
     avoid_pairs = collect_profile_source_pairs(avoid_lines)
@@ -820,10 +1023,17 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         return []
     pairs = collect_profile_source_pairs(bridge_lines)
     rules: list[dict] = []
+    bridge_index = 0
     for key in list(pairs.keys()):
         if not key.startswith("桥段") or "::" in key:
             continue
+        bridge_index += 1
         title = key
+        title_body = title.removeprefix("桥段：").removeprefix("桥段").strip()
+        bid_match = re.search(r"\b(BID-\d{2,3})\b", title_body, flags=re.I)
+        bid = bid_match.group(1).upper() if bid_match else ""
+        title_body = re.sub(r"^\[?(BID-\d{2,3})\]?\s*", "", title_body, flags=re.I).strip()
+
         def collect_aliases(*aliases: str) -> list[str]:
             values: list[str] = []
             for alias in aliases:
@@ -863,18 +1073,22 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         why_passes = collect_bridge_reason_terms(
             collect_aliases("原文为什么能过", "原文为什么过检", "为什么能过")
         )
-        rules.append(
-            {
-                "bridge": title,
-                "opening_pattern": normalize_items(opening),
-                "must_keep": normalize_items(must_keep),
-                "must_avoid": normalize_items(must_avoid),
-                "fake_signals": normalize_items(must_avoid),
-                "recommended_sequence": normalize_items(order),
-                "why_order_matters": normalize_items(order_why),
-                "why_original_passes": normalize_items(why_passes),
-            }
-        )
+        emotion_sequence = collect_bridge_emotion_sequence(collect_aliases)
+        rule = {
+            "bridge": f"桥段{bridge_index}：{title_body}" if title_body else f"桥段{bridge_index}",
+            "opening_pattern": normalize_items(opening),
+            "must_keep": normalize_items(must_keep),
+            "must_avoid": normalize_items(must_avoid),
+            "fake_signals": normalize_items(must_avoid),
+            "recommended_sequence": normalize_items(order),
+            "why_order_matters": normalize_items(order_why),
+            "why_original_passes": normalize_items(why_passes),
+            "emotion_sequence": emotion_sequence,
+        }
+        if bid:
+            rule["id"] = bid
+            rule["bridge"] = f"{bid} {rule['bridge']}"
+        rules.append(rule)
     return rules
 
 
@@ -910,7 +1124,18 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     grading_usage = normalize_items(
         collect_profile_source_reason_lines(grading_pairs.get("后续调用方式", []))
     )
-    if grading_level or grading_dna or grading_source_score_judgement or grading_source_score_overall or grading_source_score_high_blocks or grading_source_score_policy or grading_learn or grading_forbid or grading_evidence or grading_usage:
+    grading_layer_grades = {
+        key: normalize_items(
+            collect_profile_source_reason_lines(grading_pairs.get(key, []))
+        )
+        for key in SAMPLE_LAYER_GRADE_KEYS
+    }
+    grading_usage_layers = {
+        "positive_dna_layers": collect_profile_source_fragments(grading_pairs.get("正向DNA层", [])),
+        "skeleton_only_layers": collect_profile_source_fragments(grading_pairs.get("仅骨架层", [])),
+        "negative_rule_layers": collect_profile_source_fragments(grading_pairs.get("反面规则层", [])),
+    }
+    if grading_level or grading_dna or grading_source_score_judgement or grading_source_score_overall or grading_source_score_high_blocks or grading_source_score_policy or grading_learn or grading_forbid or grading_evidence or grading_usage or any(grading_layer_grades.values()) or any(grading_usage_layers.values()):
         result["sample_grading"] = {}
         if grading_level:
             result["sample_grading"]["level"] = grading_level[0]
@@ -932,6 +1157,12 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
             result["sample_grading"]["evidence"] = grading_evidence
         if grading_usage:
             result["sample_grading"]["usage_guidance"] = grading_usage
+        for key, values in grading_layer_grades.items():
+            if values:
+                result["sample_grading"][key] = values[0]
+        for key, values in grading_usage_layers.items():
+            if values:
+                result["sample_grading"][key] = values
 
     risk_lines = sections.get("1.1 高敏层级判断", [])
     risk_pairs = collect_profile_source_pairs(risk_lines)
@@ -1011,14 +1242,16 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     }
     result["opening_terms"] = collect_profile_source_fragments(
         opening_pairs.get("首屏高信息量件", []) +
-        opening_pairs.get("最容易堆满的信号组", [])
+        opening_pairs.get("最容易堆满的信号组", []) +
+        opening_pairs.get("开头信号", [])
     )
 
     chain_lines = sections.get("5. 标准翻刀链", [])
     chain_pairs = collect_profile_source_pairs(chain_lines)
     result["opening_chain_patterns"] = {}
     explicit_chain_terms = collect_profile_source_fragments(
-        chain_pairs.get("opening_chain_patterns.profile_chain", [])
+        chain_pairs.get("opening_chain_patterns.profile_chain", []) +
+        chain_pairs.get("翻刀链", [])
     )
     if explicit_chain_terms:
         escaped = [re.escape(term) for term in explicit_chain_terms if term]
@@ -1032,67 +1265,119 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         banned_pairs.get("禁解释句", []) +
         banned_pairs.get("禁成品宣言句", []) +
         banned_pairs.get("禁公开场假爽句", []) +
-        banned_pairs.get("禁补字废话", [])
+        banned_pairs.get("禁补字废话", []) +
+        banned_pairs.get("禁句型", []) +
+        banned_pairs.get("禁写法", [])
+    )
+    result["fake_reason_terms"] = normalize_items(
+        collect_profile_source_reason_lines(banned_pairs.get("为什么假", []))
     )
 
-    scene_lines = sections.get("8. 场面资产", [])
+    scene_lines = sections.get("8. 场面资产", []) or sections.get("8. 场面资产 / 后果链", [])
     scene_pairs = collect_profile_source_pairs(scene_lines)
     result["scene_assets"] = {
-        "public_explosion": collect_profile_source_fragments(
+        "public_explosion": clean_scene_asset_terms(
             scene_pairs.get("scene_assets.public_explosion", []) or
-            (scene_pairs.get("公开场硬件", []) + scene_pairs.get("关系翻牌场", []))
+            (scene_pairs.get("公开场硬件", []) + scene_pairs.get("关系翻牌场", []) + scene_pairs.get("场面资产", []))
         ),
-        "external_order": collect_profile_source_fragments(
+        "external_order": clean_scene_asset_terms(
             scene_pairs.get("scene_assets.external_order", []) or
             (scene_pairs.get("外部秩序件", []) + scene_pairs.get("官方回正件", []))
         ),
-        "consequence_chain": collect_profile_source_fragments(
+        "consequence_chain": clean_scene_asset_terms(
             scene_pairs.get("scene_assets.consequence_chain", []) or
-            scene_pairs.get("迟到挽回场", [])
+            scene_pairs.get("迟到挽回场", []) + scene_pairs.get("后果链", [])
         ),
     }
     result["scene_assets"] = {
         key: value for key, value in result["scene_assets"].items() if value
     }
 
-    consequence_lines = sections.get("9. 后果链", [])
+    consequence_lines = sections.get("9. 后果链", []) or sections.get("8. 场面资产 / 后果链", [])
     consequence_pairs = collect_profile_source_pairs(consequence_lines)
+    flip_pairs = collect_profile_source_pairs(sections.get("5. 标准翻刀链", []))
+    merged_consequence_pairs: dict[str, list[str]] = defaultdict(list)
+    for pair_map in (flip_pairs, consequence_pairs):
+        for key, values in pair_map.items():
+            merged_consequence_pairs[key].extend(values)
     result["consequence_terms"] = collect_profile_source_fragments(
-        consequence_pairs.get("感情伤抬升到现实伤的节点", []) +
-        consequence_pairs.get("秩序回正节点", []) +
-        consequence_pairs.get("长尾惩罚节点", []) +
-        consequence_pairs.get("离场 / 换图节点", [])
+        merged_consequence_pairs.get("感情伤抬升到现实伤的节点", []) +
+        merged_consequence_pairs.get("秩序回正节点", []) +
+        merged_consequence_pairs.get("长尾惩罚节点", []) +
+        merged_consequence_pairs.get("离场 / 换图节点", []) +
+        merged_consequence_pairs.get("后果链", [])
     )
+
+    author_lines = sections.get("3. 作者DNA", [])
+    author_pairs = collect_profile_source_pairs(author_lines)
 
     stance_lines = sections.get("10. 作者站位高危句", [])
     stance_pairs = collect_profile_source_pairs(stance_lines)
     result["author_stance_terms"] = clean_banned_phrase_terms(
         stance_pairs.get("容易写成作者判词的句型", []) +
         stance_pairs.get("容易写成主题总结的句型", []) +
-        stance_pairs.get("容易写成整齐揭露的句型", [])
+        stance_pairs.get("容易写成整齐揭露的句型", []) +
+        author_pairs.get("反面句型", []) +
+        banned_pairs.get("禁句型", [])
     )
 
     style_lines = sections.get("11. style_assets 原始材料", [])
     style_pairs = collect_profile_source_pairs(style_lines)
+    explicit_opening_hooks = clean_explicit_style_asset_terms(style_pairs.get("opening_hooks", []))
+    fallback_opening_hooks = clean_style_asset_terms(
+        collect_profile_source_style_fragments(opening_pairs.get("开头信号", []))
+    )
     result["style_assets"] = {
-        "opening_hooks": collect_profile_source_style_fragments(style_pairs.get("opening_hooks", [])),
-        "misdirection": collect_profile_source_style_fragments(style_pairs.get("misdirection", [])),
-        "object_pressure": collect_profile_source_style_fragments(style_pairs.get("object_pressure", [])),
-        "action_axis": collect_profile_source_style_fragments(style_pairs.get("action_axis", [])),
-        "micro_actions": collect_profile_source_style_fragments(style_pairs.get("micro_actions", [])),
-        "quiet_pressure": collect_profile_source_style_fragments(style_pairs.get("quiet_pressure", [])),
-        "character_bias": collect_profile_source_style_fragments(style_pairs.get("character_bias", [])),
-        "meltdown_dialogue": collect_profile_source_style_fragments(style_pairs.get("meltdown_dialogue", [])),
-        "rotten_relationship": collect_profile_source_style_fragments(style_pairs.get("rotten_relationship", [])),
-        "dialogue_bridges": collect_profile_source_style_fragments(style_pairs.get("dialogue_bridges", [])),
+        "opening_hooks": explicit_opening_hooks or fallback_opening_hooks,
+        "misdirection": clean_explicit_style_asset_terms(style_pairs.get("misdirection", [])),
+        "object_pressure": clean_explicit_style_asset_terms(style_pairs.get("object_pressure", [])),
+        "action_axis": clean_explicit_style_asset_terms(style_pairs.get("action_axis", [])),
+        "micro_actions": clean_explicit_style_asset_terms(style_pairs.get("micro_actions", [])),
+        "quiet_pressure": clean_explicit_style_asset_terms(style_pairs.get("quiet_pressure", [])),
+        "character_bias": clean_explicit_style_asset_terms(
+            style_pairs.get("character_bias", []),
+            preserve_commas=True,
+        ),
+        "meltdown_dialogue": clean_explicit_style_asset_terms(style_pairs.get("meltdown_dialogue", [])),
+        "rotten_relationship": clean_explicit_style_asset_terms(style_pairs.get("rotten_relationship", [])),
+        "dialogue_bridges": clean_explicit_style_asset_terms(
+            style_pairs.get("dialogue_bridges", []),
+            preserve_commas=True,
+        ),
     }
-    result["style_assets"] = {
-        key: value for key, value in result["style_assets"].items() if value
+    result["derived_patterns"] = collect_profile_source_reason_lines(
+        style_pairs.get("derived_patterns", [])
+    )
+    migration_lines = sections.get("12. 迁移替换资产", [])
+    migration_pairs = collect_profile_source_pairs(migration_lines)
+    result["migration_assets"] = {
+        "object_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("object_substitutes", [])
+        ),
+        "scene_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("scene_substitutes", [])
+        ),
+        "action_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("action_substitutes", [])
+        ),
+        "dialogue_substitutes": collect_profile_source_style_fragments(
+            migration_pairs.get("dialogue_substitutes", [])
+        ),
+        "role_bias_variants": collect_profile_source_style_fragments(
+            migration_pairs.get("role_bias_variants", []),
+            preserve_commas=True,
+        ),
+    }
+    result["migration_assets"] = {
+        key: value for key, value in result["migration_assets"].items() if value
     }
 
-    author_lines = sections.get("3. 作者DNA", [])
-    author_pairs = collect_profile_source_pairs(author_lines)
-    story_guardrails = build_profile_story_guardrails(author_pairs, consequence_pairs)
+    inferred_story_guardrails = build_profile_story_guardrails(author_pairs, merged_consequence_pairs)
+    explicit_story_guardrails = collect_explicit_story_guardrails(text)
+    story_guardrails = merge_story_guardrail_dicts(
+        inferred_story_guardrails,
+        explicit_story_guardrails,
+    )
     if story_guardrails:
         result["story_guardrails"] = story_guardrails
 
@@ -1156,6 +1441,7 @@ def table_dict_rows(text: str) -> list[dict[str, str]]:
 
 
 STYLE_ASSET_STOPWORDS = {
+    "原文未发现", "已扫原文未发现",
     "位置", "钩子内容", "原文真正为什么有效", "读者下一步在等什么", "回收位置", "一写就假的方式",
     "动作本体", "对应情绪", "角色状态", "替代的解释句", "可迁移题材",
     "角色", "稳定偏手", "常见触发场", "当场效果", "后续写法提醒",
@@ -1168,6 +1454,42 @@ STYLE_ASSET_STOPWORDS = {
     "场面压力来源", "谁没说话", "未说破结果", "适用公开场",
     "上句功能", "下句接法", "动作垫句", "称呼变化",
 }
+
+STYLE_ASSET_KEYS = (
+    "opening_hooks",
+    "misdirection",
+    "object_pressure",
+    "action_axis",
+    "micro_actions",
+    "quiet_pressure",
+    "character_bias",
+    "meltdown_dialogue",
+    "rotten_relationship",
+    "dialogue_bridges",
+)
+
+GUARDRAIL_ITEM_LIMITS = {
+    "different_face_evidence": 6,
+    "reaction_order_split": 4,
+    "action_authority_split": 4,
+    "pre_evidence_reality_consequences": 5,
+    "consequence_rebound_modes": 4,
+    "tail_entry_owner": 2,
+    "tail_entry_exclusion_reason": 3,
+}
+
+SAMPLE_LAYER_GRADE_KEYS = (
+    "structure_grade",
+    "performance_grade",
+    "sentence_grade",
+    "terminal_consequence_grade",
+)
+
+SAMPLE_USAGE_LAYER_KEYS = (
+    "positive_dna_layers",
+    "skeleton_only_layers",
+    "negative_rule_layers",
+)
 
 
 def looks_like_style_header(text: str) -> bool:
@@ -1191,7 +1513,26 @@ def keep_style_asset(text: str) -> bool:
         return False
     if re.search(r"[，。？！；:=（）()]", stripped):
         return False
-    if any(marker in stripped for marker in ("为什么", "会不会", "怎么", "不是", "这篇", "原文", "后续", "读者", "流程")) and len(stripped) > 8:
+    if any(
+        marker in stripped
+        for marker in (
+            "为什么",
+            "会不会",
+            "怎么",
+            "不是",
+            "这篇",
+            "原文",
+            "后续",
+            "读者",
+            "流程",
+            "如果",
+            "迁移",
+            "顺序",
+            "不能",
+            "保证",
+            "适合",
+        )
+    ):
         return False
     if re.search(r"(先|再|然后|最后|至少|必须|不要|不能|容易|适合|说明|负责|形成|完成|体现)$", stripped):
         return False
@@ -1200,17 +1541,186 @@ def keep_style_asset(text: str) -> bool:
     return True
 
 
-def clean_style_asset_terms(items: list[str]) -> list[str]:
+def keep_explicit_style_asset(text: str) -> bool:
+    """Trust model-selected source assets; reject only structural pollution."""
+    stripped = strip_asset_wrappers(text)
+    if not stripped or len(stripped) > 32:
+        return False
+    if re.search(r"[。！？；:=（）()]", stripped):
+        return False
+    if re.search(r"[`#|]", stripped):
+        return False
+    return True
+
+
+OBJECT_PRESSURE_CUE_PATTERNS = (
+    r"视频",
+    r"录音",
+    r"录像",
+    r"证据册",
+    r"协议",
+    r"离婚证",
+    r"借条",
+    r"钥匙",
+    r"戒指",
+    r"指环",
+    r"声明书",
+    r"铁盒",
+    r"盒子",
+    r"听诊器",
+    r"医药箱",
+    r"候诊(?:号|单)",
+    r"红绳",
+    r"保健册",
+    r"回执",
+    r"签收栏",
+    r"[零一二三四五六七八九十百千万两\d]+封(?:信)?",
+    r"花束",
+    r"玫瑰",
+    r"礼物",
+    r"副驾驶",
+    r"主位",
+    r"座位",
+    r"家属栏",
+    r"门禁",
+    r"工牌",
+    r"账单",
+    r"转账",
+    r"截图",
+    r"照片",
+    r"信",
+    r"卡",
+    r"票",
+    r"报告",
+    r"档案",
+    r"药",
+)
+OBJECT_PRESSURE_CUE_RE = re.compile("|".join(OBJECT_PRESSURE_CUE_PATTERNS))
+OBJECT_PRESSURE_BAD_RE = re.compile(
+    r"(花粉过敏|协议离婚了|怎么都|每次都会|不是|已经|开始|结束|回家|彻夜未归|回收成|整理成了)"
+)
+OBJECT_PRESSURE_SENTENCE_RE = re.compile(r"[我你他她它您咱][和们]?")
+
+
+def matches_dynamic_object_term(text: str, dynamic_terms: set[str] | None) -> bool:
+    if not dynamic_terms:
+        return False
+    stripped = strip_asset_wrappers(text)
+    return stripped in dynamic_terms
+
+
+def keep_object_pressure_asset(
+    text: str,
+    dynamic_terms: set[str] | None = None,
+) -> bool:
+    stripped = strip_asset_wrappers(text)
+    if not keep_explicit_style_asset(stripped):
+        return False
+    dynamic_match = matches_dynamic_object_term(stripped, dynamic_terms)
+    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not dynamic_match:
+        return False
+    if OBJECT_PRESSURE_BAD_RE.search(stripped):
+        return False
+    if dynamic_match:
+        return True
+    if OBJECT_PRESSURE_SENTENCE_RE.search(stripped) and not stripped.endswith(("视频", "录音", "录像", "钥匙", "花束", "礼物", "截图", "照片", "协议", "证据册", "副驾驶", "座位", "家属栏", "离婚证")):
+        return False
+    if len(stripped) > 18 and not stripped.endswith(("视频", "录音", "录像", "证据册")):
+        return False
+    return True
+
+
+def clean_explicit_style_asset_terms(
+    items: list[str],
+    preserve_commas: bool = False,
+) -> list[str]:
     cleaned: list[str] = []
     for item in items:
-        parts = split_scene_fragments(item)
+        pattern = r"\s*/\s*|、|；|;" if preserve_commas else r"\s*/\s*|、|，|；|;"
+        for part in re.split(pattern, strip_asset_wrappers(item)):
+            stripped = strip_asset_wrappers(part)
+            if keep_explicit_style_asset(stripped):
+                cleaned.append(stripped)
+    return normalize_items(cleaned)
+
+
+def clean_object_pressure_terms(
+    items: list[str],
+    dynamic_terms: set[str] | None = None,
+) -> list[str]:
+    cleaned: list[str] = []
+    for item in items:
+        for part in re.split(r"\s*/\s*|、|，|；|;", strip_asset_wrappers(item)):
+            stripped = strip_asset_wrappers(part)
+            if keep_object_pressure_asset(stripped, dynamic_terms):
+                cleaned.append(stripped)
+        cleaned.extend(
+            [
+                q
+                for q in extract_quoted_terms(item)
+                if keep_object_pressure_asset(q, dynamic_terms)
+            ]
+        )
+    return normalize_items(cleaned)
+
+
+def merge_style_asset_terms(
+    explicit_items: list[str],
+    fallback_items: list[str],
+    preserve_commas: bool = False,
+    allow_short: bool = False,
+    relaxed_fallback: bool = False,
+    explicit_cleaner=None,
+    fallback_cleaner=None,
+) -> list[str]:
+    explicit_clean = explicit_cleaner or (
+        lambda items: clean_explicit_style_asset_terms(
+            items,
+            preserve_commas=preserve_commas,
+        )
+    )
+    fallback_clean = fallback_cleaner
+    explicit = explicit_clean(explicit_items)
+    if relaxed_fallback:
+        fallback = (fallback_clean or explicit_clean)(fallback_items)
+    else:
+        fallback = (
+            fallback_clean(fallback_items)
+            if fallback_clean
+            else clean_style_asset_terms(
+                fallback_items,
+                preserve_commas=preserve_commas,
+                allow_short=allow_short,
+            )
+        )
+    return normalize_items(explicit + fallback)
+
+
+def clean_style_asset_terms(
+    items: list[str],
+    preserve_commas: bool = False,
+    allow_short: bool = False,
+) -> list[str]:
+    cleaned: list[str] = []
+    for item in items:
+        if preserve_commas:
+            parts = re.split(r"\s*/\s*|、", strip_asset_wrappers(item))
+        else:
+            parts = split_scene_fragments(item)
         if not parts:
             parts = split_inline_assets(item)
         if not parts:
             parts = [item]
         for part in parts:
             stripped = strip_asset_wrappers(part)
-            if keep_style_asset(stripped):
+            if preserve_commas:
+                if (
+                    ((1 <= len(stripped) <= 32) if allow_short else (3 <= len(stripped) <= 32))
+                    and not re.search(r"[。？！；:=（）()]", stripped)
+                    and not any(marker in stripped for marker in ("为什么", "迁移", "顺序", "不能", "读者"))
+                ):
+                    cleaned.append(stripped)
+            elif keep_style_asset(stripped):
                 cleaned.append(stripped)
     return normalize_items(cleaned)
 
@@ -1222,6 +1732,18 @@ def clean_style_asset_cell_terms(items: list[str]) -> list[str]:
         if keep_style_asset(stripped):
             cleaned.append(stripped)
         cleaned.extend([q for q in extract_quoted_terms(item) if keep_style_asset(q)])
+    return normalize_items(cleaned)
+
+
+def clean_explicit_style_asset_cell_terms(items: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    for item in items:
+        stripped = strip_asset_wrappers(item)
+        if keep_explicit_style_asset(stripped):
+            cleaned.append(stripped)
+        cleaned.extend(
+            [q for q in extract_quoted_terms(item) if keep_explicit_style_asset(q)]
+        )
     return normalize_items(cleaned)
 
 
@@ -1237,32 +1759,35 @@ def collect_terms_from_table_columns(text: str, columns: list[str], mode: str = 
                 else:
                     items.extend(split_scene_fragments(value))
                     items.extend(extract_quoted_terms(value))
-    return clean_style_asset_cell_terms(items) if mode == "cell" else clean_style_asset_terms(items)
+    if mode == "cell":
+        return clean_style_asset_cell_terms(items)
+    if mode == "explicit_cell":
+        return clean_explicit_style_asset_cell_terms(items)
+    return clean_style_asset_terms(items)
 
 
 def collect_style_asset_terms_by_kind(asset_name: str, text: str, rel: str) -> list[str]:
     specific_columns = {
-        "opening_hooks": ["原文怎么写", "钩子内容"],
+        "opening_hooks": ["原文怎么写", "钩子内容", "原文现象", "钩子"],
         "misdirection": ["先误判了什么", "从哪开始翻"],
-        "object_pressure": ["物件", "可替换功能件"],
+        "object_pressure": ["物件"],
         "action_axis": ["动作", "动作本体"],
         "micro_actions": ["动作本体"],
         "quiet_pressure": ["场面压力来源", "环境音"],
-        "character_bias": ["稳定偏手"],
+        "character_bias": ["稳定偏手", "偏手动作", "偏手"],
         "meltdown_dialogue": ["失控类型"],
         "rotten_relationship": ["具体漏出件"],
-        "dialogue_bridges": ["典型说法类型", "上句功能", "下句接法"],
+        "dialogue_bridges": ["原文证据", "典型说法类型", "上句功能", "下句接法"],
     }
     specific_modes = {
-        "opening_hooks": "cell",
+        "opening_hooks": "explicit_cell",
         "misdirection": "cell",
         "action_axis": "cell",
         "micro_actions": "cell",
         "quiet_pressure": "cell",
-        "character_bias": "cell",
         "meltdown_dialogue": "cell",
         "rotten_relationship": "cell",
-        "dialogue_bridges": "cell",
+        "dialogue_bridges": "explicit_cell",
     }
 
     if asset_name in specific_columns:
@@ -1276,8 +1801,7 @@ def collect_style_asset_terms_by_kind(asset_name: str, text: str, rel: str) -> l
 
     items: list[str] = []
     if asset_name == "opening_hooks":
-        items.extend(extract_quoted_terms(text))
-        items.extend(collect_bullets(text))
+        return []
     elif asset_name in {"dialogue_bridges", "meltdown_dialogue"}:
         items.extend(extract_quoted_terms(text))
     return clean_style_asset_terms(items)
@@ -1419,6 +1943,8 @@ def merge_sample_grading(profiles: list[dict]) -> dict:
     final_allow_dna: list[str] = []
     final_allow_bridge_merge: list[str] = []
     final_negative_only: list[str] = []
+    layer_grades: dict[str, list[str]] = defaultdict(list)
+    usage_layers: dict[str, list[str]] = defaultdict(list)
 
     for profile in profiles:
         grading = profile.get("sample_grading", {})
@@ -1435,6 +1961,14 @@ def merge_sample_grading(profiles: list[dict]) -> dict:
             value = grading.get(key)
             if isinstance(value, str) and value.strip():
                 bucket.append(value.strip())
+        for key in SAMPLE_LAYER_GRADE_KEYS:
+            value = grading.get(key)
+            if isinstance(value, str) and value.strip():
+                layer_grades[key].append(value.strip())
+        for key in SAMPLE_USAGE_LAYER_KEYS:
+            values = grading.get(key, [])
+            if isinstance(values, list):
+                usage_layers[key].extend(item for item in values if isinstance(item, str))
         high_blocks = grading.get("source_score_high_blocks", [])
         if isinstance(high_blocks, list):
             source_score_high_blocks.extend(item for item in high_blocks if isinstance(item, str))
@@ -1485,6 +2019,14 @@ def merge_sample_grading(profiles: list[dict]) -> dict:
             out["dna_usable"] = dna_usable[0]
     if summaries:
         out["summary"] = summaries[0]
+    grade_rank = {"C": 3, "B": 2, "A": 1}
+    for key, values in layer_grades.items():
+        normalized = [value.upper() for value in values if value.upper() in grade_rank]
+        if normalized:
+            out[key] = sorted(normalized, key=lambda value: -grade_rank[value])[0]
+    for key, values in usage_layers.items():
+        if values:
+            out[key] = normalize_items(values)
     if source_score_judgements:
         out["source_score_judgement"] = source_score_judgements[0]
     if source_score_overalls:
@@ -1537,14 +2079,6 @@ def derive_source_label(profile: dict, profile_path: Path | None = None) -> str:
         if parent.name:
             return parent.name
     return "未命名来源"
-
-
-SAMPLE_LAYER_GRADE_KEYS = (
-    "structure_grade",
-    "performance_grade",
-    "sentence_grade",
-    "terminal_consequence_grade",
-)
 
 
 def build_sample_source_entry(profile: dict, profile_path: Path | None = None) -> dict[str, str]:
@@ -1728,16 +2262,22 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
     merged: list[dict] = []
     index_by_key: dict[str, int] = {}
     for rules in rule_lists:
+        position = 0
         for item in rules:
             if not isinstance(item, dict):
                 continue
             bridge = item.get("bridge")
             if not isinstance(bridge, str) or not bridge.strip():
                 continue
+            position += 1
             sequence = extract_bridge_sequence(bridge)
-            key = f"seq::{sequence}" if merge_by_sequence and sequence else normalize_bridge_key(bridge)
+            if merge_by_sequence:
+                key = f"seq::{sequence or position}"
+            else:
+                key = normalize_bridge_key(bridge)
             normalized_item = {
                 "bridge": bridge.strip(),
+                "id": str(item.get("id", "")).strip().upper(),
                 "opening_pattern": normalize_items(item.get("opening_pattern", [])),
                 "must_keep": normalize_items(item.get("must_keep", [])),
                 "must_avoid": normalize_items(item.get("must_avoid", [])),
@@ -1745,6 +2285,11 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 "recommended_sequence": normalize_items(item.get("recommended_sequence", [])),
                 "why_order_matters": normalize_items(item.get("why_order_matters", [])),
                 "why_original_passes": normalize_items(item.get("why_original_passes", [])),
+                "emotion_sequence": [
+                    beat
+                    for beat in item.get("emotion_sequence", [])
+                    if isinstance(beat, dict) and str(beat.get("beat", "")).strip()
+                ],
             }
             existing_index = index_by_key.get(key)
             if existing_index is None:
@@ -1752,6 +2297,8 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 merged.append(normalized_item)
                 continue
             existing = merged[existing_index]
+            if not existing.get("id") and normalized_item.get("id"):
+                existing["id"] = normalized_item["id"]
             existing["opening_pattern"] = normalize_items(existing.get("opening_pattern", []) + normalized_item["opening_pattern"])
             existing["must_keep"] = normalize_items(existing.get("must_keep", []) + normalized_item["must_keep"])
             existing["must_avoid"] = normalize_items(existing.get("must_avoid", []) + normalized_item["must_avoid"])
@@ -1765,6 +2312,18 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
             existing["why_original_passes"] = normalize_items(
                 existing.get("why_original_passes", []) + normalized_item["why_original_passes"]
             )
+            emotion_by_beat = {
+                str(beat.get("beat", "")).strip(): beat
+                for beat in existing.get("emotion_sequence", [])
+                if isinstance(beat, dict)
+            }
+            for beat in normalized_item["emotion_sequence"]:
+                emotion_by_beat.setdefault(str(beat.get("beat", "")).strip(), beat)
+            existing["emotion_sequence"] = [
+                emotion_by_beat[label]
+                for label in BRIDGE_EMOTION_LABELS
+                if label in emotion_by_beat
+            ]
     return merged
 
 
@@ -1782,15 +2341,26 @@ def build_opening_signal_groups(collected: dict[str, list[str]]) -> dict[str, li
 
 
 def build_bridge_rules(text: str) -> list[dict]:
-    blocks = re.split(r"\n##\s+桥段", text)
     rules: list[dict] = []
-    for block in blocks[1:]:
+    pattern = re.compile(
+        r"^##\s+(桥段\s*\d+|桥段\s*[一二三四五六七八九十]+|桥\d+|桥[一二三四五六七八九十]+)\s*(.*)$",
+        flags=re.M,
+    )
+    matches = list(pattern.finditer(text))
+    for idx, match in enumerate(matches):
+        body_start = match.end()
+        body_end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
+        block = text[body_start:body_end]
         lines = [line.rstrip() for line in block.splitlines() if line.strip()]
         if not lines:
             continue
-        title = lines[0]
-        if not title.startswith("桥段"):
-            title = "桥段" + title
+        seq_marker = match.group(1).strip()
+        title_suffix = match.group(2).strip().lstrip("：: ").strip()
+        sequence = extract_bridge_sequence(seq_marker)
+        if sequence:
+            title = f"桥段{sequence}：{title_suffix}"
+        else:
+            title = f"桥段：{title_suffix}" if title_suffix else "桥段"
         must_keep: list[str] = []
         must_avoid: list[str] = []
         why: list[str] = []
@@ -1798,6 +2368,7 @@ def build_bridge_rules(text: str) -> list[dict]:
         recommended_sequence: list[str] = []
         why_order_matters: list[str] = []
         fake_signals: list[str] = []
+        emotion_sequence: list[dict[str, object]] = []
         current = None
         for line in lines[1:]:
             stripped = line.lstrip()
@@ -1816,7 +2387,11 @@ def build_bridge_rules(text: str) -> list[dict]:
                 if item.endswith(("：", ":")) and inline_key:
                     current = inline_key
                     continue
-                if current and any(k in current for k in ("原文怎么起手", "原文起手件", "原文起手")):
+                if inline_key in BRIDGE_EMOTION_LABELS:
+                    beat = parse_bridge_emotion_beat(inline_key, inline_val)
+                    if beat:
+                        emotion_sequence.append(beat)
+                elif current and any(k in current for k in ("原文怎么起手", "原文起手件", "原文起手")):
                     opening_pattern.extend(split_inline_assets(item))
                 elif inline_key in {"原文怎么起手", "原文起手件", "原文起手"}:
                     opening_pattern.extend(split_inline_assets(inline_val))
@@ -1862,15 +2437,24 @@ def build_bridge_rules(text: str) -> list[dict]:
                 "recommended_sequence": collect_bridge_step_terms(recommended_sequence),
                 "why_order_matters": collect_bridge_reason_terms(why_order_matters),
                 "why_original_passes": collect_bridge_reason_terms(why),
+                "emotion_sequence": emotion_sequence,
             }
         )
     return rules
 
 
 def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
+    opening_hook_blacklist = {
+        "场景",
+        "人物",
+        "再替换人物",
+        "再让人物意识跟上",
+        "顺序乱了就会像功能按钮",
+    }
     collected: dict[str, list[str]] = defaultdict(list)
     bridge_rules: list[dict] = []
     sample_source_entries: list[dict[str, str]] = []
+    dynamic_object_terms: set[str] = set()
     precheck_fact_patterns: list[str] = []
     precheck_action_patterns: list[str] = []
     style_asset_files = {
@@ -1909,6 +2493,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     }
 
     for root in sources:
+        dynamic_object_terms.update(collect_dynamic_object_terms(root))
         precheck_overrides = collect_dynamic_precheck_overrides(root)
         precheck_fact_patterns.extend(precheck_overrides.get("fact_anchor_patterns", []))
         precheck_action_patterns.extend(precheck_overrides.get("action_anchor_patterns", []))
@@ -1934,7 +2519,16 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                         collected[bucket_key].append(value.strip())
                         if key in {"level", "dna_usable", "source_score_overall", "source_score_policy"}:
                             source_entry[key] = value.strip()
+                for key in SAMPLE_LAYER_GRADE_KEYS:
+                    value = grading.get(key)
+                    if isinstance(value, str) and value.strip():
+                        collected[f"sample::{key}"].append(value.strip())
+                        source_entry[key] = value.strip()
             for key in ("learnable_layers", "forbidden_layers", "misuse_warnings"):
+                values = parsed.get(key, [])
+                if isinstance(values, list):
+                    collected[f"sample::{key}"].extend(item for item in values if isinstance(item, str))
+            for key in SAMPLE_USAGE_LAYER_KEYS:
                 values = parsed.get(key, [])
                 if isinstance(values, list):
                     collected[f"sample::{key}"].extend(item for item in values if isinstance(item, str))
@@ -2002,6 +2596,11 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                         }.get(key)
                         if entry_key:
                             source_entry[entry_key] = value.strip()
+                for key in SAMPLE_LAYER_GRADE_KEYS:
+                    value = sample_grading.get(key)
+                    if isinstance(value, str) and value.strip():
+                        collected[f"sample::{key}"].append(value.strip())
+                        source_entry[key] = value.strip()
                 for key, bucket_key in (
                     ("learnable_layers", "sample::learnable_layers"),
                     ("forbidden_layers", "sample::forbidden_layers"),
@@ -2011,6 +2610,12 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                     values = sample_grading.get(key, [])
                     if isinstance(values, list):
                         collected[bucket_key].extend(item for item in values if isinstance(item, str))
+                for key in SAMPLE_USAGE_LAYER_KEYS:
+                    values = sample_grading.get(key, [])
+                    if isinstance(values, list):
+                        collected[f"sample::{key}"].extend(
+                            item for item in values if isinstance(item, str)
+                        )
                 high_blocks = sample_grading.get("source_score_high_blocks", [])
                 if isinstance(high_blocks, list):
                     collected["sample::source_score_high_blocks"].extend(
@@ -2054,6 +2659,9 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
                 collected[f"profile_scene_asset::{asset_name}"].extend(items)
             for asset_name, items in parsed.get("style_assets", {}).items():
                 collected[f"profile_style_asset::{asset_name}"].extend(items)
+            collected["profile_derived_patterns"].extend(parsed.get("derived_patterns", []))
+            for asset_name, items in parsed.get("migration_assets", {}).items():
+                collected[f"profile_migration_asset::{asset_name}"].extend(items)
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
             story_guardrails = parsed.get("story_guardrails", {})
@@ -2199,16 +2807,46 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         for key, value in scene_assets_raw.items()
         if clean_scene_asset_terms(value)
     }
-    style_assets_raw: dict[str, list[str]] = defaultdict(list)
+    fallback_style_assets_raw: dict[str, list[str]] = defaultdict(list)
+    explicit_style_assets_raw: dict[str, list[str]] = defaultdict(list)
     for key, value in collected.items():
         if key.startswith("style_asset::"):
-            style_assets_raw[key.split("::", 1)[1]].extend(value)
+            fallback_style_assets_raw[key.split("::", 1)[1]].extend(value)
         if key.startswith("profile_style_asset::"):
-            style_assets_raw[key.split("::", 1)[1]].extend(value)
-    style_assets = {
-        key: normalize_items(value)
-        for key, value in style_assets_raw.items()
-        if normalize_items(value)
+            explicit_style_assets_raw[key.split("::", 1)[1]].extend(value)
+    clause_asset_keys = {"character_bias", "dialogue_bridges"}
+    style_assets: dict[str, list[str]] = {}
+    object_pressure_cleaner = lambda items: clean_object_pressure_terms(
+        items,
+        dynamic_object_terms,
+    )
+    for key in STYLE_ASSET_KEYS:
+        style_assets[key] = merge_style_asset_terms(
+            explicit_style_assets_raw.get(key, []),
+            fallback_style_assets_raw.get(key, []),
+            preserve_commas=key in clause_asset_keys,
+            allow_short=key == "character_bias",
+            relaxed_fallback=key == "opening_hooks",
+            explicit_cleaner=object_pressure_cleaner if key == "object_pressure" else None,
+            fallback_cleaner=object_pressure_cleaner if key == "object_pressure" else None,
+        )
+    if "opening_hooks" in style_assets:
+        style_assets["opening_hooks"] = [
+            item for item in style_assets["opening_hooks"]
+            if item not in opening_hook_blacklist and len(item.strip()) > 2
+        ]
+    source_text = collect_original_source_text(sources)
+    if source_text:
+        style_assets = {
+            key: [item for item in items if item in source_text]
+            for key, items in style_assets.items()
+        }
+    derived_patterns = normalize_items(collected["profile_derived_patterns"])
+
+    migration_assets = {
+        key.split("::", 1)[1]: clean_explicit_style_asset_terms(value)
+        for key, value in collected.items()
+        if key.startswith("profile_migration_asset::") and clean_explicit_style_asset_terms(value)
     }
 
     bridge_rules = merge_bridge_rule_lists(bridge_rules)
@@ -2244,13 +2882,17 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     story_guardrails: dict[str, object] = {}
     face_prefix = "profile_story_guardrail::character_face_split::"
     face_out = {
-        key.split(face_prefix, 1)[1]: normalize_items(value)
+        key.split(face_prefix, 1)[1]: normalize_items(value)[
+            :GUARDRAIL_ITEM_LIMITS.get(key.split(face_prefix, 1)[1], 4)
+        ]
         for key, value in collected.items()
         if key.startswith(face_prefix) and normalize_items(value)
     }
     consequence_prefix = "profile_story_guardrail::consequence_structure::"
     consequence_out = {
-        key.split(consequence_prefix, 1)[1]: normalize_items(value)
+        key.split(consequence_prefix, 1)[1]: normalize_items(value)[
+            :GUARDRAIL_ITEM_LIMITS.get(key.split(consequence_prefix, 1)[1], 4)
+        ]
         for key, value in collected.items()
         if key.startswith(consequence_prefix) and normalize_items(value)
     }
@@ -2259,6 +2901,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     if consequence_out:
         story_guardrails["consequence_structure"] = consequence_out
 
+    prose_style_contract = build_prose_style_contract(sources[0]) if sources else {}
     profile = {
         "meta": {
             "name": name,
@@ -2278,15 +2921,21 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "bridge_rules": bridge_rules,
         "scene_assets": scene_assets,
         "style_assets": style_assets,
+        "derived_patterns": derived_patterns,
+        "migration_assets": migration_assets,
     }
+    if prose_style_contract:
+        profile["prose_style_contract"] = prose_style_contract
+    precheck_overrides: dict[str, object] = {}
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
     if fact_patterns or action_patterns:
-        profile["precheck_overrides"] = {"pretty_detail": {}}
+        precheck_overrides["pretty_detail"] = {}
         if fact_patterns:
-            profile["precheck_overrides"]["pretty_detail"]["fact_anchor_patterns"] = fact_patterns
+            precheck_overrides["pretty_detail"]["fact_anchor_patterns"] = fact_patterns
         if action_patterns:
-            profile["precheck_overrides"]["pretty_detail"]["action_anchor_patterns"] = action_patterns
+            precheck_overrides["pretty_detail"]["action_anchor_patterns"] = action_patterns
+        profile["precheck_overrides"] = precheck_overrides
     if collected["profile_risk_layer_type"]:
         counts: dict[str, int] = defaultdict(int)
         for item in collected["profile_risk_layer_type"]:
@@ -2327,6 +2976,15 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             collected["sample::source_score_high_blocks"]
         )
     for key in ("learnable_layers", "forbidden_layers", "misuse_warnings", "evidence", "usage_guidance"):
+        bucket = collected.get(f"sample::{key}", [])
+        if bucket:
+            sample_grading[key] = normalize_items(bucket)
+    for key in SAMPLE_LAYER_GRADE_KEYS:
+        bucket = collected.get(f"sample::{key}", [])
+        values = [value.upper() for value in bucket if value.upper() in {"A", "B", "C"}]
+        if values:
+            sample_grading[key] = values[0]
+    for key in SAMPLE_USAGE_LAYER_KEYS:
         bucket = collected.get(f"sample::{key}", [])
         if bucket:
             sample_grading[key] = normalize_items(bucket)
@@ -2375,6 +3033,7 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
     opening_signal_groups = merge_dict_of_lists(profiles, "opening_signal_groups")
     scene_assets = merge_dict_of_lists(profiles, "scene_assets")
     style_assets = merge_dict_of_lists(profiles, "style_assets")
+    migration_assets = merge_dict_of_lists(profiles, "migration_assets")
     precheck_fact_patterns: list[str] = []
     precheck_action_patterns: list[str] = []
     for profile in profiles:
@@ -2430,7 +3089,17 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
         ),
         "scene_assets": scene_assets,
         "style_assets": style_assets,
+        "derived_patterns": merge_string_lists(profiles, "derived_patterns"),
+        "migration_assets": migration_assets,
     }
+    primary_prose_contract = profiles[0].get("prose_style_contract") if profiles else None
+    if isinstance(primary_prose_contract, dict) and primary_prose_contract:
+        merged["prose_style_contract"] = {
+            **primary_prose_contract,
+            "source_role": "primary_only",
+            "primary_profile_path": str(profile_paths[0].resolve()),
+            "auxiliary_profiles_supply_prose": False,
+        }
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
     if fact_patterns or action_patterns:

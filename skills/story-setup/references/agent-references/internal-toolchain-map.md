@@ -29,6 +29,13 @@
 
 当前文件：
 
+- `validate_writing_rule_gate.py`
+- `validate_source_read_gate.py`
+- `validate_rule_execution_ledger.py`
+- `validate_opening_contract.py`
+- `validate_outline_performance_contract.py`
+- `validate_prose_granularity_contract.py`
+- `validate_post_write_human_review_gate.py`
 - `generate_story_profile.py`
 - `audit_novel_ai_flavor.py`
 - `run_full_ai_audit.py`
@@ -36,6 +43,8 @@
 - `run_revision_cycle.py`
 - `validate_gate_receipts.py`
 - `compare_with_external_block_audit.py`
+- `compare_source_baseline_audit.py`
+- `count_words.py`
 - `audit_ai_flavor.py`
 - `precheck_rewrite_gate.py`
 - `apply_humanizer.py`
@@ -43,12 +52,47 @@
 
 职责分层：
 
+- `validate_writing_rule_gate.py`
+  - 固定清点格式、去 AI 味和叙述者声音三份写前必读规则
+  - 校验证据词、读取结论、写作用途、当前文件哈希和回执时序
+  - 规则文件变化或 `narrator-voice.md` 漏读时阻断设定、细纲和正文
+- `validate_source_read_gate.py`
+  - 从每本主体 / 辅助拆文目录生成完整逐文件读取清单
+  - 校验主报告、16 表、8 库、写作资产和动态字典是否齐全
+  - 校验证据词、读取结论、写作用途、文件哈希和回执时序
+  - 未通过时阻断细纲和正文，不允许只读摘要或 profile 开稿
+- `validate_rule_execution_ledger.py`
+  - 从写作规则回执和拆文读取回执生成统一逐项执行列表
+  - 每个拆书文件都做适用性判断，16 表和承重资产逐规则展开
+  - 强制区分 `script / human / hybrid`，校验脚本产物、人工判断和写作产物原句证据
+  - 规则源、拆书源或最终正文 SHA 变化后阻断，不接受“已使用”式空口回执
+  - 关键来源契约合并后仍逐来源校验 `applied / not_selected / prohibition_checked`、原句证据和目标落点
+  - 主体治理资产被标成未选用、文件级关键契约漏审、规则级父节点与子规则不一致或只用一条公共证据覆盖多来源时阻断
+  - 设定/大纲规则按 `target_scene` 逐项目校验 `structural_claim_reviews`，防止用后果证据冒充开头或反转证据
+- `validate_opening_contract.py`
+  - 绑定主体 `可直接仿写_导语拆解表.md` 与大纲/正文 SHA
+  - 固定导出前 `20 / 60 / 80 / 120` 字窗口，由当前模型人工提取主体三拍顺序并逐项裁决
+  - 任务说明抢跑、关系锚迟到、题面未兑现或功能顺序被打乱时直接阻断
+  - 不调用外部 API 或 CLI，不把主体人物、职业和动作硬编码进通用规则
+- `validate_prose_granularity_contract.py`
+  - 第一本主体原文固定为唯一正文声线源，辅助 profile 不参与声线融合
+  - 写前校验连续原文样本、七个文字维度、反面句面和三组原创校准样本
+  - 初稿停靠前按全部数字小节逐节校验目标原句、主体声线锚和新增 AI 句面壳
+  - 只校验回执、SHA 和证据覆盖，不用功能、BID 或情绪拍对齐代替人工句面判断
+- `validate_post_write_human_review_gate.py`
+  - 自动生成全文或母稿 diff 的人工语义复核清单
+  - 校验最终正文 SHA、自动预扫产物、九项人工检查和逐条改写句判断
+  - 只校验回执完整性与证据真实性，不替人工判断作者代判、叙述站位或多余解释
+  - 局部/专项回炉未绑定母稿、正文修改后沿用旧回执时阻断放行
 - `generate_story_profile.py`
   - 从拆书资产生成单书 `book.profile.json`
   - 或合成融合 `project.profile.json`
 - `run_full_ai_audit.py`
   - 总审计入口
   - 汇总轻审计、重审计、规则簿、profile、块级风险
+  - 先导出带正文 SHA 和段落起点的人工模型分段回执，再由当前执行 skill 的模型完整读文并回填边界
+  - 不调用外部模型 API 或 Claude CLI；无人工回执时仅使用算法滑窗预扫
+  - 短高波动段标为 `high-pulse`，短而无可计算信号的段标为 `short-window-review`
 - `audit_novel_ai_flavor.py`
   - 正文级 AI 味审计
   - 输出结构化热点和风险分
@@ -57,6 +101,8 @@
 - `auto_revise_ai_flavor.py`
   - 根据审计结果生成回修任务单
   - 不直接改正文
+  - 已识别的高风险桥段未进入前排桥段任务时阻断生成；短段和统计波动只保留为诊断提示
+  - 已绑定 profile 时，关键 bridge / scene / style / guardrail 资产缺失也阻断生成，要求先重建拆书和 profile
 - `run_revision_cycle.py`
   - 串起“审计 -> 任务单 -> 回修 -> 再审计”的循环流程
 - `validate_gate_receipts.py`
@@ -66,6 +112,14 @@
 - `compare_with_external_block_audit.py`
   - 只用于题材首次校准
   - 生成内部打分标准，不是日常必跑项
+- `compare_source_baseline_audit.py`
+  - 用于同桥仿写、主干仿写、融合仿写的原文基线对照
+  - 输入主体原文全量审计 JSON 与当前稿全量审计 JSON，输出分数差、共同命中、额外命中和建议动作
+  - 防止把原文有效短句、高密对白、强钩子误判成新稿必须删除的问题
+- `count_words.py`
+  - 统一正文、回执和审计中的字数统计口径
+  - 番茄口径：去掉 `#` 开头 Markdown 标题行后，统计所有非空白字符
+  - 禁止用编辑器估算、人工估算或临时脚本结果替代
 - `precheck_rewrite_gate.py`
   - 高风险回修前后的第二道预检闸门
   - 检查解释句、提前判断、功能对白、整齐收口等结构风险
@@ -199,14 +253,25 @@
 
 默认优先级如下：
 
-1. 先读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
-2. 再读 `references/governance/audit-rulebook.json`
-3. 再读 `references/governance/precheck_rewrite_gate.config.json`
-4. 再读 `references/governance/通用高风险词类词典.json`
-5. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`
-6. 最后才允许人工参考层文档参与判断
-7. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
-8. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
+1. 先用 `validate_writing_rule_gate.py` 证明当前版三份写作规则已逐文件读取
+2. 再用 `validate_source_read_gate.py` 证明主体 / 辅助拆文资产已逐文件读取
+3. 立即初始化 `规则执行台账.json`，逐项确认脚本 / 人工 / 混合分工和适用性
+4. 再读当前书 / 当前项目的 `book.profile.json` 或 `project.profile.json`
+5. 大纲完成后先通过 `validate_opening_contract.py`
+6. 仿写 / 融合正文前完成超细源文逐句标注，执行 `bind-outline`，逐节建立落笔包并通过 `validate-prewrite`
+7. 正文每节先读落笔包、写完立即维护逐句映射，初稿停靠前通过 `validate-draft`；禁止全文后批量补回执
+8. 用户授权深审后，再对正文通过 `validate_opening_contract.py`
+9. 再读 `references/governance/audit-rulebook.json`
+10. 再读 `references/governance/precheck_rewrite_gate.config.json`
+11. 再读 `references/governance/通用高风险词类词典.json`
+12. 涉及短篇高敏专项时，再转到 `story/references/short-high-risk/reference-index.md`，并把专项规则文件加入执行台账
+13. 写作过程中执行一项标记一项
+14. 跑自动审计，只把结果当脚本预扫并回填脚本产物
+15. 最终正文完成后，先通过 `validate_rule_execution_ledger.py`
+16. 重新校验正文 `opening_contract_gate`
+17. 再通过 `validate_post_write_human_review_gate.py`
+18. 第二闸门回执回填后，还要先过 `validate_gate_receipts.py`
+19. 两份回执都过校验后，还要重刷同轮 `cycle_summary.json / gate_validation.md / STATUS.txt`
 
 也就是说：
 
@@ -216,6 +281,7 @@
 - `通用高风险词类词典.json` 负责轻审计支撑
 - `story/references/short-high-risk/reference-index.md` 负责短篇高敏专项共享资产分发
 - `虚词模板词典.json` 和 `apply_humanizer.py` 只负责人工参考层
+- `validate_post_write_human_review_gate.py` 只负责约束人工复核过程，不生成语义结论
 
 第二闸门判定口径补充：
 
@@ -246,8 +312,8 @@
    - `rewrite_gate_receipt.json`
    - `failure_gate_receipt.json`
 5. 回填后必须分别跑：
-   - `validate_gate_receipts.py ...rewrite_gate_receipt.json --require-executed --require-complete`
-   - `validate_gate_receipts.py ...failure_gate_receipt.json --require-executed --require-complete`
+   - `python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" "项目目录/写作资产/rewrite_gate_receipt.json" --require-executed --require-complete`
+   - `python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" "项目目录/写作资产/failure_gate_receipt.json" --require-executed --require-complete`
 6. 两份回执都过后，还不能停；必须用同一轮 `label` 再跑一次 `run_rewrite_gate_cycle.py`
 7. 直到同轮产物刷新成：
    - `gate_stage: gate_passed`
