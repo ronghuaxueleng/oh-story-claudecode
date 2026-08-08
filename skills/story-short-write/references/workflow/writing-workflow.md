@@ -4,6 +4,20 @@
 
 ---
 
+## Phase 1 项目命名
+
+正式书名锁定后，先用书名原文创建写作目录，再创建 `设定.md`、`小节大纲.md` 和 `正文.md`。项目目录不得使用题材、主体骨架、日期或内部任务代号。
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_project_directory_name.py" \
+  --project-dir "{工作区}/{小说书名}" \
+  --title "{小说书名}"
+```
+
+只有输出 `project_directory_name: passed` 才能进入设定阶段。已经写入回执后才发现目录名错误时，必须先移动整个目录，再同步项目内所有绝对路径、相对项目路径和 `project` 字段；正文 SHA 不因目录移动改变，但所有路径绑定必须按新目录重新验证。
+
+---
+
 ## Phase 2 设计任务（框架定住后再做）
 
 ### 开始前先把该读的先读掉
