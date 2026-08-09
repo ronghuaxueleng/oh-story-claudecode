@@ -1259,11 +1259,23 @@ def entry_source_signature(entry: dict[str, Any]) -> str:
 
 
 def entry_state_fields(entry: dict[str, Any]) -> dict[str, Any]:
+    # These fields are rebuilt from the current skill/source inventory.  Only
+    # execution decisions and evidence may be carried over from the old card.
+    # In particular, file-level assets use ``asset_path``/``sha256`` instead
+    # of ``source_path``/``source_sha256``; preserving the former pair leaves
+    # the ledger permanently stale after a source file changes.
     source_fields = {
         "id",
         "source_path",
         "source_sha256",
+        "asset_path",
+        "sha256",
+        "relative_path",
+        "source_name",
+        "source_role",
+        "rule_expansion",
         "rule_text",
+        "rules",
         "cases",
         "source_refs",
     }

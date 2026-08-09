@@ -21,38 +21,136 @@ SPEC.loader.exec_module(GATE)
 
 class OutlinePerformanceContractTest(unittest.TestCase):
     @staticmethod
-    def emotion_beats(evidence: str) -> list[dict]:
+    def emotion_beats(evidence: str, *, target: bool = False) -> list[dict]:
         roles = [
             "情绪进入点",
             "受辱或刺痛",
             "短暂希望或反抗",
             "反刀",
+            "情绪峰值",
             "场末余痛",
         ]
         return [
             {
+                "beat_id": f"E-{index + 1}",
                 "role": role,
-                "trigger": f"{role}的具体触发",
-                "relationship_position_change": f"{role}后关系位置发生变化",
+                "trigger": f"{'目标人物' if target else '原文人物'}在{role}的具体触发",
+                "relationship_position_change": f"{'目标关系' if target else '原文关系'}在{role}后发生位置变化",
                 "reader_effect": f"读者在{role}感到关系继续恶化",
                 "intensity": 7 + min(index, 2),
-                "evidence": evidence,
+                "evidence": f"{evidence}·{index + 1}",
             }
             for index, role in enumerate(roles)
         ]
+
+    @staticmethod
+    def plot_beats(prefix: str, evidence_prefix: str) -> list[dict]:
+        beats = [
+            {
+                "beat_id": f"{prefix}-{index}",
+                "action": (
+                    f"目标施事者{index}完成第{index}个新故事动作"
+                    if prefix == "TP"
+                    else f"第{index}个不可省略动作"
+                ),
+                "actor": f"施事者{index}",
+                "pressure_or_trigger": f"第{index}拍的现场压力",
+                "control_change": f"第{index}拍的控制权变化",
+                "information_change": f"第{index}拍新增或延迟的信息",
+                "consequence": f"第{index}拍造成的现实后果",
+                "evidence": f"{evidence_prefix}{index}",
+                **(
+                    {
+                        "object_or_receiver": f"第{index}拍的动作对象",
+                        "source_range": {
+                            "start_line": 8 + index,
+                            "end_line": 8 + index,
+                        },
+                        "bid_ids": ["BID-01"],
+                    }
+                    if prefix == "P"
+                    else {}
+                ),
+            }
+            for index in range(1, 5)
+        ]
+        return beats
+
+    @staticmethod
+    def plot_mapping() -> list[dict]:
+        return [
+            {
+                "source_beat_id": f"P-{index}",
+                "target_beat_id": f"TP-{index}",
+                "status": "adapted",
+                "adaptation_note": f"第{index}拍只替换人物、职业和表层物件。",
+            }
+            for index in range(1, 5)
+        ]
+
+    @staticmethod
+    def write_minimal_plot_ledger(source: Path, bridge_id: str) -> None:
+        path = source.parent.parent / "写作资产" / "全文情节微拍总账.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "source": {
+                        "path": str(source.resolve()),
+                        "sha256": GATE.sha256(source),
+                    },
+                    "beats": [
+                        {
+                            "beat_id": "P-AUX-001",
+                            "actor": "辅助施事者",
+                            "action": "辅助施事者完成一次动作",
+                            "object_or_receiver": "辅助动作对象",
+                            "pressure_or_trigger": "现场压力",
+                            "control_change": "控制权改变",
+                            "information_change": "信息变化",
+                            "consequence": "现实后果",
+                            "source_range": {"start_line": 1, "end_line": 1},
+                            "source_evidence": source.read_text(encoding="utf-8"),
+                            "bid_ids": [bridge_id],
+                        }
+                    ],
+                    "completeness_review": {
+                        "full_text_scanned_l1_to_eof": True,
+                        "independent_from_emotion_ledger": True,
+                        "no_emotion_beat_substitution": True,
+                        "all_effective_plot_beats_preserved": True,
+                        "manual_judgment": "已独立扫描。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
         self.outline = self.root / "小节大纲.md"
         self.outline.write_text(
-            "## 1. 起事\n\n动作一\n动作二\n\n## 2. 失位\n\n动作三\n动作四\n",
+            "## 1. 起事\n\n动作一\n动作二\n"
+            + "\n".join(f"动作一·{index}" for index in range(1, 7))
+            + "\n"
+            + "\n".join(f"目标情节拍{index}" for index in range(1, 5))
+            + "\n\n## 2. 失位\n\n动作三\n动作四\n"
+            + "\n".join(f"动作三·{index}" for index in range(1, 7))
+            + "\n",
             encoding="utf-8",
         )
         self.book_root = self.root / "拆文库" / "测试书"
         self.source = self.book_root / "原文" / "原文.txt"
         self.source.parent.mkdir(parents=True)
-        self.source.write_text("原文场面\n第二条原文证据", encoding="utf-8")
+        self.source.write_text(
+            "原文场面\n第二条原文证据\n"
+            + "\n".join(f"原文场面·{index}" for index in range(1, 7))
+            + "\n"
+            + "\n".join(f"原文情节拍{index}" for index in range(1, 5)),
+            encoding="utf-8",
+        )
         self.catalog = self.book_root / "写作资产" / "桥段施工卡.md"
         self.catalog.parent.mkdir(parents=True)
         self.catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
@@ -77,6 +175,62 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        self.emotion_ledger = self.book_root / "写作资产" / "全文情绪颗粒总账.json"
+        self.emotion_ledger.write_text(
+            json.dumps(
+                {
+                    "beats": [
+                        {
+                            "beat_id": beat["beat_id"],
+                            "role": beat["role"],
+                            "intensity": beat["intensity"],
+                            "content": f"原文情绪内容{index}",
+                            "bid_ids": ["BID-01"],
+                        }
+                        for index, beat in enumerate(self.emotion_beats("原文场面"), 1)
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.plot_ledger = self.book_root / "写作资产" / "全文情节微拍总账.json"
+        self.plot_ledger.write_text(
+            json.dumps(
+                {
+                    "schema_version": "1.0",
+                    "source": {
+                        "path": str(self.source.resolve()),
+                        "sha256": GATE.sha256(self.source),
+                    },
+                    "beats": [
+                        {
+                            "beat_id": beat["beat_id"],
+                            "actor": beat["actor"],
+                            "action": beat["action"],
+                            "object_or_receiver": beat["object_or_receiver"],
+                            "pressure_or_trigger": beat["pressure_or_trigger"],
+                            "control_change": beat["control_change"],
+                            "information_change": beat["information_change"],
+                            "consequence": beat["consequence"],
+                            "source_range": beat["source_range"],
+                            "source_evidence": beat["evidence"],
+                            "bid_ids": beat["bid_ids"],
+                        }
+                        for beat in self.plot_beats("P", "原文情节拍")
+                    ],
+                    "completeness_review": {
+                        "full_text_scanned_l1_to_eof": True,
+                        "independent_from_emotion_ledger": True,
+                        "no_emotion_beat_substitution": True,
+                        "all_effective_plot_beats_preserved": True,
+                        "manual_judgment": "已独立逐行盘清外部动作、信息、控制权和后果。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         self.receipt = self.root / "细纲表演验收回执.json"
         data = GATE.create_receipt("测试", self.outline, [self.source])
         source_path = str(self.source.resolve())
@@ -87,9 +241,11 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "source_sha256": source_sha,
                 "bridge_id": "BID-01",
                 "bridge_name": "公开掉位",
-                "source_required_sequence": ["先公开偏护", "再让主角失去位置"],
+                "source_required_sequence": ["公开偏护", "短暂反抗", "希望落空", "关系掉位"],
                 "source_must_keep_actions": ["对手抢走位置", "旁观者改变站队"],
                 "source_scene_granularity": "先抢位置，再由旁观者确认关系掉位。",
+                "source_plot_beats": self.plot_beats("P", "原文情节拍"),
+                "source_plot_beat_completion_review": "已逐句复核本桥段，四个有效事件拍全部入账。",
                 "source_end_state_change": "主角从默认成员变成被公开排除者。",
                 "cannot_merge_or_drop_reason": "这是后续撤离成立的第一层现实证据。",
             }
@@ -100,15 +256,19 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "source_bridge_name": "公开掉位",
                 "source_path": source_path,
                 "source_sha256": source_sha,
-                "source_required_sequence": ["先公开偏护", "再让主角失去位置"],
+                "source_required_sequence": ["公开偏护", "短暂反抗", "希望落空", "关系掉位"],
                 "source_must_keep_actions": ["对手抢走位置", "旁观者改变站队"],
                 "source_scene_granularity": "先抢位置，再由旁观者确认关系掉位。",
+                "source_plot_beats": self.plot_beats("P", "原文情节拍"),
+                "target_plot_beats": self.plot_beats("TP", "目标情节拍"),
+                "plot_beat_mapping": self.plot_mapping(),
+                "plot_granularity_parity_judgment": "四个情节拍按原顺序逐拍迁移，没有漏拍、并拍或降格。",
                 "source_emotion_sequence": self.emotion_beats("原文场面"),
-                "target_emotion_sequence": self.emotion_beats("动作一"),
+                "target_emotion_sequence": self.emotion_beats("动作一", target=True),
                 "source_reversal_beat": 4,
                 "target_reversal_beat": 4,
-                "source_peak_beat": 4,
-                "target_peak_beat": 4,
+                "source_peak_beat": 5,
+                "target_peak_beat": 5,
                 "reader_experience_parity": True,
                 "emotion_parity_judgment": "反刀同位，逐拍烈度不低于原文。",
                 "target_outline_sections": ["1", "2"],
@@ -209,8 +369,8 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "target_intensity_score": 8,
                 "source_reversal_beat": 4,
                 "target_reversal_beat": 4,
-                "source_peak_beat": 4,
-                "target_peak_beat": 4,
+                "source_peak_beat": 5,
+                "target_peak_beat": 5,
                 "ending_afterpain_equivalent": True,
                 "reader_experience_equivalent": True,
                 "manual_judgment": "逐拍触发、反刀位置和场末余痛达到同级读者体感。",
@@ -223,10 +383,14 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             "full_source_mechanisms_reviewed": True,
             "dual_track_function_and_scene_granularity_reviewed": True,
             "source_bridge_flow_inventory_completed": True,
+            "source_plot_beat_inventory_completed": True,
+            "plot_and_emotion_ledgers_independently_built": True,
             "outline_bridge_flow_parity_reviewed_before_draft": True,
+            "plot_beat_mapping_reviewed_before_draft": True,
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "complete_source_emotion_beat_inventory_reviewed": True,
             "source_subflow_granularity_coverage_reviewed": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
@@ -240,6 +404,54 @@ class OutlinePerformanceContractTest(unittest.TestCase):
 
     def test_complete_contract_passes(self) -> None:
         self.assertEqual([], GATE.validate_receipt(self.receipt, self.outline))
+
+    def test_auxiliary_plot_only_bridge_does_not_import_auxiliary_emotions(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        inventory = data["source_bridge_flow_inventory"]
+        parity = deepcopy(data["outline_bridge_flow_parity"])
+        parity[0].update(
+            {
+                "emotion_transfer_policy": "plot_mechanism_only",
+                "source_emotion_sequence": [],
+                "target_emotion_sequence": [],
+                "source_reversal_beat": 0,
+                "target_reversal_beat": 0,
+                "source_peak_beat": 0,
+                "target_peak_beat": 0,
+                "reader_experience_parity": None,
+                "emotion_parity_judgment": "辅助书只供应情节和后果机制，不供应目标稿情绪拍。",
+            }
+        )
+        source_path = str(self.source.resolve())
+        errors: list[str] = []
+        GATE.validate_bridge_parity(
+            parity,
+            inventory,
+            {"BID-01"},
+            {source_path: self.source.read_text(encoding="utf-8")},
+            {source_path: {"role": "auxiliary"}},
+            ["1", "2"],
+            self.outline.read_text(encoding="utf-8"),
+            errors,
+            strong_emotion_required=True,
+        )
+        self.assertEqual([], errors)
+
+    def test_primary_bridge_cannot_claim_plot_only_emotion_policy(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["outline_bridge_flow_parity"][0][
+            "emotion_transfer_policy"
+        ] = "plot_mechanism_only"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("主体桥段不得使用" in error for error in errors))
+
+    def test_global_plot_beat_inventory_confirmation_is_required(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["global_review"]["source_plot_beat_inventory_completed"] = False
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("全部有效情节拍" in error for error in errors))
 
     def test_missing_primary_subflow_coverage_blocks(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
@@ -279,6 +491,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         auxiliary_catalog = auxiliary_root / "写作资产" / "桥段施工卡.md"
         auxiliary_catalog.parent.mkdir(parents=True)
         auxiliary_catalog.write_text("## BID-03 稀缺资源撤回\n", encoding="utf-8")
+        self.write_minimal_plot_ledger(auxiliary, "BID-03")
 
         data = GATE.create_receipt("测试", self.outline, [self.source, auxiliary])
         path = self.root / "待选择回执.json"
@@ -338,6 +551,86 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("第 2 拍目标烈度低于原文" in error for error in errors))
+
+    def test_missing_target_plot_beat_blocks(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["outline_bridge_flow_parity"][0]["target_plot_beats"].pop(2)
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("情节拍数必须完全一致" in error for error in errors))
+
+    def test_missing_independent_plot_ledger_blocks_initialization(self) -> None:
+        self.plot_ledger.unlink()
+        with self.assertRaises(FileNotFoundError):
+            GATE.create_receipt("测试", self.outline, [self.source])
+
+    def test_emotion_ids_cannot_be_reused_as_plot_ids(self) -> None:
+        ledger = json.loads(self.plot_ledger.read_text(encoding="utf-8"))
+        ledger["beats"][0]["beat_id"] = "E-1"
+        self.plot_ledger.write_text(
+            json.dumps(ledger, ensure_ascii=False), encoding="utf-8"
+        )
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["selected_source_originals"][0]["plot_beat_ledger"]["sha256"] = GATE.sha256(
+            self.plot_ledger
+        )
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("共用 beat_id" in error for error in errors))
+
+    def test_receipt_cannot_invent_plot_inventory(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        data["source_bridge_flow_inventory"][0]["source_plot_beats"][0][
+            "action"
+        ] = "回执填写者临时编的情节动作"
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("独立全文情节微拍总账" in error for error in errors))
+
+    def test_two_source_plot_beats_cannot_merge_into_one_target(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        mapping = data["outline_bridge_flow_parity"][0]["plot_beat_mapping"]
+        mapping[2]["target_beat_id"] = mapping[1]["target_beat_id"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不能合并到同一个目标情节拍" in error for error in errors))
+
+    def test_actual_source_emotion_beat_cannot_be_dropped(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        target = data["outline_bridge_flow_parity"][0]["target_emotion_sequence"]
+        target.pop(4)
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("数量必须一致" in error for error in errors))
+
+    def test_source_action_cannot_be_prefixed_and_reused_as_target_beat(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        parity = data["outline_bridge_flow_parity"][0]
+        parity["target_plot_beats"][0]["action"] = (
+            "换成新故事：" + parity["source_plot_beats"][0]["action"]
+        )
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("不能加前缀或换标题冒充" in error for error in errors))
+
+    def test_target_emotion_trigger_must_move_into_target_world(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        parity = data["outline_bridge_flow_parity"][0]
+        parity["target_emotion_sequence"][0]["trigger"] = parity[
+            "source_emotion_sequence"
+        ][0]["trigger"]
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("触发仍与原文相同" in error for error in errors))
+
+    def test_bridge_emotion_membership_must_follow_ledger_bid_ids(self) -> None:
+        ledger = json.loads(self.emotion_ledger.read_text(encoding="utf-8"))
+        ledger["beats"][0]["bid_ids"] = []
+        self.emotion_ledger.write_text(
+            json.dumps(ledger, ensure_ascii=False), encoding="utf-8"
+        )
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("bid_ids 真实边界" in error for error in errors))
 
     def test_three_sections_cannot_reuse_same_scene_template(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))
@@ -401,6 +694,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         auxiliary_catalog = auxiliary_root / "写作资产" / "桥段施工卡.md"
         auxiliary_catalog.parent.mkdir(parents=True)
         auxiliary_catalog.write_text("## BID-03 稀缺资源撤回\n", encoding="utf-8")
+        self.write_minimal_plot_ledger(auxiliary, "BID-03")
 
         old = json.loads(self.receipt.read_text(encoding="utf-8"))
         data = GATE.create_receipt("测试", self.outline, [self.source, auxiliary])

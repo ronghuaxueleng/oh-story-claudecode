@@ -21,17 +21,75 @@ SPEC.loader.exec_module(GATE)
 class WriteReleaseGateTest(unittest.TestCase):
     @staticmethod
     def emotion_beats(evidence: str) -> list[dict]:
-        roles = ["情绪进入点", "受辱或刺痛", "短暂希望或反抗", "反刀", "场末余痛"]
+        roles = ["情绪进入点", "受辱或刺痛", "短暂希望或反抗", "反刀", "情绪峰值", "场末余痛"]
         return [
             {
+                "beat_id": f"E-{index}",
                 "role": role,
                 "trigger": f"{role}的具体触发",
                 "relationship_position_change": f"{role}改变关系位置",
                 "reader_effect": f"读者在{role}感到关系恶化",
                 "intensity": 8,
-                "evidence": evidence,
+                "evidence": f"{evidence}·{index}",
             }
-            for role in roles
+            for index, role in enumerate(roles, start=1)
+        ]
+
+    @staticmethod
+    def plot_beats(prefix: str, evidence_prefix: str) -> list[dict]:
+        side = "原文" if prefix == "P" else "目标"
+        return [
+            {
+                "beat_id": f"{prefix}-{index}",
+                "action": f"{side}第{index}拍施事者完成{side}第{index}拍动作",
+                "actor": f"{side}第{index}拍施事者",
+                "pressure_or_trigger": f"{side}第{index}拍压力",
+                "control_change": f"{side}第{index}拍控制权变化",
+                "information_change": f"{side}第{index}拍信息变化",
+                "consequence": f"{side}第{index}拍现实后果",
+                "evidence": f"{evidence_prefix}{index}",
+                **(
+                    {
+                        "object_or_receiver": f"第{index}拍的动作对象",
+                        "source_range": {"start_line": 1, "end_line": 1},
+                        "bid_ids": ["BID-01"],
+                    }
+                    if prefix == "P"
+                    else {}
+                ),
+            }
+            for index in range(1, 5)
+        ]
+
+    @staticmethod
+    def bridge_emotion_beats(*, target: bool = False) -> list[dict]:
+        roles = ["仍等解释", "第一次刺痛", "短暂反抗", "错答反刺", "动作峰值"]
+        source_quotes = [
+            "原文场面里，他先伸手拦我，我把他的手推开。",
+            "我没想到他还会替别人解释。",
+            "解释什么？",
+            "钥匙放在桌上，她先拿走了。",
+            "有意思，现在倒像是我进错了门。",
+        ]
+        return [
+            {
+                "beat_id": f"E-{index}",
+                "role": role,
+                "trigger": (
+                    f"目标人物被第{index}次新场面动作触发"
+                    if target
+                    else f"原文第{index}个情绪触发"
+                ),
+                "relationship_position_change": (
+                    "目标丈夫偏护后，目标妻子的位置继续下降。"
+                    if target
+                    else "丈夫偏护后，妻子的位置继续下降。"
+                ),
+                "reader_effect": f"读者在第{index}拍感到关系恶化",
+                "intensity": 7,
+                "evidence": f"动作一·{index}" if target else source_quotes[index - 1],
+            }
+            for index, role in enumerate(roles, start=1)
         ]
 
     def setUp(self) -> None:
@@ -47,7 +105,18 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.setting = self.root / "设定.md"
         self.outline = self.root / "大纲.md"
         self.setting.write_text("设定", encoding="utf-8")
-        self.outline.write_text("## 1. 起事\n\n动作一\n动作二\n", encoding="utf-8")
+        self.outline.write_text(
+            "## 1. 起事\n\n动作一\n动作二\n"
+            + "\n".join(f"动作一·{index}" for index in range(1, 7))
+            + "\n"
+            + "\n".join(
+                f"目标情绪动作片段{index}" for index in range(1, 6)
+            )
+            + "\n"
+            + "\n".join(f"目标情节拍{index}" for index in range(1, 5))
+            + "\n\n## 尾声\n\n目标情绪动作片段6\n",
+            encoding="utf-8",
+        )
         source_root = self.root / "拆文库" / "测试书"
         self.source_original = source_root / "原文" / "原文.txt"
         self.source_original.parent.mkdir(parents=True)
@@ -66,11 +135,115 @@ class WriteReleaseGateTest(unittest.TestCase):
             "「你一定要把事情弄得这么难看吗？」"
             "「我问的是谁动了我的东西。」"
             "「我现在跟你说的是一家人的体面。」"
-            "「那就别碰我的门。」",
+            "「那就别碰我的门。」"
+            + "".join(f"原文场面·{index}" for index in range(1, 7))
+            + "".join(f"原文情节拍{index}" for index in range(1, 5)),
+            encoding="utf-8",
+        )
+        self.source_emotion_ledger = source_root / "写作资产" / "全文情绪颗粒总账.json"
+        self.source_emotion_ledger.parent.mkdir(parents=True, exist_ok=True)
+        source_quotes = [
+            "原文场面里，他先伸手拦我，我把他的手推开。",
+            "我没想到他还会替别人解释。",
+            "解释什么？",
+            "钥匙放在桌上，她先拿走了。",
+            "有意思，现在倒像是我进错了门。",
+            "最后门关上了。",
+        ]
+        roles = ["仍等解释", "第一次刺痛", "短暂反抗", "错答反刺", "动作峰值", "离场余痛"]
+        ledger_beats = [
+            {
+                "beat_id": f"E-{index + 1}",
+                "segment_id": "SEG-01",
+                "start_line": 1,
+                "end_line": 1,
+                "role": role,
+                "content": f"原文中{role}这一拍发生。",
+                "trigger": f"原文第{index + 1}个情绪触发",
+                "relationship_position_change": "丈夫偏护后，妻子的位置继续下降。",
+                "reader_effect": "读者先看见期待，再被偏护动作反刺。",
+                "narrative_function": "推动关系位置和离场决定变化。",
+                "intensity": 7,
+                "source_evidence": [source_quotes[index]],
+                "bid_ids": [] if index == 5 else ["BID-01"],
+            }
+            for index, role in enumerate(roles)
+        ]
+        self.source_emotion_ledger.write_text(
+            json.dumps(
+                {
+                    "schema_version": GATE._EMOTIONAL_GRANULARITY_MODULE.SOURCE_LEDGER_SCHEMA,
+                    "source": {
+                        "path": str(self.source_original.resolve()),
+                        "sha1": GATE._EMOTIONAL_GRANULARITY_MODULE.sha1_file(
+                            self.source_original
+                        ),
+                        "line_count": 1,
+                    },
+                    "coverage_segments": [
+                        {
+                            "segment_id": "SEG-01",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "kind": "emotion_bearing",
+                            "beat_ids": [beat["beat_id"] for beat in ledger_beats],
+                        }
+                    ],
+                    "beats": ledger_beats,
+                    "completeness_review": {
+                        "all_source_lines_classified": True,
+                        "non_bid_beats_preserved": True,
+                        "bid_derived_after_full_inventory": True,
+                        "reviewed_by_current_model": True,
+                        "automation_used_for_semantic_judgment": False,
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        self.source_plot_ledger = source_root / "写作资产" / "全文情节微拍总账.json"
+        source_plot_beats = self.plot_beats("P", "原文情节拍")
+        self.source_plot_ledger.write_text(
+            json.dumps(
+                {
+                    "schema_version": "story-short-analyze.full-text-plot-ledger.v1",
+                    "source": {
+                        "path": str(self.source_original.resolve()),
+                        "sha256": GATE._OUTLINE_PERFORMANCE_MODULE.sha256(
+                            self.source_original
+                        ),
+                    },
+                    "beats": [
+                        {
+                            "beat_id": beat["beat_id"],
+                            "actor": beat["actor"],
+                            "action": beat["action"],
+                            "object_or_receiver": beat["object_or_receiver"],
+                            "pressure_or_trigger": beat["pressure_or_trigger"],
+                            "control_change": beat["control_change"],
+                            "information_change": beat["information_change"],
+                            "consequence": beat["consequence"],
+                            "source_range": beat["source_range"],
+                            "source_evidence": beat["evidence"],
+                            "bid_ids": beat["bid_ids"],
+                        }
+                        for beat in source_plot_beats
+                    ],
+                    "completeness_review": {
+                        "full_text_scanned_l1_to_eof": True,
+                        "independent_from_emotion_ledger": True,
+                        "no_emotion_beat_substitution": True,
+                        "all_effective_plot_beats_preserved": True,
+                        "manual_judgment": "已独立盘清施事者、对象、动作、信息、控制权和后果。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
             encoding="utf-8",
         )
         bridge_catalog = source_root / "写作资产" / "桥段施工卡.md"
-        bridge_catalog.parent.mkdir(parents=True)
+        bridge_catalog.parent.mkdir(parents=True, exist_ok=True)
         bridge_catalog.write_text("## BID-01 公开掉位\n", encoding="utf-8")
         subflow_catalog = source_root / "写作资产" / "子流程索引.jsonl"
         style_granularity = {
@@ -178,10 +351,14 @@ class WriteReleaseGateTest(unittest.TestCase):
             "full_source_mechanisms_reviewed": True,
             "dual_track_function_and_scene_granularity_reviewed": True,
             "source_bridge_flow_inventory_completed": True,
+            "source_plot_beat_inventory_completed": True,
+            "plot_and_emotion_ledgers_independently_built": True,
             "outline_bridge_flow_parity_reviewed_before_draft": True,
+            "plot_beat_mapping_reviewed_before_draft": True,
             "relationship_legibility_reviewed_before_draft": True,
             "professional_shell_translation_reviewed_before_draft": True,
             "source_emotion_flow_parity_reviewed_before_draft": True,
+            "complete_source_emotion_beat_inventory_reviewed": True,
             "source_subflow_granularity_coverage_reviewed": True,
             "strong_emotion_required": True,
             "mechanism_transfer_boundary": "只迁移表演机制，不复制原文内容。",
@@ -194,9 +371,11 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "source_sha256": source_sha,
                 "bridge_id": "BID-01",
                 "bridge_name": "公开掉位",
-                "source_required_sequence": ["先公开偏护", "再让主角失位"],
+                "source_required_sequence": ["公开偏护", "主角反抗", "希望落空", "主角失位"],
                 "source_must_keep_actions": ["抢走位置", "旁观者改站队"],
                 "source_scene_granularity": "动作和站位连续换主。",
+                "source_plot_beats": self.plot_beats("P", "原文情节拍"),
+                "source_plot_beat_completion_review": "已逐句复核，全部有效情节拍均已入账。",
                 "source_end_state_change": "主角失去默认成员身份。",
                 "cannot_merge_or_drop_reason": "后续撤离必须由此承重。",
             }
@@ -207,15 +386,28 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "source_bridge_name": "公开掉位",
                 "source_path": source_path,
                 "source_sha256": source_sha,
-                "source_required_sequence": ["先公开偏护", "再让主角失位"],
+                "source_required_sequence": ["公开偏护", "主角反抗", "希望落空", "主角失位"],
                 "source_must_keep_actions": ["抢走位置", "旁观者改站队"],
                 "source_scene_granularity": "动作和站位连续换主。",
-                "source_emotion_sequence": self.emotion_beats("原文场面"),
-                "target_emotion_sequence": self.emotion_beats("动作一"),
+                "source_plot_beats": self.plot_beats("P", "原文情节拍"),
+                "target_plot_beats": self.plot_beats("TP", "目标情节拍"),
+                "plot_beat_mapping": [
+                    {
+                        "source_beat_id": f"P-{index}",
+                        "target_beat_id": f"TP-{index}",
+                        "status": "adapted",
+                        "adaptation_note": f"第{index}拍仅替换表层元素。",
+                    }
+                    for index in range(1, 5)
+                ],
+                "plot_granularity_parity_judgment": "四拍逐一迁移，没有漏拍、并拍或压缩。",
+                "source_emotion_sequence": self.bridge_emotion_beats(),
+                "target_emotion_sequence": self.bridge_emotion_beats(target=True),
                 "source_reversal_beat": 4,
                 "target_reversal_beat": 4,
-                "source_peak_beat": 4,
-                "target_peak_beat": 4,
+                "source_peak_beat": 5,
+                "target_peak_beat": 5,
+                "turning_point_selection_review": "已根据期待、关系与行动的真实转折选定 E-4 为反刀、E-5 为峰值，未按最高烈度自动猜测。",
                 "reader_experience_parity": True,
                 "emotion_parity_judgment": "反刀、峰值和读者体感均与原文同级。",
                 "target_outline_sections": ["1"],
@@ -311,8 +503,8 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "target_intensity_score": 8,
                     "source_reversal_beat": 4,
                     "target_reversal_beat": 4,
-                    "source_peak_beat": 4,
-                    "target_peak_beat": 4,
+                    "source_peak_beat": 5,
+                    "target_peak_beat": 5,
                     "ending_afterpain_equivalent": True,
                     "reader_experience_equivalent": True,
                     "manual_judgment": "逐拍对齐且没有把公开抛弃降成职业分歧。",
@@ -733,7 +925,9 @@ class WriteReleaseGateTest(unittest.TestCase):
 
     def emotional_contract_payload(self) -> dict:
         emotional_gate = GATE._EMOTIONAL_GRANULARITY_MODULE
-        payload = emotional_gate.create_receipt("测试", self.source_original)
+        payload = emotional_gate.create_receipt(
+            "测试", self.source_original, self.source_emotion_ledger
+        )
         payload = emotional_gate.bind_outline(payload, self.outline)
         source_quotes = [
             "原文场面里，他先伸手拦我，我把他的手推开。",
@@ -743,7 +937,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             "有意思，现在倒像是我进错了门。",
             "最后门关上了。",
         ]
-        roles = emotional_gate.REQUIRED_BEAT_ROLES
+        roles = ["仍等解释", "第一次刺痛", "短暂反抗", "错答反刺", "动作峰值", "离场余痛"]
         item = payload["section_contracts"][0]
         item.update(
             {
@@ -757,28 +951,68 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "loss_of_control_or_equivalent_plan": "女主直接推开阻拦，形成与原文同级的动作升级。",
                 "source_like_direct_emotion_preserved": True,
                 "surface_copy_rejected": True,
+                "source_reversal_beat": 4,
+                "target_reversal_beat": 4,
+                "source_peak_beat": 5,
+                "target_peak_beat": 5,
+                "source_emotion_beat_completion_review": "已逐句通读原文场面，按每次关系位置和期待变化穷尽全部实际情绪拍。",
+                "turning_point_selection_review": "已根据期待、关系与行动的真实转折选定 E-4 为反刀、E-5 为峰值，未按最高烈度自动猜测。",
+                "required_plot_beats": [
+                    {
+                        "beat_id": f"TP-{index}",
+                        "action": f"第{index}拍动作",
+                        "outline_evidence": f"目标情节拍{index}",
+                    }
+                    for index in range(1, 5)
+                ],
+                "plot_beat_completion_review": "已核对细纲表演回执全部目标情节拍，四拍均唯一归入本节且顺序一致。",
                 "manual_judgment": "这一节保留主体原文从期待解释到直接冷刺的情绪锯齿，目标动作不低于原文。",
             }
         )
+        item["source_emotion_beats"] = []
+        item["target_outline_beats"] = []
+        ledger_beats = json.loads(
+            self.source_emotion_ledger.read_text(encoding="utf-8")
+        )["beats"]
         for index, role in enumerate(roles):
-            source_beat = item["source_emotion_beats"][index]
-            source_beat.update(
+            ledger_beat = ledger_beats[index]
+            item["source_emotion_beats"].append(
                 {
-                    "trigger": f"原文第{index + 1}个情绪触发",
-                    "relationship_position_change": "丈夫偏护后，妻子的位置继续下降。",
-                    "reader_effect": "读者先看见期待，再被偏护动作反刺。",
-                    "intensity": 7,
-                    "source_evidence": [source_quotes[index]],
+                    "beat_id": f"E-{index + 1}",
+                    "role": role,
+                    "content": ledger_beat["content"],
+                    "trigger": ledger_beat["trigger"],
+                    "relationship_position_change": ledger_beat[
+                        "relationship_position_change"
+                    ],
+                    "reader_effect": ledger_beat["reader_effect"],
+                    "narrative_function": ledger_beat["narrative_function"],
+                    "intensity": ledger_beat["intensity"],
+                    "source_evidence": ledger_beat["source_evidence"],
+                    "bid_ids": ledger_beat["bid_ids"],
                 }
             )
-            target_beat = item["target_outline_beats"][index]
-            target_beat.update(
+            item["target_outline_beats"].append(
                 {
+                    "beat_id": f"E-{index + 1}",
+                    "role": role,
                     "trigger": f"目标第{index + 1}个情绪触发",
-                    "relationship_position_change": "动作迫使主角失去原有位置并立刻反抗。",
-                    "reader_effect": "读者感到关系偏向和位置伤害。",
+                    "relationship_position_change": f"目标第{index + 1}拍让主角在新关系中进一步失位。",
+                    "reader_effect": f"读者从目标第{index + 1}拍看见期待如何再次落空。",
                     "intensity": 7,
-                    "outline_evidence": ["动作一", "动作二"],
+                    "target_outline_region": (
+                        "epilogue" if index == 5 else "section:1"
+                    ),
+                    "target_story_adaptation": (
+                        f"把原文第{index + 1}拍造成的关系落差迁入目标人物的新场面动作，"
+                        "保留该拍的期待变化和受伤方向，但更换人物、空间与物件。"
+                    ),
+                    "target_evidence_coverage_review": (
+                        f"已逐句核对完整动作链；触发为目标第{index + 1}个情绪触发，"
+                        f"关系位移为目标第{index + 1}拍让主角在新关系中进一步失位。"
+                        "两者均已在独占证据中发生，未把连续动作压成结论。"
+                    ),
+                    "outline_evidence": [f"目标情绪动作片段{index + 1}"],
                 }
             )
         payload["reviewed_by_current_model"] = True
@@ -885,7 +1119,89 @@ class WriteReleaseGateTest(unittest.TestCase):
             prose_contract=self.files["prose"],
             primary_source_original=self.source_original,
             emotional_contract=self.files["emotional"],
+            source_emotion_ledger=self.source_emotion_ledger,
         )
+        self.assertEqual([], errors)
+
+    def test_draft_release_blocks_plot_beat_missing_from_section_contract(self) -> None:
+        payload = json.loads(self.files["emotional"].read_text(encoding="utf-8"))
+        payload["section_contracts"][0]["required_plot_beats"].pop()
+        self.files["emotional"].write_text(json.dumps(payload), encoding="utf-8")
+        errors = GATE.validate_release(
+            phase="draft",
+            writing_receipt=self.files["writing"],
+            source_receipt=self.files["source"],
+            ledger=self.files["ledger"],
+            opening_contract=self.files["opening"],
+            outline_contract=self.files["outline_contract"],
+            profile=self.files["profile"],
+            sequence_receipt=self.files["sequence"],
+            prose_contract=self.files["prose"],
+            primary_source_original=self.source_original,
+            emotional_contract=self.files["emotional"],
+            source_emotion_ledger=self.source_emotion_ledger,
+        )
+        self.assertTrue(any("完整覆盖全部 beat_id" in item for item in errors))
+
+    def test_plot_beat_alignment_uses_primary_inside_and_outside_beats_only(self) -> None:
+        outline_data = {
+            "selected_source_originals": [
+                {
+                    "path": "/tmp/primary.txt",
+                    "role": "primary",
+                    "available_plot_beat_ids": ["P-001", "P-002"],
+                },
+                {
+                    "path": "/tmp/auxiliary.txt",
+                    "role": "auxiliary",
+                    "available_plot_beat_ids": ["P-010"],
+                },
+            ],
+            "outside_bridge_plot_parity": {
+                "plot_beat_mapping": [
+                    {
+                        "source_beat_id": "P-001",
+                        "target_beat_id": "TP-OUT-P-001",
+                    }
+                ]
+            },
+            "outline_bridge_flow_parity": [
+                {
+                    "source_path": "/tmp/primary.txt",
+                    "plot_beat_mapping": [
+                        {
+                            "source_beat_id": "P-002",
+                            "target_beat_id": "TP-PRIMARY-P-002",
+                        }
+                    ],
+                },
+                {
+                    "source_path": "/tmp/auxiliary.txt",
+                    "plot_beat_mapping": [
+                        {
+                            "source_beat_id": "P-010",
+                            "target_beat_id": "TP-AUX-P-010",
+                        }
+                    ],
+                },
+            ],
+        }
+        emotional_data = {
+            "section_contracts": [
+                {
+                    "required_plot_beats": [
+                        {"beat_id": "TP-OUT-P-001"},
+                        {"beat_id": "TP-PRIMARY-P-002"},
+                    ]
+                }
+            ]
+        }
+        errors: list[str] = []
+
+        GATE.validate_plot_beat_contract_alignment(
+            outline_data, emotional_data, errors
+        )
+
         self.assertEqual([], errors)
 
     def test_source_dominant_policy_blocks_first_draft_cleanup(self) -> None:
@@ -908,6 +1224,7 @@ class WriteReleaseGateTest(unittest.TestCase):
             prose_contract=self.files["prose"],
             primary_source_original=self.source_original,
             emotional_contract=self.files["emotional"],
+            source_emotion_ledger=self.source_emotion_ledger,
         )
         self.assertTrue(any("anti_ai_cleanup" in item for item in errors))
 

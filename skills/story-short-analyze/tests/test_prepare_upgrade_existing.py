@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,33 @@ SPEC.loader.exec_module(PREPARE)
 
 
 class PrepareUpgradeExistingTest(unittest.TestCase):
+    def test_upgrade_existing_cli_human_output_does_not_require_new_job_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "拆文库" / "旧书"
+            (root / "原文").mkdir(parents=True)
+            source = root / "原文" / "旧书.txt"
+            source.write_text("第一行\n第二行", encoding="utf-8")
+            (root / "_meta.json").write_text(
+                json.dumps({"skill_fingerprint": "old", "structure_counts": {}}),
+                encoding="utf-8",
+            )
+            (root / "_source_manifest.json").write_text(
+                json.dumps({"source_file": str(source), "copied_to": str(source)}),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT_PATH), "--upgrade-existing", str(root)],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("book_name: 旧书", result.stdout)
+            self.assertIn("missing_files:", result.stdout)
+            self.assertNotIn("source_copy:", result.stdout)
+
     def test_upgrade_existing_keeps_existing_outputs_and_writes_backfill_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "拆文库" / "旧书"

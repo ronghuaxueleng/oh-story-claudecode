@@ -57,6 +57,8 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "场面细节库.md",
     ],
     asset_files=[
+        "全文情绪颗粒总账.json",
+        "全文情节微拍总账.json",
         "母结构_故事走法.md",
         "主冲突_副升级器.md",
         "异物清单.md",
@@ -451,12 +453,8 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "高敏点",
             "可学层",
             "禁学层",
-            "情绪进入点",
-            "刺痛/受辱拍",
-            "短暂希望或反抗",
-            "反刀拍",
-            "峰值拍",
-            "场末余痛",
+            "情绪拍",
+            "情绪拍完整性复核",
         ],
     },
     "写作资产/桥段施工卡.md": {
@@ -474,24 +472,11 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "不能丢的顺序",
             "为什么这个顺序不能乱",
             "后续调用方式",
-            "情绪进入点",
-            "刺痛/受辱拍",
-            "短暂希望或反抗",
-            "反刀拍",
-            "峰值拍",
-            "场末余痛",
+            "情绪拍",
+            "情绪拍完整性复核",
         ],
     },
 }
-
-BRIDGE_EMOTION_LABELS = (
-    "情绪进入点",
-    "刺痛/受辱拍",
-    "短暂希望或反抗",
-    "反刀拍",
-    "峰值拍",
-    "场末余痛",
-)
 
 UPGRADE_REVIEW_SCOPES = (
     "process_plan_refresh",
@@ -887,14 +872,15 @@ def write_upgrade_plan(
             "",
             "## 内容合同逐项复核",
             "",
-            "- [ ] 逐 BID 核对六拍情绪序列、烈度和原文证据是否贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
+            "- [ ] 先逐行分轨重建 `全文情绪颗粒总账.json` 与 `全文情节微拍总账.json`，确认导语、桥段、过场、回忆、后果与尾声全部覆盖，E/P 不共用 ID 且不互相代替。",
+            "- [ ] 核对稳定 beat_id、烈度和独占原文证据是否从全文总账贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
             "- [ ] 逐文件核对当前 first-write contract 新字段，不能只检查文件是否存在。",
             "- [ ] 逐条处理 validator 输出的 `human_review_items`，并写入 `_finalize_human_review.json`。",
             "",
             "## profile 重新生成",
             "",
             "- [ ] 内容复核完成后重新生成 `book.profile.json`。",
-            "- [ ] 核对 `bridge_rules[*].emotion_sequence`、整句角色偏手和完整后果链没有碎裂。",
+            "- [ ] 核对全文情绪拍全集、`bridge_rules[*].emotion_sequence` 子集、整句角色偏手和完整后果链没有碎裂。",
             "",
             "## 缺失目录",
             "",
@@ -970,7 +956,7 @@ def reset_upgrade_progress(path: Path, book_name: str, layout: ContractLayout) -
                 "",
                 "## 增量升级复核",
                 "- [ ] 已按当前 `_parallel_plan.json` 复核全部 first-write contract",
-                "- [ ] 已完成逐 BID 情绪序列贯通",
+                "- [ ] 已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
                 "- [ ] 已重新生成 profile 并核对整句资产",
                 "- [ ] 已闭环 `_finalize_human_review.json`",
             ]
@@ -1101,6 +1087,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         str(source_copy),
         "_sample_comparison.md",
         "事实与推断台账.md",
+        "写作资产/全文情绪颗粒总账.json",
+        "写作资产/全文情节微拍总账.json",
         "_analysis_brief.md",
     ]
     asset_shared_reads: list[str] = []
@@ -1161,6 +1149,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         "foundation_start_gate": [
             "_sample_comparison.md",
             "事实与推断台账.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
             "_analysis_brief.md",
         ],
         "foundation_shared_reads": foundation_shared_reads,
@@ -1207,6 +1197,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         "coordinator_only_writes": [
             "_sample_comparison.md",
             "事实与推断台账.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
             "_analysis_brief.md",
             "_meta.json",
             "_progress.md",
@@ -1416,6 +1408,7 @@ def write_execution_prompt(
         "",
         "## 当前只记住这些硬约束",
         "- 读完原文后先写过程审计文件 `_sample_comparison.md`；第一个内容产物仍必须是 `事实与推断台账.md`",
+        "- 事实台账后先逐行分轨建立 `写作资产/全文情绪颗粒总账.json` 与 `写作资产/全文情节微拍总账.json`，E/P 不共用 ID、不等量配平、不互相反推；BID 只能在两份总账完成后归纳",
         "- 禁止任何兜底生成、自动补写、自动扩写、通用模板代填或跨书内容借位；信息不足就停在当前阶段并报错",
         "- 原文与样本只完整读取一次；后续使用 `_sample_comparison.md`、事实台账、节点、候选池和精确原文切片",
         "- 第一波仍有 3 条内容 lane、第二波仍有 5 条内容 lane，但 lane 不是 agent：严格按 executor 复用同一会话，禁止每条 lane 单独 spawn",
@@ -1458,7 +1451,7 @@ def write_execution_prompt(
         "- `原文资产候选池.md` 如果某类资产原文确实没有，必须显式写“已扫，原文未发现”，不能空着",
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
-        "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
+        "- 每个 BID 必须从 `全文情绪颗粒总账.json` 引用本桥实际情绪拍；全文总账先覆盖全部原文情绪拍，非 BID 的导语、过场、回忆、后果和尾声拍也必须保留，不能因桥段归纳而丢失",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：结构/章尾、主角不规则性、专业细节功能性、全文对白模式；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",
@@ -1667,20 +1660,22 @@ def main() -> int:
     else:
         print(f"book_name: {payload['book_name']}")
         print(f"root: {payload['root']}")
-        print(f"source_copy: {payload['source_copy']}")
-        print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
-        print(f"line_count: {payload['line_count']}")
-        print(f"chapter_count: {payload['chapter_count']}")
-        print(f"chunk_count: {payload['chunk_count']}")
-        print("created_files:")
-        for item in payload["created_files"]:
-            print(f"- {item}")
-        print("created_dirs:")
-        for item in payload["created_dirs"]:
-            print(f"- {item}")
+        if payload.get("mode") != "upgrade-existing":
+            print(f"source_copy: {payload['source_copy']}")
+            print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
+            print(f"line_count: {payload['line_count']}")
+            print(f"chapter_count: {payload['chapter_count']}")
+            print(f"chunk_count: {payload['chunk_count']}")
         if payload.get("mode") == "upgrade-existing":
             print("missing_files:")
             for item in payload["missing_files"]:
+                print(f"- {item}")
+        else:
+            print("created_files:")
+            for item in payload["created_files"]:
+                print(f"- {item}")
+            print("created_dirs:")
+            for item in payload["created_dirs"]:
                 print(f"- {item}")
         print("next_step:")
         if isinstance(payload["next_step"], dict):

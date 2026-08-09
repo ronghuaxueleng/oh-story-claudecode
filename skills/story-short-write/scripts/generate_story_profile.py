@@ -634,7 +634,7 @@ def collect_bridge_reason_terms(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
-BRIDGE_EMOTION_LABELS = (
+LEGACY_BRIDGE_EMOTION_LABELS = (
     "情绪进入点",
     "刺痛/受辱拍",
     "短暂希望或反抗",
@@ -645,14 +645,27 @@ BRIDGE_EMOTION_LABELS = (
 
 
 def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
-    text = clean_bridge_line(value)
+    # Emotion-beat evidence is a verbatim ledger key. Generic asset cleanup
+    # strips terminal Chinese punctuation and breaks exact reconciliation.
+    text = re.sub(r"\s+", " ", value).strip()
     if not text:
         return None
     intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
     evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
     content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
+    beat_id = ""
+    role = beat
+    if beat == "情绪拍":
+        beat_id_match = re.match(r"\s*([^|]+?)\s*\|", text)
+        role_match = re.search(r"(?:实际)?作用[：:]\s*([^|]+)", text)
+        content_match = re.search(r"内容[：:]\s*([^|]+)", text)
+        beat_id = beat_id_match.group(1).strip() if beat_id_match else ""
+        role = role_match.group(1).strip() if role_match else ""
+        content = content_match.group(1).strip() if content_match else ""
     result: dict[str, object] = {
-        "beat": beat,
+        "beat_id": beat_id or beat,
+        "beat": role or beat,
+        "role": role or beat,
         "content": content,
         "source_evidence": evidence_match.group(1).strip() if evidence_match else "",
     }
@@ -665,7 +678,14 @@ def collect_bridge_emotion_sequence(
     collect_aliases: Callable[..., list[str]],
 ) -> list[dict[str, object]]:
     sequence: list[dict[str, object]] = []
-    for label in BRIDGE_EMOTION_LABELS:
+    dynamic_values = collect_aliases("情绪拍")
+    if dynamic_values:
+        for value in dynamic_values:
+            item = parse_bridge_emotion_beat("情绪拍", value)
+            if item:
+                sequence.append(item)
+        return sequence
+    for label in LEGACY_BRIDGE_EMOTION_LABELS:
         values = collect_aliases(label)
         if not values:
             continue
@@ -2288,7 +2308,8 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 "emotion_sequence": [
                     beat
                     for beat in item.get("emotion_sequence", [])
-                    if isinstance(beat, dict) and str(beat.get("beat", "")).strip()
+                    if isinstance(beat, dict)
+                    and str(beat.get("beat_id") or beat.get("beat") or "").strip()
                 ],
             }
             existing_index = index_by_key.get(key)
@@ -2313,17 +2334,14 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 existing.get("why_original_passes", []) + normalized_item["why_original_passes"]
             )
             emotion_by_beat = {
-                str(beat.get("beat", "")).strip(): beat
+                str(beat.get("beat_id") or beat.get("beat") or "").strip(): beat
                 for beat in existing.get("emotion_sequence", [])
                 if isinstance(beat, dict)
             }
             for beat in normalized_item["emotion_sequence"]:
-                emotion_by_beat.setdefault(str(beat.get("beat", "")).strip(), beat)
-            existing["emotion_sequence"] = [
-                emotion_by_beat[label]
-                for label in BRIDGE_EMOTION_LABELS
-                if label in emotion_by_beat
-            ]
+                key = str(beat.get("beat_id") or beat.get("beat") or "").strip()
+                emotion_by_beat.setdefault(key, beat)
+            existing["emotion_sequence"] = list(emotion_by_beat.values())
     return merged
 
 
@@ -2387,7 +2405,7 @@ def build_bridge_rules(text: str) -> list[dict]:
                 if item.endswith(("：", ":")) and inline_key:
                     current = inline_key
                     continue
-                if inline_key in BRIDGE_EMOTION_LABELS:
+                if inline_key == "情绪拍" or inline_key in LEGACY_BRIDGE_EMOTION_LABELS:
                     beat = parse_bridge_emotion_beat(inline_key, inline_val)
                     if beat:
                         emotion_sequence.append(beat)

@@ -2113,9 +2113,20 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
         "automation_artifacts_used": [],
         "manual_judgment": "",
     }
-    data["section_reviews"] = [
-        {
+    existing_reviews = {
+        str(item.get("section_id") or ""): item
+        for item in data.get("section_reviews", [])
+        if isinstance(item, dict)
+    }
+
+    def review_for(section_id: str, section_text: str) -> dict[str, Any]:
+        section_sha256 = hashlib.sha256(section_text.encode("utf-8")).hexdigest()
+        existing = existing_reviews.get(section_id)
+        if existing and existing.get("section_sha256") == section_sha256:
+            return existing
+        return {
             "section_id": section_id,
+            "section_sha256": section_sha256,
             "status": "pending",
             "target_quotes": [],
             "source_anchors": [],
@@ -2144,6 +2155,9 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
             "action_continuity_review": action_continuity_review_scaffold(section_text),
             "section_write_judgment": "",
         }
+
+    data["section_reviews"] = [
+        review_for(section_id, section_text)
         for section_id, section_text in sections.items()
     ]
     existing_subflows = data.get("source_subflow_reviews")

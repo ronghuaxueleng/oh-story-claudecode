@@ -195,28 +195,25 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             "  - 为什么这个顺序不能乱：先给希望，撤回才会疼\n"
             "  - 最容易写假的点：直接宣布她被抛弃\n"
             "  - 原文为什么能过：纸面权利先到手再被拿走\n"
-            "  - 情绪进入点：她拿到候诊单 | 烈度：4 | 原文证据：L2 候诊单落进掌心\n"
-            "  - 刺痛/受辱拍：窗口当众叫停 | 烈度：7 | 原文证据：L3 先别给她办\n"
-            "  - 短暂希望或反抗：她把单子递回去追问 | 烈度：6 | 原文证据：L4 为什么\n"
-            "  - 反刀拍：工作人员收走单子 | 烈度：8 | 原文证据：L5 单子被抽走\n"
-            "  - 峰值拍：她看见号码给了第三人 | 烈度：9 | 原文证据：L6 号码改到别人名下\n"
-            "  - 场末余痛：她空手走出医院 | 烈度：7 | 原文证据：L7 手里只剩折痕\n"
+            "  - 情绪拍：E-01 | 作用：拿到希望 | 内容：她拿到候诊单 | 烈度：4 | 原文证据：候诊单落进掌心。\n"
+            "  - 情绪拍：E-02 | 作用：第一次刺痛 | 内容：窗口当众叫停 | 烈度：7 | 原文证据：L3 先别给她办\n"
+            "  - 情绪拍：E-03 | 作用：继续追问 | 内容：她把单子递回去追问 | 烈度：6 | 原文证据：L4 为什么\n"
+            "  - 情绪拍：E-04 | 作用：第二次刺痛 | 内容：工作人员收走单子 | 烈度：8 | 原文证据：L5 单子被抽走\n"
+            "  - 情绪拍：E-05 | 作用：公开反刺 | 内容：号码被给了第三人 | 烈度：9 | 原文证据：L6 号码改到别人名下\n"
+            "  - 情绪拍：E-06 | 作用：离场后残留 | 内容：她空手走出医院 | 烈度：7 | 原文证据：L7 手里只剩折痕\n"
         )
         bridge = parsed["bridge_rules"][0]
         self.assertEqual("BID-01", bridge["id"])
         self.assertEqual(
-            [
-                "情绪进入点",
-                "刺痛/受辱拍",
-                "短暂希望或反抗",
-                "反刀拍",
-                "峰值拍",
-                "场末余痛",
-            ],
-            [item["beat"] for item in bridge["emotion_sequence"]],
+            ["E-01", "E-02", "E-03", "E-04", "E-05", "E-06"],
+            [item["beat_id"] for item in bridge["emotion_sequence"]],
         )
         self.assertEqual(9, bridge["emotion_sequence"][4]["intensity"])
         self.assertIn("号码改到别人名下", bridge["emotion_sequence"][4]["source_evidence"])
+        self.assertEqual(
+            "候诊单落进掌心。",
+            bridge["emotion_sequence"][0]["source_evidence"],
+        )
 
     def test_clause_style_cleaner_does_not_split_on_comma(self) -> None:
         self.assertEqual(

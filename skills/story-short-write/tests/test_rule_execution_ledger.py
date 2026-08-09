@@ -753,6 +753,57 @@ class RuleExecutionLedgerTest(unittest.TestCase):
             )
         )
 
+    def test_sync_sources_refreshes_file_asset_hash_and_preserves_state(self) -> None:
+        ledger = self._write_completed_ledger()
+        asset = next(
+            item
+            for item in ledger["source_assets"]
+            if item.get("rule_expansion") == "file_level"
+        )
+        asset_id = asset["id"]
+        old_hash = asset["sha256"]
+        old_status = asset["status"]
+        old_evidence = list(asset["text_evidence"])
+        asset_path = Path(asset["asset_path"])
+        asset_path.write_text(
+            asset_path.read_text(encoding="utf-8") + "\n来源资产更新。\n",
+            encoding="utf-8",
+        )
+        source_receipt = json.loads(
+            self.source_receipt.read_text(encoding="utf-8")
+        )
+        relative_path = asset_path.relative_to(self.source).as_posix()
+        receipt_file = next(
+            item
+            for item in source_receipt["sources"][0]["files"]
+            if item["path"] == relative_path
+        )
+        receipt_file["sha256"] = GATE.sha256(asset_path)
+        self.source_receipt.write_text(
+            json.dumps(source_receipt, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        errors, _ = GATE.sync_sources(self.ledger_path)
+
+        self.assertEqual([], errors)
+        updated = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+        refreshed = next(
+            item
+            for item in updated["source_assets"]
+            if item["id"] == asset_id
+        )
+        self.assertNotEqual(old_hash, refreshed["sha256"])
+        self.assertEqual(GATE.sha256(asset_path), refreshed["sha256"])
+        self.assertEqual(old_status, refreshed["status"])
+        self.assertEqual(old_evidence, refreshed["text_evidence"])
+        self.assertFalse(
+            any(
+                "sync-sources" in error
+                for error in GATE.validate_prewrite_ledger(self.ledger_path)
+            )
+        )
+
     def test_model_group_plan_builds_one_rule_with_multiple_cases(self) -> None:
         ledger = self._create_ledger()
         candidates = ledger["skill_rules"][:2]

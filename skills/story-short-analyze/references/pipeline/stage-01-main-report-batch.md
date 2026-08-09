@@ -14,14 +14,23 @@
 前置条件：`_sample_comparison.md` 已完成首轮记录。
 
 1. `事实与推断台账.md`
-2. `_analysis_brief.md`
-3. 第一波并发：
+2. 分轨落盘 `写作资产/全文情绪颗粒总账.json` 与 `写作资产/全文情节微拍总账.json`
+3. `_analysis_brief.md`，BID 只能在两份全文总账完成后归纳
+4. 第一波并发：
    - `main_report`：`拆文报告.md`
    - `chronology_craft`：`情节节点.md + 写作手法.md`
    - `discovery_index`：`本书动态信号字典.json + 原文资产候选池.md`
-4. 汇合后回看样本反例区并更新 `_sample_comparison.md`
-5. 主线程补 `_meta.json.structure_counts`
-6. 运行 `validate_short_analyze_foundation.py`
+5. 汇合后回看样本反例区并更新 `_sample_comparison.md`
+6. 主线程补 `_meta.json.structure_counts`
+7. 运行 `validate_short_analyze_foundation.py`
+
+## 全文情绪/情节双总账先行硬闸
+
+`全文情绪颗粒总账.json` 必须在 `_analysis_brief.md` 之前完成。先把原文每一行归入连续覆盖段，再逐句切出全部实际情绪拍；同一行出现多次期待、受伤对象、关系位置、行动冲动或读者预期变化时，分别登记多个 beat_id。导语、暖场、过场、回忆、现实后果和尾声均属于扫描范围。
+
+BID 只是总账拍的承重桥分组。非 BID 拍保留 `bid_ids=[]`，不得因没有进入桥段注册表而删除。`coverage_segments` 必须从 L1 连续覆盖到 EOF，无重叠、无空洞；非情绪承接段必须给出人工理由，不能用“无关”批量跳过。
+
+`全文情节微拍总账.json` 在同一次 L1 到 EOF 逐行通读中独立建立。每当施事者、动作对象、控制权、知情范围或现实后果发生一次可辨变化，登记一个独立 `P-*`。它不从 `E-*` 改名或反推，不预设两轨数量相等；导语、过场、后果和尾声中仍有事件变化的，以 `bid_ids=[]` 保留。
 
 12000 字以内启动 `agent-core`、`agent-craft`、`agent-discovery` 三个子 agent：分别写主报告、节点与手法、候选池与动态字典。三个会话都必须保留到第二波，后续直接复用已加载的原文和分析契约；主线程只做台账、预检与汇合。更长文本按 `_parallel_plan.json.executor` 分配，但仍不得每条 lane 单独冷启动。
 

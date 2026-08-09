@@ -37,7 +37,7 @@ description: |
 
 - 默认进入 `厚拆模式`
 - 厚拆优先保中段承重桥、人物不同脸、动作权限差、物件回流、旧伤触发器、章法失效测试
-- 仿写资产必须同时保住原文情绪流程：逐节点记录读者情绪拍、烈度、反刀/峰值位置和场末余痛，不能只保桥段功能
+- 仿写资产必须分轨建立两份全文总账：`全文情绪颗粒总账.json` 记录全部 `E-*` 感受位移，`全文情节微拍总账.json` 记录全部 `P-*` 事件行动。两者都必须从 L1 扫到 EOF，保留重复、过场和桥外拍，不得从 BID 并集或另一份总账反推。`E-*` 与 `P-*` 不得共用 ID，两轨数量不设配额也不默认相等。
 - 通过 validator 只是放行底线，不是完成标准
 - 任何“合规但压缩化”的结果，都默认要回炉
 - `bak` 目录、旧拆书目录、冷启动测试目录都只允许拿来对比厚度与找漏项，不允许把其中内容直接回灌到正式产物
@@ -79,15 +79,16 @@ description: |
 2. 读完原文全部 Chunk，过原文覆盖闸门
 3. 读取 1-2 本内置样本并落 `_sample_comparison.md`
 4. `事实与推断台账.md`
-5. 写 `_analysis_brief.md`，冻结角色称谓、双时间轴边界和 BID 注册表
-6. 第一波并发：`拆文报告.md` / `情节节点.md + 写作手法.md` / `本书动态信号字典.json + 原文资产候选池.md`；主报告和写作手法首写时必须完成全局成文形状审计
-7. 回看样本反例区并更新 `_sample_comparison.md`
-8. 运行 `validate_short_analyze_foundation.py`
-9. 第二波并发：16 张表两条 lane / 原文细节库 / 常规资产 / 高敏资产
-10. 主线程统一核销候选池、回扫动态字典并检查 BID 贯通
-11. `profile_source.md`
-12. 生成 `book.profile.json`
-13. `run_short_analyze_finalize.py`
+5. 在同一次逐行扫描中分别写 `写作资产/全文情绪颗粒总账.json` 和 `写作资产/全文情节微拍总账.json`；前者只登记感受位移，后者只登记事件动作、控制权、信息与后果，两份不得互相代替
+6. 写 `_analysis_brief.md`，只能从全文总账归纳角色称谓、双时间轴边界和 BID 注册表
+7. 第一波并发：`拆文报告.md` / `情节节点.md + 写作手法.md` / `本书动态信号字典.json + 原文资产候选池.md`；主报告和写作手法首写时必须完成全局成文形状审计
+8. 回看样本反例区并更新 `_sample_comparison.md`
+9. 运行 `validate_short_analyze_foundation.py`
+10. 第二波并发：16 张表两条 lane / 原文细节库 / 常规资产 / 高敏资产
+11. 主线程统一核销候选池、回扫动态字典并检查 BID 贯通
+12. `profile_source.md`
+13. 生成 `book.profile.json`
+14. `run_short_analyze_finalize.py`
 
 硬规则：
 
@@ -122,7 +123,7 @@ description: |
 - 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
 - `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 的文件缺失，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成
-- 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、逐 BID 情绪贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
+- 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、全文情绪总账重建、各 BID 子集贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
 - finalize 返回的 `errors[]` 必须逐条补齐，包括全局成文形状审计、profile_source 资产不足、book.profile 派生不足等新版门禁；只有 `ok=true / status=ready-for-write / error_count=0` 才能汇报完成
 - validator/finalize 输出的每条 `human_review_items` 都必须写入 `_finalize_human_review.json`，逐条标记 `resolved / not_applicable`，补具体判断、证据和当前正式 Markdown SHA；回执缺失、漏项或 SHA 过期时 finalize 必须阻断
 - `run_short_analyze_finalize.py` 的模型复核提示至少覆盖以下两类强制收尾项：
@@ -193,6 +194,8 @@ description: |
 - `原文/`
 - `_sample_comparison.md`
 - `事实与推断台账.md`
+- `写作资产/全文情绪颗粒总账.json`
+- `写作资产/全文情节微拍总账.json`
 - `拆文报告.md`
 - `情节节点.md`
 - `写作手法.md`
@@ -234,8 +237,8 @@ description: |
 4. 高主动性判断必须回指 `Fxx`
 5. `拆文报告.md / 情节节点.md / 写作手法.md / profile_source.md` 是第一优先级，不能压薄
 6. 16 张表、细节库、写作资产都必须按文件语义写，不许写成统一壳
-7. `可直接仿写_顺序事件表.md` 必须逐节点填写 `读者情绪拍 / 情绪烈度 / 是否反刀或峰值 / 场末余痛`；`情绪母线.md` 必须解释这些拍位如何跨桥升级。缺任一项，不能标记为可直接仿写
-8. 每个 BID 必须在 `高敏桥段识别.md / 桥段施工卡.md / profile_source.md` 逐桥写清 `情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`，每拍都带 `烈度 1-10 + 原文证据`；最终进入 `book.profile.json.bridge_rules[*].emotion_sequence`
+7. `可直接仿写_顺序事件表.md` 必须逐节点填写原文实际读者情绪变化、烈度、反刀/峰值标记和后续残留；`情绪母线.md` 必须解释这些实际拍位如何跨桥升级。缺任一项，不能标记为可直接仿写
+8. 必须在两份总账中各自覆盖原文 L1 到 EOF：情绪总账每拍写 `E-* / 实际作用 / 内容 / 触发 / 关系位置变化 / 读者体感 / 烈度 / 独占证据 / bid_ids`；情节总账每拍写 `P-* / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。两轨均保留桥外拍和同类重复；`P-*` 不得从 `E-*` 改名、扩写或复制得到。BID 必须在两份总账完成后归纳，并各自保持原序子集。
 9. `profile_source.md` 同时服务结构化抽取和单书厚规则包；`桥段施工卡.md` 继续承担更厚的人类施工解释层，但不能把桥规则骨架全甩给施工卡
 10. `拆文报告.md`、`写作手法.md`、`写作资产/样本分级与可学层.md` 必须共同承接全局成文形状审计；只在细节表或模型备注中提及不算完成
 11. `book.profile.json` 由脚本生成，不与 Markdown 同批手写
@@ -270,6 +273,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 16 张表缺件
 - 原文细节库缺件
 - `写作资产/` 关键文件缺件
+- `全文情节微拍总账.json` 缺失、与情绪总账共用 ID，或未能证明从 L1 到 EOF 独立扫描
 - 没落 `profile_source.md`
 - 没落 `桥段施工卡.md`
 - 没生成 `book.profile.json`

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 
 import importlib.util
 from pathlib import Path
@@ -80,6 +81,201 @@ class HumanQualityGateTest(unittest.TestCase):
         path = self.root / name
         path.write_text(text, encoding="utf-8")
         return path
+
+    def _write_full_emotion_ledger(self) -> tuple[list[str], Path]:
+        source_lines = ["导语里的刺痛。", "普通过场。", "尾声仍然没有回头。"]
+        source_sha1 = hashlib.sha1("\n".join(source_lines).encode("utf-8")).hexdigest()
+        self._write(
+            "_source_manifest.json",
+            json.dumps({"copied_sha1": source_sha1}, ensure_ascii=False),
+        )
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        ledger = asset_dir / "全文情绪颗粒总账.json"
+        ledger.write_text(
+            json.dumps(
+                {
+                    "schema_version": VALIDATOR.FULL_TEXT_EMOTION_LEDGER_SCHEMA,
+                    "source": {"sha1": source_sha1, "line_count": 3},
+                    "coverage_segments": [
+                        {
+                            "segment_id": "SEG-01",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "kind": "emotion_bearing",
+                            "beat_ids": ["E-01"],
+                        },
+                        {
+                            "segment_id": "SEG-02",
+                            "start_line": 2,
+                            "end_line": 2,
+                            "kind": "non_emotional_support",
+                            "beat_ids": [],
+                            "reason": "这一行只承担时间和空间衔接，没有关系位置变化。",
+                        },
+                        {
+                            "segment_id": "SEG-03",
+                            "start_line": 3,
+                            "end_line": 3,
+                            "kind": "emotion_bearing",
+                            "beat_ids": ["E-02"],
+                        },
+                    ],
+                    "beats": [
+                        {
+                            "beat_id": "E-01",
+                            "segment_id": "SEG-01",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "role": "导语刺痛",
+                            "content": "主角在导语先承认关系伤害。",
+                            "trigger": "旧关系被一句话重新提起。",
+                            "relationship_position_change": "主角从默认被爱者跌成被舍弃者。",
+                            "reader_effect": "读者立刻感到关系不对等。",
+                            "narrative_function": "开场挂住伤害结果。",
+                            "intensity": 7,
+                            "bid_ids": ["BID-01"],
+                            "source_evidence": ["导语里的刺痛。"],
+                        },
+                        {
+                            "beat_id": "E-02",
+                            "segment_id": "SEG-03",
+                            "start_line": 3,
+                            "end_line": 3,
+                            "role": "尾声余痛",
+                            "content": "主角已经离开，但仍确认不会回头。",
+                            "trigger": "尾声再次面对旧关系。",
+                            "relationship_position_change": "主角彻底退出旧关系。",
+                            "reader_effect": "读者得到切断后的余痛。",
+                            "narrative_function": "尾声完成情绪收口。",
+                            "intensity": 6,
+                            "bid_ids": [],
+                            "source_evidence": ["尾声仍然没有回头。"],
+                        },
+                    ],
+                    "completeness_review": {
+                        "read_start_line": 1,
+                        "read_end_line": 3,
+                        "all_source_lines_classified": True,
+                        "non_bid_beats_preserved": True,
+                        "bid_derived_after_full_inventory": True,
+                        "reviewed_by_current_model": True,
+                        "automation_used_for_semantic_judgment": False,
+                        "split_basis": "逐行读取后，按期待、关系位置、行动冲动和读者预期的每次变化分别切拍。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return source_lines, ledger
+
+    def _write_full_plot_ledger(self) -> tuple[list[str], Path, dict]:
+        source_lines, emotion_ledger_path = self._write_full_emotion_ledger()
+        original = self.root / "原文" / "测试.txt"
+        original.parent.mkdir(parents=True, exist_ok=True)
+        original.write_text("\n".join(source_lines), encoding="utf-8")
+        emotion_ledger = json.loads(emotion_ledger_path.read_text(encoding="utf-8"))
+        ledger = self.root / "写作资产" / "全文情节微拍总账.json"
+        ledger.write_text(
+            json.dumps(
+                {
+                    "schema_version": VALIDATOR.FULL_TEXT_PLOT_LEDGER_SCHEMA,
+                    "source": {
+                        "path": str(original.resolve()),
+                        "sha1": hashlib.sha1(original.read_bytes()).hexdigest(),
+                        "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
+                        "line_count": len(source_lines),
+                    },
+                    "beats": [
+                        {
+                            "beat_id": "P-001",
+                            "actor": "主角",
+                            "action": "主角当场承认关系已经破裂",
+                            "object_or_receiver": "旧关系中的另一人",
+                            "pressure_or_trigger": "旧关系被重新提起",
+                            "control_change": "主角夺回是否回应的决定权",
+                            "information_change": "读者知道关系已经破裂",
+                            "consequence": "主角不再维持旧关系",
+                            "source_range": {"start_line": 1, "end_line": 1},
+                            "source_evidence": "导语里的刺痛。",
+                            "bid_ids": ["BID-01"],
+                        },
+                        {
+                            "beat_id": "P-002",
+                            "actor": "主角",
+                            "action": "主角在尾声完成离场",
+                            "object_or_receiver": "旧关系现场",
+                            "pressure_or_trigger": "主角再次面对旧关系",
+                            "control_change": "旧关系失去对主角的挽留权",
+                            "information_change": "对方确认主角不会回头",
+                            "consequence": "离开成为无法撤回的现实后果",
+                            "source_range": {"start_line": 3, "end_line": 3},
+                            "source_evidence": "尾声仍然没有回头。",
+                            "bid_ids": [],
+                        },
+                    ],
+                    "completeness_review": {
+                        "full_text_scanned_l1_to_eof": True,
+                        "independent_from_emotion_ledger": True,
+                        "no_emotion_beat_substitution": True,
+                        "all_effective_plot_beats_preserved": True,
+                        "manual_judgment": "已从施事者、对象、控制权、信息和现实后果独立切拍。",
+                    },
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        return source_lines, ledger, emotion_ledger
+
+    def test_full_plot_ledger_passes_when_independently_built(self) -> None:
+        source_lines, _, emotion_ledger = self._write_full_plot_ledger()
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertEqual([], errors)
+
+    def test_full_plot_ledger_rejects_emotion_id_reuse(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["beat_id"] = "E-01"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("共用 beat_id" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_emotion_content_as_action(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["action"] = emotion_ledger["beats"][0]["content"]
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("复制了情绪总账内容" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_line_coverage_gap(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["coverage_segments"].pop(1)
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("行覆盖不连续" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_dropped_non_bid_beat(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"].pop()
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("与 beats 全集同序相等" in error for error in errors), errors)
 
     def test_large_direct_table_requires_tiers(self) -> None:
         rows = "\n".join(
@@ -1030,8 +1226,45 @@ class HumanQualityGateTest(unittest.TestCase):
             labels = PREPARER.SENSITIVE_ASSET_FIRST_WRITE_CONTRACT[rel][
                 "required_card_labels"
             ]
-            for label in PREPARER.BRIDGE_EMOTION_LABELS:
-                self.assertIn(label, labels)
+            self.assertIn("情绪拍", labels)
+            self.assertIn("情绪拍完整性复核", labels)
+            self.assertNotIn("情绪进入点", labels)
+
+    def test_profile_emotion_sequence_preserves_repeated_actual_beats(self) -> None:
+        errors: list[str] = []
+        data = {
+            "scene_assets": {},
+            "banned_phrases": ["禁句"],
+            "author_stance_patterns": ["站位"],
+            "style_assets": {key: [] for key in VALIDATOR.REQUIRED_STYLE_ASSET_KEYS},
+            "story_guardrails": {},
+            "bridge_rules": [
+                {
+                    "must_keep": ["承重动作"],
+                    "emotion_sequence": [
+                        {
+                            "beat_id": "E-01",
+                            "role": "第一次刺痛",
+                            "content": "第一次被当众略过",
+                            "intensity": 7,
+                            "source_evidence": "L10 第一次略过",
+                        },
+                        {
+                            "beat_id": "E-02",
+                            "role": "第二次刺痛",
+                            "content": "追问后再次被略过",
+                            "intensity": 8,
+                            "source_evidence": "L12 再次略过",
+                        },
+                    ],
+                }
+            ],
+        }
+        VALIDATOR.check_book_profile_quality(
+            self.root / "book.profile.json", data, 8000, "", errors
+        )
+        emotion_errors = [item for item in errors if "emotion_sequence" in item or "E-0" in item]
+        self.assertEqual([], emotion_errors)
 
     def test_human_review_receipt_must_match_current_notes_and_markdown_hashes(self) -> None:
         self._write("拆文报告.md", "第一版\n")

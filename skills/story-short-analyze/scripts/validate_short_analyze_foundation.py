@@ -24,6 +24,8 @@ FOUNDATION_FILES = (
     "_analysis_brief.md",
     "_sample_comparison.md",
     "事实与推断台账.md",
+    "写作资产/全文情绪颗粒总账.json",
+    "写作资产/全文情节微拍总账.json",
     "拆文报告.md",
     "情节节点.md",
     "写作手法.md",
@@ -126,7 +128,32 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     if not source_lines:
         return errors, notes
 
+    full_emotion_ledger = VALIDATOR.check_full_text_emotion_ledger(
+        root, source_lines, errors
+    )
+    full_plot_ledger = VALIDATOR.check_full_text_plot_ledger(
+        root, source_lines, errors, full_emotion_ledger
+    )
     bids = check_analysis_brief(root, source_lines, errors)
+    registered_bids = set(bids)
+    for beat in full_emotion_ledger.get("beats", []):
+        if not isinstance(beat, dict):
+            continue
+        for bid in beat.get("bid_ids", []):
+            bid = str(bid).strip()
+            if bid and bid not in registered_bids:
+                errors.append(
+                    f"全文情绪颗粒总账引用了 `_analysis_brief.md` 未注册的 BID：{bid}"
+                )
+    for beat in full_plot_ledger.get("beats", []):
+        if not isinstance(beat, dict):
+            continue
+        for bid in beat.get("bid_ids", []):
+            bid = str(bid).strip()
+            if bid and bid not in registered_bids:
+                errors.append(
+                    f"全文情节微拍总账引用了 `_analysis_brief.md` 未注册的 BID：{bid}"
+                )
     VALIDATOR.check_sample_comparison(root / "_sample_comparison.md", errors)
     VALIDATOR.check_source_coverage_gate(root, errors, notes)
     VALIDATOR.check_fact_integrity_gate(root, source_lines, errors, notes)

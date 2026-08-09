@@ -94,10 +94,10 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 16. 大纲完成后，用 `validate_sequence_contract.py init` 建立完整设定—大纲—正文契约
 17. 当前模型人工核对设定/大纲顺序、冲突和两层原句 `offset`，通过完整契约校验
 18. 用主体 `可直接仿写_导语拆解表.md` 对大纲执行 `opening_contract_gate`
-19. 对大纲执行 `outline_performance_contract`：逐节验证原文表演机制、信息延迟、人物偏手、交流变化链、冲突载体、禁写项和细纲原句证据
+19. 对大纲执行 `outline_performance_contract`：主体全部 BID 内逐句提取全部有效情节拍和实际情绪变化拍，逐拍绑定细纲原句并按原顺序一一映射；少拍、并拍、压缩、实际作用或重复次数不一致、任一拍降烈度时先重写细纲
 20. 仿写 / 融合任务先初始化文字颗粒度 v2.4 合同，完成连续片段逐句语义标注、逐特征原句证据、成文活性资产和人物性格颗粒；为核心人物建立不可互换母版，再执行 `bind-outline` 并逐节完成连续句链、句间关系正反例、对白三联包、活性计划和人物计划，通过 `validate-prewrite`，由第一本主体原文独占正文声线
-21. 初始化情绪颗粒度合同，逐节绑定六拍情绪流程、同级烈度、直接判断、破绽、旧伤、对手施压和峰值动作，通过 `validate-prewrite`
-22. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --emotional-contract "项目目录/写作资产/全文情绪颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --profile "profiles/项目名.project.profile.json"`，再写正文
+21. 绑定主体拆文的 `全文情绪颗粒总账.json` 后初始化情绪颗粒度合同，把总账全部实际情绪拍按原序逐节唯一分配并绑定细纲和独占证据；各节并集必须与总账全集同序相等。同时从细纲表演回执领取全部目标情节拍并逐节唯一归属，通过 `validate-prewrite`
+22. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --emotional-contract "项目目录/写作资产/全文情绪颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --source-emotion-ledger "拆文库/主体书/写作资产/全文情绪颗粒总账.json" --profile "profiles/项目名.project.profile.json"`，再写正文
 23. 正文按“读本节两类合同和人物计划 -> 写本节 -> 立即回填句面、活性、人物与情绪映射”推进，禁止全文后批量补票；首稿不执行去 AI 味
 24. 初稿落盘后绑定最终 SHA，并通过文字颗粒度与情绪颗粒度 `validate-draft`
 25. 只再运行统一字数统计；知乎 / 盐言稿另运行平台格式校验
@@ -123,7 +123,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 
 - 规则只用于约束，不替代正文生成
 - 主体导语资产明确规定“为什么顺序不能乱”时，必须提升为独立硬闸，不能合并成宽泛的“开头抓人”后丢失窗口和先后关系
-- 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查细纲能否把原文的场内表演机制写成可执行的新场戏，未通过时禁止写正文
+- 细纲表演验收不能由顺序契约、开头契约或规则台账替代；它专门检查主体原文每个 BID 内全部情节拍与情绪拍是否逐拍迁移。最低拍数不是抽样配额，原文实际多少拍就必须迁移多少拍；未通过时禁止写正文
 - 用户要求“借颗粒度、自造情节”时，细纲表演验收使用 `source_mode: granularity_only`：不强迫主体 BID 全集迁移，但必须用 `granularity_transfer_contract` 覆盖全部目标小节，并逐场证明事件拍密度、信息延迟、控制权变化与原文同级，同时列明拒绝复制的表层元素
 - 设定、细纲、正文之间的主桥顺序也必须提升为独立硬闸；规则执行台账只证明规则执行记录完整，不证明产物顺序一致
 - profile、事实边界、样本分级、作者 DNA、桥段施工、高敏识别、同桥过检和禁写清单即使合并，也必须逐来源回填 `source_contract_reviews`

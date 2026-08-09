@@ -22,6 +22,8 @@
 - 细纲已经像分镜条、证据排队表或规则施工稿，却在正文阶段才靠润句补救
 - 人物关系必须靠职业术语才能看懂，读者不知道谁是妻子、丈夫、旧爱以及谁被放弃
 - 只迁移原文桥段功能，没有迁移原文的受辱、希望、反刀和余痛顺序
+- 直接把全文情绪拍复制成情节拍，用一套 ID 和内容伪造双轨覆盖
+- 情节拍库由回执填写者临时生成，没有绑定拆文阶段独立落盘的全文情节微拍总账
 - 新稿情绪烈度低于原文，却用“控制权已经换主”冒充同级仿写
 - 连续小节复制同一套场面颗粒度或人工判断，批量制造假通过回执
 - 连续小节复制同一套原文情绪拍、触发和证据，只换目标桥段名称
@@ -88,15 +90,30 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 
 主流程仿写、融合仿写、同桥仿写，或用户明确要求“完全参照原文”时，正文前必须先完成两张人工表。它们属于细纲硬闸，不是写后审计项。
 
-第一张是 `source_bridge_flow_inventory`，用于列出主体原文 BID / 关键子桥段全集。每个桥段必须写清：
+先绑定 `写作资产/全文情节微拍总账.json`。该总账必须由拆文阶段从 L1 到 EOF 独立扫描生成，不得从情绪总账、BID 情绪子集或细纲验收回执反推。每拍至少包含：
+
+- 独立 `P-*` ID，不得使用 `E-*`。
+- `actor / action / object_or_receiver / pressure_or_trigger`。
+- `control_change / information_change / consequence`。
+- `source_range / source_evidence / bid_ids`；每拍最多归属一个 BID，桥外使用 `[]`。
+
+总账须完整收录原文所有有效情节微拍，包括桥外 `bid_ids=[]` 的导语、过场、现实后果或尾声动作。情节拍与情绪拍可以引用同一原文句，但它们必须分别说清“外部事实怎样变”和“关系/读者体感怎样变”，不得整套同 ID、同序、等量复制。
+
+第一张是 `source_bridge_flow_inventory`，用于列出主体原文 BID / 关键子桥段全集。它不得临时抽拍：每个 BID 的 `source_plot_beats` 必须与全文情节微拍总账中含该 `bid_id` 的原序子序列完全一致。每个桥段必须写清：
 
 1. `source_path` 与 `source_sha256`：绑定原文文件。
 2. `bridge_id` 与 `bridge_name`：例如 `BID-01 公开掉位与网络补台反杀`。
-3. `source_required_sequence`：原文内不能打乱的动作顺序，至少两步。
-4. `source_must_keep_actions`：迁移时必须保留的动作、物件、空间、身份或权力变化，至少两条。
+3. `source_required_sequence`：按情节拍逐项列出原文内不能打乱的全部动作顺序，数量与实际情节拍相等。
+4. `source_must_keep_actions`：迁移时必须保留的全部动作、物件、空间、身份或权力变化，不设抽样数量。
 5. `source_scene_granularity`：原文场面颗粒度，不是功能概括。
-6. `source_end_state_change`：桥段结束时人物关系、现实位置或信息边界如何变化。
-7. `cannot_merge_or_drop_reason`：为什么不能被合并成一句功能说明或删掉。
+6. `source_plot_beats`：逐句提取桥段内全部有效情节拍。每拍填写 `beat_id / action / actor / pressure_or_trigger / control_change / information_change / consequence / evidence`，不得只摘高潮或主动作。
+7. `source_plot_beat_completion_review`：当前模型确认动作换手、信息释放、短暂希望、选择、反刀和现实后果均已入账。
+8. `source_end_state_change`：桥段结束时人物关系、现实位置或信息边界如何变化。
+9. `cannot_merge_or_drop_reason`：为什么不能被合并成一句功能说明或删掉。
+
+`source_required_sequence` 的项目数必须与 `source_plot_beats` 相等。不得设定最低拍数或推荐拍数；当前模型必须逐句读到桥段结束，原文实际存在多少有效拍，就登记多少拍。
+
+`bid_ids=[]` 的桥外情节拍不得丢失。它们必须进入 `outside_bridge_plot_parity`，按全文原序一对一绑定目标拍、目标小节和细纲原句。若总账没有桥外情节拍，该表可为空；只要有一拍，就不得塞入首尾 BID 或省略。
 
 桥段全集不能由回执填写者自行定义：
 
@@ -109,21 +126,32 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 第二张是 `outline_bridge_flow_parity`，用于证明每个原文桥段已经落进细纲。每个原文 `bridge_id` 都必须有且只有一条对齐记录，并填写：
 
 1. `source_path / source_sha256`：绑定该桥段实际来自哪本选中原文。
-2. `source_emotion_sequence / target_emotion_sequence`：逐拍填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`。
-3. `source_reversal_beat / target_reversal_beat`：反刀发生在第几拍，必须同位。
-4. `source_peak_beat / target_peak_beat`：最高烈度发生在第几拍，必须同位。
-5. `reader_experience_parity / emotion_parity_judgment`：当前模型说明为什么目标桥段给读者的羞辱、刺痛、希望落空或反噬体感与原文同级。
-6. `target_outline_sections`：对应到目标细纲哪些小节。
-7. `target_outline_evidence`：至少两条当前细纲原句，证明不是回执空话。
-8. `parity_status`：只能是 `matched` 或 `adapted`。`adapted` 必须说明题材替换边界，但仍保留原文流程功能和场面压力。
-9. `missing_or_weakened_risk`：人工说明最容易缩水的位置以及细纲如何避免。
-10. `manual_judgment`：当前模型判断为什么这不是“只做功能映射”。
+2. `source_plot_beats / target_plot_beats`：分别列出全部原文情节拍和目标情节拍，字段与库存一致；原文拍必须原样继承库存。
+   - `target_plot_beats` 必须已经是目标人物在目标场面中的真实动作拍。目标 `actor` 至少一名必须真实出现在该拍 `action/evidence`；不得把原文 `action` 加前缀、换标题或补一句“新稿以某物承接”后继续使用。
+3. `plot_beat_mapping`：按原顺序一一填写 `source_beat_id / target_beat_id / status / adaptation_note`。状态只能是 `matched/adapted`，两拍不得指向同一目标拍。
+4. `plot_granularity_parity_judgment`：人工说明为什么没有漏拍、并拍、压缩、弱化或用复合句吞拍。
+5. `source_emotion_sequence / target_emotion_sequence`：逐拍填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`。
+   - 目标情绪拍保留原文 `beat_id / role / intensity` 与反刀、峰值位置；`trigger / relationship_position_change / evidence` 必须改写为目标世界。字段与原文完全相同，说明仍是原文分析而不是目标表演。
+   - 每个 BID 的原文情绪拍集合必须与同书 `全文情绪颗粒总账.json` 的 `bid_ids` 完全一致。`bid_ids=[]` 的桥外拍不得塞入任一 BID，只能由全书分节情绪合同另行消费。
+6. `source_reversal_beat / target_reversal_beat`：原文真实存在反刀时填写实际拍序并保持同位；原文没有则双方填 `0`，不得补造。
+7. `source_peak_beat / target_peak_beat`：原文真实存在明确峰值时填写实际拍序并保持同位；原文没有则双方填 `0`，不得补造。
+8. `reader_experience_parity / emotion_parity_judgment`：当前模型说明为什么目标桥段给读者的羞辱、刺痛、希望落空或反噬体感与原文同级。
+9. `target_outline_sections / target_outline_evidence`：绑定目标小节及至少两条当前细纲原句。
+10. `parity_status / adaptation_reason / missing_or_weakened_risk / manual_judgment`：状态只能是 `matched/adapted`，并说明替换边界、缩水风险和人工结论。
 
 以下情况直接失败，必须先回细纲重构，禁止写正文：
 
 - 原文某个 BID 没有进入 `outline_bridge_flow_parity`。
+- 原文任一有效情节拍缺失、被合并、被压缩、顺序变化，或两个原文拍映射到同一个目标拍。
+- 目标情节拍仍包含原文动作句面、原文专名或原文事件说明，只是在前面加“新稿承接/迁移/改写”。
+- 目标情节拍的施事者没有出现在目标 `action/evidence`，只有泛化功能说明。
+- `source_plot_beats` 与库存不一致，或多个情节拍复用同一句证据。
+- `source_plot_beats` 不是全文情节微拍总账的真实 BID 子序列，或桥外情节拍未进入 `outside_bridge_plot_parity`。
+- 情节拍 ID 与全文情绪拍 ID 重叠，或情节 `action` 只是情绪 `content / role / trigger` 换名。
 - 原文 BID 虽已进入对齐表，但没有逐拍迁移情绪，或只给一个整桥烈度总分。
+- 当前模型先套固定情绪角色表而没有逐句盘点原文实际变化；原文任一实际情绪拍被目标稿漏掉或合并；多个情绪拍复用同一句证据。
 - 目标桥段改变原文反刀拍、峰值拍，或任一拍烈度低于原文。
+- 目标情绪拍的触发、关系位移和证据仍与原文相同，或桥内拍集合不符合总账 `bid_ids` 的真实边界。
 - 只对齐最虐的少数桥段，其余主体 BID 仍只写功能和动作。
 - 主体桥段施工卡中的任一 BID 没有进入库存，或辅助显式选中的任一 BID 没有进入库存。
 - `parity_status` 是 `missing / weakened / merged_unclear / only_function_mapped / pending`。
@@ -172,10 +200,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 已完整阅读所有选中原文的表演机制，而非只读拆书摘要；
 - 已同时读取拆书资料的功能机制和原文对应桥段的场面颗粒度，不能只做功能映射；
 - 已在正文前完成原文 BID / 关键子桥段流程全集；
+- 已逐句盘清每个 BID 内全部有效情节拍，没有按预设数量抽样；
 - 已在正文前逐桥验收细纲对原文主情节和子情节流程的迁移；
+- 已在正文前逐项复核全部原文拍与目标拍的一对一映射；
 - 已在正文前确认人物关系对陌生读者直接可懂；
 - 已完成职业外壳白话翻译，不让术语承担情绪；
 - 已逐节核对原文情绪流程、反刀时机和同级烈度；
+- 已盘清原文全部实际情绪拍和同类重复次数，没有用预设角色表冒充完整情绪库存；
 - 迁移边界：完整参照结构、信息延迟、场内压力、物件/动作/关系推进机制，不复制原人物、职业、原句或完整情节壳；
 - 细纲不是流程清单、证据排队表或分镜施工稿；
 - 本书的场景分工如何避免同场结算全部问题。

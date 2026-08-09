@@ -50,6 +50,8 @@ sync-policy: |
 │   ├── 动作细节库.md
 │   └── 场面细节库.md
 ├── 写作资产/
+│   ├── 全文情绪颗粒总账.json # 先于 BID 的全文逐行覆盖与实际情绪拍全集
+│   ├── 全文情节微拍总账.json # 与情绪拍分轨的全文事件动作全集
 │   ├── 母结构_故事走法.md
 │   ├── 主冲突_副升级器.md
 │   ├── 异物清单.md
@@ -176,6 +178,27 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 硬规则：
 
 - 类别至少覆盖 `主体边界 / 时间边界 / 证据来源`
+
+### 全文情绪颗粒总账契约
+
+`事实与推断台账.md` 完成后、`_analysis_brief.md` 与 BID 注册之前，必须人工落盘 `写作资产/全文情绪颗粒总账.json`。顶层固定包含 `schema_version / source / coverage_segments / beats / completeness_review`。
+
+- `coverage_segments` 从 L1 连续覆盖到原文末行，`kind` 只能是 `emotion_bearing / non_emotional_support / structural_marker`。
+- `emotion_bearing` 段必须按原序引用该段全部 beat_id；另外两类不得挂拍，并必须说明理由。
+- `beats` 是全文实际情绪拍全集，不是 BID 拍合集。每拍包含 `beat_id / segment_id / start_line / end_line / role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence`。
+- 非 BID 拍固定保留 `bid_ids=[]`。导语、过场、回忆、后果和尾声不得因未归入承重桥而删除。
+- BID 在总账完成后归纳；桥段资产与 `book.profile.json.bridge_rules[*].emotion_sequence` 只能引用总账中的拍，并保持 role、烈度和原文证据一致。
+
+### 全文情节微拍总账契约
+
+在同一次 L1 到 EOF 逐行通读中，独立落盘 `写作资产/全文情节微拍总账.json`。顶层固定包含 `schema_version / source / beats / completeness_review`。
+
+- `beats` 是全文有效情节微拍全集，不是情绪拍的换名副本。
+- 每拍包含 `P-* beat_id / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。
+- 施事者、动作对象、控制权、知情范围或现实后果每发生一次可辨变化，就登记一拍；不得只抽承重节点。
+- 桥外有效动作保留 `bid_ids=[]`；桥内每拍最多归属一个 BID，防止同一情节拍在多桥重复消费；BID 子序列只能从总账原序引用。
+- `P-*` 与情绪总账 `E-*` 不得共用 ID，不得复制情绪 `content / role / trigger` 充当 `action`，不得人为配平两轨拍数。
+- `completeness_review` 必须确认 `full_text_scanned_l1_to_eof / independent_from_emotion_ledger / no_emotion_beat_substitution / all_effective_plot_beats_preserved`，并留当前模型人工裁决。
 - 口径只允许 `原文明确 / 人工推断 / 未知`
 - 锚点必须真实存在于对应原文行范围
 - 所有事实必须分开记录 `叙述时点 / 故事时点 / 时间依据`；没有回叙时写“与叙述同步”，不能留空
@@ -323,7 +346,7 @@ python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrad
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
 - 模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后人工回填。
 - `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
-- 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA。
+- 必须逐项复核当前 first-write contract、全文情绪总账、各 BID 原序子集贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA；不得用 BID 并集冒充全文全集。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。
 
 ---
@@ -420,14 +443,14 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 如果实际落盘标题顺序和固定骨架不一致，默认按未通过处理，不接受“意思差不多”的自由发挥
 - `写作资产/profile_source.md` 里如果只有几条抽象标签，没有字段化原始材料，视为未通过
 - `写作资产/profile_source.md` 里如果 `桥段承重件` 缺 `原文怎么起手 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过` 里的任意 2 类，视为未通过
-- `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 的每个 BID 都必须包含 `情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`；每拍带 `烈度 1-10 + 原文证据`
+- `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 的每个 BID 都必须逐句列出原文实际情绪拍全集；每拍写 `beat_id / 实际作用 / 内容 / 烈度 1-10 / 独占原文证据`，不设预选角色；拍表后填写 `情绪拍完整性复核`
 - `写作资产/profile_source.md` 的 `- 开头信号：` 少于 3 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 的 `- 为什么假：` 少于 2 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 里如果缺 `## 7. 禁句 / 禁写法 / ## 8. 场面资产 / ## 9. 后果链 / ## 10. 作者站位高危句` 里的任意一节，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain / 感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点 / 容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型` 里的任意关键字段，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `## 12. 迁移替换资产` 或 5 类迁移标签，视为未通过
 - `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 如果真实核心桥漏记，或同一桥的功能标签不一致，视为未通过
-- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 六拍情绪序列` 里的任意 2 项，视为未通过
+- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 实际情绪拍全集` 里的任意 2 项，视为未通过
 - `写作资产/桥段施工卡.md` 里如果没有至少 1 张中段承重桥，视为未通过
 - 这 5 份里任意 1 份缺“正面可学项 + 负面禁写项”双侧信息，默认仍是 `blocked-on-assets`
 
@@ -462,7 +485,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 - `must_keep`
 - `fake_signals`
 - `recommended_sequence`
-- `emotion_sequence`：固定六拍，每拍含 `beat / content / intensity / source_evidence`
+- `emotion_sequence`：原文逐句盘点出的实际拍全集，不预设拍数；每拍含 `beat_id / role / content / intensity / source_evidence`
 
 如果桥段只有 `must_keep / must_avoid`，默认仍没拆到可直接支撑同桥段仿写与去 AI 味回修的层级。
 

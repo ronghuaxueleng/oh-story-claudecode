@@ -173,6 +173,68 @@ def validate_sequence_bindings(
             errors.append(f"{label}绑定的 {key} SHA 已变化，必须重新审查")
 
 
+def validate_plot_beat_contract_alignment(
+    outline_data: dict[str, Any],
+    emotional_data: dict[str, Any],
+    errors: list[str],
+) -> None:
+    primary = next(
+        (
+            item
+            for item in outline_data.get("selected_source_originals", [])
+            if isinstance(item, dict) and item.get("role") == "primary"
+        ),
+        None,
+    )
+    primary_path = str(Path(str((primary or {}).get("path") or "")).resolve())
+    primary_source_ids = [
+        str(beat_id).strip()
+        for beat_id in (primary or {}).get("available_plot_beat_ids", [])
+        if str(beat_id).strip()
+    ]
+    source_to_target: dict[str, str] = {}
+
+    outside = outline_data.get("outside_bridge_plot_parity")
+    parity_blocks: list[dict[str, Any]] = []
+    if isinstance(outside, dict):
+        parity_blocks.append(outside)
+    parity_blocks.extend(
+        bridge
+        for bridge in outline_data.get("outline_bridge_flow_parity", [])
+        if isinstance(bridge, dict)
+        and str(Path(str(bridge.get("source_path") or "")).resolve()) == primary_path
+    )
+    for block in parity_blocks:
+        for mapping in block.get("plot_beat_mapping", []):
+            if not isinstance(mapping, dict):
+                continue
+            source_id = str(mapping.get("source_beat_id") or "").strip()
+            target_id = str(mapping.get("target_beat_id") or "").strip()
+            if source_id and target_id:
+                source_to_target[source_id] = target_id
+
+    outline_ids = [
+        source_to_target.get(source_id, "")
+        for source_id in primary_source_ids
+    ]
+    draft_contract_ids = [
+        str(beat.get("beat_id") or "").strip()
+        for section in emotional_data.get("section_contracts", [])
+        if isinstance(section, dict)
+        for beat in section.get("required_plot_beats", [])
+        if isinstance(beat, dict)
+    ]
+    if not outline_ids or any(not beat_id for beat_id in outline_ids):
+        errors.append("细纲表演验收没有完整映射主体全部桥内与桥外目标情节拍")
+        return
+    if draft_contract_ids != outline_ids:
+        errors.append(
+            "正文逐节情节拍合同必须按细纲表演验收原顺序完整覆盖全部 beat_id，禁止漏拍、并拍或改序"
+        )
+    if len(draft_contract_ids) != len(set(draft_contract_ids)):
+        errors.append("正文逐节情节拍合同存在重复 beat_id，同一细纲情节拍只能归属一个正文位置")
+
+
 def validate_release(
     phase: str,
     writing_receipt: Path,
@@ -186,6 +248,7 @@ def validate_release(
     prose_contract: Path | None = None,
     primary_source_original: Path | None = None,
     emotional_contract: Path | None = None,
+    source_emotion_ledger: Path | None = None,
 ) -> list[str]:
     errors: list[str] = []
     require_passed(
@@ -261,13 +324,20 @@ def validate_release(
     if phase == "draft":
         prose_data: dict[str, Any] | None = None
         emotional_data: dict[str, Any] | None = None
+        outline_contract_data: dict[str, Any] | None = None
         bound_outline_path: Path | None = None
         if prose_contract is None or primary_source_original is None:
             errors.append("正文写作放行必须提供全文文字颗粒度合同和主体原文")
         else:
             prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
-        if emotional_contract is None or primary_source_original is None:
-            errors.append("正文写作放行必须提供全文情绪颗粒度合同和主体原文")
+        if (
+            emotional_contract is None
+            or primary_source_original is None
+            or source_emotion_ledger is None
+        ):
+            errors.append(
+                "正文写作放行必须提供全文情绪颗粒度合同、主体原文和主体全文情绪颗粒总账"
+            )
         else:
             emotional_data = load_json(
                 emotional_contract,
@@ -332,11 +402,16 @@ def validate_release(
                     emotional_data,
                     primary_source_original,
                     bound_outline_path,
+                    source_emotion_ledger,
                 )
             )
             if emotional_errors:
                 errors.append("全文情绪颗粒度写前门禁未通过")
                 errors.extend(emotional_errors)
+        if outline_contract_data is not None and emotional_data is not None:
+            validate_plot_beat_contract_alignment(
+                outline_contract_data, emotional_data, errors
+            )
         if profile is None:
             errors.append("正文写作放行必须提供单书或融合 profile")
         elif not profile.is_file():
@@ -366,6 +441,7 @@ def main() -> int:
     parser.add_argument("--prose-contract")
     parser.add_argument("--emotional-contract")
     parser.add_argument("--primary-source-original")
+    parser.add_argument("--source-emotion-ledger")
     args = parser.parse_args()
 
     errors = validate_release(
@@ -385,6 +461,9 @@ def main() -> int:
         if args.primary_source_original
         else None,
         Path(args.emotional_contract).resolve() if args.emotional_contract else None,
+        Path(args.source_emotion_ledger).resolve()
+        if args.source_emotion_ledger
+        else None,
     )
     if errors:
         for error in errors:

@@ -104,6 +104,85 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 - `双时间轴`：正文晚讲不等于事件晚发生；遇到“那次同学聚会结束后”一类回指，必须定位它指向的早期事件
 - `证据来源`：匿名寄来、偶然发现、主动搜集必须分开
 
+### Stage 2A.5 全文情绪颗粒总账
+
+事实台账之后、BID 注册之前落盘 `写作资产/全文情绪颗粒总账.json`：
+
+```json
+{
+  "schema_version": "story-short-analyze.full-text-emotion-ledger.v1",
+  "source": {"sha1": "当前原文 SHA1", "line_count": 507},
+  "coverage_segments": [
+    {"segment_id": "SEG-001", "start_line": 1, "end_line": 9, "kind": "emotion_bearing", "beat_ids": ["E-001", "E-002"], "reason": "导语内关系误读与末句翻面"},
+    {"segment_id": "SEG-002", "start_line": 10, "end_line": 10, "kind": "structural_marker", "beat_ids": [], "reason": "数字章节标记，无独立情绪变化"}
+  ],
+  "beats": [
+    {
+      "beat_id": "E-001",
+      "segment_id": "SEG-001",
+      "start_line": 1,
+      "end_line": 5,
+      "role": "本段实际作用",
+      "content": "具体动作或处境",
+      "trigger": "哪一句或动作触发变化",
+      "relationship_position_change": "关系位置怎样改变",
+      "reader_effect": "读者预期怎样变化",
+      "intensity": 7,
+      "narrative_function": "opening",
+      "bid_ids": [],
+      "source_evidence": ["独占原文短句"]
+    }
+  ],
+  "completeness_review": {
+    "read_start_line": 1,
+    "read_end_line": 507,
+    "all_source_lines_classified": true,
+    "non_bid_beats_preserved": true,
+    "bid_derived_after_full_inventory": true,
+    "reviewed_by_current_model": true,
+    "automation_used_for_semantic_judgment": false,
+    "split_basis": "说明逐句切拍和确认未漏拍的方法"
+  }
+}
+```
+
+同一原文行允许属于多个情绪拍，但每个拍必须使用独占证据。`coverage_segments` 负责无空洞行覆盖，`beats` 负责不合并语义变化；两者不能互相替代。
+
+### Stage 2A.6 全文情节微拍总账
+
+与情绪总账分轨落盘 `写作资产/全文情节微拍总账.json`：
+
+```json
+{
+  "schema_version": "story-short-analyze.full-text-plot-ledger.v1",
+  "source": {"path": "原文绝对路径", "sha1": "当前原文 SHA1", "sha256": "当前原文 SHA256", "line_count": 507},
+  "beats": [
+    {
+      "beat_id": "P-001",
+      "actor": "谁在行动",
+      "action": "只写外部发生的单次有效动作",
+      "object_or_receiver": "动作对象或接收者",
+      "pressure_or_trigger": "什么压力触发这拍",
+      "control_change": "物件、空间、身份或决定权如何变化",
+      "information_change": "谁多知道或仍未知道什么",
+      "consequence": "当场现实后果",
+      "source_range": {"start_line": 12, "end_line": 13},
+      "source_evidence": "独占原文短句",
+      "bid_ids": ["BID-01"]
+    }
+  ],
+  "completeness_review": {
+    "full_text_scanned_l1_to_eof": true,
+    "independent_from_emotion_ledger": true,
+    "no_emotion_beat_substitution": true,
+    "all_effective_plot_beats_preserved": true,
+    "manual_judgment": "说明如何独立切分动作、控制权、信息和后果"
+  }
+}
+```
+
+情节拍和情绪拍可以引用同一原文窗口，但不能共用 ID 或把情绪作用换名为动作。两轨实际有多少拍就登记多少拍，不做等量配平。
+
 正式产物出现高主动性因果词时，句末必须标 `【原文明确 Fxx】` 或 `【人工推断 Fxx】`。
 
 字数{X}字 | 节数{N} | 平台{平台} | 类型{题材/情绪类型} | 结局{HE/BE/开放式} | POV{第一/第三人称}
@@ -229,12 +308,9 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 - 新稿最容易写假的点：{最常见假点}
 - 可学层：{承重件 / 起手件 / 场面秩序 / 误判方式等}
 - 禁学层：{标准承载方式 / 现成句法壳 / 完整摊牌顺序等}
-- 情绪进入点：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 刺痛/受辱拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 短暂希望或反抗：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 反刀拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 峰值拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 场末余痛：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
+- 情绪拍：{E-xx} | 作用：{该拍实际变化} | 内容：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
+{按原文实际拍数继续逐行添加，不预设数量或角色}
+- 情绪拍完整性复核：{已读原文范围、切拍依据、无漏拍或并拍判断}
 - 后续调用方式：{写新稿 / 融合 / 去AI味时怎么用}
 
 输出格式硬要求：
@@ -268,8 +344,9 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
   - `为什么这个顺序不能乱`
   - `最容易写假的点`
   - `原文为什么能过`
-  - `情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`
-- 六拍中的每一拍统一写成 `{具体动作或处境} | 烈度：1-10 | 原文证据：Lx-Ly 可核验短句`
+  - `实际情绪拍全集`
+- 每一拍统一写成 `- 情绪拍：E-xx | 作用：该拍实际变化 | 内容：具体动作或处境 | 烈度：1-10 | 原文证据：Lx-Ly 可核验短句`；不预设数量或角色目录
+- 拍表后填写 `- 情绪拍完整性复核：...`，明确已逐句读完的原文范围、切拍依据及无漏拍/并拍结论
 - `作者DNA` 段至少显式补：
   - `人物不同脸证据`
   - `谁先解释谁先压场`
@@ -314,7 +391,7 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
   - `recommended_sequence`
   - `why_order_matters`
   - `why_original_passes`
-  - `emotion_sequence`，固定包含六拍的 `beat / content / intensity / source_evidence`
+  - `emotion_sequence`，包含原文实际拍全集的 `beat_id / role / content / intensity / source_evidence`
 - 如果 `profile_source.md` 已经写出这些层，而 `book.profile.json` 只抽出 `must_keep`，视为抽取链退化，不算合格厚度
 
 ### 题面拆解
@@ -506,12 +583,9 @@ N2 | L25-L31 | 锚点：我默然抽回了手 | **自我认知** | 类型：转�
 - 不能丢的顺序：{A -> B -> C}
 - 为什么这个顺序不能乱：{错序会损失什么}
 - 后续调用方式：{写作、融合、回修口径}
-- 情绪进入点：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 刺痛/受辱拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 短暂希望或反抗：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 反刀拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 峰值拍：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
-- 场末余痛：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
+- 情绪拍：{E-xx} | 作用：{该拍实际变化} | 内容：{具体动作或处境} | 烈度：{1-10} | 原文证据：{Lx-Ly 短句}
+{按原文实际拍数继续逐行添加，不预设数量或角色}
+- 情绪拍完整性复核：{已读原文范围、切拍依据、无漏拍或并拍判断}
 ```
 
 数量和角色覆盖与高敏桥一致：8000 字以上 `5` 张并覆盖五类角色，5000-7999 字 `4` 张，5000 字以下 `3` 张。
