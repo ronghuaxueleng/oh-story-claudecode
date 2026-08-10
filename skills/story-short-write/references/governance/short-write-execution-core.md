@@ -354,6 +354,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --source-dir "拆文库/{辅助书}" \
   --receipt "{项目目录}/写作资产/拆文读取回执.json"
 
+# 目标回执已存在时，init 自动归档旧文件并原子生成新回执。
+# 调用方不要手工移动、删除或用 --force 绕过归档。
+
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
   --receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --output "{项目目录}/设定.md" \

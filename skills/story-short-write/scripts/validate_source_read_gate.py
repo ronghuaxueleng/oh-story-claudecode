@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -95,6 +97,49 @@ def read_text(path: Path) -> str:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def next_archive_path(receipt_path: Path, timestamp: str | None = None) -> Path:
+    archive_dir = receipt_path.parent / "旧回执归档"
+    stamp = timestamp or datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    candidate = archive_dir / f"{receipt_path.stem}-{stamp}{receipt_path.suffix}"
+    sequence = 2
+    while candidate.exists():
+        candidate = archive_dir / (
+            f"{receipt_path.stem}-{stamp}-{sequence}{receipt_path.suffix}"
+        )
+        sequence += 1
+    return candidate
+
+
+def archive_existing_receipt(receipt_path: Path) -> Path | None:
+    if not receipt_path.exists():
+        return None
+    archive_path = next_archive_path(receipt_path)
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(receipt_path, archive_path)
+    return archive_path
+
+
+def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        temp_path = Path(handle.name)
+        handle.write(payload)
+        handle.flush()
+    try:
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 
 def discover_inventory(root: Path) -> tuple[list[Path], list[str]]:
@@ -254,7 +299,11 @@ def main() -> int:
     init_parser.add_argument("--project", required=True)
     init_parser.add_argument("--source-dir", action="append", required=True)
     init_parser.add_argument("--receipt", required=True)
-    init_parser.add_argument("--force", action="store_true")
+    init_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="兼容旧调用；已有回执仍会先自动归档，再生成新回执",
+    )
 
     validate_parser = subparsers.add_parser("validate", help="校验读取回执")
     validate_parser.add_argument("--receipt", required=True)
@@ -268,9 +317,6 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "init":
         receipt_path = Path(args.receipt).resolve()
-        if receipt_path.exists() and not args.force:
-            print(f"读取回执已存在，拒绝覆盖: {receipt_path}")
-            return 2
         receipt, errors = create_receipt(
             args.project,
             [Path(raw) for raw in args.source_dir],
@@ -281,13 +327,12 @@ def main() -> int:
                 print(f"- {error}")
             print("- 缺失资产必须重新执行 story-short-analyze 全量拆书，不做兼容回退。")
             return 2
-        receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        receipt_path.write_text(
-            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        archive_path = archive_existing_receipt(receipt_path)
+        write_json_atomic(receipt_path, receipt)
         print(f"source_read_gate: initialized")
         print(f"receipt: {receipt_path}")
+        if archive_path:
+            print(f"archived_previous_receipt: {archive_path}")
         print(f"sources: {len(receipt['sources'])}")
         print(f"files: {sum(len(source['files']) for source in receipt['sources'])}")
         return 0

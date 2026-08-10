@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -96,6 +98,52 @@ class SourceReadGateTest(unittest.TestCase):
         (self.source / "_sample_comparison.md").unlink()
         _, errors = GATE.create_receipt("测试项目", [self.source])
         self.assertTrue(any("_sample_comparison.md" in error for error in errors))
+
+    def test_init_archives_existing_receipt_before_reinitializing(self) -> None:
+        self.receipt_path.parent.mkdir(parents=True, exist_ok=True)
+        old_payload = '{"old_receipt": true}\n'
+        self.receipt_path.write_text(old_payload, encoding="utf-8")
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT_PATH),
+                "init",
+                "--project",
+                "测试项目",
+                "--source-dir",
+                str(self.source),
+                "--receipt",
+                str(self.receipt_path),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("archived_previous_receipt:", result.stdout)
+        archives = list((self.receipt_path.parent / "旧回执归档").glob("*.json"))
+        self.assertEqual(1, len(archives))
+        self.assertEqual(old_payload, archives[0].read_text(encoding="utf-8"))
+        new_receipt = json.loads(self.receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual("pending", new_receipt["gate_status"])
+
+    def test_archive_name_collision_gets_sequence_suffix(self) -> None:
+        archive_dir = self.receipt_path.parent / "旧回执归档"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        first = archive_dir / "拆文读取回执-20260810-120000.json"
+        first.write_text("first", encoding="utf-8")
+
+        candidate = GATE.next_archive_path(
+            self.receipt_path,
+            timestamp="20260810-120000",
+        )
+
+        self.assertEqual(
+            archive_dir / "拆文读取回执-20260810-120000-2.json",
+            candidate,
+        )
 
 
 if __name__ == "__main__":

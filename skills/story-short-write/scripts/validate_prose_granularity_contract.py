@@ -239,6 +239,23 @@ DEFAULT_STATE_TIMING_PATTERN = re.compile(
     r"[^，,。！？\n]{1,20}[，,]"
     r"[^。！？\n]{1,30}(?:已经|就)[^。！？\n]{1,30}[：:]?[。！？]?$"
 )
+SYNONYMOUS_EVENT_RESTATEMENT_PATTERN = re.compile(
+    r"(?:退出|撤出|辞去|辞职|离职|离开|搬走|消失|分开|结束)"
+    r"[^。！？\n]{0,24}[，,][^。！？\n]{0,12}"
+    r"(?:离开|退出|走|消失|辞职|离职|分开|结束)得"
+    r"(?:很|太|格外|异常)?(?:突然|干脆|仓促|彻底|意外)"
+)
+ABSTRACT_EVENT_EVALUATION_PATTERN = re.compile(
+    r"(?:离开|退出|走|消失|辞职|离职|搬走|分开|结束)得"
+    r"(?:很|太|格外|异常)?(?:突然|干脆|仓促|彻底|意外)[。！？]?$"
+)
+CONCRETE_FOLLOWUP_EVENT_PATTERN = re.compile(
+    r"(?:凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|半夜|当天|当晚|第二天|次日|"
+    r"第[一二三四五六七八九十百\d]+天|\d{1,2}[点时])"
+    r"[^。！？\n]{0,40}"
+    r"(?:退(?:出|了)|删(?:掉|了)|搬(?:走|了)|离开|辞职|离职|交(?:出|了)|"
+    r"收拾|登上|买了|签了|发了|留下一句)"
+)
 EXPLANATORY_NARRATION_CANDIDATE_PATTERNS = (
     re.compile(r"像[^。！？\n]{0,60}不是[^。！？\n]{0,30}而是[^。！？\n]{0,60}"),
     re.compile(r"(?:他|她)大概(?:觉得|以为|认为)[^。！？\n]{0,40}"),
@@ -259,6 +276,7 @@ EXPLANATORY_NARRATION_CANDIDATE_PATTERNS = (
     SEQUENCED_GAZE_CHOREOGRAPHY_PATTERN,
     ABSTRACT_RESPONSE_TIMING_PATTERN,
     DEFAULT_STATE_TIMING_PATTERN,
+    SYNONYMOUS_EVENT_RESTATEMENT_PATTERN,
 )
 HARD_COORDINATION_CANDIDATE_PATTERNS = (
     re.compile(
@@ -365,11 +383,22 @@ def section_liveliness_plan_scaffold() -> dict[str, Any]:
 def explanatory_narration_candidate_quotes(section_text: str) -> list[str]:
     narration = re.sub(r"「[^」]*」|“[^”]*”", "", section_text)
     candidates: list[str] = []
-    for unit in re.findall(r"[^。！？\n]+[。！？]?", narration):
-        quote = unit.strip()
+    units = [
+        unit.strip()
+        for unit in re.findall(r"[^。！？\n]+[。！？]?", narration)
+        if unit.strip()
+    ]
+    for index, quote in enumerate(units):
         if quote and any(
             pattern.search(quote)
             for pattern in EXPLANATORY_NARRATION_CANDIDATE_PATTERNS
+        ):
+            candidates.append(quote)
+            continue
+        if (
+            ABSTRACT_EVENT_EVALUATION_PATTERN.search(quote)
+            and index + 1 < len(units)
+            and CONCRETE_FOLLOWUP_EVENT_PATTERN.search(units[index + 1])
         ):
             candidates.append(quote)
     return list(dict.fromkeys(candidates))

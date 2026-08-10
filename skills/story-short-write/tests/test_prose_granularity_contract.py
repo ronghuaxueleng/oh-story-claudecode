@@ -1180,6 +1180,29 @@ class ProseGranularityContractTest(unittest.TestCase):
         sentence = "他说到后排时停了一下，手却越过苏念乔，把我的外套递向最后一排。"
         self.assertEqual([], GATE.explanatory_narration_candidate_quotes(sentence))
 
+    def test_abstract_departure_preview_and_synonym_repeat_are_flagged(self) -> None:
+        sentence = "苏念乔退出毕业纪录片项目那天，离开得很突然。"
+        self.assertEqual(
+            [sentence], GATE.explanatory_narration_candidate_quotes(sentence)
+        )
+
+    def test_unlisted_event_object_with_synonym_repeat_is_flagged(self) -> None:
+        sentence = "他辞去监护人那天，走得很干脆。"
+        self.assertEqual(
+            [sentence], GATE.explanatory_narration_candidate_quotes(sentence)
+        )
+
+    def test_abstract_event_evaluation_before_concrete_evidence_is_flagged(self) -> None:
+        text = "她离开得很突然。凌晨两点，她退了工作群，只留下一句要去国外读书。"
+        self.assertEqual(
+            ["她离开得很突然。"],
+            GATE.explanatory_narration_candidate_quotes(text),
+        )
+
+    def test_concrete_departure_evidence_is_not_flagged(self) -> None:
+        sentence = "凌晨两点，她退了项目工作群，只留下一句要去国外读书。"
+        self.assertEqual([], GATE.explanatory_narration_candidate_quotes(sentence))
+
     def test_convenient_third_party_stage_direction_is_flagged(self) -> None:
         sentence = "摄影师却正好叫他靠近苏念乔。"
         self.assertEqual(

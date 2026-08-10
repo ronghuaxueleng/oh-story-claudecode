@@ -28,6 +28,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
   --receipt "项目目录/写作资产/拆文读取回执.json"
 ```
 
+`init` 发现目标回执已存在时，先把旧文件完整复制到同目录的
+`旧回执归档/拆文读取回执-{YYYYMMDD-HHMMSS}.json`，同秒重名时自动追加序号，
+再原子写入新回执。只有新来源清单校验成功后才执行归档。`--force` 仅保留旧调用兼容，
+也不会跳过归档；调用方不得手工删除或搬移旧回执。
+
 模型逐文件读取并回填后，在写大纲前校验：
 
 ```bash
