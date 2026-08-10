@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.63.0
+  version: 1.63.1
 ---
 
 # story-short-write：短篇网文写作
@@ -122,6 +122,7 @@ metadata:
 - [references/governance/prose-liveliness-layer.md](references/governance/prose-liveliness-layer.md)
 - [references/governance/character-personality-granularity.md](references/governance/character-personality-granularity.md)
 - [references/governance/source-dominant-first-draft.md](references/governance/source-dominant-first-draft.md)
+- [references/governance/write-during-section-compliance.md](references/governance/write-during-section-compliance.md)
 - [references/governance/emotional-granularity-contract.md](references/governance/emotional-granularity-contract.md)
 - [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
 - [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
@@ -305,6 +306,7 @@ metadata:
 149. **写作目录必须使用正式小说名**：书名一旦确定，项目目录 basename 必须与书名逐字一致；目录仍为题材说明、参考骨架、日期串或内部任务代号时，视为项目尚未正确起盘。目录移动后必须全文检查项目内绝对路径、相对项目路径和 `project` 字段，不能只改文件夹外壳。文件系统非法字符只允许最小替换并落盘映射；当前平台可用的中文标点、逗号和句号不得擅自删改。
 150. **情绪全集通过必须同时满足来源忠实、目标迁移和区域兑现**：`source_emotion_beats` 的 `role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence` 必须与主体全文总账逐字段一致，禁止在合同里重写、概括或美化来源拍。目标拍只沿用 `beat_id / role / intensity` 及反刀、峰值位置；`trigger / relationship_position_change / reader_effect / target_story_adaptation / outline_evidence` 必须具体写成新书人物在新场面中如何被触发、如何失位或回击、读者预期如何变化，不得照抄来源分析。原文导语拍必须落进目标 `## 导语` 的真实文本区域，原文尾声拍必须落进目标 `## 尾声`，不得塞入第一节或最后一节凑全集；数字节标题允许 `## 1.` 或 `## 1. 标题`，但证据必须确实位于所声明区域。逐拍烈度必须与来源精确相等，不得把所有拍统一抬成高烈度；全书原文、细纲及正文证据均不得跨拍复用，过短词组不能充当独占证据。验证器 `passed` 只证明字段、顺序、区域和证据约束成立；当前模型还必须逐拍回答“这次触发是否真的发生、受伤对象与关系位置是否发生对应变化、读者预期是否按原轮廓转折”，任何一项只写在合同里而没有写进细纲现场，仍判失败并先回写细纲。
 151. **辅助桥段不得污染主体情绪，转折也不得用数值猜**：第一本主体原文必须使用 `emotion_transfer_policy: primary_full_emotion`，承接其全部 E 拍；辅助书若只被选来供应情节换权或现实后果，必须使用 `plot_mechanism_only`，其情绪序列、反刀和峰值一律不得进入目标稿。辅助 `selected_bridge_ids` 一旦填写，必须同时生成该 BID 的完整来源 P 拍库、等数目标拍和逐拍映射，禁止只改 ID 不建库。主体每节必须填 `turning_point_selection_review`，点名真实反刀/峰值 E 拍并说明它如何改变期待、关系或行动；禁止按最高 `intensity` 自动猜反刀或峰值。`target_evidence_coverage_review` 必须实际引用本拍的目标触发和关系位移，通用“已覆盖动作链”套话不得放行。原文一拍只能对应目标一拍，不得拆成多拍虚增跌宕；证据必须覆盖该拍的完整触发—动作—关系后果，只覆盖一半的“一拍半证据”仍判失败。来源片段和证据包含换行时统一规范化 `CRLF / LF / CR`后再做包含校验，不得因操作系统换行差异伪报来源不存在。
+152. **逐节写后规则必须先转成首写约束，再以真实句子即时验收**：写每个数字小节前，按 [逐节随写合规](references/governance/write-during-section-compliance.md) 把本节适用的对白落地、动作对象、关系可懂性、因果/知情顺序、人物不可互换、作者代判与职业壳翻译规则，压成 `5-9` 条正向生成约束，和本节细纲、连续主体原文、人物计划、情绪拍、文字落笔包一起进入实际落笔上下文。禁止把整套负面候选清单、失败码或验收字段原样塞给首写模型。写完本节后必须在进入下一节前，对本节真实句子执行完整即时复核；命中项只回修当前小节并重新绑定本节文字/情绪映射。`已在首写时遵守` 不能代替真实句面复核，写完全书后批量补本节回执也不能代替随写执行。
 
 ---
 
@@ -595,7 +597,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 16. 分别确认原文全部 `P-*` 情节微拍与全部 `E-*` 情绪拍已按原序逐拍迁移；两轨不得互相代替，缺失、弱化、并拍或只做功能映射时先重写细纲
 17. 初始化全文文字颗粒度 v2.4 合同；主体原文独占声线，完成 5 组连续片段逐句语义标注、逐特征原句证据、三组原创校准、七类成文活性资产和七类人物性格颗粒；为核心人物建立不可互换母版，绑定最终细纲并逐节完成连续句链、句间关系正反例、对白三联包、活性计划与人物计划，再通过 `validate-prewrite`
 18. 绑定主体拆文的全文情绪颗粒总账并初始化全文情绪颗粒度合同；把总账全部 `beat_id` 按原序唯一分配给数字小节，逐拍绑定细纲、同级烈度和独占证据，确认各节并集与全文总账完全同序相等后再通过 `validate-prewrite`
-19. 通过正文写作放行闸；随后逐节读取细纲、文字落笔包、活性计划和情绪合同，写该节后立即回填两类正文映射，再进入下一节，不把生成证据拖到全文写完后补，不执行去 AI 味
+19. 通过正文写作放行闸；随后逐节读取细纲、文字落笔包、活性计划和情绪合同，并把本节适用的即时检查规则先压成 `5-9` 条正向首写约束；写该节后立即用真实句子做即时复核、定点修正并回填两类正文映射，再进入下一节，不把生成证据或逐节检查拖到全文写完后补，不执行去 AI 味
 20. 正文初稿落盘后，绑定最终正文 SHA 并运行全文文字颗粒度与情绪颗粒度 `validate-draft`；再运行 `count_words.py`，知乎 / 盐言正文另运行纯数字分节格式校验
 21. **立即停靠并把正文交给用户预览**；禁止自动继续顺序重绑、正文开头契约、窗口前回修、人工分窗、正式审计、去味、回炉、最终台账或完整人工语义复核
 22. 只有用户看过初稿并明确回复“继续深审”“继续完整流程”或同义指令后，才补正文顺序节点证据并重新通过完整顺序契约
