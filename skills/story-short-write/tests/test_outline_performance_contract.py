@@ -304,6 +304,24 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             )
             if section["section_id"] == "2":
                 section["outline_evidence"] = ["动作三", "动作四"]
+            section["scene_units"] = [
+                {
+                    "scene_id": f"S{section['section_id']}-01",
+                    "emotion_beat_ids": [f"E-{index}" for index in range(1, 7)],
+                    "plot_beat_ids": [f"TP-{index}" for index in range(1, 5)],
+                    "allocated_chars": 1000,
+                    "target_chars": 1000,
+                    "full_scene_required": True,
+                    "summary_only": False,
+                    "entry_pressure": "当前人物在公开场合的默认位置被人动了。",
+                    "interaction_chain": ["甲先抢位", "乙开口阻拦", "旁观者改变站队"],
+                    "turning_action": "原本属于乙的钥匙被亲手交给甲。",
+                    "visible_consequence": "乙当场失去了进入原有空间的权利。",
+                    "aftershock": "旁观者不再等待乙的意见就继续进行。",
+                    "reader_emotion_path": "读者从乙还能阻拦的希望转入公开失位的愤怒。",
+                    "outline_evidence": section["outline_evidence"],
+                }
+            ]
             section["source_mechanism"] = {
                 "source_path": source_path,
                 "source_sha256": source_sha,

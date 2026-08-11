@@ -198,15 +198,18 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --outline "{项目目录}/小节大纲.md"
 ```
 
-正文初稿落盘后，先绑定最终 SHA 并自动生成全部小节复核骨架：
+正文放行后，先由当前模型按原文桥段与目标场面语义完成独立写前字段 `section_sf_assignments[]`，每项写明 `subflow_id / target_sections / target_section_rationale`；它必须与主体 SF 全集同序相等。任一 SF 留空或任一目标小节没有 SF 时禁止初始化。`source_subflow_reviews` 保留为提交前六维真实证据，不得在正文前伪填目标引句。再按 [逐节正文进度硬闸](section-progress-gate.md) 初始化字数预算和当前小节状态。每节只在暂存稿一次写完，立即将本合同要求的完整 `section_review` 写入 `写作资产/逐节验收/第N节.json` 的 `prose_review`，并通过 `commit-section N`。该命令必须实际校验完整场面表演、连续原文链、对白包、句间关系、逐句特征、活性、人物、全部对白及本节全部 SF 六维，不能只检查四条映射。本节未通过时禁止写入正文或创建下一节。
+
+全部小节逐节通过且进度闸输出 `final_ready` 后，才绑定最终 SHA 并自动生成全部小节复核骨架：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
-当前模型逐节回填后运行：
+当前模型将已逐节验证的独立回执按小节合并到全文骨架后运行：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-manual-sidecar \
@@ -217,7 +220,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
-侧车只在采用分批人工回填时创建；没有侧车时不得伪造空文件过闸。只要存在侧车，就必须在每次合并前重跑预检。`validate-draft` 的 `passed_sections` 必须等于 `draft_sections`；两者不等即使总状态异常显示 passed，也按验证器缺陷处理并停止交付。任一命令未输出 `passed` 都必须回到当前步骤修正，不得运行 `--help` 探路，也不得降级成 warning。
+逐节独立回执是首写必须产物，不再属于可选侧车。全文人工侧车仍只在分批合并时创建；没有需要时不得伪造空文件过闸。只要存在全文侧车，就必须在每次合并前重跑预检。`validate-draft` 的 `passed_sections` 必须等于 `draft_sections`；两者不等即使总状态异常显示 passed，也按验证器缺陷处理并停止交付。任一命令未输出 `passed` 都必须回到当前步骤修正，不得运行 `--help` 探路，也不得降级成 warning。

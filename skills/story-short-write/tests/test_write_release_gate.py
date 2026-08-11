@@ -473,6 +473,27 @@ class WriteReleaseGateTest(unittest.TestCase):
                     "forced_response": "乙被迫让位。",
                     "visible_change": "钥匙和站位换主。",
                 },
+                "scene_units": [
+                    {
+                        "scene_id": "S1-01",
+                        "emotion_beat_ids": [f"E-{index}" for index in range(1, 7)],
+                        "plot_beat_ids": [f"TP-{index}" for index in range(1, 5)],
+                        "allocated_chars": 900,
+                        "full_scene_required": True,
+                        "summary_only": False,
+                        "entry_pressure": "甲在公开场拿走乙的钥匙并逼迫乙让出原位。",
+                        "interaction_chain": [
+                            "甲先拿钥匙并要求乙退后。",
+                            "乙追问钥匙归属并伸手阻拦。",
+                            "甲借第三人的需要挡回，旁观者随之改口。",
+                        ],
+                        "turning_action": "甲把钥匙交给第三人，入口控制权当场换主。",
+                        "visible_consequence": "乙失去进入权，旁观者不再等待乙作决定。",
+                        "aftershock": "乙退出原站位，钥匙留在第三人手里。",
+                        "reader_emotion_path": "短暂维护感被公开让位动作截断，转成可见失位。",
+                        "outline_evidence": ["动作一", "动作二"],
+                    }
+                ],
                 "conflict_carrier": {
                     "contested_power": "现场决定权。",
                     "carrier": "钥匙。",

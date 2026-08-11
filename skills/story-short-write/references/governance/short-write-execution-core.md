@@ -97,9 +97,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 19. 对大纲执行 `outline_performance_contract`：主体全部 BID 内逐句提取全部有效情节拍和实际情绪变化拍，逐拍绑定细纲原句并按原顺序一一映射；少拍、并拍、压缩、实际作用或重复次数不一致、任一拍降烈度时先重写细纲
 20. 仿写 / 融合任务先初始化文字颗粒度 v2.4 合同，完成连续片段逐句语义标注、逐特征原句证据、成文活性资产和人物性格颗粒；为核心人物建立不可互换母版，再执行 `bind-outline` 并逐节完成连续句链、句间关系正反例、对白三联包、活性计划和人物计划，通过 `validate-prewrite`，由第一本主体原文独占正文声线
 21. 绑定主体拆文的 `全文情绪颗粒总账.json` 后初始化情绪颗粒度合同，把总账全部实际情绪拍按原序逐节唯一分配并绑定细纲和独占证据；各节并集必须与总账全集同序相等。同时从细纲表演回执领取全部目标情节拍并逐节唯一归属，通过 `validate-prewrite`
-22. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --emotional-contract "项目目录/写作资产/全文情绪颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --source-emotion-ledger "拆文库/主体书/写作资产/全文情绪颗粒总账.json" --profile "profiles/项目名.project.profile.json"`，再写正文
-23. 正文按“读本节两类合同和人物计划 -> 写本节 -> 立即回填句面、活性、人物与情绪映射”推进，禁止全文后批量补票；首稿不执行去 AI 味
-24. 初稿落盘后绑定最终 SHA，并通过文字颗粒度与情绪颗粒度 `validate-draft`
+22. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --emotional-contract "项目目录/写作资产/全文情绪颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --source-emotion-ledger "拆文库/主体书/写作资产/全文情绪颗粒总账.json" --profile "profiles/项目名.project.profile.json"`；随后创建逐节字数预算并初始化 `逐节正文进度.json`，正文此时必须不存在或为空
+23. 为第 1 节写完整场面计划并运行 `start-section`，再固定按“只读本节两类合同和人物计划 -> 在独立暂存稿一次写完本节 -> 提交前回填本节场面、句面、活性、人物与情绪映射 -> `commit-section` 原子写入正文并输出 `section_passed` -> 才能 `start-section` 下一节”推进。当前节未通过时禁止创建未来标题，已通过旧节禁止修改；首稿不执行去 AI 味
+24. 全部小节逐节通过后运行 `finalize`；只有输出 `final_ready` 才能绑定最终 SHA、合并已验证的逐节回执并运行文字颗粒度与情绪颗粒度 `validate-draft`
 25. 只再运行统一字数统计；知乎 / 盐言稿另运行平台格式校验
 26. 立即向用户交付初稿并停靠，明确报告正文路径、字数、格式和“尚未执行深审、去味与回炉”；禁止自动运行后续步骤
 27. 只有用户明确回复“继续深审”“继续完整流程”或同义指令后，才补正文节点证据并通过 `validate_sequence_contract.py validate --receipt "项目目录/写作资产/顺序契约回执.json" --setting "项目目录/设定.md" --outline "项目目录/小节大纲.md" --draft "项目目录/正文.md"`
@@ -432,7 +432,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-manual-sidecar \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
@@ -442,7 +443,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
 ### 6. 生成并校验写后人工语义复核回执

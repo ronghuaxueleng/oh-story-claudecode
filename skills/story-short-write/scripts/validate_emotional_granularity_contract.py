@@ -975,6 +975,31 @@ def validate_draft_data(
     return errors, data
 
 
+def validate_section_progress_receipt(progress_path: Path, draft_path: Path) -> list[str]:
+    if not progress_path.is_file():
+        return [f"逐节正文进度回执不存在: {progress_path}"]
+    try:
+        progress = json.loads(progress_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [f"逐节正文进度回执无效: {exc}"]
+    errors: list[str] = []
+    draft = draft_path.resolve()
+    if progress.get("status") != "final_ready":
+        errors.append(f"逐节正文进度未 final_ready: {progress.get('status')}")
+    if str((progress.get("paths") or {}).get("draft") or "") != str(draft):
+        errors.append("逐节进度回执绑定的正文路径不一致")
+    if not draft.is_file():
+        errors.append(f"正文不存在: {draft}")
+    elif progress.get("final_draft_sha256") != sha256_file(draft):
+        errors.append("正文 SHA 与逐节进度 final_ready 绑定不一致")
+    sections = progress.get("sections")
+    if not isinstance(sections, list) or not sections or any(
+        not isinstance(item, dict) or item.get("status") != "passed" for item in sections
+    ):
+        errors.append("逐节进度回执中存在未 passed 小节")
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -992,6 +1017,7 @@ def main() -> int:
             sub.add_argument("--outline", required=True)
         if command in ("bind-draft", "validate-draft"):
             sub.add_argument("--draft", required=True)
+            sub.add_argument("--section-progress", required=True)
         if command in ("validate-prewrite", "validate-draft"):
             sub.add_argument("--source-original", required=True)
             sub.add_argument("--source-emotion-ledger", required=True)
@@ -1015,6 +1041,14 @@ def main() -> int:
         print("emotional_granularity_contract: outline bound")
         return 0
     if args.command == "bind-draft":
+        progress_errors = validate_section_progress_receipt(
+            Path(args.section_progress).resolve(), Path(args.draft).resolve()
+        )
+        if progress_errors:
+            print("emotional_granularity_contract: blocked (bind-draft)")
+            for error in progress_errors:
+                print(f"- {error}")
+            return 2
         data = bind_draft(data, Path(args.draft).resolve())
         write_json(receipt, data)
         print("emotional_granularity_contract: draft bound")
@@ -1033,6 +1067,9 @@ def main() -> int:
             Path(args.draft).resolve(),
             Path(args.source_emotion_ledger).resolve(),
         )
+        errors = validate_section_progress_receipt(
+            Path(args.section_progress).resolve(), Path(args.draft).resolve()
+        ) + errors
     if errors:
         for error in errors:
             print(f"- {error}")

@@ -37,6 +37,10 @@
 - 对手持续施压。
 - 失控动作或不改变角色伦理的同级替代动作。
 
+E/P 拍是场面内的运动颗粒，不是可以逐句打勾的事件标签。写前必须把本节全部拍同序组织成 `1-3` 个完整场面；每场必须有进场压力、人物想护住的对象、至少三步施压与接招、转折动作、可见后果和情绪余波。只写“某人来了 / 某人拿走了 / 我很难过 / 关系因此变了”，即使 ID、顺序和引句都齐全，也按“事件概括化”失败。
+
+当前模型必须在小节提交前回答：读者是在哪一个可感的动作前抱有什么期待，这个动作如何改变了人物的身体、站位、物件或回答范围，以及后一拍如何在前一拍留下的疼痛上继续。答不出来时不得靠补一句心理或拉长旁白修复，必须重写整个场面。
+
 ## 首稿政策
 
 回执必须固定：
@@ -53,7 +57,9 @@
 
 ## 写中与写后回填
 
-固定按“读本节合同 -> 写本节 -> 立即回填本节 -> 下一节”执行。每节正文复核至少包含：
+固定按“读本节合同 -> 在独立暂存稿中一次写完本节 -> 提交前立即回填本节 -> `commit-section` 写入正文 -> 下一节”执行。每节正文复核至少包含：
+
+每节回填必须先落到 `写作资产/逐节验收/第N节.json` 的 `emotion_review`，并通过 [逐节正文进度硬闸](section-progress-gate.md) 的 `commit-section N`。本节 E/P 拍不全、顺序不对、事件只有概括或真实引句不在当前节时，禁止写入正文和开始下一节。
 
 - 全部实际情绪拍的真实正文引句与源/目标烈度，`beat_id`、数量和顺序必须与写前合同一致。
 - 全部 `required_plot_beats` 的真实正文引句与现实后果，数量和顺序必须与细纲情节拍全集一致。
@@ -86,12 +92,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granula
   --outline "{项目目录}/小节大纲.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
+
+`bind-draft` 必须位于逐节进度闸 `final_ready` 之后。它会绑定最终全文 SHA 并重建骨架；当前模型随后只能按已验证的逐节回执合并，不得重新批量生成情绪引句或裁决。
 
 任一命令未输出 `passed`，不得开始正文或宣称初稿完成。

@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.64.3
+  version: 1.67.0
 ---
 
 # story-short-write：短篇网文写作
@@ -127,6 +127,7 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 - `validate_outline_performance_contract.py`
 - `validate_prose_granularity_contract.py`
 - `validate_emotional_granularity_contract.py`
+- `validate_section_progress.py`
 - `validate_post_write_human_review_gate.py`
 - `validate_zhihu_section_format.py`
 - `count_words.py`
@@ -152,6 +153,7 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 - [references/governance/character-personality-granularity.md](references/governance/character-personality-granularity.md)
 - [references/governance/source-dominant-first-draft.md](references/governance/source-dominant-first-draft.md)
 - [references/governance/write-during-section-compliance.md](references/governance/write-during-section-compliance.md)
+- [references/governance/section-progress-gate.md](references/governance/section-progress-gate.md)
 - [references/governance/emotional-granularity-contract.md](references/governance/emotional-granularity-contract.md)
 - [references/integration/internal-toolchain-map.md](references/integration/internal-toolchain-map.md)
 - [references/integration/myconfig-rule-integration.md](references/integration/myconfig-rule-integration.md)
@@ -254,7 +256,7 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 70. **开头回炉必须对照原文真实开口，且不得改成分镜/施工单**：凡用户指出开头啰嗦、说明抢跑、成品感高、像剧本分镜或像规则施工稿，必须读取所有选中主体/辅助拆文的 `原文/` 开头样本，不得只看导语拆解表、profile 或规则摘要。回修后开头不能是一句一个动作、一句一个证据、一句一个反应的清单，也不能像“规则 A 执行、证据 B 展示、边界 C 落地”的验收单；必须把人物动作、现场噪音、物件证据和关系反应揉进连续叙述气口。`validate_opening_contract.py` 中 `original_opening_samples_compared_before_revision` 与 `opening_not_storyboard_or_construction_list` 必须为 `true`，并填写 `original_opening_comparison` 和 `opening_flow_review`；缺字段、空证据或只写“已检查”均阻断。
 71. **分镜清单 / 规则施工稿是全文禁区，不只限开头**：新增写后人工复核项 `full_text_storyboard_construction_list_review`。当前模型必须全文扫描是否存在“一句一个动作 / 一句一个证据 / 一句一个反应”的镜头清单，或“规则 A 执行、证据 B 展示、边界 C 落地”的验收施工稿。若出现在叙述正文、关系场、冲突场、追妻低位、揭示或结尾中，必须回修为连续现场叙述；不得因为格式短、节奏快或脚本未命中而放行。唯一例外是正文情节内真实出现的清单、报告、日志、合同、群公告、流程单等文本本身；例外必须在 `allowed_in_story_artifacts` 中逐条引用原文并说明其情节功能，不能把作者写法问题伪装成“角色正在看文件”。
 72. **回修前必须先判问题粒度，禁止把大块病当小句病补丁化处理**：每轮改正文前必须先给出 `revision_scope_decision`，至少判断问题是 `global_structure / coarse_block / full_scene / paragraph_cluster / sentence_hotspot / format_only` 哪一类。凡命中 `成文真实感、题材承诺、主桥顺序、场戏功能、人物偏手、人物交流、冲突载体、流程硬化、分镜施工稿、追妻低位、开头成品感` 等场面级或结构级问题，默认按整场/大段回炉处理，必须重写该场的动作链、交流链、物件控制权和气口，不得只补一两句动作词或替换词。只有当人工证据证明问题只剩 `重复词、冒号模板、单句直白心理、格式、错别字、局部标点、单个术语残留` 时，才允许小改。若连续两轮正式审计仍命中同一 P0/P1，必须升级回修幅度：`sentence_hotspot -> paragraph_cluster -> full_scene/coarse_block`，不能继续在原位置小补丁。
-73. **细纲表演验收是正文前独立硬闸**：仿写、融合和强情绪关系稿写完细纲后，必须用 `validate_outline_performance_contract.py` 绑定细纲与所有选中原文 SHA，并由当前模型逐节人工验收 `唯一不可逆动作 / 主控物件 / 拆书功能机制 / 原文场面颗粒度 / 原文表演机制及迁移边界 / 信息延迟 / 人物偏手与错答 / 交流变化链 / 冲突载体 / 禁写项 / 细纲原句证据`。只通过规则台账、顺序契约或开头契约不算细纲合格；任一节仍是多节点排队、证据清单、对白答题或分镜施工稿，必须先回细纲整场重构，禁止写正文。
+73. **细纲表演验收是正文前独立硬闸，场面容量必须在这一步决定**：仿写、融合和强情绪关系稿写完细纲后，必须用 `validate_outline_performance_contract.py` 绑定细纲与所有选中原文 SHA，并由当前模型逐节人工验收 `唯一不可逆动作 / 主控物件 / 拆书功能机制 / 原文场面颗粒度 / 原文表演机制及迁移边界 / 信息延迟 / 人物偏手与错答 / 交流变化链 / 冲突载体 / 禁写项 / 细纲原句证据`。每节还必须生成 `scene_units`，把全部 E/P 拍同序聚合为 `1-3` 个完整场面，为每场确定进场压力、三步交流链、转折动作、后果、余波和字数分配。容量不足时必须在细纲阶段拆节或重组，不得留给正文压缩。只通过规则台账、顺序契约或开头契约不算细纲合格；任一节仍是多节点排队、证据清单、对白答题或分镜施工稿，必须先回细纲整场重构，禁止写正文。
 74. **“完全参照原文”必须落实为表演机制对照，不得降级成桥段参考**：当前模型必须完整参照选中原文的结构、场景推进、信息延迟、物件/动作控制权、关系压力与场末信息边界，并在细纲表演验收中逐节说明迁移机制；不得复制原人物、职业、原句和完整情节壳。只写“参考《某书》”或只套题材、人设、反转位置，视为未执行。
 75. **验收字段不得污染写作细纲**：`唯一不可逆动作 / 主控物件 / 信息延迟 / 交流变化链 / 禁写项` 等字段只能填写在 `细纲表演验收回执.json`，不能把 `小节大纲.md` 写成一节一张字段表。用于生成正文的细纲必须是连续的表演型场面，按 `人物如何入场 -> 压力如何出现 -> 谁先偏手或错答 -> 动作/物件/站位如何换主 -> 哪个信息仍不说 -> 场末留下什么余波` 详细展开。若细纲直接呈现为“目标、机制、载体、禁写、证据”的规则清单，即使回执字段齐全也必须回炉，不得写正文。
 76. **细纲必须双轨参照，不得只做功能映射**：写细纲时，每节必须先从拆书资料确认 `功能机制`，再回到选中原文对应桥段确认 `场面颗粒度`。功能机制回答“这一节迁移公开掉位、私域换主、不可替代物爆体、高成本补救后再选错、行动验收、公开反噬、私人尾声中的哪一种”；场面颗粒度回答“原文里谁先动、谁抢/挡/松手、哪个物件或空间改归属、哪句台词逼出动作、旁观者或外部秩序如何改变现场”。只引用拆书报告、profile、同桥过检摘要或规则卡，不回看原文具体段落，视为未执行；只写“机制已迁移”但答不出原文场面颗粒，细纲表演验收必须失败。
@@ -335,8 +337,9 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 149. **写作目录必须使用正式小说名**：书名一旦确定，项目目录 basename 必须与书名逐字一致；目录仍为题材说明、参考骨架、日期串或内部任务代号时，视为项目尚未正确起盘。目录移动后必须全文检查项目内绝对路径、相对项目路径和 `project` 字段，不能只改文件夹外壳。文件系统非法字符只允许最小替换并落盘映射；当前平台可用的中文标点、逗号和句号不得擅自删改。
 150. **情绪全集通过必须同时满足来源忠实、目标迁移和区域兑现**：`source_emotion_beats` 的 `role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence` 必须与主体全文总账逐字段一致，禁止在合同里重写、概括或美化来源拍。目标拍只沿用 `beat_id / role / intensity` 及反刀、峰值位置；`trigger / relationship_position_change / reader_effect / target_story_adaptation / outline_evidence` 必须具体写成新书人物在新场面中如何被触发、如何失位或回击、读者预期如何变化，不得照抄来源分析。原文导语拍必须落进目标 `## 导语` 的真实文本区域，原文尾声拍必须落进目标 `## 尾声`，不得塞入第一节或最后一节凑全集；数字节标题允许 `## 1.` 或 `## 1. 标题`，但证据必须确实位于所声明区域。逐拍烈度必须与来源精确相等，不得把所有拍统一抬成高烈度；全书原文、细纲及正文证据均不得跨拍复用，过短词组不能充当独占证据。验证器 `passed` 只证明字段、顺序、区域和证据约束成立；当前模型还必须逐拍回答“这次触发是否真的发生、受伤对象与关系位置是否发生对应变化、读者预期是否按原轮廓转折”，任何一项只写在合同里而没有写进细纲现场，仍判失败并先回写细纲。
 151. **辅助桥段不得污染主体情绪，转折也不得用数值猜**：第一本主体原文必须使用 `emotion_transfer_policy: primary_full_emotion`，承接其全部 E 拍；辅助书若只被选来供应情节换权或现实后果，必须使用 `plot_mechanism_only`，其情绪序列、反刀和峰值一律不得进入目标稿。辅助 `selected_bridge_ids` 一旦填写，必须同时生成该 BID 的完整来源 P 拍库、等数目标拍和逐拍映射，禁止只改 ID 不建库。主体每节必须填 `turning_point_selection_review`，点名真实反刀/峰值 E 拍并说明它如何改变期待、关系或行动；禁止按最高 `intensity` 自动猜反刀或峰值。`target_evidence_coverage_review` 必须实际引用本拍的目标触发和关系位移，通用“已覆盖动作链”套话不得放行。原文一拍只能对应目标一拍，不得拆成多拍虚增跌宕；证据必须覆盖该拍的完整触发—动作—关系后果，只覆盖一半的“一拍半证据”仍判失败。来源片段和证据包含换行时统一规范化 `CRLF / LF / CR`后再做包含校验，不得因操作系统换行差异伪报来源不存在。
-152. **逐节写后规则必须先转成首写约束，再以真实句子即时验收**：写每个数字小节前，按 [逐节随写合规](references/governance/write-during-section-compliance.md) 把本节适用的对白落地、动作对象、关系可懂性、因果/知情顺序、人物不可互换、作者代判与职业壳翻译规则，压成 `5-9` 条正向生成约束，和本节细纲、连续主体原文、人物计划、情绪拍、文字落笔包一起进入实际落笔上下文。禁止把整套负面候选清单、失败码或验收字段原样塞给首写模型。写完本节后必须在进入下一节前，对本节真实句子执行完整即时复核；命中项只回修当前小节并重新绑定本节文字/情绪映射。`已在首写时遵守` 不能代替真实句面复核，写完全书后批量补本节回执也不能代替随写执行。
+152. **逐节规则必须前移到一次成文，不得把首写质量债推给写后回修**：正文阶段不再临时设计场面，只能从已通过的 `细纲表演验收回执.json` 领取当节 `scene_units`，并绑定回执 SHA。写每个数字小节前，按 [逐节随写合规](references/governance/write-during-section-compliance.md) 把已题定的对白落地、动作对象、关系可懂性、因果/知情顺序、人物不可互换、作者代判与职业壳翻译规则压成 `5-9` 条正向生成约束。当前节必须在独立暂存稿中一次写完，提交前按正式口径计数并对真实句子执行完整复核；只有 `commit-section` 能将通过稿原子写入 `正文.md`。禁止“先写短稿、再补对白/背景/感受/字数”，禁止用事件结论代替场面表演。若共情、接招链、场面完整性或字数容量失败，必须回到细纲重组场面，或整场/整节重写暂存稿，不得在末尾追加补丁。
 153. **抽象事件评价不得抢在具体证据前，近义谓语不得重复播报同一动作**：相邻句或同一句先写“退出、辞职、分开、消失”等事件，再用“离开得突然、走得干脆、结束得仓促”等近义谓语和评价词重说一遍，随后才补时间、动作、对象与结果时，按 `抽象事件预判 / 同义动作复播` 候选阻断。人工复核必须把前后句视为一个事件单元，依次回答：评价指向哪次事件，后句提供了哪些此前没有的事实，删掉评价句后信息与情绪是否仍完整，以及评价是否迫使人物改变下一动作。若评价只替读者预告“突然、彻底、意外、仓促”而具体证据随后才出现，就删除评价并把时间与动作提前；不得只替换近义词或保留“那天……得很……”的壳。人物当场作出的主观判断、评价与证据形成反差，或评价本身触发下一人物行动时可以保留，但必须绑定连续句链和可见后果。本规则按事件同指与句间功能开放判断，不以列举的事件动词、程度词或评价词构成封闭词表；自动检测只召回高置信形态，未命中仍须人工通读相邻句。
+154. **逐节正文必须进入可执行状态机，不得只靠文字承诺**：正文放行后、创建 `正文.md` 前，必须先把主体全部 `SF-*` 以人工语义理由分配到真实目标小节，再按 [逐节正文进度硬闸](references/governance/section-progress-gate.md) 创建逐节字数预算与 `逐节正文进度.json`。每次 `start-section` 必须绑定写前场面计划；当前节只能在独立暂存稿中写作，`正文.md` 始终只包含已通过节。每节独立回执必须完整覆盖场面进场、三步交流链、转折动作、可见后果、余波、`5-9` 条首写约束、连续原文链、对白包、句间关系、逐句特征映射、活性、人物、全部直接对白、本节全部 SF 六维，以及 E/P 拍的角色、烈度、触发、关系位移和现实后果。验证器必须拦截概括化事件、同一引句重复冒充场面过程、E/P 模板套话和字数不足；只有 `commit-section` 能在全部通过后原子追加当前节并输出 `section_passed`。发现刚通过的最后一节合同不完整且后节尚未启动时，只能用 `reopen-section` 废除旧 SHA 后整节重写，禁止直接修改或补票。全节通过后必须取得 `final_ready`，才允许运行全文 `bind-draft`。若全文写完才首次创建进度状态或逐节回执，按事后补票直接阻断，必须归档该试稿并从第 1 节重开。
 
 ---
 
@@ -627,8 +630,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 16. 分别确认原文全部 `P-*` 情节微拍与全部 `E-*` 情绪拍已按原序逐拍迁移；两轨不得互相代替，缺失、弱化、并拍或只做功能映射时先重写细纲
 17. 初始化全文文字颗粒度 v2.4 合同；主体原文独占声线，完成 5 组连续片段逐句语义标注、逐特征原句证据、三组原创校准、七类成文活性资产和七类人物性格颗粒；为核心人物建立不可互换母版，绑定最终细纲并逐节完成连续句链、句间关系正反例、对白三联包、活性计划与人物计划，再通过 `validate-prewrite`
 18. 绑定主体拆文的全文情绪颗粒总账并初始化全文情绪颗粒度合同；把总账全部 `beat_id` 按原序唯一分配给数字小节，逐拍绑定细纲、同级烈度和独占证据，确认各节并集与全文总账完全同序相等后再通过 `validate-prewrite`
-19. 通过正文写作放行闸；随后逐节读取细纲、文字落笔包、活性计划和情绪合同，并把本节适用的即时检查规则先压成 `5-9` 条正向首写约束；写该节后立即用真实句子做即时复核、定点修正并回填两类正文映射，再进入下一节，不把生成证据或逐节检查拖到全文写完后补，不执行去 AI 味
-20. 正文初稿落盘后，绑定最终正文 SHA 并运行全文文字颗粒度与情绪颗粒度 `validate-draft`；再运行 `count_words.py`，知乎 / 盐言正文另运行纯数字分节格式校验
+19. 通过正文写作放行闸；创建逐节字数预算，初始化 `逐节正文进度.json`。每节先写场面计划，再传给 `start-section`；只在独立暂存稿中一次完成当前节。读细纲、文字落笔包、活性计划和情绪合同，把适用规则压成 `5-9` 条正向首写约束；提交前按正式口径计数，用真实句子复核场面、人物接招和全部映射，回填当节独立回执，通过 `commit-section` 后才原子写入 `正文.md`。实质问题必须整场或整节重写暂存稿，禁止追加补丁。未通过前不得创建下一节，不执行去 AI 味
+20. 全部小节逐节通过后运行进度闸 `finalize`；只有输出 `final_ready` 才绑定最终正文 SHA，将已验证的逐节回执合并到全文文字/情绪合同并运行 `validate-draft`；再运行 `count_words.py`，知乎 / 盐言正文另运行纯数字分节格式校验
 21. **立即停靠并把正文交给用户预览**；禁止自动继续顺序重绑、正文开头契约、窗口前回修、人工分窗、正式审计、去味、回炉、最终台账或完整人工语义复核
 22. 只有用户看过初稿并明确回复“继续深审”“继续完整流程”或同义指令后，才补正文顺序节点证据并重新通过完整顺序契约
 23. 对正文执行开头承重契约硬闸
@@ -737,13 +740,24 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --outline "{项目目录}/小节大纲.md"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_section_progress.py" init \
+  --state "{项目目录}/写作资产/逐节正文进度.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --draft "{项目目录}/正文.md" \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotion-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --budget "{项目目录}/写作资产/逐节字数预算.json"
+# 每节固定运行场面计划 -> start-section -> 一次写完暂存稿 -> commit-section；全节通过后运行 finalize。
+# 完整命令见 references/governance/section-progress-gate.md。
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
-  --draft "{项目目录}/正文.md"
+  --draft "{项目目录}/正文.md" \
+  --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_zhihu_section_format.py" --text "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/count_words.py" "{项目目录}/正文.md"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \

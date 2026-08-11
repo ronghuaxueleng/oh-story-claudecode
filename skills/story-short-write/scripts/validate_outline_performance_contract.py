@@ -31,6 +31,7 @@ REQUIRED_SECTION_FIELDS = (
     "forbidden_items",
     "outline_evidence",
     "manual_judgment",
+    "scene_units",
 )
 REQUIRED_BRIDGE_PARITY_FIELDS = (
     "source_bridge_id",
@@ -520,6 +521,7 @@ def create_receipt(
                 },
                 "forbidden_items": [],
                 "outline_evidence": [],
+                "scene_units": [],
                 "manual_judgment": "",
             }
             for section_id in sections
@@ -621,6 +623,48 @@ def validate_exchange(value: Any, label: str, errors: list[str]) -> None:
     for field in ("pressure", "forced_response", "visible_change"):
         if not nonempty_text(value.get(field)):
             errors.append(f"{label} interaction_exchange.{field} 不能为空")
+
+
+def validate_scene_units(value: Any, label: str, outline_text: str, section_id: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, list) or not 1 <= len(value) <= 3:
+        errors.append(f"{label} scene_units 必须包含 1-3 个完整场面")
+        return errors
+    actual_e: list[str] = []
+    actual_p: list[str] = []
+    allocated = 0
+    for index, scene in enumerate(value, start=1):
+        scene_label = f"{label}.scene_units[{index}]"
+        if not isinstance(scene, dict):
+            errors.append(f"{scene_label} 必须是对象")
+            continue
+        actual_e.extend(str(item).strip() for item in scene.get("emotion_beat_ids", []))
+        actual_p.extend(str(item).strip() for item in scene.get("plot_beat_ids", []))
+        chars = scene.get("allocated_chars")
+        if not isinstance(chars, int) or chars < 240:
+            errors.append(f"{scene_label}.allocated_chars 必须至少 240")
+        else:
+            allocated += chars
+        if scene.get("full_scene_required") is not True or scene.get("summary_only") is not False:
+            errors.append(f"{scene_label} 必须声明 full_scene_required=true / summary_only=false")
+        for field in ("entry_pressure", "turning_action", "visible_consequence", "aftershock", "reader_emotion_path"):
+            if not nonempty_text(scene.get(field)):
+                errors.append(f"{scene_label}.{field} 不能为空")
+        chain = scene.get("interaction_chain")
+        if not nonempty_list(chain, minimum=3):
+            errors.append(f"{scene_label}.interaction_chain 必须至少 3 步施压/接招")
+        evidence = scene.get("outline_evidence")
+        if not nonempty_list(evidence, minimum=2):
+            errors.append(f"{scene_label}.outline_evidence 必须引用至少 2 条当前细纲原句")
+        elif any(str(quote).strip() not in outline_text for quote in evidence):
+            errors.append(f"{scene_label}.outline_evidence 必须来自当前细纲")
+    if len(set(actual_e)) != len(actual_e) or len(set(actual_p)) != len(actual_p):
+        errors.append(f"{label}.scene_units E/P 拍不得重复分配")
+    target_chars = sum(int(scene.get("allocated_chars", 0)) for scene in value if isinstance(scene, dict))
+    declared = next((scene.get("target_chars") for scene in value if isinstance(scene, dict) and scene.get("target_chars")), target_chars)
+    if isinstance(declared, int) and target_chars != declared:
+        errors.append(f"{label}.scene_units 分配字数之和必须等于 target_chars")
+    return errors
 
 
 def validate_conflict(value: Any, label: str, errors: list[str]) -> None:
@@ -1977,6 +2021,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         if not nonempty_list(entry.get("character_missteps"), minimum=2):
             errors.append(f"{label} character_missteps 至少填写两条人物偏手/错答")
         validate_exchange(entry.get("interaction_exchange"), label, errors)
+        errors.extend(validate_scene_units(entry.get("scene_units"), label, outline_text, section_id))
         validate_conflict(entry.get("conflict_carrier"), label, errors)
         validate_relationship_legibility(
             entry.get("relationship_legibility"), label, errors
