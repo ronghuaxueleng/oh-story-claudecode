@@ -36,7 +36,7 @@ class ProjectDirectoryNameTest(unittest.TestCase):
         self.assertEqual([], GATE.validate(project, "《旧录像》"))
 
     def test_working_code_directory_is_blocked(self) -> None:
-        project = self.root / "新书-幼薇主骨架-强情绪追妻-20260807"
+        project = self.root / "新书-主体骨架-强情绪追妻-20260807"
         project.mkdir()
         errors = GATE.validate(project, "他把我的旧录像送给白月光后，我离婚了")
         self.assertTrue(any("正式书名一致" in error for error in errors))
@@ -46,6 +46,33 @@ class ProjectDirectoryNameTest(unittest.TestCase):
         project = self.root / "不存在的书"
         errors = GATE.validate(project, "不存在的书")
         self.assertTrue(any("目录不存在" in error for error in errors))
+
+    def test_new_project_preflight_passes_only_when_path_is_absent(self) -> None:
+        project = self.root / "他以为我不会走"
+        self.assertEqual(
+            [],
+            GATE.validate(project, "他以为我不会走", new_project=True),
+        )
+
+    def test_new_project_preflight_blocks_existing_directory(self) -> None:
+        project = self.root / "他以为我不会走"
+        project.mkdir()
+        errors = GATE.validate(
+            project,
+            "他以为我不会走",
+            new_project=True,
+        )
+        self.assertTrue(any("目录已被占用" in error for error in errors))
+
+    def test_new_project_preflight_blocks_existing_file(self) -> None:
+        project = self.root / "他以为我不会走"
+        project.write_text("已占用", encoding="utf-8")
+        errors = GATE.validate(
+            project,
+            "他以为我不会走",
+            new_project=True,
+        )
+        self.assertTrue(any("目录已被占用" in error for error in errors))
 
 
 if __name__ == "__main__":

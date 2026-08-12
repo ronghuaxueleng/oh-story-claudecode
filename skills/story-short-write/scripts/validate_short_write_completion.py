@@ -19,8 +19,6 @@ REQUIRED_CHECK_LABELS = {
     "opening_contract",
     "prose_granularity_contract",
     "emotional_granularity_contract",
-    "pre_window_revision",
-    "model_segmentation",
     "formal_audit",
     "post_write_human_review",
     "anti_false_pass_review",

@@ -34,15 +34,22 @@
 
 正例方向：`他以为我永远不会走`。自然、短，留下男主误判、失去和求回期待，不提前泄露具体桥段。
 
-正式书名锁定后，先用书名原文创建写作目录，再创建 `设定.md`、`小节大纲.md` 和 `正文.md`。项目目录不得使用题材、主体骨架、日期或内部任务代号。
+正式书名锁定后，全新开书必须先验证同名路径从未被占用，再用书名原文创建写作目录。目标路径已存在就退回候选书名阶段；不读其内容，不判断是否为空，不尝试复用。预检前禁止 `mkdir -p` 或初始化项目回执。创建后再验证目录名，两次通过后才能创建 `设定.md`、`小节大纲.md` 和 `正文.md`。项目目录不得使用题材、主体骨架、日期或内部任务代号。
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_project_directory_name.py" \
+  --project-dir "{工作区}/{小说书名}" \
+  --title "{小说书名}" \
+  --new-project
+
+mkdir "{工作区}/{小说书名}"
+
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_project_directory_name.py" \
   --project-dir "{工作区}/{小说书名}" \
   --title "{小说书名}"
 ```
 
-只有输出 `project_directory_name: passed` 才能进入设定阶段。已经写入回执后才发现目录名错误时，必须先移动整个目录，再同步项目内所有绝对路径、相对项目路径、profile 文件名和 `project` 字段；正文 SHA 不因目录移动改变，但所有路径绑定必须按新目录重新验证。
+两次都输出 `project_directory_name: passed` 才能初始化回执并进入设定阶段。已经写入回执后才发现目录名错误时，必须先移动整个目录，再同步项目内所有绝对路径、相对项目路径、profile 文件名和 `project` 字段；正文 SHA 不因目录移动改变，但所有路径绑定必须按新目录重新验证。
 
 用户否定书名时，立即停止设定、大纲和正文生成，退回本阶段。旧书名不得继续约束题面、核心物件或桥段；新名锁定后移动整个项目目录并同步上述字段，再重跑目录校验。若 skill、来源 SHA 或路径绑定随之变化，还必须重跑对应读取门禁、`sync-sources`、`validate-prewrite` 和当前阶段写作放行闸，不能沿用旧回执口头放行。
 

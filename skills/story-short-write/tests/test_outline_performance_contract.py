@@ -39,6 +39,18 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "reader_effect": f"读者在{role}感到关系继续恶化",
                 "intensity": 7 + min(index, 2),
                 "evidence": f"{evidence}·{index + 1}",
+                **(
+                    {
+                        "hurt_object": "婚姻位置",
+                        "expectation_before": f"第{index + 1}拍前仍期待对方维护原有位置",
+                        "expectation_after": f"第{index + 1}拍后确认原有位置再次被让给别人",
+                        "action_impulse_before": f"第{index + 1}拍前仍准备追问并等待解释",
+                        "action_impulse_after": f"第{index + 1}拍后改为收回物件并停止求证",
+                        "equivalence_reason": f"第{index + 1}拍用目标动作造成同序失位与行动转向。",
+                    }
+                    if target
+                    else {}
+                ),
             }
             for index, role in enumerate(roles)
         ]
@@ -49,11 +61,11 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             {
                 "beat_id": f"{prefix}-{index}",
                 "action": (
-                    f"目标施事者{index}完成第{index}个新故事动作"
+                    f"目标情节拍{index}完成第{index}个新故事动作"
                     if prefix == "TP"
                     else f"第{index}个不可省略动作"
                 ),
-                "actor": f"施事者{index}",
+                "actor": f"目标情节拍{index}" if prefix == "TP" else f"施事者{index}",
                 "pressure_or_trigger": f"第{index}拍的现场压力",
                 "control_change": f"第{index}拍的控制权变化",
                 "information_change": f"第{index}拍新增或延迟的信息",
@@ -69,7 +81,11 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                         "bid_ids": ["BID-01"],
                     }
                     if prefix == "P"
-                    else {}
+                    else {
+                        "actor_evidence": f"{evidence_prefix}{index}",
+                        "object_or_receiver": f"第{index}拍的目标动作对象",
+                        "adaptation_equivalence": f"第{index}拍保留控制权变化和现实后果，仅更换目标故事表层。",
+                    }
                 ),
             }
             for index in range(1, 5)
@@ -381,7 +397,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                 "source_excerpt": "原文场面",
                 "source_emotion_sequence": self.emotion_beats("原文场面"),
                 "target_emotion_sequence": self.emotion_beats(
-                    section["outline_evidence"][0]
+                    section["outline_evidence"][0], target=True
                 ),
                 "source_intensity_score": 8,
                 "target_intensity_score": 8,
@@ -674,6 +690,32 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         self.assertTrue(any("连续复用泛化模板" in error for error in errors))
         self.assertTrue(any("连续复用同一句" in error for error in errors))
         self.assertTrue(any("情绪流程连续复用" in error for error in errors))
+
+    def test_scene_interaction_chain_rejects_generic_placeholder(self) -> None:
+        scene = {
+            "scene_id": "S1-01",
+            "emotion_beat_ids": ["E-001"],
+            "plot_beat_ids": ["TP-001"],
+            "allocated_chars": 1000,
+            "target_chars": 1000,
+            "full_scene_required": True,
+            "summary_only": False,
+            "entry_pressure": "甲把钥匙放到桌上。",
+            "interaction_chain": [
+                "一方用钥匙施压",
+                "另一方用错答或抢物被迫接招",
+                "现场以钥匙换手出现可见换权",
+            ],
+            "turning_action": "乙收走钥匙。",
+            "visible_consequence": "甲失去进入权。",
+            "aftershock": "门在甲面前关上。",
+            "reader_emotion_path": "希望转为失位。",
+            "outline_evidence": ["动作一", "动作二"],
+        }
+        errors = GATE.validate_scene_units(
+            [scene], "section[1]", "动作一\n动作二", "1"
+        )
+        self.assertTrue(any("泛化施压/接招模板" in error for error in errors))
 
     def test_missing_source_bridge_parity_blocks(self) -> None:
         data = json.loads(self.receipt.read_text(encoding="utf-8"))

@@ -106,7 +106,7 @@ sync-policy: |
 
 - 只允许使用 `references/examples/` 内置样本
 - 不允许使用其他拆书目录、上一本文档、旧 profile、bak 或测试目录替代内置样本
-- 只写“已选《幼薇》”而没有具体文件和正反例锚点，视为未使用样本
+- 只写“已选某主体书”而没有具体文件和正反例锚点，视为未使用样本
 - `_sample_comparison.md` 不完整时，状态固定为 `blocked-on-assets`
 
 ### 原文资产候选池契约

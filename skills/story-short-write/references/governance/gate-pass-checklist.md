@@ -112,11 +112,11 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py"
 - [ ] 上述五项已在规则执行台账中分别标记 `applied / not_selected / prohibition_checked`，并绑定当前设定、大纲、正文或人工审计证据
 - [ ] 没有把拆书反面规则机械变成正文新增；每个正文修改项都能回指适用性和失败证据
 - [ ] `validate_pre_window_revision_gate.py` 输出 `pre_window_revision_gate: passed`
-- [ ] 人工模型分段回执为 `completed`
+- [ ] （可选）人工模型分段回执为 `completed`；默认流程不要求窗口切分
 - [ ] 正文 SHA、字符数和边界与当前正文一致
 - [ ] 正式全量审计使用人工分段回执，不是算法滑窗预扫
 - [ ] 每个窗口已由当前模型人工写明病因、证据和处理决策
-- [ ] `rhythm_distribution_audit` 已逐窗人工复核
+- [ ] `rhythm_distribution_audit` 已由当前模型结合全文人工复核，不要求逐窗回执
 - [ ] 写后人工语义复核通过
 - [ ] 规则执行台账通过
 - [ ] 缺任一项，只能标记为“未完成”，不能用部分检查结果代替

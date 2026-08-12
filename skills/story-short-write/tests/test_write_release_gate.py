@@ -31,6 +31,12 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "reader_effect": f"读者在{role}感到关系恶化",
                 "intensity": 8,
                 "evidence": f"{evidence}·{index}",
+                "hurt_object": "婚姻位置",
+                "expectation_before": f"第{index}拍前仍期待对方维护原有位置",
+                "expectation_after": f"第{index}拍后确认原有位置再次被让给别人",
+                "action_impulse_before": f"第{index}拍前仍准备追问并等待解释",
+                "action_impulse_after": f"第{index}拍后改为收回物件并停止求证",
+                "equivalence_reason": f"第{index}拍用目标动作造成同序失位与行动转向。",
             }
             for index, role in enumerate(roles, start=1)
         ]
@@ -41,8 +47,12 @@ class WriteReleaseGateTest(unittest.TestCase):
         return [
             {
                 "beat_id": f"{prefix}-{index}",
-                "action": f"{side}第{index}拍施事者完成{side}第{index}拍动作",
-                "actor": f"{side}第{index}拍施事者",
+                "action": (
+                    f"目标情节拍{index}完成目标第{index}拍动作"
+                    if prefix != "P"
+                    else f"原文第{index}拍施事者完成原文第{index}拍动作"
+                ),
+                "actor": f"目标情节拍{index}" if prefix != "P" else f"原文第{index}拍施事者",
                 "pressure_or_trigger": f"{side}第{index}拍压力",
                 "control_change": f"{side}第{index}拍控制权变化",
                 "information_change": f"{side}第{index}拍信息变化",
@@ -55,7 +65,11 @@ class WriteReleaseGateTest(unittest.TestCase):
                         "bid_ids": ["BID-01"],
                     }
                     if prefix == "P"
-                    else {}
+                    else {
+                        "actor_evidence": f"{evidence_prefix}{index}",
+                        "object_or_receiver": f"第{index}拍的目标动作对象",
+                        "adaptation_equivalence": f"第{index}拍保留控制权变化和现实后果，仅更换目标故事表层。",
+                    }
                 ),
             }
             for index in range(1, 5)
@@ -88,6 +102,18 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "reader_effect": f"读者在第{index}拍感到关系恶化",
                 "intensity": 7,
                 "evidence": f"动作一·{index}" if target else source_quotes[index - 1],
+                **(
+                    {
+                        "hurt_object": "婚姻位置",
+                        "expectation_before": f"第{index}拍前仍期待对方维护原有位置",
+                        "expectation_after": f"第{index}拍后确认原有位置再次被让给别人",
+                        "action_impulse_before": f"第{index}拍前仍准备追问并等待解释",
+                        "action_impulse_after": f"第{index}拍后改为收回物件并停止求证",
+                        "equivalence_reason": f"第{index}拍用目标动作造成同序失位与行动转向。",
+                    }
+                    if target
+                    else {}
+                ),
             }
             for index, role in enumerate(roles, start=1)
         ]
@@ -1028,6 +1054,12 @@ class WriteReleaseGateTest(unittest.TestCase):
                         f"把原文第{index + 1}拍造成的关系落差迁入目标人物的新场面动作，"
                         "保留该拍的期待变化和受伤方向，但更换人物、空间与物件。"
                     ),
+                    "hurt_object": "婚姻位置",
+                    "expectation_before": f"第{index + 1}拍前仍期待对方维护原有位置",
+                    "expectation_after": f"第{index + 1}拍后确认原有位置再次被让给别人",
+                    "action_impulse_before": f"第{index + 1}拍前仍准备追问并等待解释",
+                    "action_impulse_after": f"第{index + 1}拍后改为收回物件并停止求证",
+                    "equivalence_reason": f"第{index + 1}拍用目标动作造成同序失位与行动转向。",
                     "target_evidence_coverage_review": (
                         f"已逐句核对完整动作链；触发为目标第{index + 1}个情绪触发，"
                         f"关系位移为目标第{index + 1}拍让主角在新关系中进一步失位。"

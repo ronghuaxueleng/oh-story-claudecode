@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from datetime import datetime, timezone
@@ -24,6 +25,22 @@ SF_DIMENSIONS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+
+CHAR_COUNT_TOLERANCE = 0.20
+CHAR_COUNT_SHORTFALL_GRACE = 100
+
+
+def tolerated_char_range(minimum: int, maximum: int) -> tuple[int, int]:
+    """Return the inclusive actual-draft range allowed around a planned budget."""
+    return (
+        max(0, math.ceil(minimum * (1 - CHAR_COUNT_TOLERANCE)) - CHAR_COUNT_SHORTFALL_GRACE),
+        math.floor(maximum * (1 + CHAR_COUNT_TOLERANCE)),
+    )
+
+
+def char_count_within_tolerance(count: int, minimum: int, maximum: int) -> bool:
+    tolerated_minimum, tolerated_maximum = tolerated_char_range(minimum, maximum)
+    return tolerated_minimum <= count <= tolerated_maximum
 
 
 def now_iso() -> str:
@@ -72,6 +89,15 @@ def split_sections(text: str) -> tuple[str, dict[str, str], list[str]]:
         sections[sid] = text[match.end() : end].strip()
         order.append(sid)
     return prefix, sections, order
+
+
+def load_committed_draft(draft_path: Path, staged_mode: bool) -> tuple[str, list[str]]:
+    """A staged first section may create正文.md only after all checks pass."""
+    if draft_path.is_file():
+        return draft_path.read_text(encoding="utf-8"), []
+    if staged_mode:
+        return "", []
+    return "", ["正文不存在"]
 
 
 def expected_ids(emotion_receipt: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -697,14 +723,11 @@ def command_validate(args: argparse.Namespace) -> int:
         return fail("validate-section", [str(exc)])
     if item.get("status") != "writing":
         errors.append(f"第 {sid} 节必须先 start-section，实际状态为 {item.get('status')}")
-    draft_path = Path(state["paths"]["draft"])
-    if not draft_path.is_file():
-        errors.append("正文不存在")
-        draft_text = ""
-    else:
-        draft_text = draft_path.read_text(encoding="utf-8")
-    _, sections, order = split_sections(draft_text)
     staged_mode = bool(getattr(args, "staged", None))
+    draft_path = Path(state["paths"]["draft"])
+    draft_text, draft_errors = load_committed_draft(draft_path, staged_mode)
+    errors.extend(draft_errors)
+    _, sections, order = split_sections(draft_text)
     expected_order = [str(index) for index in range(1, int(sid) + (0 if staged_mode else 1))]
     if order != expected_order:
         errors.append(f"验收第 {sid} 节时正文必须且只能包含 {expected_order}，实际为 {order}")
@@ -723,8 +746,14 @@ def command_validate(args: argparse.Namespace) -> int:
     else:
         section_text = sections.get(sid, "")
     count = non_whitespace_chars(section_text)
-    if count < int(item.get("min_chars", 0)) or count > int(item.get("max_chars", 0)):
-        errors.append(f"第 {sid} 节字数 {count} 不在预算 {item.get('min_chars')}-{item.get('max_chars')} 内")
+    minimum = int(item.get("min_chars", 0))
+    maximum = int(item.get("max_chars", 0))
+    tolerated_minimum, tolerated_maximum = tolerated_char_range(minimum, maximum)
+    if not char_count_within_tolerance(count, minimum, maximum):
+        errors.append(
+            f"第 {sid} 节字数 {count} 超出预算 {minimum}-{maximum} 的上下 20% 容差范围 "
+            f"{tolerated_minimum}-{tolerated_maximum}"
+        )
     for previous_sid, expected_hash in item.get("prior_section_hashes", {}).items():
         if sha256_text(sections.get(previous_sid, "")) != expected_hash:
             errors.append(f"写第 {sid} 节时修改了已通过的第 {previous_sid} 节")
@@ -837,7 +866,10 @@ def command_validate(args: argparse.Namespace) -> int:
         errors.append("full_dialogue_reviews 必须按正文顺序逐字覆盖全部直接对白")
     else:
         for index, entry in enumerate(full_dialogue, start=1):
-            for field in ("speaker", "scene_pressure", "turn_connection", "interchangeability_judgment"):
+            speaker = str(entry.get("speaker") or "").strip()
+            if len(speaker) < 2:
+                errors.append(f"full_dialogue_reviews[{index}].speaker 过短")
+            for field in ("scene_pressure", "turn_connection", "interchangeability_judgment"):
                 if len(str(entry.get(field) or "").strip()) < 4:
                     errors.append(f"full_dialogue_reviews[{index}].{field} 过短")
             if entry.get("decision") != "keep":
@@ -1092,8 +1124,14 @@ def command_finalize(args: argparse.Namespace) -> int:
             errors.append(f"第 {sid} 节逐节回执缺失或已变化")
     total = non_whitespace_chars(draft_text)
     budget = state.get("total_budget", {})
-    if total < int(budget.get("min_chars", 0)) or total > int(budget.get("max_chars", 0)):
-        errors.append(f"全文字数 {total} 不在预算 {budget.get('min_chars')}-{budget.get('max_chars')} 内")
+    minimum = int(budget.get("min_chars", 0))
+    maximum = int(budget.get("max_chars", 0))
+    tolerated_minimum, tolerated_maximum = tolerated_char_range(minimum, maximum)
+    if not char_count_within_tolerance(total, minimum, maximum):
+        errors.append(
+            f"全文字数 {total} 超出预算 {minimum}-{maximum} 的上下 20% 容差范围 "
+            f"{tolerated_minimum}-{tolerated_maximum}"
+        )
     if errors:
         return fail("finalize", errors)
     state["status"] = "final_ready"

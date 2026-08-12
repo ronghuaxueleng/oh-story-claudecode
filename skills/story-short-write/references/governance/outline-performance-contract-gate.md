@@ -29,6 +29,8 @@
 - 连续小节复制同一套原文情绪拍、触发和证据，只换目标桥段名称
 - 只迁移主体原文部分 SF，或只挑每个 SF 中最显眼的一两类颗粒
 - 用同一条目标细纲原句批量声称已经迁移全部局部颗粒，却不填写各字段迁移方法
+- 按来源数组下标、连续节范围或固定角色模板自动配对目标 E/P 拍；即使拍数、烈度和证据数量齐全，也属于语义错位
+- 没有独立的 `写作资产/逐拍语义映射.json`，或装配器仍能在映射缺失时自行生成 `target_emotion_sequence / target_plot_beats`
 
 ## 强情绪仿写四硬闸
 
@@ -40,6 +42,10 @@
 4. `source_emotion_parity`：绑定选中原文真实片段，逐拍对齐原文与目标稿的情绪流程；每拍必须包含触发、关系位置变化、读者感受、烈度和证据。目标拍数、拍序、反刀拍、峰值拍不得变化，任何一拍的目标烈度不得低于原文。
 
 “和原文一样”指情绪功能、顺序、反刀时机、峰值位置、场末余痛和读者体感烈度对齐，不复制原句、人物、职业或完整情节壳。不能用“整节总分相同”掩盖中间某一拍被削弱。
+
+### 逐拍映射先于装配
+
+细纲验收前必须建立 `写作资产/逐拍语义映射.json`。每个情绪拍至少填写 `source_beat_id / target_beat_id / target_outline_region / hurt_object / expectation_before / expectation_after / action_impulse_before / action_impulse_after / equivalence_reason / evidence`；每个情节拍至少填写 `source_beat_id / target_beat_id / actor / actor_evidence / object_or_receiver / pressure_or_trigger / action / control_change / information_change / consequence / adaptation_equivalence / evidence`。这些字段是人工语义裁决结果，不得由装配脚本按编号、位置或统一句式生成。装配器只允许做确定性序列化，并必须在运行前检查映射文件覆盖主体全集、证据独占和目标人物真实出现。
 
 ## 执行时机
 
@@ -220,7 +226,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 
 以下情况直接失败：
 
-- 只写“迁移《幼薇》高成本补救机制”，但没有说明原文里如何通过整夜翻找、找到残缺物、电话打断和离场完成补救失败。
+- 只写“迁移主体原书的高成本补救机制”，但没有说明原文里如何通过具体动作、阻力、打断和离场完成补救失败。
 - 只写“迁移行动验收”，但没有说明原文里如何用近身动作、可执行条件、第三人施压和再次站队完成判卷。
 - 只写“迁移公开反噬”，但没有说明原文里公开场如何由对手欲望主动搭起、外部秩序如何接管、主角为什么不需要上台讲解。
 - 细纲把功能机制翻成 `补钱 / 补日志 / 交钥匙 / 修物件` 等并列任务，没有原文级别的身体动作、错答、阻力和现场摩擦。
@@ -242,3 +248,39 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gat
 ```
 
 开头契约只验前屏功能顺序；顺序契约只验设定、细纲和正文的桥段先后；规则台账只验规则执行记录。三者均不能替代本闸门。本闸门专门验证“细纲能否写出活场面”。
+
+### 逐场语义资产
+
+`scene_units` 不得由装配器从每场首尾两条证据自动生成。每场必须先由当前模型落盘人工逐场语义资产，至少包含具体人物、进场压力、三步施压与接招、转折动作、可见后果、余波和读者情绪路径，再由装配器原样消费。
+
+以下表达只算占位模板，不能通过：`一方用……施压`、`另一方用错答或抢物被迫接招`、`现场以……出现可见换权`。三步链必须能回答谁对谁做了什么、对方如何接招、哪一动作改变了现场结果。逐场资产未 `approved`、缺场或仍含泛化链时，先回修资产和细纲表演合同，不得在正文场面计划中临时补齐。
+
+### 通用执行器与项目资产边界
+
+新项目在目录命名和读取门禁通过后，可初始化空资产：
+
+```bash
+python3 "$SKILL_ROOT/scripts/init_project_writing_assets.py" \
+  --project-dir "{项目目录}" \
+  --project-name "{项目名}"
+```
+
+该命令只复制 `assets/` 中的项目配置、逐拍和逐场空模板，三份资产均不得覆盖已有文件。逐拍/逐场初始状态必须为 `pending`，由当前模型逐项填写后才能改为 `approved`。
+
+项目 profile 来源策略由通用脚本消费 `项目写作配置.json`：
+
+```bash
+python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
+  --config "{项目目录}/写作资产/项目写作配置.json"
+```
+
+逐节计划必须直接复制已通过的上游 `scene_units`：
+
+```bash
+python3 "$SKILL_ROOT/scripts/create_section_plan.py" \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --section N \
+  --output "{项目目录}/写作资产/当前节计划/第N节.json"
+```
+
+书名、主体/辅助来源、选中 BID 和路径属于项目配置；E/P 拍、场面链和情绪等价理由属于项目人工语义资产。通用脚本不得硬编码这些单书信息，项目也不得长期保留复制自某本书的几百行装配脚本作为下一本书模板。

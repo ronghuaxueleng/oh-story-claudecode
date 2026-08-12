@@ -10,7 +10,7 @@
 
 每个来源拍填写稳定 `beat_id / role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence`，并与全文总账逐字段相等。`role` 描述该拍在这段原文里的实际作用，不从预设目录挑选；写作合同不得重新概括、改写或美化来源拍。
 
-目标细纲沿用原文全部 `beat_id / role / intensity`、实际角色和原顺序，并填写 `target_outline_region / target_story_adaptation / trigger / relationship_position_change / reader_effect / outline_evidence`。目标三个语义字段与迁移说明必须具体写成新书人物、动作、关系和读者预期，不能照抄来源分析。原文有几拍，目标就必须有几拍；相近或重复情绪仍各自保留，不能合并。原文真实存在反刀或峰值时记录实际拍序，不存在则双方记 `0`，不得为了通过合同补造情绪。
+目标细纲沿用原文全部 `beat_id / role / intensity`、实际角色和原顺序，并逐拍填写 `target_outline_region / target_story_adaptation / trigger / relationship_position_change / reader_effect / outline_evidence`，以及 `hurt_object / expectation_before / expectation_after / action_impulse_before / action_impulse_after / equivalence_reason`。后六项必须由当前模型针对目标现场人工裁决：明确谁受伤、这一拍前后还在期待什么、人物下一步想做什么，以及如何由动作而非烈度数字完成迁移。按数组下标、`enumerate`、第 N 句或统一模板批量填充，均视为未迁移。原文有几拍，目标就必须有几拍；相近或重复情绪仍各自保留，不能合并。原文真实存在反刀或峰值时记录实际拍序，不存在则双方记 `0`，不得为了通过合同补造情绪。
 
 原文导语拍的 `target_outline_region` 固定为 `opening`，证据必须位于目标 `## 导语`；原文尾声拍固定为 `epilogue`，证据必须位于目标 `## 尾声`。其余拍进入领取它的 `section:N`，数字节标题可写 `## N.` 或 `## N. 标题`。不得把桥外首尾拍塞进第一节或最后一节凑齐 ID。
 
@@ -22,7 +22,11 @@
 
 辅助书只供应情节或现实后果时，在细纲表演契约使用 `emotion_transfer_policy: plot_mechanism_only`：其已选 BID 仍必须建立完整 P 拍库和等数目标映射，但不迁移辅助书 E 拍、反刀、峰值或正文声线。主体原文必须使用 `primary_full_emotion`，不得借该模式缩减情绪全集。
 
-验证器通过只证明字段、顺序、区域、烈度和证据约束成立，不证明目标情绪在语义上真的发生。当前模型必须逐拍人工判断：现实触发是否出现，受伤对象是否一致迁移，关系位置是否改变，行动冲动和读者预期是否按原轮廓变化。合同写得完整而细纲现场没有兑现，仍须判失败并回写细纲。
+验证器通过只证明字段、顺序、区域、烈度和证据约束成立，不证明目标情绪在语义上真的发生。当前模型必须逐拍人工判断：现实触发是否出现，受伤对象是否一致迁移，关系位置是否改变，行动冲动和读者预期是否按原轮廓变化。`hurt_object` 必须在独占证据中真实出现；前后期待和行动冲动必须发生可解释变化；`I9-I10` 必须说明同级不可逆损失、关系掉位或读者预期翻转。合同写得完整而细纲现场没有兑现，仍须判失败并回写细纲。
+
+### 逐拍语义映射资产
+
+细纲验收前必须先落盘 `写作资产/逐拍语义映射.json`，按 `E-*` 与 `P-*` 分列保存每一拍的目标字段。装配器只能读取并校验该文件后序列化回执，不能从来源数组、节序号或证据池位置推导目标语义。映射资产缺拍、重复证据、施事者不在证据中，或把施工说明当现场事实时，禁止生成正式合同。
 
 本合同同时承担最终正文情节拍兑现，但不负责生成情节拍库。情节拍库只能来自拆文阶段独立落盘的 `写作资产/全文情节微拍总账.json`，并经细纲表演验收逐拍改写为目标情节拍。每节写前从已通过的 `细纲表演验收回执.json` 领取归属本节的全部目标情节拍，写入 `required_plot_beats`；正文放行门禁将全书这些 `P-*` 与细纲回执的目标拍全集按顺序比对。写后在 `plot_beat_reviews` 中逐拍绑定独占正文引句和现实后果。任一细纲拍未领取、重复领取、改序或正文无证据，均阻断。
 

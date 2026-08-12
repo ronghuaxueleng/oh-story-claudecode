@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,23 @@ class SectionProgressGateTest(unittest.TestCase):
         errors = GATE.validate_first_draft_plan(plan, self.item, "1")
         self.assertTrue(any("target_chars" in error for error in errors))
         self.assertTrue(any("梗概" in error for error in errors))
+
+    def test_actual_char_count_allows_twenty_percent_tolerance(self) -> None:
+        self.assertEqual((620, 1320), GATE.tolerated_char_range(900, 1100))
+        self.assertTrue(GATE.char_count_within_tolerance(720, 900, 1100))
+        self.assertTrue(GATE.char_count_within_tolerance(1320, 900, 1100))
+        self.assertTrue(GATE.char_count_within_tolerance(620, 900, 1100))
+        self.assertFalse(GATE.char_count_within_tolerance(619, 900, 1100))
+        self.assertFalse(GATE.char_count_within_tolerance(1321, 900, 1100))
+
+    def test_staged_first_section_allows_missing_committed_draft(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            draft = Path(temp_dir) / "正文.md"
+            self.assertEqual(("", []), GATE.load_committed_draft(draft, True))
+            self.assertEqual(("", ["正文不存在"]), GATE.load_committed_draft(draft, False))
+
+    def test_chinese_full_name_meets_speaker_identity_floor(self) -> None:
+        self.assertGreaterEqual(len("贺庭川"), 2)
 
     def test_template_semantic_receipt_is_blocked(self) -> None:
         quotes = [f"这是场面中第{index}条互不相同的真实句子。" for index in range(1, 8)]

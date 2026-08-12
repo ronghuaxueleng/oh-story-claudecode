@@ -753,6 +753,46 @@ class RuleExecutionLedgerTest(unittest.TestCase):
             )
         )
 
+    def test_duplicate_rule_ids_match_by_source_cases(self) -> None:
+        first = {
+            "id": "ASSET-RULE-shared",
+            "rule_text": "拆书资产族::book.profile.json",
+            "cases": [{"source_path": "/source/a.json", "text": "a: 1"}],
+            "status": "completed",
+        }
+        second = {
+            "id": "ASSET-RULE-shared",
+            "rule_text": "拆书资产族::book.profile.json",
+            "cases": [{"source_path": "/source/b.json", "text": "b: 2"}],
+            "status": "pending",
+        }
+        old_entries = {"ASSET-RULE-shared": [first, second]}
+
+        rebuilt_second = {
+            "id": "ASSET-RULE-shared",
+            "rule_text": "拆书资产族::book.profile.json",
+            "cases": [{"source_path": "/source/b.json", "text": "b: 2"}],
+        }
+        matched = GATE.pop_matching_old_entry(old_entries, rebuilt_second)
+
+        self.assertIs(second, matched)
+        self.assertEqual([first], old_entries["ASSET-RULE-shared"])
+
+        reordered = {
+            "id": "ASSET-RULE-reordered",
+            "rule_text": "拆书资产族::book.profile.json",
+            "cases": [
+                {"source_path": "/source/a.json", "text": "a: 1"},
+                {"source_path": "/source/a.json", "text": "b: 2"},
+            ],
+        }
+        rebuilt_reordered = dict(reordered)
+        rebuilt_reordered["cases"] = list(reversed(reordered["cases"]))
+        self.assertEqual(
+            GATE.entry_source_signature(reordered),
+            GATE.entry_source_signature(rebuilt_reordered),
+        )
+
     def test_sync_sources_refreshes_file_asset_hash_and_preserves_state(self) -> None:
         ledger = self._write_completed_ledger()
         asset = next(

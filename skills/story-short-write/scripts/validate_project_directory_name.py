@@ -22,7 +22,7 @@ def normalize_title(value: str) -> str:
     return title
 
 
-def validate(project_dir: Path, title: str) -> list[str]:
+def validate(project_dir: Path, title: str, *, new_project: bool = False) -> list[str]:
     errors: list[str] = []
     expected = normalize_title(title)
     actual = project_dir.name
@@ -30,7 +30,9 @@ def validate(project_dir: Path, title: str) -> list[str]:
     if not expected:
         errors.append("正式书名不能为空")
         return errors
-    if not project_dir.is_dir():
+    if new_project and project_dir.exists():
+        errors.append(f"全新开书目录已被占用，不得复用: {project_dir}")
+    elif not new_project and not project_dir.is_dir():
         errors.append(f"写作项目目录不存在: {project_dir}")
     if actual != expected:
         errors.append(f"项目目录名必须与正式书名一致: expected={expected!r}, actual={actual!r}")
@@ -43,10 +45,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-dir", required=True)
     parser.add_argument("--title", required=True)
+    parser.add_argument(
+        "--new-project",
+        action="store_true",
+        help="创建前检查：目标路径必须完全不存在",
+    )
     args = parser.parse_args()
 
     project_dir = Path(args.project_dir).expanduser().resolve()
-    errors = validate(project_dir, args.title)
+    errors = validate(project_dir, args.title, new_project=args.new_project)
     if errors:
         print("project_directory_name: blocked")
         for error in errors:
@@ -55,6 +62,7 @@ def main() -> int:
     print("project_directory_name: passed")
     print(f"project_dir: {project_dir}")
     print(f"title: {normalize_title(args.title)}")
+    print(f"mode: {'new_project_preflight' if args.new_project else 'existing_project_validation'}")
     return 0
 
 

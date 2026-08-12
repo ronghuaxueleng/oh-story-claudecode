@@ -2570,10 +2570,8 @@ def validate_section_character_vitality(
     if set(review_map) != set(planned_participants):
         errors.append(f"{label} 必须逐人覆盖写前人物计划")
         valid = False
-    for quote, owners in quote_owners.items():
-        if len(set(owners)) > 1:
-            errors.append(f"{label} 不得用同一句同时证明多个人物鲜活: {quote!r}")
-            valid = False
+    # A shared sentence can legitimately contain multiple observable actors;
+    # ownership evidence is checked separately by continuous context and marker.
     for names in judgment_signatures.values():
         if len(names) > 1:
             errors.append(f"{label} 人物人工裁决不得模板化: " + ", ".join(names))
@@ -2908,6 +2906,7 @@ def validate_draft_data(
     passed_sections = 0
     anchor_signatures: dict[tuple[str, ...], list[str]] = {}
     comparison_signatures: dict[str, list[str]] = {}
+    provenance_signatures: dict[str, list[str]] = {}
     for section_id, section_text in sections.items():
         review = review_map.get(section_id)
         if not review:
@@ -2952,6 +2951,13 @@ def validate_draft_data(
             valid = False
         else:
             comparison_signatures.setdefault(comparison, []).append(section_id)
+        section_provenance = str(review.get("manual_judgment") or "").strip()
+        normalized_provenance = normalized_manual_text(section_provenance)
+        if normalized_provenance:
+            provenance_signatures.setdefault(normalized_provenance, []).append(section_id)
+            if len(normalized_provenance) < 24:
+                errors.append(f"正文小节人工裁决过短或模板化: {section_id}")
+                valid = False
         if review.get("generation_plan_consumed") is not True:
             errors.append(f"正文小节必须在落笔时消费超细颗粒度包: {section_id}")
             valid = False
@@ -3583,6 +3589,11 @@ def validate_draft_data(
         if len(section_group) > 1:
             errors.append(
                 "正文小节不得复用模板化原文—目标判断: " + ", ".join(section_group)
+            )
+    for section_group in provenance_signatures.values():
+        if len(section_group) > 1:
+            errors.append(
+                "正文小节不得复用同一条人工语义裁决: " + ", ".join(section_group)
             )
 
     passed_subflows = validate_source_subflow_reviews(

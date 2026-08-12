@@ -1108,6 +1108,29 @@ def preflight_final_rebind(
     return [], report
 
 
+def migration_report(ledger_path: Path) -> tuple[list[str], dict[str, Any]]:
+    """Classify source changes without mutating the ledger or outcomes."""
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    report = {"preserve": [], "manual_rebind": [], "blocked": []}
+    for scope, label, entry in iter_scoped_execution_entries(data):
+        if entry.get("applicability") == "merged":
+            canonical = str(entry.get("merged_into") or "").strip()
+            if not canonical:
+                report["blocked"].append(f"{label}:missing_canonical")
+            continue
+        source_path = Path(str(entry.get("source_path") or "")).resolve()
+        stored_sha = str(entry.get("sha256") or "").strip()
+        if source_path.is_file() and stored_sha == sha256(source_path):
+            report["preserve"].append(label)
+        elif not source_path.is_file() or not stored_sha:
+            report["blocked"].append(f"{label}:missing_or_unbound_source")
+        else:
+            report["manual_rebind"].append(f"{label}:source_changed")
+            if entry.get("status") == "completed" and entry.get("outcome") == "passed":
+                report["blocked"].append(f"{label}:stale_passed_status")
+    return [], report
+
+
 def iter_execution_entries(data: dict[str, Any]) -> Iterable[dict[str, Any]]:
     for entry in data.get("skill_rules", []):
         if isinstance(entry, dict):
@@ -1244,18 +1267,33 @@ def refresh_summary(ledger_path: Path) -> None:
 
 def entry_source_signature(entry: dict[str, Any]) -> str:
     """Compare a rule card's actual source cases, not the source file SHA."""
+    cases = [
+        {
+            "source_path": item.get("source_path"),
+            "text": item.get("text"),
+        }
+        for item in entry.get("cases", [])
+        if isinstance(item, dict)
+    ]
+    cases.sort(key=lambda item: (str(item["source_path"]), str(item["text"])))
     payload = {
         "rule_text": entry.get("rule_text"),
-        "cases": [
-            {
-                "source_path": item.get("source_path"),
-                "text": item.get("text"),
-            }
-            for item in entry.get("cases", [])
-            if isinstance(item, dict)
-        ],
+        "cases": cases,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+
+def pop_matching_old_entry(
+    old_entries: dict[str, list[dict[str, Any]]],
+    rebuilt_entry: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Match duplicate rule IDs by their actual source cases, not list order."""
+    candidates = old_entries.get(str(rebuilt_entry.get("id") or ""), [])
+    rebuilt_signature = entry_source_signature(rebuilt_entry)
+    for index, candidate in enumerate(candidates):
+        if entry_source_signature(candidate) == rebuilt_signature:
+            return candidates.pop(index)
+    return None
 
 
 def entry_state_fields(entry: dict[str, Any]) -> dict[str, Any]:
@@ -1340,20 +1378,20 @@ def sync_sources(ledger_path: Path) -> tuple[list[str], dict[str, int]]:
     if errors:
         return errors, {}
 
-    old_entries = {
-        str(entry.get("id") or ""): entry
-        for entry in iter_execution_entries(data)
-        if isinstance(entry, dict) and entry.get("id")
-    }
+    old_entries: dict[str, list[dict[str, Any]]] = {}
+    for entry in iter_execution_entries(data):
+        if isinstance(entry, dict) and entry.get("id"):
+            old_entries.setdefault(str(entry["id"]), []).append(entry)
     preserved = 0
     reset = 0
     created = 0
     for entry in iter_execution_entries(rebuilt):
-        old = old_entries.get(str(entry.get("id") or ""))
-        if old is None:
+        candidates = old_entries.get(str(entry.get("id") or ""), [])
+        old = pop_matching_old_entry(old_entries, entry)
+        if old is None and not candidates:
             created += 1
             continue
-        if entry_source_signature(old) != entry_source_signature(entry):
+        if old is None:
             reset += 1
             continue
         candidate = dict(entry)
@@ -2602,6 +2640,12 @@ def main() -> int:
         help="重写前把全部正文证据与正文范围复核预估为待重绑",
     )
 
+    migration_parser = subparsers.add_parser(
+        "migration-report",
+        help="只读分类来源变化、旧 SHA 和 canonical 重绑债务，不修改台账",
+    )
+    migration_parser.add_argument("--ledger", required=True)
+
     refresh_parser = subparsers.add_parser("refresh-summary", help="按逐项状态刷新执行汇总")
     refresh_parser.add_argument("--ledger", required=True)
 
@@ -2717,6 +2761,20 @@ def main() -> int:
             )
             return 2
         print("rule_execution_gate: rebind_preflight_passed")
+        return 0
+    if args.command == "migration-report":
+        errors, report = migration_report(ledger_path)
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        if errors:
+            print("rule_execution_gate: migration_report_blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        if report["blocked"]:
+            print("rule_execution_gate: migration_review_required")
+            print("- blocked 项必须人工裁决；命令不会自动改写状态")
+            return 2
+        print("rule_execution_gate: migration_report_ready")
         return 0
     if args.command == "refresh-summary":
         refresh_summary(ledger_path)

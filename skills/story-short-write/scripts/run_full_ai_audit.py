@@ -2039,9 +2039,9 @@ def validate_manual_model_segmentation_receipt(
     errors: list[str] = []
     source = receipt.get("source") if isinstance(receipt.get("source"), dict) else {}
     if receipt.get("status") != "completed":
-        errors.append("人工模型分段回执 status 必须为 completed")
+        errors.append("可选人工模型分段回执 status 必须为 completed")
     if receipt.get("execution_mode") != "current_model_manual":
-        errors.append("人工模型分段回执 execution_mode 必须为 current_model_manual")
+        errors.append("可选人工模型分段回执 execution_mode 必须为 current_model_manual")
     if str(source.get("path") or "") != str(source_path.resolve()):
         errors.append("人工模型分段回执绑定的正文路径不一致")
     if source.get("sha256") != text_sha256(text):

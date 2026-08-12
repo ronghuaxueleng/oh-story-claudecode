@@ -34,6 +34,35 @@ REQUIRED_REVIEW_QUOTE_FIELDS = (
     "opponent_pressure_quotes",
     "loss_of_control_or_equivalent_quotes",
 )
+TARGET_SEMANTIC_FIELDS = (
+    "hurt_object",
+    "expectation_before",
+    "expectation_after",
+    "action_impulse_before",
+    "action_impulse_after",
+    "equivalence_reason",
+)
+CONSTRUCTION_EVIDENCE_MARKERS = (
+    "不照搬",
+    "没有照搬",
+    "不能写成",
+    "不承担",
+    "不补",
+    "只供应",
+    "只保留",
+    "公开场不能",
+    "叙述不写成",
+    "这里没有",
+    "机制迁移",
+)
+GENERIC_TARGET_MARKERS = (
+    "目标故事中",
+    "这一现实动作触发本拍",
+    "婚内位置再次变化",
+    "继续改写关系结果",
+    "实际选择与后果",
+    "同时覆盖触发动作与关系后果",
+)
 
 
 def now_iso() -> str:
@@ -50,6 +79,15 @@ def sha1_file(path: Path) -> str:
 
 def normalize_bound_text(value: Any) -> str:
     return str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def semantic_surface(value: Any) -> str:
+    return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(value or ""))
+
+
+def is_construction_evidence(value: Any) -> bool:
+    text = str(value or "")
+    return any(marker in text for marker in CONSTRUCTION_EVIDENCE_MARKERS)
 
 
 def bound_text_contains(container: Any, quote: Any) -> bool:
@@ -545,6 +583,26 @@ def validate_sequence_parity(
                 errors.append(
                     f"{label} 第 {index} 个实际情绪拍 {field} 仍照搬原文分析，未迁移到目标故事"
                 )
+        if len(str(target.get("hurt_object") or "").strip()) < 1:
+            errors.append(f"{label} 第 {index} 个实际情绪拍缺少 hurt_object，不能只保留角色标签")
+        for field in TARGET_SEMANTIC_FIELDS[1:]:
+            if len(str(target.get(field) or "").strip()) < 8:
+                errors.append(f"{label} 第 {index} 个实际情绪拍缺少 {field}，不能只保留角色标签")
+        evidence_values = quote_list(target.get("outline_evidence"))
+        if any(is_construction_evidence(quote) for quote in evidence_values):
+            errors.append(f"{label} 第 {index} 个实际情绪拍使用施工/禁写说明充当 outline_evidence")
+        evidence_surface = "".join(semantic_surface(quote) for quote in evidence_values)
+        hurt_object = semantic_surface(target.get("hurt_object"))
+        abstract_hurt = str(target.get("hurt_object") or "") in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}
+        pronoun_resolved = bool(re.search(r"他们|她们|对方|[他她]", "".join(evidence_values))) and semantic_surface(
+            target.get("hurt_object")
+        ) in semantic_surface(target.get("target_story_adaptation"))
+        if hurt_object and hurt_object not in evidence_surface and not abstract_hurt and not pronoun_resolved:
+            errors.append(f"{label} 第 {index} 个实际情绪拍 hurt_object 未在证据出现，也未由代词和适配说明解析")
+        if semantic_surface(target.get("expectation_before")) == semantic_surface(target.get("expectation_after")):
+            errors.append(f"{label} 第 {index} 个实际情绪拍期待前后态没有变化")
+        if semantic_surface(target.get("action_impulse_before")) == semantic_surface(target.get("action_impulse_after")):
+            errors.append(f"{label} 第 {index} 个实际情绪拍行动冲动前后态没有变化")
         if len(str(target.get("target_story_adaptation") or "").strip()) < 20:
             errors.append(
                 f"{label} 第 {index} 个实际情绪拍缺少具体 target_story_adaptation"
@@ -568,6 +626,15 @@ def validate_sequence_parity(
                         f"{label} 第 {index} 个实际情绪拍的 target_evidence_coverage_review "
                         f"未实际覆盖{field_label}，不能用通用套话代判"
                     )
+    generic_count = sum(
+        any(marker in "".join(str(beat.get(field) or "") for field in (
+            "trigger", "relationship_position_change", "reader_effect",
+            "target_story_adaptation", "target_evidence_coverage_review",
+        )) for marker in GENERIC_TARGET_MARKERS)
+        for beat in target_beats
+    )
+    if len(target_beats) >= 4 and generic_count >= max(3, len(target_beats) // 3):
+        errors.append(f"{label} 大量目标情绪拍复用通用触发/位移/覆盖模板，必须逐拍人工重建")
     for source_field, target_field, beat_name in (
         ("source_reversal_beat", "target_reversal_beat", "反刀拍"),
         ("source_peak_beat", "target_peak_beat", "峰值拍"),

@@ -105,6 +105,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
   --receipt "{项目目录}/写作资产/开头承重契约回执_正文.json"
 ```
 
+若主体导语资产或目标文本 SHA 已变化，旧回执会立即失效。此时对原回执路径重新运行对应 `init` 命令，并显式追加：
+
+```bash
+  --force
+```
+
+`--force` 仅用于重建同一项目、同一 `artifact-kind` 的失效回执，不是跳过人工检查。重建会清空旧人工裁决；当前模型必须重新读取来源开头和目标前 120 字，重新填写全部检查、原文对照和证据。禁止只更新 SHA、复制旧 `passed` 或在来源/目标未变化时无理由覆盖有效回执。
+
 当前模型回填后运行 `validate`。以下八项必须全部为 `true`：
 
 - `relationship_anchor_in_first_20_60`

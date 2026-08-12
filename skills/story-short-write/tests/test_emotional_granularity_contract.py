@@ -201,6 +201,12 @@ class EmotionalGranularityContractTest(unittest.TestCase):
                     "outline_evidence": [self.outline_quotes[index]],
                     "target_outline_region": "epilogue" if index == 5 else "section:1",
                     "target_story_adaptation": "把原文的关系位移改写为席牌换手与女主当众夺回位置的目标故事现场。",
+                    "hurt_object": "婚姻位置",
+                    "expectation_before": f"第{index + 1}拍前仍期待丈夫维护自己的公开位置",
+                    "expectation_after": f"第{index + 1}拍后确认丈夫再次把公开位置让给别人",
+                    "action_impulse_before": f"第{index + 1}拍前仍想追问并等丈夫解释",
+                    "action_impulse_after": f"第{index + 1}拍后改为收回席牌并停止求证",
+                    "equivalence_reason": f"第{index + 1}拍通过席牌换手造成同序关系掉位和行动转向。",
                     "target_evidence_coverage_review": f"已核对完整动作链；触发为目标细纲 {role} 的现实触发，关系位移为席牌换手后，妻子公开夺回控制权。两者均已在独占证据中发生，未压缩原拍。",
                 }
             )

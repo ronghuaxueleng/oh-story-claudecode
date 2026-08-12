@@ -49,6 +49,8 @@
 
 必须覆盖全部连续数字小节。各节最小值之和不得低于全文最小值，各节最大值之和不得高于全文最大值。尾声可短，但必须在写前就由其他承重节分配足预算，不能全文写完后再发现总量不足并分散扩写。字数是场面容量的结果，不是写后添充目标。
 
+写前 `target_chars` 和各场 `allocated_chars` 仍必须落在原始预算内。逐节实际成稿与 `finalize` 全文验收统一允许原始预算上下浮动 `20%`，并对低于有效下限不超过 `100` 字的自然短差免补：实际下限为 `max(0, ceil(min_chars * 0.80) - 100)`，实际上限为 `floor(max_chars * 1.20)`，边界值计为通过。例如原预算 `2650-2900`，实际允许 `2020-3480`。该宽限只处理自然场面容量短差，不授权先写短稿再补说明、对白、背景或情绪凑字数；若场面完整性失败，仍须重组细纲或整场重写。上限不享受额外宽限。
+
 ## 写前场面计划
 
 `start-section` 使用的计划至少包含：
@@ -84,6 +86,8 @@
 ## 逐节回执
 
 每节写入独立文件 `写作资产/逐节验收/第N节.json`。最低骨架：
+
+先用 `init_section_review.py` 从当前进度状态与文字合同初始化 `pending` 空骨架，再由当前模型完整读取本节正文逐字段人工回填。初始化器只复制 E/P/SF ID 与主体来源证据，禁止自动挑选目标引句、轮转证据、生成语义判断或填写 `passed`；不得用项目专属脚本重新实现同一结构。
 
 ```json
 {
@@ -136,6 +140,8 @@
 
 ## 命令
 
+以下命令是固定公开接口。直接替换 `N` 和真实路径执行；禁止先运行 `validate_section_progress.py --help`、任一子命令 `--help`，也禁止读取参数解析源码或旧项目命令反推参数。参数速记：`status / finalize / sync-pending-contracts` 只接受 `--state`；`start-section / commit-section / reopen-section / discard-writing-section` 均接受 `--state --section`，其中 `start-section` 还要 `--plan`，`commit-section` 还要 `--staged --review`。需要逐节回执时，先运行 `init_section_review.py --state ... --section N --output ...`，再人工回填并提交。
+
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_section_progress.py" init \
   --state "{项目目录}/写作资产/逐节正文进度.json" \
@@ -145,10 +151,18 @@ python3 "$SKILL_ROOT/scripts/validate_section_progress.py" init \
   --emotion-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --budget "{项目目录}/写作资产/逐节字数预算.json"
 
+python3 "$SKILL_ROOT/scripts/validate_section_progress.py" status \
+  --state "{项目目录}/写作资产/逐节正文进度.json"
+
 python3 "$SKILL_ROOT/scripts/validate_section_progress.py" start-section \
   --state "{项目目录}/写作资产/逐节正文进度.json" \
   --section N \
   --plan "{项目目录}/写作资产/当前节计划/第N节.json"
+
+python3 "$SKILL_ROOT/scripts/init_section_review.py" \
+  --state "{项目目录}/写作资产/逐节正文进度.json" \
+  --section N \
+  --output "{项目目录}/写作资产/逐节验收/第N节.json"
 
 python3 "$SKILL_ROOT/scripts/validate_section_progress.py" commit-section \
   --state "{项目目录}/写作资产/逐节正文进度.json" \

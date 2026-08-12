@@ -69,6 +69,14 @@ EMOTION_BEAT_FIELDS = (
     "intensity",
     "evidence",
 )
+TARGET_EMOTION_SEMANTIC_FIELDS = (
+    "hurt_object",
+    "expectation_before",
+    "expectation_after",
+    "action_impulse_before",
+    "action_impulse_after",
+    "equivalence_reason",
+)
 PLOT_BEAT_FIELDS = (
     "beat_id",
     "action",
@@ -653,6 +661,20 @@ def validate_scene_units(value: Any, label: str, outline_text: str, section_id: 
         chain = scene.get("interaction_chain")
         if not nonempty_list(chain, minimum=3):
             errors.append(f"{scene_label}.interaction_chain 必须至少 3 步施压/接招")
+        else:
+            generic_chain_terms = (
+                "一方用",
+                "另一方用错答或抢物被迫接招",
+                "现场以",
+                "出现可见换权",
+            )
+            if any(
+                any(term in str(step) for term in generic_chain_terms)
+                for step in chain
+            ):
+                errors.append(
+                    f"{scene_label}.interaction_chain 仍含泛化施压/接招模板，必须点名人物、动作和即时结果"
+                )
         evidence = scene.get("outline_evidence")
         if not nonempty_list(evidence, minimum=2):
             errors.append(f"{scene_label}.outline_evidence 必须引用至少 2 条当前细纲原句")
@@ -822,12 +844,83 @@ def normalized_surface_text(value: Any) -> str:
     return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(value or ""))
 
 
+CONSTRUCTION_EVIDENCE_MARKERS = (
+    "不照搬",
+    "没有照搬",
+    "不能写成",
+    "不承担",
+    "不补",
+    "只供应",
+    "只保留",
+    "公开场不能",
+    "叙述不写成",
+    "这里没有",
+    "机制迁移",
+    "目标事件触发",
+)
+GENERIC_SEMANTIC_MARKERS = (
+    "当前关系压力",
+    "关系位置发生实际换主",
+    "关系后果继续传到下一拍",
+    "位置继续偏移",
+    "感到该角色",
+    "感到这一拍",
+    "目标婚姻场景",
+    "实际选择与后果",
+)
+
+
+def is_construction_evidence(value: Any) -> bool:
+    text = str(value or "")
+    return any(marker in text for marker in CONSTRUCTION_EVIDENCE_MARKERS)
+
+
+def validate_target_semantic_antifraud(
+    beats: list[dict[str, Any]], label: str, errors: list[str], *, kind: str
+) -> None:
+    if not beats:
+        return
+    semantic_fields = (
+        ("pressure_or_trigger", "control_change", "information_change", "consequence")
+        if kind == "plot"
+        else ("trigger", "relationship_position_change", "reader_effect", *TARGET_EMOTION_SEMANTIC_FIELDS)
+    )
+    signatures: list[tuple[str, ...]] = []
+    generic_hits = 0
+    for index, beat in enumerate(beats, start=1):
+        beat_label = f"{label}[{index}]"
+        evidence = str(beat.get("evidence") or "").strip()
+        if is_construction_evidence(evidence):
+            errors.append(f"{beat_label}.evidence 是施工/禁写说明，不是目标故事中实际发生的场面证据")
+        values = tuple(normalized_surface_text(beat.get(field)) for field in semantic_fields)
+        signatures.append(values)
+        joined = "".join(str(beat.get(field) or "") for field in semantic_fields)
+        if any(marker in joined for marker in GENERIC_SEMANTIC_MARKERS):
+            generic_hits += 1
+    if len(beats) >= 4 and generic_hits >= max(3, len(beats) // 3):
+        errors.append(f"{label} 大量复用通用施压/位移/后果模板，不能用字段非空冒充逐拍语义迁移")
+    if len(beats) >= 4 and len(set(signatures)) < max(3, len(beats) // 2):
+        errors.append(f"{label} 逐拍语义签名高度重复，必须按每拍真实触发、换权和后果重建")
+
+
 def target_actor_tokens(value: Any) -> list[str]:
     return [
         token.strip()
         for token in re.split(r"[、,，/；;]|(?:与|和)", str(value or ""))
         if len(token.strip()) >= 2
     ]
+
+
+def actor_evidence_resolves(actor: Any, actor_evidence: Any, action: Any) -> bool:
+    tokens = target_actor_tokens(actor)
+    evidence_surface = normalized_surface_text(actor_evidence)
+    action_surface = normalized_surface_text(action)
+    if tokens and any(normalized_surface_text(token) in evidence_surface for token in tokens):
+        return True
+    pronouns = {"他", "她", "他们", "她们", "对方", "其", "两人"}
+    return bool(tokens) and str(actor_evidence).strip() in pronouns and any(
+        normalized_surface_text(token) in action_surface for token in tokens
+    )
 
 
 def validate_target_plot_adaptation(
@@ -854,6 +947,21 @@ def validate_target_plot_adaptation(
             errors.append(
                 f"{beat_label} 未在目标 action/evidence 中落下目标施事者，仍可能只是原文功能说明"
             )
+        evidence_surface = normalized_surface_text(target.get("evidence"))
+        actor_evidence = str(target.get("actor_evidence") or "").strip()
+        if not actor_evidence or actor_evidence not in str(target.get("evidence") or ""):
+            errors.append(f"{beat_label}.actor_evidence 必须逐字来自本拍 evidence，并证明真实施事者")
+        elif actor_tokens and not actor_evidence_resolves(
+            target.get("actor"), actor_evidence, target.get("action")
+        ):
+            errors.append(f"{beat_label}.actor_evidence 未点名施事者，或代词未由 action 解析为规范人物名")
+        if len(str(target.get("object_or_receiver") or "").strip()) < 1:
+            errors.append(f"{beat_label}.object_or_receiver 缺少逐拍目标动作对象")
+        if len(str(target.get("adaptation_equivalence") or "").strip()) < 8:
+            errors.append(f"{beat_label}.adaptation_equivalence 缺少等价迁移理由")
+        if is_construction_evidence(target.get("evidence")):
+            errors.append(f"{beat_label}.evidence 是施工说明，不能充当目标情节拍")
+    validate_target_semantic_antifraud(target_beats, label, errors, kind="plot")
 
 
 def load_bridge_emotion_inventory(
@@ -993,6 +1101,33 @@ def validate_turn_and_peak_alignment(
         errors.append(f"{label} 原文实际情绪拍与目标情绪拍数量必须一致，禁止漏拍或并拍")
     if source_ids and target_ids and source_ids != target_ids:
         errors.append(f"{label} 目标情绪拍必须沿用原文 beat_id 原顺序逐拍承接")
+    for index, target_beat in enumerate(target_beats, start=1):
+        beat_label = f"{label} 目标情绪拍[{index}]"
+        if len(str(target_beat.get("hurt_object") or "").strip()) < 1:
+            errors.append(f"{beat_label}.hurt_object 缺少实际受伤对象")
+        for field in TARGET_EMOTION_SEMANTIC_FIELDS[1:]:
+            if len(str(target_beat.get(field) or "").strip()) < 8:
+                errors.append(f"{beat_label}.{field} 缺少可核验的情绪前后态或等价迁移理由")
+        evidence = str(target_beat.get("evidence") or "").strip()
+        if is_construction_evidence(evidence):
+            errors.append(f"{beat_label}.evidence 是施工/禁写说明，不能充当情绪发生证据")
+        hurt_object = normalized_surface_text(target_beat.get("hurt_object"))
+        evidence_surface = normalized_surface_text(evidence)
+        abstract_hurt = str(target_beat.get("hurt_object") or "") in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}
+        pronoun_resolved = bool(re.search(r"他们|她们|对方|[他她]", evidence)) and normalized_surface_text(
+            target_beat.get("hurt_object")
+        ) in normalized_surface_text(target_beat.get("target_story_adaptation"))
+        if hurt_object and hurt_object not in evidence_surface and not abstract_hurt and not pronoun_resolved:
+            errors.append(f"{beat_label}.hurt_object 必须在证据中出现，或由代词和适配说明解析")
+        if normalized_surface_text(target_beat.get("expectation_before")) == normalized_surface_text(
+            target_beat.get("expectation_after")
+        ):
+            errors.append(f"{beat_label} expectation_before/after 没有发生变化")
+        if normalized_surface_text(target_beat.get("action_impulse_before")) == normalized_surface_text(
+            target_beat.get("action_impulse_after")
+        ):
+            errors.append(f"{beat_label} action_impulse_before/after 没有发生变化")
+    validate_target_semantic_antifraud(target_beats, label, errors, kind="emotion")
     if strong_emotion_required:
         for index, (source_beat, target_beat) in enumerate(
             zip(source_beats, target_beats), start=1

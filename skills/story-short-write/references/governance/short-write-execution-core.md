@@ -19,6 +19,8 @@
 
 ## 一、最低输入
 
+skill 或拆书来源发生变化后，先执行 `migration-report` 再执行 `sync-sources`。迁移报告只读分类：未变化且 SHA 一致的条目可保留；源文本变化的条目必须人工重绑 canonical、来源契约和目标证据；缺路径、旧机器路径、旧 SHA 仍为 passed 或 canonical 关系断裂的条目属于阻断项。不得通过批量替换路径、编号或状态恢复通过态。
+
 进入最低输入判断前，必须先通过：
 
 ```bash
@@ -105,14 +107,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 27. 只有用户明确回复“继续深审”“继续完整流程”或同义指令后，才补正文节点证据并通过 `validate_sequence_contract.py validate --receipt "项目目录/写作资产/顺序契约回执.json" --setting "项目目录/设定.md" --outline "项目目录/小节大纲.md" --draft "项目目录/正文.md"`
 28. 对正文前 `20 / 60 / 80 / 120` 字再次执行 `opening_contract_gate`
 29. 首轮按 skill canonical 规则和主体拆书资产做正文定向回修，并逐项留下正文证据
-30. 通过 `validate_pre_window_revision_gate.py`
-31. 导出人工模型分段任务，由当前模型完整读取回修后的正文，并结合完整顺序契约逐节点人工切窗
-32. 跑正式全量审计并回填脚本产物
+30. 规则资产复核完成后直接跑正式全量审计并回填脚本产物；不再强制执行 `validate_pre_window_revision_gate.py` 或人工模型分段
 33. 若属于仿写 / 融合 / 同桥任务，先对主体原文跑同一套轻审计和全量审计，再运行 `compare_source_baseline_audit.py` 生成基线对照
-34. 逐窗人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
+34. 全文人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
 35. 只把 `draft_extra_ai_shell` 写进回修任务单；`source_like / craft_tradeoff` 可保留，但必须写明原文基线和情节功能
-36. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、窗口前回修回执、人工分段回执、正式审计和原文基线对照全部失效
-37. 回到第 29 步，重新做规则/资产定向回修，再重新切窗和重审
+36. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、正式审计和原文基线对照全部失效
+37. 回到第 29 步，重新做规则/资产复核和正式重审
 38. 无正文变化后，绑定最终写作产物；递归重绑规则台账中所有目标产物证据和 `source_contract_reviews`，再通过 `rule_execution_gate`
 39. 重新校验正文 `opening_contract_gate`、细纲 `outline_performance_contract` 和完整顺序契约
 40. 生成人工语义复核回执并人工复扫全文
@@ -135,13 +135,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - 写作放行必须独立运行 `validate_write_release_gate.py`；任一前置门禁不是 `passed` 时禁止生成或修改当前阶段产物，不能先写后补
 - 设定内部顺序必须在大纲写作前单独过闸；完整顺序契约不能事后替代设定阶段校验
 - 正文初稿落盘并通过字数/平台格式基础检查后必须停靠；此时只能宣称“初稿完成”，不能宣称“完整流程完成”
-- 用户明确选择继续深审后，最终完成判定才必须同时包含规则台账、人工模型分段回执、正式长窗审计和写后人工语义复核；部分通过不得宣称完整流程完成
-- 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执、人工分段和审计里记录的字符数/字数不得使用估算或其他脚本口径
-- 人工窗口不是首轮通用规则执行器。只有用户在初稿停靠后明确选择继续深审，才先按 skill 规则和主体拆书资产定向回修，再导出人工窗口任务；窗口只负责定位剩余问题
-- `validate_pre_window_revision_gate.py` 未通过时，禁止导出人工模型分段任务或运行带人工分段回执的正式全量审计
-- 窗口人工判断必须记录每窗的病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
-- 窗口人工判断必须填写 `procedural_stiffness_review`，逐窗输出 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿` 的原句、原因、优先级和改法，并汇总进 `full_audit.md` 与 `revision_plan.md`；没有汇总输出不算正式人工窗口审计闭环
-- 窗口人工判断还必须逐节点确认主桥顺序、节点窗口归属和跨窗风险；窗口切分本身不是顺序契约，缺少该复核不得宣称窗口审计完成
+- 用户明确选择继续深审后，最终完成判定必须同时包含规则台账、正式全量审计和写后人工语义复核；部分通过不得宣称完整流程完成
+- 正文完成判定中的字数必须统一运行 `count_words.py`；统计规则为去掉 `#` 开头 Markdown 标题行后，计算所有非空白字符。回执和审计里记录的字符数/字数不得使用估算或其他脚本口径
+- 窗口诊断不是首轮通用规则执行器。默认直接进入正式全量审计和全文人工复核；只有用户明确要求定位局部风险时，才导出可选窗口任务
+- 规则资产检查未完成时，禁止进入正式全量审计；窗口前回修和人工分段不再是默认硬闸
+- 全文人工判断必须记录病因、证据和处理决策；脚本风险标签不能直接写成“必须修改”
+- 全文人工判断必须填写 `procedural_stiffness_review`，覆盖 `流程日志感 / 证据清单感 / 三连状态回执 / 手续推进过顺 / 一句完成多任务 / 人物反应被流程替代 / 现场阻力不足 / 分镜或施工稿`，并在写后人工复核回执中给出原句、原因、优先级和改法；不再要求逐窗汇总
+- 正式人工复核必须逐节点确认主桥顺序和正文证据；窗口切分本身不是顺序契约，也不属于默认完成条件
 - 台账不是正文修改清单；流程、设定、大纲、正文、审计、拆书候选和禁用规则必须分流
 - 台账证据不是可复用模板；旧正文证据、旧 SHA、缺来源、残留无关来源或公共证据替代逐来源契约，均视为规则台账未闭环
 - 完全重复规则族自动合并，近义规则族由模型归一；canonical 执行一次并保留全部来源和族内变体
@@ -497,7 +497,9 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 
 硬闸：任一单书 profile 缺少 `precheck_overrides` 时停止融合，重新全量拆书后再生成单书和融合 profile。
 
-### 7. 跑全量审计
+### 7. 跑全量审计（默认不切窗）
+
+默认流程跳过窗口前回修和人工模型分段，直接执行正式全量审计；下方窗口命令仅在用户明确要求窗口诊断时使用。
 
 窗口前先初始化并回填规则/资产定向回修回执：
 
@@ -547,7 +549,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_full_ai_audit.py" \
   --model-segmentation-receipt 写作资产/人工模型分段回执.json
 ```
 
-正式人工窗口除了校验边界、SHA 和字符数，还必须逐个回填顺序契约节点的窗口归属、正文证据、`order_status` 和人工判断，并逐窗完成 `procedural_stiffness_review`。任何 `out_of_order / missing / ambiguous` 都阻断；任何疑似 AI 窗口缺少具体病灶或 `none_found` 反证，也阻断。正文修改后必须重新执行窗口前规则/资产定向回修，再重新导出并人工执行，不能沿用旧边界。未传人工分段回执或顺序契约时只运行算法预扫，不得把 `boundary_source=algorithmic` 写成模型已复核。
+默认流程不再要求人工窗口边界、窗口归属或逐窗 `procedural_stiffness_review`。正式审计与写后人工语义复核覆盖全文，并以真实原句判断节奏、对白、流程硬化和顺序；窗口分段仅作为用户明确要求时的可选诊断。
 
 ### 8. 生成回修任务单
 
@@ -634,7 +636,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_short_write_compl
   --state "{项目目录}/写作资产/短篇全流程状态.json"
 ```
 
-完成态的必需检查包含 `write_release_gate / prose_granularity_contract / emotional_granularity_contract / platform_format_gate`。这些检查与规则、来源、顺序、开头、台账、窗口前回修、人工分段、正式审计和写后人工复核必须同时通过。状态仍为 `active` 或缺任一检查时，不得对外宣称完整流程完成。
+完成态的必需检查包含 `write_release_gate / prose_granularity_contract / emotional_granularity_contract / platform_format_gate`。这些检查与规则、来源、顺序、开头、台账、正式审计和写后人工复核必须同时通过；窗口前回修和人工分段不属于默认必需检查。状态仍为 `active` 或缺任一检查时，不得对外宣称完整流程完成。
 
 ---
 
