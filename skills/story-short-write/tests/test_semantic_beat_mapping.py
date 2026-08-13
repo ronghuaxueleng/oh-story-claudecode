@@ -108,6 +108,49 @@ class SemanticBeatMappingTest(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("不能是整句事件", result.stdout)
 
+    def test_emotion_evidence_must_be_inside_declared_outline_region(self) -> None:
+        payload = self.payload()
+        payload["emotions"][0]["target_outline_region"] = "section:2"
+        self.outline.write_text(
+            f"## 1. 起事\n\n{self.emotion_evidence}\n\n{self.plot_evidence}\n\n## 2. 后场\n\n后场证据。\n",
+            encoding="utf-8",
+        )
+        payload["bindings"]["outline"] = self.binding(self.outline)
+        result = self.run_gate(payload)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("evidence 不在声明的 section:2 区域内", result.stdout)
+
+    def test_emotion_regions_cannot_move_backwards(self) -> None:
+        second_evidence = "沈知夏签完手续以后，顾临舟才在门外承认自己来迟了。"
+        self.outline.write_text(
+            f"## 1. 起事\n\n{self.emotion_evidence}\n\n{self.plot_evidence}\n\n## 2. 后场\n\n{second_evidence}\n",
+            encoding="utf-8",
+        )
+        payload = self.payload()
+        payload["bindings"]["outline"] = self.binding(self.outline)
+        first = payload["emotions"][0]
+        first["target_outline_region"] = "section:2"
+        first["evidence"] = second_evidence
+        second = dict(first)
+        second.update({
+            "source_beat_id": "E-Y",
+            "target_beat_id": "TE-Y",
+            "target_outline_region": "section:1",
+            "evidence": self.emotion_evidence,
+        })
+        payload["emotions"].append(second)
+        self.emotion_ledger.write_text(
+            json.dumps({"beats": [
+                {"beat_id": "E-X", "role": "期待反落", "intensity": 8},
+                {"beat_id": "E-Y", "role": "期待反落", "intensity": 8},
+            ]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        payload["bindings"]["primary_emotion_ledger"] = self.binding(self.emotion_ledger)
+        result = self.run_gate(payload)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("主体 E 拍跨节倒序", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

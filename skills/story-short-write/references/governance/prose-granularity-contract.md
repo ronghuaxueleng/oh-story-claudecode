@@ -102,6 +102,16 @@
 
 任一 SF、任一局部颗粒或任一已抽取原文证据没有正文对照，`validate-draft` 必须失败。全局七维都出现过，不等于主体原文颗粒已经全量消费。
 
+主体存在 `原文细节库/*.md` 时，八类细节卡同样是全集合同，不是候选池。`full_bridge` 必须把每张卡写入 `source_detail_card_reviews`：
+
+- 写前逐卡填写 `target_sections / target_adaptation / distinct_function_to_preserve / overlap_binding_ids / overlap_is_not_omission`，并将 `planning_status` 置为 `passed`。
+- 写后逐卡绑定真实 `target_quotes`，填写具体句面对照和人工裁决，再将 `status` 置为 `passed`。
+- 一张细节卡可以与 E/P/SF 描述同一段原文，但重叠不等于已消费。必须单独说明该卡独有的动作、对白、关系、旧伤、情绪、场景、场面或翻车功能怎样保留。
+- 禁止把八类卡简单相加成互不重叠的剧情事件数，也禁止为了凑卡重复桥段；允许同一目标场面承接多卡，但每卡必须有自己的功能裁决和正文证据。
+- 写前映射先由当前模型逐卡写入独立 JSON，再通过通用 `apply-detail-plan` 入口校验并原样合并。该入口不得生成语义；项目专属脚本批量填计划或直接把卡置为 `passed` 均无效。
+
+任一细节卡缺计划、缺正文证据、标为未选或只写“已由 E/P/SF 覆盖”，`validate-prewrite / validate-draft` 必须失败。
+
 语义回填还必须满足：
 
 - `target_section_rationale` 逐 SF 说明为什么由这些正文小节消费，禁止按 `SF-01 -> 第1节` 机械顺排。
@@ -196,11 +206,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 当前模型逐节完成落笔包后：
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" apply-section-plan \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --outline "{项目目录}/小节大纲.md"
 ```
+
+`apply-section-plan` 只把当前模型已经逐节写完的 `section_generation_plans` 原样合并进当前合同。侧车可按原序只提交当前已人工完成的小节，未提交小节保持 pending；侧车必须绑定当前细纲 SHA，并声明 `reviewed_by_current_model=true`、`semantic_fields_generated_by_script=false`。入口不得生成句链、正反例、人物计划、语义判断或通过状态；九节仍须全部完成后才能通过全书 `validate-prewrite`。
 
 正文放行后，先由当前模型按原文桥段与目标场面语义完成独立写前字段 `section_sf_assignments[]`，每项写明 `subflow_id / target_sections / target_section_rationale`；它必须与主体 SF 全集同序相等。任一 SF 留空或任一目标小节没有 SF 时禁止初始化。`source_subflow_reviews` 保留为提交前六维真实证据，不得在正文前伪填目标引句。再按 [逐节正文进度硬闸](section-progress-gate.md) 初始化字数预算和当前小节状态。每节只在暂存稿一次写完，立即将本合同要求的完整 `section_review` 写入 `写作资产/逐节验收/第N节.json` 的 `prose_review`，并通过 `commit-section N`。该命令必须实际校验完整场面表演、连续原文链、对白包、句间关系、逐句特征、活性、人物、全部对白及本节全部 SF 六维，不能只检查四条映射。本节未通过时禁止写入正文或创建下一节。
 

@@ -19,6 +19,46 @@ SPEC.loader.exec_module(GATE)
 
 
 class EmotionalGranularityContractTest(unittest.TestCase):
+    def test_source_opening_ends_at_first_structural_marker_not_first_bid(self) -> None:
+        beats = [
+            {"beat_id": "E-001", "end_line": 2, "bid_ids": []},
+            {"beat_id": "E-002", "end_line": 5, "bid_ids": []},
+            {"beat_id": "E-003", "end_line": 9, "bid_ids": ["BID-01"]},
+        ]
+        segments = [
+            {"kind": "emotion_bearing", "start_line": 1},
+            {"kind": "structural_marker", "start_line": 3},
+            {"kind": "emotion_bearing", "start_line": 4},
+        ]
+
+        regions = GATE.source_beat_regions(beats, segments)
+
+        self.assertEqual("opening", regions["E-001"])
+        self.assertEqual("transition", regions["E-002"])
+        self.assertEqual("bridge", regions["E-003"])
+
+    def test_narrative_only_retains_is_not_construction_evidence(self) -> None:
+        self.assertFalse(GATE.is_construction_evidence("调查结束后只保留他的普通医生岗位。"))
+        self.assertTrue(GATE.is_construction_evidence("新稿只保留情绪颗粒，不复制原句。"))
+
+    def test_hurt_object_resolves_first_person_and_composite_names(self) -> None:
+        self.assertTrue(GATE.hurt_object_resolves("林知微", "我把号放回窗口。", "第一人称我指林知微。"))
+        self.assertTrue(GATE.hurt_object_resolves("沈砚川", "我说你不再是丈夫。", "第二人称你指沈砚川。"))
+        self.assertTrue(GATE.hurt_object_resolves("沈砚川与顾晚晴", "沈砚川伸手，顾晚晴先否认。", "目标公开场。"))
+        self.assertTrue(GATE.hurt_object_resolves("沈砚川与顾晚晴", "顾晚晴把手覆在他的手背上。", "他的手背所指沈砚川。"))
+        self.assertFalse(GATE.hurt_object_resolves("沈砚川与顾晚晴", "顾晚晴按下启动键。", "沈砚川也在现场。"))
+        self.assertFalse(GATE.hurt_object_resolves("林知微", "她把号放回窗口。", "没有人物绑定。"))
+        self.assertTrue(GATE.hurt_object_resolves("林知微", "她把号放回窗口。", "触发后知微停止补台。"))
+
+    def test_specific_coverage_review_need_not_copy_full_analysis_sentences(self) -> None:
+        data = self.prewrite_receipt()
+        target = data["section_contracts"][0]["target_outline_beats"][0]
+        target["target_evidence_coverage_review"] = "证据同时写出妻子等待、丈夫偏护和席牌换手后的公开掉位。"
+        errors, _ = GATE.validate_prewrite_data(
+            data, self.source, self.outline, self.source_emotion_ledger
+        )
+        self.assertFalse(any("未实际覆盖触发" in item or "未实际覆盖关系位移" in item for item in errors))
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
@@ -73,13 +113,33 @@ class EmotionalGranularityContractTest(unittest.TestCase):
                             "beat_ids": [beat["beat_id"] for beat in ledger_beats],
                         }
                     ],
+                    "source_emotion_candidate_audit": [
+                        {
+                            "candidate_id": f"EC-{index + 1:03d}",
+                            "change_axis": "关系位置与行动冲动变化",
+                            "before_state": f"第{index + 1}拍前仍保留原有期待",
+                            "after_state": f"第{index + 1}拍后期待或行动冲动发生变化",
+                            "source_range": {"start_line": 1, "end_line": 1},
+                            "source_evidence": self.source_quotes[index],
+                            "decision": "independent_beat",
+                            "bound_beat_ids": [beat["beat_id"]],
+                            "manual_judgment": "该候选独立改变期待、受伤对象、关系位置或行动冲动。",
+                        }
+                        for index, beat in enumerate(ledger_beats)
+                    ],
                     "beats": ledger_beats,
                     "completeness_review": {
+                        "read_start_line": 1,
+                        "read_end_line": 1,
                         "all_source_lines_classified": True,
                         "non_bid_beats_preserved": True,
                         "bid_derived_after_full_inventory": True,
                         "reviewed_by_current_model": True,
+                        "forward_expectation_scan_completed": True,
+                        "reverse_afterpain_scan_completed": True,
+                        "all_source_emotion_candidates_adjudicated": True,
                         "automation_used_for_semantic_judgment": False,
+                        "split_basis": "每次期待、受伤对象、关系位置、行动冲动或读者预期改变均独立切拍。",
                     },
                 },
                 ensure_ascii=False,
@@ -291,6 +351,24 @@ class EmotionalGranularityContractTest(unittest.TestCase):
         )
         self.assertEqual([], errors)
 
+    def test_emotion_v1_ledger_blocks_prewrite(self) -> None:
+        ledger = json.loads(self.source_emotion_ledger.read_text(encoding="utf-8"))
+        ledger["schema_version"] = "story-short-analyze.full-text-emotion-ledger.v1"
+        self.source_emotion_ledger.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
+        errors, _ = GATE.validate_prewrite_data(
+            self.prewrite_receipt(), self.source, self.outline, self.source_emotion_ledger
+        )
+        self.assertTrue(any("schema_version" in item for item in errors))
+
+    def test_emotion_ledger_without_candidate_audit_blocks_prewrite(self) -> None:
+        ledger = json.loads(self.source_emotion_ledger.read_text(encoding="utf-8"))
+        ledger.pop("source_emotion_candidate_audit")
+        self.source_emotion_ledger.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
+        errors, _ = GATE.validate_prewrite_data(
+            self.prewrite_receipt(), self.source, self.outline, self.source_emotion_ledger
+        )
+        self.assertTrue(any("source_emotion_candidate_audit" in item for item in errors))
+
     def test_prewrite_blocks_lower_target_intensity(self) -> None:
         data = self.prewrite_receipt()
         data["section_contracts"][0]["target_outline_beats"][4]["intensity"] = 8
@@ -354,6 +432,100 @@ class EmotionalGranularityContractTest(unittest.TestCase):
         data["first_draft_policy"]["anti_ai_cleanup_applied_during_first_draft"] = True
         errors, _ = GATE.validate_prewrite_data(data, self.source, self.outline)
         self.assertTrue(any("anti_ai_cleanup" in item for item in errors))
+
+    def test_apply_section_plan_only_serializes_current_model_sidecar(self) -> None:
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            self.outline,
+        )
+        supplied = data["section_contracts"][:1]
+        plan = {
+            "reviewed_by_current_model": True,
+            "semantic_fields_generated_by_script": False,
+            "outline_sha256": GATE.sha256_file(self.outline),
+            "manual_judgment": "当前模型逐节回看原文总账和目标细纲后人工完成情绪合同。",
+            "section_contracts": supplied,
+        }
+        merged = GATE.apply_section_plan(data, plan)
+        self.assertIs(supplied[0], merged["section_contracts"][0])
+        plan["section_contracts"] = supplied + [supplied[0]]
+        with self.assertRaisesRegex(ValueError, "保持原序"):
+            GATE.apply_section_plan(data, plan)
+        plan["section_contracts"] = supplied
+        plan["semantic_fields_generated_by_script"] = True
+        with self.assertRaisesRegex(ValueError, "禁止由脚本生成"):
+            GATE.apply_section_plan(data, plan)
+
+    def test_assemble_section_plan_copies_approved_assets_by_explicit_ids(self) -> None:
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            self.outline,
+        )
+        source_beat = self.ledger_beats[0]
+        mapping = {
+            "status": "approved",
+            "emotions": [{
+                "source_beat_id": source_beat["beat_id"],
+                "target_outline_region": "第1节",
+                "trigger": "妻子进场仍等丈夫替自己说话",
+                "relationship_position_change": "丈夫把席牌交给别人后妻子公开掉位",
+                "reader_effect": "读者看见丈夫先偏护第三人",
+                "target_story_adaptation": "用席牌换手迁移公开掉位",
+                "evidence": self.outline_quotes[0],
+                "hurt_object": "妻子",
+                "expectation_before": "仍期待丈夫维护妻子位置",
+                "expectation_after": "确认丈夫先维护第三人位置",
+                "action_impulse_before": "继续等待丈夫开口",
+                "action_impulse_after": "准备亲手夺回席牌",
+                "equivalence_reason": "席牌换手造成同级关系掉位",
+                "target_evidence_coverage_review": "证据同时包含妻子等待、丈夫偏护与席牌控制权变化。",
+            }],
+            "plots": [{
+                "target_beat_id": "TP-001",
+                "action": "丈夫把席牌交给别人",
+                "evidence": self.outline_quotes[1],
+            }],
+        }
+        outline_contract = {
+            "gate_status": "passed",
+            "sections": [{
+                "section_id": "1",
+                "source_emotion_parity": {
+                    "source_emotion_sequence": [{"beat_id": source_beat["beat_id"]}],
+                    "source_reversal_beat": 0,
+                    "source_peak_beat": 1,
+                },
+                "scene_units": [{"plot_beat_ids": ["TP-001"]}],
+            }],
+        }
+        section_plan = {
+            "section_id": "1", "status": "passed",
+            "emotion_beat_ids": [source_beat["beat_id"]],
+            "plot_beat_ids": ["TP-001"],
+            "source_reversal_beat": 0, "source_peak_beat": 1,
+            "turning_point_selection_review": "峰值选E-1，席牌换手让妻子公开掉位达到本节最高强度。",
+            "source_emotion_beat_completion_review": "逐条领取E-1，来源字段和独占证据均按总账原样保留。",
+            "plot_beat_completion_review": "逐条领取TP-001，席牌换手动作具有独占细纲证据。",
+            "source_like_direct_emotion_preserved": True,
+            "surface_copy_rejected": True,
+            "manual_judgment": "当前模型确认本节以席牌换手迁移公开掉位，未复制来源表层。",
+            **{field: f"当前模型为本节填写的具体{field}现场计划。" for field in GATE.REQUIRED_PLAN_FIELDS},
+        }
+        plan = {
+            "reviewed_by_current_model": True,
+            "semantic_fields_generated_by_script": False,
+            "outline_sha256": GATE.sha256_file(self.outline),
+            "manual_judgment": "当前模型人工完成逐节计划，装配器只按显式ID复制批准资产。",
+            "sections": [section_plan],
+        }
+        ledger = GATE.load_json(self.source_emotion_ledger)
+        ledger["beats"] = [source_beat]
+        assembled = GATE.assemble_section_plan(
+            data, plan, ledger, mapping, outline_contract, self.source
+        )
+        contract = assembled["section_contracts"][0]
+        self.assertEqual([source_beat["beat_id"]], [item["beat_id"] for item in contract["source_emotion_beats"]])
+        self.assertEqual(["TP-001"], [item["beat_id"] for item in contract["required_plot_beats"]])
 
     def test_draft_cannot_drop_required_plot_beat(self) -> None:
         data = self.completed_receipt()

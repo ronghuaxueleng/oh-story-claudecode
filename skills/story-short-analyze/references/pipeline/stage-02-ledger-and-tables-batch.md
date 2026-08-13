@@ -11,6 +11,17 @@
 5. 主线程回扫候选池
 6. 同一模型回合内完成两轮不同扫描顺序的独立漏项审计
 
+## 情节微拍源文反查
+
+`全文情节微拍总账.json` 必须使用 v2，并在写 16 张表前完成：
+
+1. `coverage_segments` 从 L1 连续覆盖到 EOF，每段标 `plot_bearing / non_plot_support / structural_marker`。`plot_bearing` 必须挂候选 ID，其他类型必须给出人工理由。
+2. `source_plot_candidate_audit` 按原文顺序登记候选。候选包括人物独立动作、施压话轮、被迫接招、身体/物件/空间换权、信息新增、旁观者反应、发布文案、评论或群体方向变化、现实后果。
+3. 每项裁决为 `independent_beat / merged_same_atomic_chain / non_plot`。`independent_beat` 只能绑定一个独占 P 拍；`merged_same_atomic_chain` 必须点明所并入 P 拍和不可拆理由；`non_plot` 不得绑定 P 拍，必须解释为何不改变外部事实。
+4. 先按 `L1 -> EOF` 扫施事者与动作，再按 `EOF -> L1` 反扫后果、接招和旁观秩序。两轮发现数、增补数与人工结论写入 `completeness_review`。
+
+不得用最低拍数、行数比例或脚本词表代替语义抽取。validator 只验证逐行覆盖、绑定和裁决结构，候选是否真的拆全仍由当前模型逐段对原文负责。
+
 ## 快速厚拆分批
 
 - 批次 2A，结构/物件/动作 8 表：`导语拆解 / 顺序事件 / 物件 / 动作 / 误判 / 钩子 / 微动作 / 安静压迫场`

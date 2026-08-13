@@ -20,6 +20,27 @@ SPEC.loader.exec_module(GATE)
 
 
 class OutlinePerformanceContractTest(unittest.TestCase):
+    def test_narrative_only_retains_is_not_construction_evidence(self) -> None:
+        self.assertFalse(GATE.is_construction_evidence("医院撤销主任资格，只保留他的普通医生岗位。"))
+        self.assertTrue(GATE.is_construction_evidence("目标稿只保留机制，不复制原人物。"))
+
+    def test_hurt_object_resolves_first_person_and_composite_names(self) -> None:
+        self.assertTrue(GATE.hurt_object_resolves("林知微", "我把离婚申请推过去。", "第一人称我指林知微。"))
+        self.assertTrue(GATE.hurt_object_resolves("沈砚川", "我说你不再是丈夫。", "第二人称你指沈砚川。"))
+        self.assertTrue(GATE.hurt_object_resolves("沈砚川与顾晚晴", "沈砚川伸手，顾晚晴先否认。", "目标公开场。"))
+        self.assertFalse(GATE.hurt_object_resolves("林知微", "她把门关上。", "没有人物绑定。"))
+
+    def test_hurt_object_resolves_dropped_surname_alias(self) -> None:
+        self.assertTrue(GATE.hurt_object_resolves("林知微", "知微把号放回窗口。", "关系退出。"))
+        self.assertTrue(GATE.hurt_object_resolves("林知微", "她把号放回窗口。", "行动冲动后的受伤对象是林知微。"))
+
+    def test_actor_evidence_resolves_pronoun_inside_action_phrase(self) -> None:
+        self.assertTrue(GATE.actor_evidence_resolves("林知微", "她翻遍相册", "林知微发出旧照补台"))
+        self.assertTrue(GATE.actor_evidence_resolves("沈砚川", "沈砚川本人", "沈砚川认证牵手照"))
+
+    def test_target_actor_surface_accepts_dropped_surname_alias(self) -> None:
+        self.assertTrue(GATE.entity_mentioned("林知微", "知微把号单放回窗口"))
+
     @staticmethod
     def emotion_beats(evidence: str, *, target: bool = False) -> list[dict]:
         roles = [
@@ -107,14 +128,35 @@ class OutlinePerformanceContractTest(unittest.TestCase):
     @staticmethod
     def write_minimal_plot_ledger(source: Path, bridge_id: str) -> None:
         path = source.parent.parent / "写作资产" / "全文情节微拍总账.json"
+        source_text = source.read_text(encoding="utf-8")
         path.write_text(
             json.dumps(
                 {
-                    "schema_version": "1.0",
+                    "schema_version": GATE.FULL_BRIDGE_PLOT_LEDGER_SCHEMA,
                     "source": {
                         "path": str(source.resolve()),
                         "sha256": GATE.sha256(source),
                     },
+                    "coverage_segments": [{
+                        "segment_id": "SEG-AUX-001",
+                        "start_line": 1,
+                        "end_line": len(source_text.splitlines()),
+                        "kind": "plot_bearing",
+                        "candidate_ids": ["PC-AUX-001"],
+                    }],
+                    "source_plot_candidate_audit": [{
+                        "candidate_id": "PC-AUX-001",
+                        "candidate_type": "independent_action",
+                        "actor": "辅助施事者",
+                        "source_range": {
+                            "start_line": 1,
+                            "end_line": len(source_text.splitlines()),
+                        },
+                        "source_evidence": source_text,
+                        "decision": "independent_beat",
+                        "bound_beat_ids": ["P-AUX-001"],
+                        "manual_judgment": "该动作改变现场控制权并产生独立后果。",
+                    }],
                     "beats": [
                         {
                             "beat_id": "P-AUX-001",
@@ -126,7 +168,7 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                             "information_change": "信息变化",
                             "consequence": "现实后果",
                             "source_range": {"start_line": 1, "end_line": 1},
-                            "source_evidence": source.read_text(encoding="utf-8"),
+                            "source_evidence": source_text,
                             "bid_ids": [bridge_id],
                         }
                     ],
@@ -135,7 +177,12 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                         "independent_from_emotion_ledger": True,
                         "no_emotion_beat_substitution": True,
                         "all_effective_plot_beats_preserved": True,
-                        "manual_judgment": "已独立扫描。",
+                        "forward_action_scan_completed": True,
+                        "reverse_consequence_scan_completed": True,
+                        "all_source_candidates_adjudicated": True,
+                        "reviewed_by_current_model": True,
+                        "automation_used_for_semantic_judgment": False,
+                        "manual_judgment": "当前模型正扫动作、反扫后果后独立切拍。",
                     },
                 },
                 ensure_ascii=False,
@@ -211,14 +258,49 @@ class OutlinePerformanceContractTest(unittest.TestCase):
             encoding="utf-8",
         )
         self.plot_ledger = self.book_root / "写作资产" / "全文情节微拍总账.json"
+        plot_beats = self.plot_beats("P", "原文情节拍")
+        source_line_count = len(self.source.read_text(encoding="utf-8").splitlines())
         self.plot_ledger.write_text(
             json.dumps(
                 {
-                    "schema_version": "1.0",
+                    "schema_version": GATE.FULL_BRIDGE_PLOT_LEDGER_SCHEMA,
                     "source": {
                         "path": str(self.source.resolve()),
                         "sha256": GATE.sha256(self.source),
                     },
+                    "coverage_segments": [
+                        {
+                            "segment_id": "SEG-001",
+                            "start_line": 1,
+                            "end_line": 8,
+                            "kind": "non_plot_support",
+                            "candidate_ids": [],
+                            "reason": "这些行只提供场面说明，未改变外部事实。",
+                        },
+                        *[
+                            {
+                                "segment_id": f"SEG-{index + 1:03d}",
+                                "start_line": 8 + index,
+                                "end_line": 8 + index,
+                                "kind": "plot_bearing",
+                                "candidate_ids": [f"PC-{index:03d}"],
+                            }
+                            for index in range(1, 5)
+                        ],
+                    ],
+                    "source_plot_candidate_audit": [
+                        {
+                            "candidate_id": f"PC-{index:03d}",
+                            "candidate_type": "independent_action",
+                            "actor": beat["actor"],
+                            "source_range": beat["source_range"],
+                            "source_evidence": beat["evidence"],
+                            "decision": "independent_beat",
+                            "bound_beat_ids": [beat["beat_id"]],
+                            "manual_judgment": "该候选独立改变控制权、信息或现实后果。",
+                        }
+                        for index, beat in enumerate(plot_beats, 1)
+                    ],
                     "beats": [
                         {
                             "beat_id": beat["beat_id"],
@@ -233,13 +315,18 @@ class OutlinePerformanceContractTest(unittest.TestCase):
                             "source_evidence": beat["evidence"],
                             "bid_ids": beat["bid_ids"],
                         }
-                        for beat in self.plot_beats("P", "原文情节拍")
+                        for beat in plot_beats
                     ],
                     "completeness_review": {
                         "full_text_scanned_l1_to_eof": True,
                         "independent_from_emotion_ledger": True,
                         "no_emotion_beat_substitution": True,
                         "all_effective_plot_beats_preserved": True,
+                        "forward_action_scan_completed": True,
+                        "reverse_consequence_scan_completed": True,
+                        "all_source_candidates_adjudicated": True,
+                        "reviewed_by_current_model": True,
+                        "automation_used_for_semantic_judgment": False,
                         "manual_judgment": "已独立逐行盘清外部动作、信息、控制权和后果。",
                     },
                 },
@@ -301,8 +388,18 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         coverage["adaptation_boundary"] = "只迁移六类局部表演颗粒，不复制原人物和事件。"
         coverage["manual_judgment"] = "六类颗粒均已分别落到第一节的真实场面原句。"
         for field in GATE.SOURCE_STYLE_GRANULARITY_FIELDS:
+            source_evidence = style_granularity[field]["source_evidence"]
             coverage["transferred_style_fields"][field] = {
                 "target_outline_evidence": ["动作一"],
+                "source_evidence_mappings": [
+                    {
+                        "source_evidence": quote,
+                        "target_outline_evidence": ["动作一"],
+                        "mechanism_transfer_judgment": f"将源证据{index}的独立句间或表演机制迁入目标动作链。",
+                        "independently_realized": True,
+                    }
+                    for index, quote in enumerate(source_evidence, 1)
+                ],
                 "transfer_method": f"将 {field} 转为目标场面中的动作与句面安排。",
                 "surface_copy_rejected": True,
             }
@@ -502,6 +599,16 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("未迁移颗粒字段" in error for error in errors))
 
+    def test_subflow_style_field_cannot_collapse_multiple_source_evidence(self) -> None:
+        data = json.loads(self.receipt.read_text(encoding="utf-8"))
+        transfer = data["source_subflow_granularity_coverage"][0]["transferred_style_fields"][
+            "action_perception_emotion_weave"
+        ]
+        transfer["source_evidence_mappings"].pop()
+        self.receipt.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors = GATE.validate_receipt(self.receipt, self.outline)
+        self.assertTrue(any("源证据全集同序一一对应" in error for error in errors))
+
     def test_init_scaffolds_every_primary_catalog_bridge(self) -> None:
         self.catalog.write_text(
             "## BID-01 公开掉位\n\n## BID-02 私域换主\n",
@@ -596,6 +703,20 @@ class OutlinePerformanceContractTest(unittest.TestCase):
     def test_missing_independent_plot_ledger_blocks_initialization(self) -> None:
         self.plot_ledger.unlink()
         with self.assertRaises(FileNotFoundError):
+            GATE.create_receipt("测试", self.outline, [self.source])
+
+    def test_v1_plot_ledger_blocks_initialization(self) -> None:
+        ledger = json.loads(self.plot_ledger.read_text(encoding="utf-8"))
+        ledger["schema_version"] = "story-short-analyze.full-text-plot-ledger.v1"
+        self.plot_ledger.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "情节总账 v2"):
+            GATE.create_receipt("测试", self.outline, [self.source])
+
+    def test_plot_ledger_without_candidate_audit_blocks_initialization(self) -> None:
+        ledger = json.loads(self.plot_ledger.read_text(encoding="utf-8"))
+        ledger.pop("source_plot_candidate_audit")
+        self.plot_ledger.write_text(json.dumps(ledger, ensure_ascii=False), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "source_plot_candidate_audit"):
             GATE.create_receipt("测试", self.outline, [self.source])
 
     def test_emotion_ids_cannot_be_reused_as_plot_ids(self) -> None:

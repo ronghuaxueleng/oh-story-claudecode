@@ -47,6 +47,8 @@
 
 细纲验收前必须建立 `写作资产/逐拍语义映射.json`。每个情绪拍至少填写 `source_beat_id / target_beat_id / target_outline_region / hurt_object / expectation_before / expectation_after / action_impulse_before / action_impulse_after / equivalence_reason / evidence`；每个情节拍至少填写 `source_beat_id / target_beat_id / actor / actor_evidence / object_or_receiver / pressure_or_trigger / action / control_change / information_change / consequence / adaptation_equivalence / evidence`。这些字段是人工语义裁决结果，不得由装配脚本按编号、位置或统一句式生成。装配器只允许做确定性序列化，并必须在运行前检查映射文件覆盖主体全集、证据独占和目标人物真实出现。
 
+主体 E 拍除了源 ID 同序，还必须按目标正文区域同序消费：`导语 / opening -> 第1节 / section:1 -> ... -> 尾声 / epilogue` 只能向后推进，不能把较早 E 拍放到后节后又回到前节。每拍 `evidence` 必须真实位于声明的 `target_outline_region`；全文存在同句不能替代区域归属。该闸只拦跨节倒序和虚假章节绑定，不按拍号平均分节，也不允许借此删拍、并拍或改烈度。
+
 ## 执行时机
 
 设定与细纲完成后，且在任何正文首写、全文重写或正文大回炉前，必须先初始化并人工回填：
@@ -104,6 +106,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - `source_range / source_evidence / bid_ids`；每拍最多归属一个 BID，桥外使用 `[]`。
 
 总账须完整收录原文所有有效情节微拍，包括桥外 `bid_ids=[]` 的导语、过场、现实后果或尾声动作。情节拍与情绪拍可以引用同一原文句，但它们必须分别说清“外部事实怎样变”和“关系/读者体感怎样变”，不得整套同 ID、同序、等量复制。
+
+`full_bridge` 只接受 `story-short-analyze.full-text-plot-ledger.v2`。v2 必须包含从 L1 到 EOF 连续覆盖的 `coverage_segments`、按原文顺序登记的 `source_plot_candidate_audit`，以及正向动作扫描与反向后果扫描的人工复核。当前写作模型还必须回到目标桥段原文抽查候选，不能把来源总账的自报完整性当事实。若原文中一次独立施压、接招、换权、信息新增、旁观秩序变化、文案发布、评论转向或现实后果在候选审计中找不到，来源总账即失效，必须退回拆文重建；不得继续装配细纲合同。
 
 第一张是 `source_bridge_flow_inventory`，用于列出主体原文 BID / 关键子桥段全集。它不得临时抽拍：每个 BID 的 `source_plot_beats` 必须与全文情节微拍总账中含该 `bid_id` 的原序子序列完全一致。每个桥段必须写清：
 
@@ -176,7 +180,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 5. `action_perception_emotion_weave`：动作、感知和情绪如何在同一链条里互相触发。
 6. `narrator_interjection_and_roughness`：现场插嘴、口语棱角和有效毛边如何保留。
 
-每个字段必须有 `target_outline_evidence / transfer_method / surface_copy_rejected=true`。每个 SF 还必须绑定目标小节，填写 `matched/adapted`、迁移边界和人工判断。缺任一 SF 或任一字段即失败；不能用 BID 已覆盖、七维全局基线已填写、情绪拍已对齐来替代。
+每个字段必须有 `target_outline_evidence / source_evidence_mappings / transfer_method / surface_copy_rejected=true`。`source_evidence_mappings` 必须与该字段的 `source_evidence` 全集同序一一对应；每条分别填写目标细纲原句、机制迁移判断和 `independently_realized=true`。即使两条源证据同属一个宽字段，只要分别承担捏疼、盯视、松手、抱走、错答、换气或即时插嘴等不同机制，就不得用同一句目标证据笼统包办。每个 SF 还必须绑定目标小节，填写 `matched/adapted`、迁移边界和人工判断。缺任一 SF、任一字段或任一源证据映射即失败；不能用 BID 已覆盖、七维全局基线已填写、情绪拍已对齐来替代。
 
 ## 逐节必填
 
@@ -279,8 +283,11 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 ```bash
 python3 "$SKILL_ROOT/scripts/create_section_plan.py" \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --beat-mapping "{项目目录}/写作资产/逐拍语义映射.json" \
   --section N \
   --output "{项目目录}/写作资产/当前节计划/第N节.json"
 ```
+
+场面合同使用目标 `TE-*` 时，计划生成器必须从已批准的逐拍语义映射按显式 ID 查回主体 `E-*`，并同时保留 `target_emotion_beat_ids` 供追溯。禁止按数组位置、编号尾数或字符串替换猜配；缺映射、重复映射或映射未批准均阻断。
 
 书名、主体/辅助来源、选中 BID 和路径属于项目配置；E/P 拍、场面链和情绪等价理由属于项目人工语义资产。通用脚本不得硬编码这些单书信息，项目也不得长期保留复制自某本书的几百行装配脚本作为下一本书模板。

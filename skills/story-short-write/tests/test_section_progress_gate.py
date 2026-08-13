@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -53,6 +54,15 @@ class SectionProgressGateTest(unittest.TestCase):
     def test_complete_scene_plan_passes(self) -> None:
         self.assertEqual([], GATE.validate_first_draft_plan(self.valid_plan(), self.item, "1"))
 
+    def test_upstream_scene_match_accepts_explicit_target_emotion_trace_only(self) -> None:
+        upstream = self.valid_plan()["scene_units"]
+        upstream[0]["emotion_beat_ids"] = ["TE-001", "TE-002", "TE-003"]
+        plan = self.valid_plan()["scene_units"]
+        plan[0]["target_emotion_beat_ids"] = ["TE-001", "TE-002", "TE-003"]
+        self.assertTrue(GATE.scene_units_match_upstream(plan, upstream))
+        plan[0]["turning_action"] = "妻子改写了上游动作。"
+        self.assertFalse(GATE.scene_units_match_upstream(plan, upstream))
+
     def test_underallocated_scene_is_blocked_before_writing(self) -> None:
         plan = self.valid_plan()
         plan["target_chars"] = 200
@@ -77,6 +87,10 @@ class SectionProgressGateTest(unittest.TestCase):
 
     def test_chinese_full_name_meets_speaker_identity_floor(self) -> None:
         self.assertGreaterEqual(len("贺庭川"), 2)
+
+    def test_direct_dialogue_scan_covers_both_chinese_quote_styles(self) -> None:
+        text = "她说：「先等等。」他答：“不用了。”"
+        self.assertEqual(["「先等等。」", "“不用了。”"], GATE.DIRECT_DIALOGUE_RE.findall(text))
 
     def test_template_semantic_receipt_is_blocked(self) -> None:
         quotes = [f"这是场面中第{index}条互不相同的真实句子。" for index in range(1, 8)]
@@ -121,6 +135,49 @@ class SectionProgressGateTest(unittest.TestCase):
         errors = GATE.validate_scene_realization(review, self.item, section)
         self.assertTrue(any("E 拍语义裁决高度重复" in error for error in errors))
         self.assertTrue(any("P 拍语义裁决高度重复" in error for error in errors))
+
+    def test_final_ready_is_invalid_after_out_of_band_draft_replacement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            draft = Path(temp_dir) / "正文.md"
+            original = "1.\n\n原来正文。\n"
+            draft.write_text(original, encoding="utf-8")
+            _, sections, _ = GATE.split_sections(original)
+            state = {
+                "status": "final_ready", "paths": {"draft": str(draft)},
+                "final_draft_sha256": hashlib.sha256(original.encode()).hexdigest(),
+                "sections": [{"section_id": "1", "status": "passed", "text_sha256": GATE.sha256_text(sections["1"])}],
+            }
+            self.assertEqual([], GATE.verify_committed_draft_integrity(state))
+            draft.write_text("1.\n\n被整篇替换。\n", encoding="utf-8")
+            errors = GATE.verify_committed_draft_integrity(state)
+            self.assertTrue(any("旧 passed 立即失效" in error for error in errors))
+            self.assertTrue(any("旧完成态立即失效" in error for error in errors))
+
+    def test_detail_review_cannot_be_skipped_in_full_bridge_section(self) -> None:
+        section = "我平静地说，这次不用再等。"
+        prose = {"source_detail_card_reviews": [{
+            "card_id": "QX01", "distinct_function_to_preserve": "用平静压住重大身体后果",
+        }]}
+        errors = GATE.validate_detail_reviews(prose, {"source_detail_card_reviews": []}, ["QX01"], section)
+        self.assertTrue(any("完整同序" in error for error in errors))
+
+    def test_sf_required_sequence_must_be_reviewed_step_by_step(self) -> None:
+        dimensions = {name: {"source_evidence": []} for name in GATE.SF_DIMENSIONS}
+        prose = {"source_subflow_reviews": [{
+            "subflow_id": "SF-01", "required_sequence": ["补台成功", "本人拆台"],
+            "source_style_granularity": dimensions,
+        }]}
+        review = {"source_subflow_reviews": [{
+            "subflow_id": "SF-01", "status": "passed", "semantic_review_method": "current_model_manual",
+            "automation_used_for_semantic_judgment": False, "manual_judgment": "当前节完成了整条关系反杀链的逐步核验。",
+            "required_sequence_reviews": [],
+            "dimension_transfers": {name: {
+                "source_evidence": [], "evidence_mappings": [], "target_quotes": ["我平静地说。"],
+                "comparison": "当前目标句承担该维度的具体压力变化与句面功能。", "surface_copy_rejected": True,
+            } for name in GATE.SF_DIMENSIONS},
+        }]}
+        errors = GATE.validate_sf_reviews(prose, review, ["SF-01"], "我平静地说。")
+        self.assertTrue(any("逐步同序覆盖" in error for error in errors))
 
 
 if __name__ == "__main__":

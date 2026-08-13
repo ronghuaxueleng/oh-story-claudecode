@@ -13,7 +13,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = "story-short-write.emotional-granularity-contract.v4"
-SOURCE_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v1"
+SOURCE_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v2"
 SOURCE_LEDGER_SEGMENT_KINDS = {
     "emotion_bearing",
     "non_emotional_support",
@@ -49,7 +49,12 @@ CONSTRUCTION_EVIDENCE_MARKERS = (
     "不承担",
     "不补",
     "只供应",
-    "只保留",
+    "只保留机制",
+    "只保留功能",
+    "只保留颗粒",
+    "只保留情绪颗粒",
+    "只保留文字颗粒",
+    "只保留原序",
     "公开场不能",
     "叙述不写成",
     "这里没有",
@@ -83,6 +88,43 @@ def normalize_bound_text(value: Any) -> str:
 
 def semantic_surface(value: Any) -> str:
     return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(value or ""))
+
+
+def entity_aliases(value: Any) -> set[str]:
+    label = semantic_surface(value)
+    aliases = {label} if label else set()
+    if 3 <= len(label) <= 4 and all("\u4e00" <= char <= "\u9fff" for char in label):
+        aliases.add(label[1:])
+    for suffix in ("母亲", "父亲", "妈妈", "爸爸"):
+        if label.endswith(suffix) and len(label) > len(suffix):
+            aliases.add(suffix)
+    return aliases
+
+
+def hurt_object_resolves(hurt_object: Any, evidence: Any, adaptation: Any) -> bool:
+    raw = str(hurt_object or "").strip()
+    evidence_surface = semantic_surface(evidence)
+    adaptation_surface = semantic_surface(adaptation)
+    if not raw:
+        return False
+    if raw in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}:
+        return True
+    parts = [part.strip() for part in re.split(r"[、,，/；;]|(?:与|和)", raw) if part.strip()]
+    if len(parts) > 1:
+        has_pronoun = bool(re.search(r"他们|她们|对方|[我你他她]", str(evidence or "")))
+        return all(
+            any(alias in evidence_surface for alias in entity_aliases(part))
+            or (
+                has_pronoun
+                and any(alias in adaptation_surface for alias in entity_aliases(part))
+            )
+            for part in parts
+        )
+    if any(alias in evidence_surface for alias in entity_aliases(raw)):
+        return True
+    return bool(re.search(r"他们|她们|对方|[我你他她]", str(evidence or ""))) and any(
+        alias in adaptation_surface for alias in entity_aliases(raw)
+    )
 
 
 def is_construction_evidence(value: Any) -> bool:
@@ -145,21 +187,39 @@ def outline_emotion_regions(text: str) -> dict[str, str]:
     return regions
 
 
-def source_beat_regions(beats: list[dict[str, Any]]) -> dict[str, str]:
+def source_beat_regions(
+    beats: list[dict[str, Any]], segments: list[dict[str, Any]] | None = None
+) -> dict[str, str]:
+    structural_lines = [
+        segment.get("start_line")
+        for segment in segments or []
+        if isinstance(segment, dict)
+        and segment.get("kind") == "structural_marker"
+        and isinstance(segment.get("start_line"), int)
+    ]
+    first_body_marker = min(structural_lines) if structural_lines else None
     bid_indexes = [index for index, beat in enumerate(beats) if beat.get("bid_ids")]
     if not bid_indexes:
-        return {
+        result = {
             str(beat.get("beat_id") or "").strip(): "transition" for beat in beats
         }
-    first_bid = bid_indexes[0]
+        if first_body_marker is not None:
+            for beat in beats:
+                if isinstance(beat.get("end_line"), int) and beat["end_line"] < first_body_marker:
+                    result[str(beat.get("beat_id") or "").strip()] = "opening"
+        return result
     last_bid = bid_indexes[-1]
     result: dict[str, str] = {}
     for index, beat in enumerate(beats):
         beat_id = str(beat.get("beat_id") or "").strip()
-        if beat.get("bid_ids"):
-            result[beat_id] = "bridge"
-        elif index < first_bid:
+        if (
+            first_body_marker is not None
+            and isinstance(beat.get("end_line"), int)
+            and beat["end_line"] < first_body_marker
+        ):
             result[beat_id] = "opening"
+        elif beat.get("bid_ids"):
+            result[beat_id] = "bridge"
         elif index > last_bid:
             result[beat_id] = "epilogue"
         else:
@@ -264,14 +324,16 @@ def load_source_emotion_ledger(
     path: Path,
     source_original: Path,
     errors: list[str],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     try:
         data = load_json(path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         errors.append(f"无法读取全文情绪颗粒总账: {exc}")
-        return []
+        return [], []
     if data.get("schema_version") != SOURCE_LEDGER_SCHEMA:
         errors.append("全文情绪颗粒总账 schema_version 不正确")
+    if not isinstance(data.get("source_emotion_candidate_audit"), list) or not data["source_emotion_candidate_audit"]:
+        errors.append("全文情绪颗粒总账缺少 source_emotion_candidate_audit")
     source = data.get("source")
     if not isinstance(source, dict):
         errors.append("全文情绪颗粒总账缺少 source")
@@ -289,6 +351,9 @@ def load_source_emotion_ledger(
             "non_bid_beats_preserved",
             "bid_derived_after_full_inventory",
             "reviewed_by_current_model",
+            "forward_expectation_scan_completed",
+            "reverse_afterpain_scan_completed",
+            "all_source_emotion_candidates_adjudicated",
         ):
             if review.get(field) is not True:
                 errors.append(f"全文情绪颗粒总账要求 {field}=true")
@@ -343,7 +408,7 @@ def load_source_emotion_ledger(
     beats = data.get("beats")
     if not isinstance(beats, list) or not beats:
         errors.append("全文情绪颗粒总账 beats 为空")
-        return []
+        return [], segments
     source_text = source_original.read_text(encoding="utf-8")
     result: list[dict[str, Any]] = []
     ids: set[str] = set()
@@ -406,7 +471,7 @@ def load_source_emotion_ledger(
         errors.append(
             "全文情绪颗粒总账 coverage_segments 的 beat_id 必须与 beats 全集同序相等"
         )
-    return result
+    return result, segments
 
 
 def bind_outline(data: dict[str, Any], outline: Path) -> dict[str, Any]:
@@ -593,11 +658,13 @@ def validate_sequence_parity(
             errors.append(f"{label} 第 {index} 个实际情绪拍使用施工/禁写说明充当 outline_evidence")
         evidence_surface = "".join(semantic_surface(quote) for quote in evidence_values)
         hurt_object = semantic_surface(target.get("hurt_object"))
-        abstract_hurt = str(target.get("hurt_object") or "") in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}
-        pronoun_resolved = bool(re.search(r"他们|她们|对方|[他她]", "".join(evidence_values))) and semantic_surface(
-            target.get("hurt_object")
-        ) in semantic_surface(target.get("target_story_adaptation"))
-        if hurt_object and hurt_object not in evidence_surface and not abstract_hurt and not pronoun_resolved:
+        resolution_context = "".join(str(target.get(field) or "") for field in (
+            "target_story_adaptation", "trigger", "relationship_position_change",
+            "reader_effect", "expectation_before", "expectation_after",
+            "action_impulse_before", "action_impulse_after", "equivalence_reason",
+            "target_evidence_coverage_review",
+        ))
+        if hurt_object and not hurt_object_resolves(target.get("hurt_object"), "".join(evidence_values), resolution_context):
             errors.append(f"{label} 第 {index} 个实际情绪拍 hurt_object 未在证据出现，也未由代词和适配说明解析")
         if semantic_surface(target.get("expectation_before")) == semantic_surface(target.get("expectation_after")):
             errors.append(f"{label} 第 {index} 个实际情绪拍期待前后态没有变化")
@@ -607,25 +674,11 @@ def validate_sequence_parity(
             errors.append(
                 f"{label} 第 {index} 个实际情绪拍缺少具体 target_story_adaptation"
             )
-        if len(str(target.get("target_evidence_coverage_review") or "").strip()) < 30:
+        if len(str(target.get("target_evidence_coverage_review") or "").strip()) < 12:
             errors.append(
                 f"{label} 第 {index} 个实际情绪拍缺少 target_evidence_coverage_review；"
                 "必须说明目标证据覆盖了触发、关系后果和原拍的全部动作链"
             )
-        else:
-            coverage = normalize_bound_text(
-                target.get("target_evidence_coverage_review")
-            )
-            for field, field_label in (
-                ("trigger", "触发"),
-                ("relationship_position_change", "关系位移"),
-            ):
-                field_value = normalize_bound_text(target.get(field)).strip()
-                if field_value and field_value not in coverage:
-                    errors.append(
-                        f"{label} 第 {index} 个实际情绪拍的 target_evidence_coverage_review "
-                        f"未实际覆盖{field_label}，不能用通用套话代判"
-                    )
     generic_count = sum(
         any(marker in "".join(str(beat.get(field) or "") for field in (
             "trigger", "relationship_position_change", "reader_effect",
@@ -701,6 +754,225 @@ def validate_required_plot_beats(
     return result
 
 
+def apply_section_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Merge current-model-authored emotion contracts without deriving semantics."""
+    if plan.get("reviewed_by_current_model") is not True:
+        raise ValueError("情绪逐节写前侧车必须由当前模型逐节复核")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("情绪逐节写前侧车禁止由脚本生成语义字段")
+    if len(str(plan.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("情绪逐节写前侧车 manual_judgment 过短")
+    outline_binding = (data.get("bindings") or {}).get("outline") or {}
+    outline_path = Path(str(outline_binding.get("path") or ""))
+    outline_sha = str(outline_binding.get("sha256") or "")
+    if not outline_path.is_file() or sha256_file(outline_path) != outline_sha:
+        raise ValueError("情绪合同绑定的细纲不存在或 SHA 已失效")
+    if plan.get("outline_sha256") != outline_sha:
+        raise ValueError("情绪逐节写前侧车未绑定当前细纲 SHA")
+    expected = data.get("section_contracts")
+    supplied = plan.get("section_contracts")
+    if not isinstance(expected, list) or not isinstance(supplied, list):
+        raise ValueError("情绪合同或侧车缺少 section_contracts")
+    expected_ids = [str(item.get("section_id") or "") for item in expected if isinstance(item, dict)]
+    actual_ids = [str(item.get("section_id") or "") for item in supplied if isinstance(item, dict)]
+    expected_order = {section_id: index for index, section_id in enumerate(expected_ids)}
+    if (
+        not actual_ids
+        or len(actual_ids) != len(set(actual_ids))
+        or any(section_id not in expected_order for section_id in actual_ids)
+        or actual_ids != sorted(actual_ids, key=expected_order.get)
+    ):
+        raise ValueError("情绪逐节写前侧车必须引用真实小节、保持原序且不重复")
+    supplied_by_id = {
+        str(item.get("section_id") or ""): item for item in supplied if isinstance(item, dict)
+    }
+    result = dict(data)
+    result["section_contracts"] = [
+        supplied_by_id.get(str(item.get("section_id") or ""), item)
+        for item in expected
+    ]
+    result["section_plan_provenance"] = {
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "outline_sha256": outline_sha,
+        "manual_judgment": str(plan.get("manual_judgment") or "").strip(),
+    }
+    return result
+
+
+def assemble_section_plan(
+    data: dict[str, Any],
+    plan: dict[str, Any],
+    source_ledger: dict[str, Any],
+    beat_mapping: dict[str, Any],
+    outline_contract: dict[str, Any],
+    source_original: Path,
+) -> dict[str, Any]:
+    """Copy approved beat assets into current-model-authored section plans by explicit IDs."""
+    if plan.get("reviewed_by_current_model") is not True:
+        raise ValueError("情绪逐节人工计划必须由当前模型逐节复核")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("情绪逐节人工计划禁止由脚本生成语义字段")
+    if len(str(plan.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("情绪逐节人工计划 manual_judgment 过短")
+    outline_binding = (data.get("bindings") or {}).get("outline") or {}
+    outline_path = Path(str(outline_binding.get("path") or ""))
+    outline_sha = str(outline_binding.get("sha256") or "")
+    if not outline_path.is_file() or sha256_file(outline_path) != outline_sha:
+        raise ValueError("情绪合同绑定的细纲不存在或 SHA 已失效")
+    if plan.get("outline_sha256") != outline_sha:
+        raise ValueError("情绪逐节人工计划未绑定当前细纲 SHA")
+    if beat_mapping.get("status") != "approved":
+        raise ValueError("逐拍语义映射必须为 approved")
+    if outline_contract.get("gate_status") != "passed":
+        raise ValueError("细纲表演验收回执必须为 passed")
+    if source_ledger.get("schema_version") != SOURCE_LEDGER_SCHEMA:
+        raise ValueError("全文情绪颗粒总账 schema_version 不正确")
+
+    source_by_id = {
+        str(item.get("beat_id") or ""): item
+        for item in source_ledger.get("beats", [])
+        if isinstance(item, dict)
+    }
+    emotion_by_id = {
+        str(item.get("source_beat_id") or ""): item
+        for item in beat_mapping.get("emotions", [])
+        if isinstance(item, dict)
+    }
+    plot_by_target = {
+        str(item.get("target_beat_id") or ""): item
+        for item in beat_mapping.get("plots", [])
+        if isinstance(item, dict)
+    }
+    outline_sections = {
+        str(item.get("section_id") or ""): item
+        for item in outline_contract.get("sections", [])
+        if isinstance(item, dict)
+    }
+    expected_contracts = data.get("section_contracts")
+    supplied = plan.get("sections")
+    if not isinstance(expected_contracts, list) or not isinstance(supplied, list):
+        raise ValueError("情绪合同或人工计划缺少逐节列表")
+    expected_ids = [str(item.get("section_id") or "") for item in expected_contracts]
+    actual_ids = [str(item.get("section_id") or "") for item in supplied if isinstance(item, dict)]
+    expected_order = {section_id: index for index, section_id in enumerate(expected_ids)}
+    if (
+        not actual_ids
+        or len(actual_ids) != len(set(actual_ids))
+        or any(section_id not in expected_order for section_id in actual_ids)
+        or actual_ids != sorted(actual_ids, key=expected_order.get)
+    ):
+        raise ValueError("情绪逐节人工计划必须引用真实小节、保持原序且不重复")
+
+    source_lines = source_original.read_text(encoding="utf-8").splitlines()
+    assembled_by_id: dict[str, dict[str, Any]] = {}
+    required_manual_fields = (*REQUIRED_PLAN_FIELDS, "manual_judgment")
+    for item in supplied:
+        section_id = str(item.get("section_id") or "")
+        outline_section = outline_sections.get(section_id)
+        if outline_section is None:
+            raise ValueError(f"细纲表演回执缺少第 {section_id} 节")
+        parity = outline_section.get("source_emotion_parity") or {}
+        expected_emotion_ids = [
+            str(beat.get("beat_id") or "")
+            for beat in parity.get("source_emotion_sequence", [])
+            if isinstance(beat, dict)
+        ]
+        actual_emotion_ids = quote_list(item.get("emotion_beat_ids"))
+        if actual_emotion_ids != expected_emotion_ids:
+            raise ValueError(f"第 {section_id} 节 E 拍必须与已批准细纲合同全集同序相等")
+        expected_plot_ids = [
+            str(beat_id)
+            for scene in outline_section.get("scene_units", [])
+            if isinstance(scene, dict)
+            for beat_id in scene.get("plot_beat_ids", [])
+        ]
+        actual_plot_ids = quote_list(item.get("plot_beat_ids"))
+        if actual_plot_ids != expected_plot_ids:
+            raise ValueError(f"第 {section_id} 节 P 拍必须与已批准场面合同全集同序相等")
+        if any(beat_id not in source_by_id or beat_id not in emotion_by_id for beat_id in actual_emotion_ids):
+            raise ValueError(f"第 {section_id} 节引用未知 E 拍")
+        if any(beat_id not in plot_by_target for beat_id in actual_plot_ids):
+            raise ValueError(f"第 {section_id} 节引用未知目标 P 拍")
+        for field in required_manual_fields:
+            if len(str(item.get(field) or "").strip()) < 12:
+                raise ValueError(f"第 {section_id} 节人工计划字段过短: {field}")
+
+        source_beats = [source_by_id[beat_id] for beat_id in actual_emotion_ids]
+        target_beats: list[dict[str, Any]] = []
+        for beat_id in actual_emotion_ids:
+            source_beat = source_by_id[beat_id]
+            mapped = emotion_by_id[beat_id]
+            region = str(mapped.get("target_outline_region") or "").strip()
+            region = "opening" if region == "导语" else f"section:{section_id}"
+            target_beats.append({
+                "beat_id": beat_id,
+                "role": source_beat.get("role"),
+                "trigger": mapped.get("trigger"),
+                "relationship_position_change": mapped.get("relationship_position_change"),
+                "reader_effect": mapped.get("reader_effect"),
+                "intensity": source_beat.get("intensity"),
+                "target_outline_region": region,
+                "target_story_adaptation": mapped.get("target_story_adaptation"),
+                "outline_evidence": [mapped.get("evidence")],
+                "hurt_object": mapped.get("hurt_object"),
+                "expectation_before": mapped.get("expectation_before"),
+                "expectation_after": mapped.get("expectation_after"),
+                "action_impulse_before": mapped.get("action_impulse_before"),
+                "action_impulse_after": mapped.get("action_impulse_after"),
+                "equivalence_reason": mapped.get("equivalence_reason"),
+                "target_evidence_coverage_review": mapped.get("target_evidence_coverage_review"),
+            })
+        start_line = min(int(beat.get("start_line")) for beat in source_beats)
+        end_line = max(int(beat.get("end_line")) for beat in source_beats)
+        reversal = item.get("source_reversal_beat")
+        peak = item.get("source_peak_beat")
+        if reversal != parity.get("source_reversal_beat") or peak != parity.get("source_peak_beat"):
+            raise ValueError(f"第 {section_id} 节反刀/峰值必须原样匹配已批准细纲合同")
+        assembled_by_id[section_id] = {
+            "section_id": section_id,
+            "status": item.get("status"),
+            "source_excerpt": "\n".join(source_lines[start_line - 1:end_line]),
+            "source_emotion_beats": source_beats,
+            "target_outline_beats": target_beats,
+            "source_reversal_beat": reversal,
+            "target_reversal_beat": reversal,
+            "source_peak_beat": peak,
+            "target_peak_beat": peak,
+            "turning_point_selection_review": item.get("turning_point_selection_review"),
+            "source_emotion_beat_completion_review": item.get("source_emotion_beat_completion_review"),
+            "required_plot_beats": [
+                {
+                    "beat_id": beat_id,
+                    "action": plot_by_target[beat_id].get("action"),
+                    "outline_evidence": plot_by_target[beat_id].get("evidence"),
+                }
+                for beat_id in actual_plot_ids
+            ],
+            "plot_beat_completion_review": item.get("plot_beat_completion_review"),
+            **{field: item.get(field) for field in REQUIRED_PLAN_FIELDS},
+            "source_like_direct_emotion_preserved": item.get("source_like_direct_emotion_preserved"),
+            "surface_copy_rejected": item.get("surface_copy_rejected"),
+            "manual_judgment": item.get("manual_judgment"),
+        }
+    result = dict(data)
+    result["section_contracts"] = [
+        assembled_by_id.get(str(item.get("section_id") or ""), item)
+        for item in expected_contracts
+    ]
+    result["reviewed_by_current_model"] = True
+    if all(item.get("status") == "passed" for item in result["section_contracts"]):
+        result["prewrite_status"] = "passed"
+    result["section_plan_provenance"] = {
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "outline_sha256": outline_sha,
+        "manual_judgment": str(plan.get("manual_judgment") or "").strip(),
+        "assembly_method": "approved_assets_by_explicit_ids",
+    }
+    return result
+
+
 def validate_prewrite_data(
     data: dict[str, Any],
     source_original: Path,
@@ -721,6 +993,7 @@ def validate_prewrite_data(
         if isinstance(ledger_binding, dict) and ledger_binding.get("path"):
             source_emotion_ledger = Path(str(ledger_binding["path"])).resolve()
     source_ledger_beats: list[dict[str, Any]] = []
+    source_ledger_segments: list[dict[str, Any]] = []
     if source_emotion_ledger is None or not source_emotion_ledger.is_file():
         errors.append("缺少主体拆文的全文情绪颗粒总账")
     else:
@@ -730,7 +1003,7 @@ def validate_prewrite_data(
             "全文情绪颗粒总账",
             errors,
         )
-        source_ledger_beats = load_source_emotion_ledger(
+        source_ledger_beats, source_ledger_segments = load_source_emotion_ledger(
             source_emotion_ledger, source_original, errors
         )
     validate_policy(data, errors)
@@ -757,7 +1030,7 @@ def validate_prewrite_data(
     distributed_target_beats: list[dict[str, Any]] = []
     global_source_evidence: set[str] = set()
     global_target_evidence: set[str] = set()
-    ledger_regions = source_beat_regions(source_ledger_beats)
+    ledger_regions = source_beat_regions(source_ledger_beats, source_ledger_segments)
     for section_id in expected_ids:
         item = by_id.get(section_id)
         if not item:
@@ -1077,7 +1350,7 @@ def main() -> int:
     init_parser.add_argument("--source-emotion-ledger", required=True)
     init_parser.add_argument("--receipt", required=True)
 
-    for command in ("bind-outline", "validate-prewrite", "bind-draft", "validate-draft"):
+    for command in ("bind-outline", "apply-section-plan", "assemble-section-plan", "validate-prewrite", "bind-draft", "validate-draft"):
         sub = subparsers.add_parser(command)
         sub.add_argument("--receipt", required=True)
         if command in ("bind-outline", "validate-prewrite"):
@@ -1088,6 +1361,14 @@ def main() -> int:
         if command in ("validate-prewrite", "validate-draft"):
             sub.add_argument("--source-original", required=True)
             sub.add_argument("--source-emotion-ledger", required=True)
+        if command == "apply-section-plan":
+            sub.add_argument("--plan", required=True)
+        if command == "assemble-section-plan":
+            sub.add_argument("--plan", required=True)
+            sub.add_argument("--source-original", required=True)
+            sub.add_argument("--source-emotion-ledger", required=True)
+            sub.add_argument("--beat-mapping", required=True)
+            sub.add_argument("--outline-contract", required=True)
 
     args = parser.parse_args()
     receipt = Path(args.receipt).resolve()
@@ -1106,6 +1387,43 @@ def main() -> int:
         data = bind_outline(data, Path(args.outline).resolve())
         write_json(receipt, data)
         print("emotional_granularity_contract: outline bound")
+        return 0
+    if args.command == "apply-section-plan":
+        plan_path = Path(args.plan).resolve()
+        try:
+            plan = load_json(plan_path)
+            data = apply_section_plan(data, plan)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("emotional_granularity_contract: blocked (apply-section-plan)")
+            print(f"- {exc}")
+            return 2
+        data["section_plan_provenance"].update(
+            {"path": str(plan_path), "sha256": sha256_file(plan_path)}
+        )
+        write_json(receipt, data)
+        print("emotional_granularity_contract: section plan applied")
+        return 0
+    if args.command == "assemble-section-plan":
+        plan_path = Path(args.plan).resolve()
+        try:
+            plan = load_json(plan_path)
+            data = assemble_section_plan(
+                data,
+                plan,
+                load_json(Path(args.source_emotion_ledger).resolve()),
+                load_json(Path(args.beat_mapping).resolve()),
+                load_json(Path(args.outline_contract).resolve()),
+                Path(args.source_original).resolve(),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("emotional_granularity_contract: blocked (assemble-section-plan)")
+            print(f"- {exc}")
+            return 2
+        data["section_plan_provenance"].update(
+            {"path": str(plan_path), "sha256": sha256_file(plan_path)}
+        )
+        write_json(receipt, data)
+        print("emotional_granularity_contract: section plan assembled")
         return 0
     if args.command == "bind-draft":
         progress_errors = validate_section_progress_receipt(

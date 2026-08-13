@@ -296,6 +296,7 @@ UNDERSPECIFIED_ACTION_FALLBACK_PATTERN = re.compile(
 )
 INTRANSITIVE_OR_SELF_CONTAINED_ZHU_VERBS = {
     "站住", "停住", "愣住", "僵住", "忍住", "记住", "稳住", "挺住", "刹住",
+    "锈住",
 }
 BARE_STAGE_DIRECTION_PATTERN = re.compile(
     r"^[^，,。！？\n]{1,12}"
@@ -529,7 +530,15 @@ def underspecified_action_candidate_quotes(section_text: str) -> list[str]:
             candidates.append(sentence)
             continue
         match = UNDERSPECIFIED_ACTION_FALLBACK_PATTERN.search(stripped)
-        if match and match.group("verb") not in INTRANSITIVE_OR_SELF_CONTAINED_ZHU_VERBS:
+        self_contained_ending = any(
+            re.search(rf"{re.escape(verb)}了?[。！？!?.]?$", stripped)
+            for verb in INTRANSITIVE_OR_SELF_CONTAINED_ZHU_VERBS
+        )
+        if (
+            match
+            and match.group("verb") not in INTRANSITIVE_OR_SELF_CONTAINED_ZHU_VERBS
+            and not self_contained_ending
+        ):
             candidates.append(sentence)
     return candidates
 
@@ -837,6 +846,183 @@ def subflow_catalog_path(source: Path) -> Path:
     return source.parent.parent / "写作资产" / "子流程索引.jsonl"
 
 
+def detail_catalog_path(source: Path) -> Path:
+    return source.parent.parent / "原文细节库"
+
+
+def detail_card_records(source: Path) -> list[dict[str, Any]]:
+    detail_dir = detail_catalog_path(source)
+    if not detail_dir.is_dir():
+        return []
+    records: list[dict[str, Any]] = []
+    heading_pattern = re.compile(r"^##\s+卡\s+([^｜|\s]+)\s*[｜|]\s*(.+?)\s*$")
+    field_pattern = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
+    for path in sorted(detail_dir.glob("*.md")):
+        lines = read_text(path).splitlines()
+        starts = [index for index, line in enumerate(lines) if heading_pattern.match(line)]
+        for position, start in enumerate(starts):
+            end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+            match = heading_pattern.match(lines[start])
+            assert match is not None
+            fields: dict[str, str] = {}
+            for line in lines[start + 1 : end]:
+                field_match = field_pattern.match(line.strip())
+                if field_match:
+                    fields[field_match.group(1).strip()] = field_match.group(2).strip()
+            records.append(
+                {
+                    "card_id": match.group(1).strip(),
+                    "category": path.stem,
+                    "title": match.group(2).strip(),
+                    "source_file": str(path.resolve()),
+                    "source_range": fields.get("原文位置", "").strip(),
+                    "source_quote": fields.get("原文短语", "").strip().strip("`"),
+                    "source_function": (
+                        fields.get("这个细节为什么有用")
+                        or fields.get("写作功能")
+                        or fields.get("动作功能")
+                        or fields.get("对白功能")
+                        or fields.get("细节价值")
+                        or fields.get("翻车落点")
+                        or fields.get("后续触发")
+                        or fields.get("具体发生了什么")
+                        or ""
+                    ).strip(),
+                }
+            )
+    ids = [str(item.get("card_id") or "") for item in records]
+    if len(ids) != len(set(ids)):
+        raise ValueError(f"主体原文细节库存在重复卡号: {detail_dir}")
+    return records
+
+
+def source_detail_card_review_scaffold(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **record,
+        "planning_status": "pending",
+        "target_sections": [],
+        "target_adaptation": "",
+        "distinct_function_to_preserve": "",
+        "overlap_binding_ids": [],
+        "overlap_is_not_omission": "",
+        "status": "pending",
+        "target_quotes": [],
+        "comparison": "",
+        "surface_copy_rejected": None,
+        "semantic_review_method": "current_model_manual",
+        "automation_used_for_semantic_judgment": None,
+        "manual_judgment": "",
+    }
+
+
+def apply_detail_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Merge a current-model-authored detail plan without generating semantics."""
+    if plan.get("mode") != "full_bridge":
+        raise ValueError("主体细节卡写前映射 mode 必须为 full_bridge")
+    if plan.get("reviewed_by_current_model") is not True:
+        raise ValueError("主体细节卡写前映射必须由当前模型逐卡复核")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("主体细节卡写前映射禁止由脚本生成语义字段")
+    if len(str(plan.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("主体细节卡写前映射 manual_judgment 过短")
+    cards = plan.get("cards")
+    reviews = data.get("source_detail_card_reviews")
+    if not isinstance(cards, list) or not isinstance(reviews, list):
+        raise ValueError("主体细节卡写前映射或合同细节卡列表缺失")
+    expected_ids = [str(item.get("card_id") or "") for item in reviews if isinstance(item, dict)]
+    actual_ids = [str(item.get("card_id") or "") for item in cards if isinstance(item, dict)]
+    if actual_ids != expected_ids or len(actual_ids) != len(set(actual_ids)):
+        raise ValueError("主体细节卡写前映射必须与合同细节卡全集同序、等数且不重复")
+    outline_path = Path(str((data.get("outline") or {}).get("path") or ""))
+    if not outline_path.is_file():
+        raise ValueError("文字合同尚未绑定真实细纲，不能应用细节卡写前映射")
+    outline_sections = extract_sections(read_text(outline_path))
+    merged: list[dict[str, Any]] = []
+    for review, card in zip(reviews, cards):
+        card_id = str(card.get("card_id") or "")
+        targets = nonempty_strings(card.get("target_sections"))
+        if not targets or any(section not in outline_sections for section in targets):
+            raise ValueError(f"{card_id}.target_sections 必须绑定真实细纲小节")
+        for field in ("target_adaptation", "distinct_function_to_preserve", "overlap_is_not_omission"):
+            if len(str(card.get(field) or "").strip()) < 12:
+                raise ValueError(f"{card_id}.{field} 缺少当前模型逐卡语义计划")
+        overlap_ids = nonempty_strings(card.get("overlap_binding_ids"))
+        if not overlap_ids:
+            raise ValueError(f"{card_id}.overlap_binding_ids 不能为空")
+        merged.append({
+            **review,
+            "planning_status": "passed",
+            "target_sections": targets,
+            "target_adaptation": str(card["target_adaptation"]).strip(),
+            "distinct_function_to_preserve": str(card["distinct_function_to_preserve"]).strip(),
+            "overlap_binding_ids": overlap_ids,
+            "overlap_is_not_omission": str(card["overlap_is_not_omission"]).strip(),
+            "semantic_review_method": "current_model_manual",
+            "automation_used_for_semantic_judgment": False,
+            "status": "pending",
+            "target_quotes": [],
+            "comparison": "",
+            "surface_copy_rejected": None,
+            "manual_judgment": "",
+        })
+    result = dict(data)
+    result["source_detail_card_reviews"] = merged
+    result["detail_plan_provenance"] = {
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "manual_judgment": str(plan["manual_judgment"]).strip(),
+    }
+    result["gate_status"] = "pending"
+    result["prewrite_status"] = "pending"
+    return result
+
+
+def apply_section_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
+    """Merge current-model-authored section plans without generating semantics."""
+    if plan.get("reviewed_by_current_model") is not True:
+        raise ValueError("文字逐节写前侧车必须由当前模型逐节复核")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("文字逐节写前侧车禁止由脚本生成语义字段")
+    if len(str(plan.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("文字逐节写前侧车 manual_judgment 过短")
+    outline_binding = data.get("outline") or {}
+    outline_path = Path(str(outline_binding.get("path") or ""))
+    outline_sha = str(outline_binding.get("sha256") or "")
+    if not outline_path.is_file() or sha256(outline_path) != outline_sha:
+        raise ValueError("文字合同绑定的细纲不存在或 SHA 已失效")
+    if plan.get("outline_sha256") != outline_sha:
+        raise ValueError("文字逐节写前侧车未绑定当前细纲 SHA")
+    expected = data.get("section_generation_plans")
+    supplied = plan.get("section_generation_plans")
+    if not isinstance(expected, list) or not isinstance(supplied, list):
+        raise ValueError("文字合同或侧车缺少 section_generation_plans")
+    expected_ids = [str(item.get("section_id") or "") for item in expected if isinstance(item, dict)]
+    actual_ids = [str(item.get("section_id") or "") for item in supplied if isinstance(item, dict)]
+    expected_order = {section_id: index for index, section_id in enumerate(expected_ids)}
+    if (
+        not actual_ids
+        or len(actual_ids) != len(set(actual_ids))
+        or any(section_id not in expected_order for section_id in actual_ids)
+        or actual_ids != sorted(actual_ids, key=expected_order.get)
+    ):
+        raise ValueError("文字逐节写前侧车必须引用真实小节、保持原序且不重复")
+    supplied_by_id = {
+        str(item.get("section_id") or ""): item for item in supplied if isinstance(item, dict)
+    }
+    result = dict(data)
+    result["section_generation_plans"] = [
+        supplied_by_id.get(str(item.get("section_id") or ""), item)
+        for item in expected
+    ]
+    result["section_plan_provenance"] = {
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "outline_sha256": outline_sha,
+        "manual_judgment": str(plan.get("manual_judgment") or "").strip(),
+    }
+    return result
+
+
 def subflow_records_from_catalog(path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise FileNotFoundError(f"主体原文子流程索引不存在: {path}")
@@ -909,6 +1095,9 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
     subflow_ids = [str(record.get("subflow_id") or "").strip() for record in subflow_records]
     if any(not subflow_id for subflow_id in subflow_ids) or len(set(subflow_ids)) != len(subflow_ids):
         raise ValueError(f"主体原文子流程索引存在空或重复 subflow_id: {subflow_catalog}")
+    detail_records = detail_card_records(source)
+    detail_dir = detail_catalog_path(source)
+    detail_files = sorted(detail_dir.glob("*.md")) if detail_dir.is_dir() else []
     return {
         "version": "2.5",
         "project": project,
@@ -927,6 +1116,14 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
             "path": str(subflow_catalog.resolve()),
             "sha256": sha256(subflow_catalog),
             "required_subflow_ids": subflow_ids,
+        },
+        "primary_detail_catalog": {
+            "path": str(detail_dir.resolve()),
+            "files": [
+                {"path": str(path.resolve()), "sha256": sha256(path)}
+                for path in detail_files
+            ],
+            "required_card_ids": [record["card_id"] for record in detail_records],
         },
         "source_baseline": {
             "continuous_excerpts": [],
@@ -954,6 +1151,9 @@ def create_receipt(project: str, source_original: Path) -> dict[str, Any]:
         "section_reviews": [],
         "source_subflow_reviews": [
             source_subflow_review_scaffold(record) for record in subflow_records
+        ],
+        "source_detail_card_reviews": [
+            source_detail_card_review_scaffold(record) for record in detail_records
         ],
         "character_arc_reviews": [],
         "full_text_review": {
@@ -1059,6 +1259,156 @@ def validate_subflow_catalog_data(
     return records
 
 
+def validate_detail_catalog_data(
+    data: dict[str, Any], source_original: Path, source_text: str, errors: list[str]
+) -> list[dict[str, Any]]:
+    source = source_original.resolve()
+    records = detail_card_records(source)
+    binding = data.get("primary_detail_catalog")
+    if not isinstance(binding, dict):
+        errors.append("primary_detail_catalog 必须绑定主体原文细节库")
+        return records
+    expected_dir = detail_catalog_path(source).resolve()
+    if not same_file_path(Path(str(binding.get("path") or "")), expected_dir):
+        errors.append("文字颗粒度合同绑定的主体原文细节库路径不一致")
+    expected_files = sorted(expected_dir.glob("*.md")) if expected_dir.is_dir() else []
+    bound_files = binding.get("files")
+    if not isinstance(bound_files, list):
+        errors.append("primary_detail_catalog.files 必须绑定全部细节库文件")
+        bound_files = []
+    expected_file_bindings = [
+        {"path": str(path.resolve()), "sha256": sha256(path)} for path in expected_files
+    ]
+    if bound_files != expected_file_bindings:
+        errors.append("主体原文细节库文件或 SHA 已变化，必须重建细节全集合同")
+    expected_ids = [str(record.get("card_id") or "") for record in records]
+    if binding.get("required_card_ids") != expected_ids:
+        errors.append("primary_detail_catalog.required_card_ids 必须覆盖全部原文细节卡")
+    for index, record in enumerate(records, start=1):
+        label = f"主体细节卡[{index}] {record.get('card_id')}"
+        if not record.get("source_range"):
+            errors.append(f"{label}.source_range 不能为空")
+        quote = str(record.get("source_quote") or "").strip()
+        if not quote or quote not in source_text:
+            errors.append(f"{label}.source_quote 不是主体原文真实引用")
+        if len(str(record.get("source_function") or "").strip()) < 8:
+            errors.append(f"{label}.source_function 必须保留该卡独特功能")
+    return records
+
+
+def validate_detail_card_plans(
+    data: dict[str, Any], records: list[dict[str, Any]], outline_path: Path | None,
+    errors: list[str]
+) -> int:
+    if outline_path is None:
+        outline_binding = data.get("outline")
+        if isinstance(outline_binding, dict) and str(outline_binding.get("path") or ""):
+            outline_path = Path(str(outline_binding["path"]))
+    outline_sections = extract_sections(read_text(outline_path.resolve())) if outline_path and outline_path.is_file() else {}
+    reviews = data.get("source_detail_card_reviews")
+    if not isinstance(reviews, list):
+        errors.append("source_detail_card_reviews 必须覆盖主体原文全部细节卡")
+        return 0
+    expected = {str(record["card_id"]): record for record in records}
+    actual = {
+        str(item.get("card_id") or ""): item
+        for item in reviews if isinstance(item, dict) and str(item.get("card_id") or "")
+    }
+    if list(actual) != list(expected):
+        errors.append("source_detail_card_reviews 必须与原文细节卡全集同序、等数")
+    passed = 0
+    for card_id, record in expected.items():
+        label = f"主体细节卡 {card_id}"
+        review = actual.get(card_id)
+        if review is None:
+            errors.append(f"原文细节卡未进入迁移计划: {card_id}")
+            continue
+        valid = True
+        for field in ("category", "title", "source_file", "source_range", "source_quote", "source_function"):
+            if review.get(field) != record.get(field):
+                errors.append(f"{label}.{field} 与原文细节库不一致")
+                valid = False
+        sections = nonempty_strings(review.get("target_sections"))
+        if not sections or any(section not in outline_sections for section in sections):
+            errors.append(f"{label}.target_sections 必须绑定真实细纲小节")
+            valid = False
+        for field, minimum in (
+            ("target_adaptation", 12),
+            ("distinct_function_to_preserve", 12),
+            ("overlap_is_not_omission", 12),
+        ):
+            if len(str(review.get(field) or "").strip()) < minimum:
+                errors.append(f"{label}.{field} 必须人工说明")
+                valid = False
+        overlap_ids = nonempty_strings(review.get("overlap_binding_ids"))
+        if not overlap_ids:
+            errors.append(f"{label}.overlap_binding_ids 至少绑定一个 E/P/SF 或其他合同颗粒")
+            valid = False
+        if review.get("planning_status") != "passed":
+            errors.append(f"{label}.planning_status 必须为 passed")
+            valid = False
+        if review.get("semantic_review_method") != "current_model_manual":
+            errors.append(f"{label}.semantic_review_method 必须为 current_model_manual")
+            valid = False
+        if review.get("automation_used_for_semantic_judgment") is not False:
+            errors.append(f"{label} 禁止自动生成语义迁移裁决")
+            valid = False
+        if valid:
+            passed += 1
+    return passed
+
+
+def validate_detail_card_draft_reviews(
+    data: dict[str, Any], records: list[dict[str, Any]], sections: dict[str, str],
+    errors: list[str]
+) -> int:
+    reviews = data.get("source_detail_card_reviews")
+    if not isinstance(reviews, list):
+        errors.append("source_detail_card_reviews 必须逐卡绑定正文证据")
+        return 0
+    by_id = {
+        str(item.get("card_id") or ""): item
+        for item in reviews if isinstance(item, dict) and str(item.get("card_id") or "")
+    }
+    passed = 0
+    for record in records:
+        card_id = str(record["card_id"])
+        label = f"主体细节卡 {card_id}"
+        review = by_id.get(card_id)
+        if review is None:
+            errors.append(f"原文细节卡未进入正文终验: {card_id}")
+            continue
+        valid = True
+        target_sections = nonempty_strings(review.get("target_sections"))
+        target_text = "\n".join(sections.get(section, "") for section in target_sections)
+        quotes = nonempty_strings(review.get("target_quotes"))
+        if not quotes:
+            errors.append(f"{label}.target_quotes 至少绑定一条正文原句")
+            valid = False
+        for quote in quotes:
+            if quote not in target_text:
+                errors.append(f"{label} 目标证据不在绑定小节中: {quote!r}")
+                valid = False
+        for field, minimum in (("comparison", 15), ("manual_judgment", 15)):
+            if len(str(review.get(field) or "").strip()) < minimum:
+                errors.append(f"{label}.{field} 必须具体说明独特功能如何落入正文")
+                valid = False
+        if review.get("status") != "passed":
+            errors.append(f"{label}.status 必须为 passed")
+            valid = False
+        if review.get("surface_copy_rejected") is not True:
+            errors.append(f"{label}.surface_copy_rejected 必须为 true")
+            valid = False
+        if review.get("semantic_review_method") != "current_model_manual" or review.get("automation_used_for_semantic_judgment") is not False:
+            errors.append(f"{label} 必须由当前模型人工完成正文裁决")
+            valid = False
+        if valid:
+            passed += 1
+    if set(by_id) != {str(record["card_id"]) for record in records}:
+        errors.append("正文细节卡复核不得缺卡、增卡或使用旧卡号")
+    return passed
+
+
 def sentence_units(text: str) -> list[str]:
     units: list[str] = []
     buffer: list[str] = []
@@ -1093,7 +1443,9 @@ def dialogue_turn_units(text: str) -> list[str]:
     """Return direct-speech turns with their original Chinese quote marks."""
     return [
         match.group(0).strip()
-        for match in re.finditer(r"[「『][^」』]{2,}[」』]", text, flags=re.DOTALL)
+        for match in re.finditer(
+            r"「[^」]{2,}」|『[^』]{2,}』|“[^”]{2,}”", text, flags=re.DOTALL
+        )
         if match.group(0).strip()
     ]
 
@@ -1946,6 +2298,12 @@ def validate_prewrite_data(
     subflow_records = validate_subflow_catalog_data(
         data, source_original, source_text, errors
     )
+    detail_records = validate_detail_catalog_data(
+        data, source_original, source_text, errors
+    )
+    passed_detail_plans = validate_detail_card_plans(
+        data, detail_records, outline_path, errors
+    )
     if data.get("execution_mode") != "current_model_manual":
         errors.append("execution_mode 必须为 current_model_manual")
     if data.get("reviewed_by_current_model") is not True:
@@ -2076,6 +2434,8 @@ def validate_prewrite_data(
         "required_dimensions": len(REQUIRED_DIMENSIONS),
         "valid_calibration_samples": valid_samples,
         "required_subflows": len(subflow_records),
+        "required_detail_cards": len(detail_records),
+        "passed_detail_card_plans": passed_detail_plans,
         "ultra_fine_source_passages": len(ultra_fine_passages),
         "passed_generation_plans": passed_generation_plans,
         "liveliness_assets": len(liveliness_assets),
@@ -2116,6 +2476,37 @@ def bind_outline(data: dict[str, Any], outline_path: Path) -> dict[str, Any]:
     return data
 
 
+def sync_detail_catalog(data: dict[str, Any], source_original: Path) -> dict[str, Any]:
+    source = source_original.resolve()
+    records = detail_card_records(source)
+    detail_dir = detail_catalog_path(source)
+    detail_files = sorted(detail_dir.glob("*.md")) if detail_dir.is_dir() else []
+    existing = {
+        str(item.get("card_id") or ""): item
+        for item in data.get("source_detail_card_reviews", [])
+        if isinstance(item, dict) and str(item.get("card_id") or "")
+    }
+    data["primary_detail_catalog"] = {
+        "path": str(detail_dir.resolve()),
+        "files": [
+            {"path": str(path.resolve()), "sha256": sha256(path)}
+            for path in detail_files
+        ],
+        "required_card_ids": [record["card_id"] for record in records],
+    }
+    data["source_detail_card_reviews"] = [
+        {
+            **source_detail_card_review_scaffold(record),
+            **existing.get(str(record["card_id"]), {}),
+            **record,
+        }
+        for record in records
+    ]
+    data["gate_status"] = "pending"
+    data["prewrite_status"] = "pending"
+    return data
+
+
 def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
     draft = draft_path.resolve()
     if not draft.is_file():
@@ -2151,7 +2542,11 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
     def review_for(section_id: str, section_text: str) -> dict[str, Any]:
         section_sha256 = hashlib.sha256(section_text.encode("utf-8")).hexdigest()
         existing = existing_reviews.get(section_id)
-        if existing and existing.get("section_sha256") == section_sha256:
+        if (
+            existing
+            and existing.get("section_sha256") == section_sha256
+            and existing.get("status") == "passed"
+        ):
             return existing
         return {
             "section_id": section_id,
@@ -2195,6 +2590,21 @@ def bind_draft(data: dict[str, Any], draft_path: Path) -> dict[str, Any]:
     data["source_subflow_reviews"] = [
         source_subflow_review_scaffold(item)
         for item in existing_subflows
+        if isinstance(item, dict)
+    ]
+    existing_detail_reviews = data.get("source_detail_card_reviews")
+    if not isinstance(existing_detail_reviews, list):
+        existing_detail_reviews = []
+    data["source_detail_card_reviews"] = [
+        {
+            **item,
+            "status": "pending",
+            "target_quotes": [],
+            "comparison": "",
+            "surface_copy_rejected": None,
+            "manual_judgment": "",
+        }
+        for item in existing_detail_reviews
         if isinstance(item, dict)
     ]
     data["character_arc_reviews"] = []
@@ -3599,6 +4009,10 @@ def validate_draft_data(
     passed_subflows = validate_source_subflow_reviews(
         data, source_original, sections, errors
     )
+    detail_records = detail_card_records(source_original.resolve())
+    passed_detail_cards = validate_detail_card_draft_reviews(
+        data, detail_records, sections, errors
+    )
     passed_character_arcs = validate_character_arc_reviews(
         data, character_profiles, sections, errors
     )
@@ -3628,6 +4042,7 @@ def validate_draft_data(
     summary["draft_sections"] = len(sections)
     summary["passed_sections"] = passed_sections
     summary["passed_subflows"] = passed_subflows
+    summary["passed_detail_cards"] = passed_detail_cards
     summary["passed_character_arcs"] = passed_character_arcs
     if passed_sections != len(sections):
         errors.append(
@@ -3811,6 +4226,24 @@ def main() -> int:
     outline_parser = subparsers.add_parser("bind-outline")
     outline_parser.add_argument("--receipt", required=True)
     outline_parser.add_argument("--outline", required=True)
+    detail_parser = subparsers.add_parser(
+        "sync-detail-catalog",
+        help="向旧合同增量绑定主体八类原文细节卡，不覆盖已有人工裁决",
+    )
+    detail_parser.add_argument("--receipt", required=True)
+    detail_parser.add_argument("--source-original", required=True)
+    apply_detail_parser = subparsers.add_parser(
+        "apply-detail-plan",
+        help="校验并原样合并当前模型逐卡填写的 full_bridge 写前细节映射",
+    )
+    apply_detail_parser.add_argument("--receipt", required=True)
+    apply_detail_parser.add_argument("--plan", required=True)
+    apply_section_parser = subparsers.add_parser(
+        "apply-section-plan",
+        help="校验并原样合并当前模型逐节填写的文字写前侧车",
+    )
+    apply_section_parser.add_argument("--receipt", required=True)
+    apply_section_parser.add_argument("--plan", required=True)
     prewrite_parser = subparsers.add_parser("validate-prewrite")
     prewrite_parser.add_argument("--receipt", required=True)
     prewrite_parser.add_argument("--source-original", required=True)
@@ -3852,6 +4285,44 @@ def main() -> int:
     if args.command == "bind-outline":
         write_json(receipt, bind_outline(data, Path(args.outline)))
         print(f"prose_granularity_contract: outline bound -> {receipt}")
+        return 0
+    if args.command == "sync-detail-catalog":
+        source = Path(args.source_original).resolve()
+        write_json(receipt, sync_detail_catalog(data, source))
+        print(f"prose_granularity_contract: detail catalog synced -> {receipt}")
+        return 0
+    if args.command == "apply-detail-plan":
+        plan_path = Path(args.plan).resolve()
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            if not isinstance(plan, dict):
+                raise ValueError("主体细节卡写前映射 JSON 顶层必须是对象")
+            result = apply_detail_plan(data, plan)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (apply-detail-plan)")
+            print(f"- {exc}")
+            return 2
+        result["detail_plan_provenance"]["path"] = str(plan_path)
+        result["detail_plan_provenance"]["sha256"] = sha256(plan_path)
+        write_json(receipt, result)
+        print(f"prose_granularity_contract: detail plan applied -> {receipt}")
+        return 0
+    if args.command == "apply-section-plan":
+        plan_path = Path(args.plan).resolve()
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            if not isinstance(plan, dict):
+                raise ValueError("文字逐节写前侧车 JSON 顶层必须是对象")
+            result = apply_section_plan(data, plan)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (apply-section-plan)")
+            print(f"- {exc}")
+            return 2
+        result["section_plan_provenance"].update(
+            {"path": str(plan_path), "sha256": sha256(plan_path)}
+        )
+        write_json(receipt, result)
+        print(f"prose_granularity_contract: section plan applied -> {receipt}")
         return 0
     if args.command == "bind-draft":
         progress_errors = validate_section_progress_receipt(

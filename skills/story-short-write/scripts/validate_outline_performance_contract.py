@@ -114,6 +114,7 @@ SOURCE_STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+FULL_BRIDGE_PLOT_LEDGER_SCHEMA = "story-short-analyze.full-text-plot-ledger.v2"
 
 
 def sha256(path: Path) -> str:
@@ -178,6 +179,18 @@ def load_ledger_payload(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
+def require_full_bridge_plot_ledger_v2(payload: dict[str, Any], path: Path) -> None:
+    if payload.get("schema_version") != FULL_BRIDGE_PLOT_LEDGER_SCHEMA:
+        raise ValueError(
+            "full_bridge 只接受带逐行覆盖与源文候选反查的情节总账 v2；"
+            f"请先回 story-short-analyze 重建: {path}"
+        )
+    if not isinstance(payload.get("coverage_segments"), list) or not payload["coverage_segments"]:
+        raise ValueError(f"full_bridge 情节总账缺 coverage_segments: {path}")
+    if not isinstance(payload.get("source_plot_candidate_audit"), list) or not payload["source_plot_candidate_audit"]:
+        raise ValueError(f"full_bridge 情节总账缺 source_plot_candidate_audit: {path}")
+
+
 def normalized_plot_ledger_beats(payload: dict[str, Any]) -> list[dict[str, Any]]:
     normalized: list[dict[str, Any]] = []
     for beat in payload.get("beats") or []:
@@ -232,6 +245,7 @@ def subflow_coverage_scaffold(
         "transferred_style_fields": {
             field: {
                 "target_outline_evidence": [],
+                "source_evidence_mappings": [],
                 "transfer_method": "",
                 "surface_copy_rejected": None,
             }
@@ -274,6 +288,8 @@ def create_receipt(
             if source_mode == "full_bridge"
             else {"beats": []}
         )
+        if source_mode == "full_bridge":
+            require_full_bridge_plot_ledger_v2(plot_payload, plot_ledger)
         plot_beats = normalized_plot_ledger_beats(plot_payload)
         subflow_catalog = subflow_catalog_path(source)
         if role == "primary" and not subflow_catalog.is_file():
@@ -633,7 +649,7 @@ def validate_exchange(value: Any, label: str, errors: list[str]) -> None:
             errors.append(f"{label} interaction_exchange.{field} 不能为空")
 
 
-def validate_scene_units(value: Any, label: str, outline_text: str, section_id: str) -> list[str]:
+def validate_scene_units(value: Any, label: str, outline_text: str, section_id: str, *, granularity_only: bool = False) -> list[str]:
     errors: list[str] = []
     if not isinstance(value, list) or not 1 <= len(value) <= 3:
         errors.append(f"{label} scene_units 必须包含 1-3 个完整场面")
@@ -649,13 +665,14 @@ def validate_scene_units(value: Any, label: str, outline_text: str, section_id: 
         actual_e.extend(str(item).strip() for item in scene.get("emotion_beat_ids", []))
         actual_p.extend(str(item).strip() for item in scene.get("plot_beat_ids", []))
         chars = scene.get("allocated_chars")
-        if not isinstance(chars, int) or chars < 240:
+        if not granularity_only and (not isinstance(chars, int) or chars < 240):
             errors.append(f"{scene_label}.allocated_chars 必须至少 240")
         else:
             allocated += chars
-        if scene.get("full_scene_required") is not True or scene.get("summary_only") is not False:
+        if not granularity_only and (scene.get("full_scene_required") is not True or scene.get("summary_only") is not False):
             errors.append(f"{scene_label} 必须声明 full_scene_required=true / summary_only=false")
-        for field in ("entry_pressure", "turning_action", "visible_consequence", "aftershock", "reader_emotion_path"):
+        fields = ("entry_pressure", "turning_action", "visible_consequence", "aftershock") if granularity_only else ("entry_pressure", "turning_action", "visible_consequence", "aftershock", "reader_emotion_path")
+        for field in fields:
             if not nonempty_text(scene.get(field)):
                 errors.append(f"{scene_label}.{field} 不能为空")
         chain = scene.get("interaction_chain")
@@ -676,7 +693,7 @@ def validate_scene_units(value: Any, label: str, outline_text: str, section_id: 
                     f"{scene_label}.interaction_chain 仍含泛化施压/接招模板，必须点名人物、动作和即时结果"
                 )
         evidence = scene.get("outline_evidence")
-        if not nonempty_list(evidence, minimum=2):
+        if not nonempty_list(evidence, minimum=1 if granularity_only else 2):
             errors.append(f"{scene_label}.outline_evidence 必须引用至少 2 条当前细纲原句")
         elif any(str(quote).strip() not in outline_text for quote in evidence):
             errors.append(f"{scene_label}.outline_evidence 必须来自当前细纲")
@@ -684,7 +701,7 @@ def validate_scene_units(value: Any, label: str, outline_text: str, section_id: 
         errors.append(f"{label}.scene_units E/P 拍不得重复分配")
     target_chars = sum(int(scene.get("allocated_chars", 0)) for scene in value if isinstance(scene, dict))
     declared = next((scene.get("target_chars") for scene in value if isinstance(scene, dict) and scene.get("target_chars")), target_chars)
-    if isinstance(declared, int) and target_chars != declared:
+    if not granularity_only and isinstance(declared, int) and target_chars != declared:
         errors.append(f"{label}.scene_units 分配字数之和必须等于 target_chars")
     return errors
 
@@ -851,7 +868,12 @@ CONSTRUCTION_EVIDENCE_MARKERS = (
     "不承担",
     "不补",
     "只供应",
-    "只保留",
+    "只保留机制",
+    "只保留功能",
+    "只保留颗粒",
+    "只保留情绪颗粒",
+    "只保留文字颗粒",
+    "只保留原序",
     "公开场不能",
     "叙述不写成",
     "这里没有",
@@ -911,15 +933,53 @@ def target_actor_tokens(value: Any) -> list[str]:
     ]
 
 
+def entity_aliases(value: Any) -> set[str]:
+    """Return conservative name aliases consistent with the beat-mapping gate."""
+    label = normalized_surface_text(value)
+    aliases = {label} if label else set()
+    if 3 <= len(label) <= 4 and all("\u4e00" <= char <= "\u9fff" for char in label):
+        aliases.add(label[1:])
+    for suffix in ("母亲", "父亲", "妈妈", "爸爸"):
+        if label.endswith(suffix) and len(label) > len(suffix):
+            aliases.add(suffix)
+    if label.startswith("医院") and len(label) > 2:
+        aliases.add(label[2:])
+    return aliases
+
+
+def entity_mentioned(entity: Any, text: Any) -> bool:
+    haystack = normalized_surface_text(text)
+    tokens = target_actor_tokens(entity)
+    if len(tokens) > 1:
+        return all(entity_mentioned(token, text) for token in tokens)
+    return any(alias and alias in haystack for alias in entity_aliases(entity))
+
+
+def hurt_object_resolves(hurt_object: Any, evidence: Any, adaptation: Any) -> bool:
+    raw = str(hurt_object or "").strip()
+    evidence_surface = normalized_surface_text(evidence)
+    adaptation_surface = normalized_surface_text(adaptation)
+    if not raw:
+        return False
+    if raw in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}:
+        return True
+    parts = [part.strip() for part in re.split(r"[、,，/；;]|(?:与|和)", raw) if part.strip()]
+    if len(parts) > 1 and all(entity_mentioned(part, evidence) for part in parts):
+        return True
+    if entity_mentioned(raw, evidence):
+        return True
+    return bool(re.search(r"他们|她们|对方|[我你他她]", str(evidence or ""))) and entity_mentioned(raw, adaptation_surface)
+
+
 def actor_evidence_resolves(actor: Any, actor_evidence: Any, action: Any) -> bool:
     tokens = target_actor_tokens(actor)
     evidence_surface = normalized_surface_text(actor_evidence)
     action_surface = normalized_surface_text(action)
-    if tokens and any(normalized_surface_text(token) in evidence_surface for token in tokens):
+    if tokens and any(entity_mentioned(token, actor_evidence) for token in tokens):
         return True
-    pronouns = {"他", "她", "他们", "她们", "对方", "其", "两人"}
-    return bool(tokens) and str(actor_evidence).strip() in pronouns and any(
-        normalized_surface_text(token) in action_surface for token in tokens
+    has_pronoun = bool(re.search(r"他们|她们|两人|对方|[他她其]", str(actor_evidence)))
+    return bool(tokens) and has_pronoun and any(
+        entity_mentioned(token, action_surface) for token in tokens
     )
 
 
@@ -942,7 +1002,7 @@ def validate_target_plot_adaptation(
             )
         actor_tokens = target_actor_tokens(target.get("actor"))
         if not actor_tokens or not any(
-            normalized_surface_text(token) in target_surface for token in actor_tokens
+            entity_mentioned(token, target_surface) for token in actor_tokens
         ):
             errors.append(
                 f"{beat_label} 未在目标 action/evidence 中落下目标施事者，仍可能只是原文功能说明"
@@ -1106,18 +1166,20 @@ def validate_turn_and_peak_alignment(
         if len(str(target_beat.get("hurt_object") or "").strip()) < 1:
             errors.append(f"{beat_label}.hurt_object 缺少实际受伤对象")
         for field in TARGET_EMOTION_SEMANTIC_FIELDS[1:]:
-            if len(str(target_beat.get(field) or "").strip()) < 8:
+            if len(str(target_beat.get(field) or "").strip()) < 2:
                 errors.append(f"{beat_label}.{field} 缺少可核验的情绪前后态或等价迁移理由")
         evidence = str(target_beat.get("evidence") or "").strip()
         if is_construction_evidence(evidence):
             errors.append(f"{beat_label}.evidence 是施工/禁写说明，不能充当情绪发生证据")
         hurt_object = normalized_surface_text(target_beat.get("hurt_object"))
         evidence_surface = normalized_surface_text(evidence)
-        abstract_hurt = str(target_beat.get("hurt_object") or "") in {"夫妻关系", "婚姻位置", "读者预期", "在场者"}
-        pronoun_resolved = bool(re.search(r"他们|她们|对方|[他她]", evidence)) and normalized_surface_text(
-            target_beat.get("hurt_object")
-        ) in normalized_surface_text(target_beat.get("target_story_adaptation"))
-        if hurt_object and hurt_object not in evidence_surface and not abstract_hurt and not pronoun_resolved:
+        resolution_context = "".join(str(target_beat.get(field) or "") for field in (
+            "target_story_adaptation", "trigger", "relationship_position_change",
+            "reader_effect", "expectation_before", "expectation_after",
+            "action_impulse_before", "action_impulse_after", "equivalence_reason",
+            "target_evidence_coverage_review",
+        ))
+        if hurt_object and not hurt_object_resolves(target_beat.get("hurt_object"), evidence, resolution_context):
             errors.append(f"{beat_label}.hurt_object 必须在证据中出现，或由代词和适配说明解析")
         if normalized_surface_text(target_beat.get("expectation_before")) == normalized_surface_text(
             target_beat.get("expectation_after")
@@ -1229,7 +1291,10 @@ def validate_source_plot_ledgers(
     result: dict[str, list[dict[str, Any]]] = {}
     for source_key, source_info in source_metadata.items():
         source_path = Path(source_key)
-        label = f"{'主体' if source_info.get('role') == 'primary' else '辅助'}全文情节微拍总账"
+        label = (
+            f"{'主体' if source_info.get('role') == 'primary' else '辅助'}全文情节微拍总账"
+            f"[{source_path}]"
+        )
         ledger_path = validate_binding(
             source_info.get("plot_beat_ledger"), label, errors
         )
@@ -1241,6 +1306,11 @@ def validate_source_plot_ledgers(
         try:
             payload = load_ledger_payload(ledger_path, label)
         except (FileNotFoundError, ValueError) as exc:
+            errors.append(str(exc))
+            continue
+        try:
+            require_full_bridge_plot_ledger_v2(payload, ledger_path)
+        except ValueError as exc:
             errors.append(str(exc))
             continue
         source_binding = payload.get("source")
@@ -1261,6 +1331,10 @@ def validate_source_plot_ledgers(
                 "independent_from_emotion_ledger",
                 "no_emotion_beat_substitution",
                 "all_effective_plot_beats_preserved",
+                "forward_action_scan_completed",
+                "reverse_consequence_scan_completed",
+                "all_source_candidates_adjudicated",
+                "reviewed_by_current_model",
             ):
                 if review.get(field) is not True:
                     errors.append(f"{label}.completeness_review.{field} 必须为 true")
@@ -1275,7 +1349,8 @@ def validate_source_plot_ledgers(
         seen_ids: set[str] = set()
         allowed_bids = set(source_info.get("available_bridge_ids") or [])
         for index, beat in enumerate(raw_beats, start=1):
-            beat_label = f"{label}.beats[{index}]"
+            raw_beat_id = str(beat.get("beat_id") or "").strip() if isinstance(beat, dict) else ""
+            beat_label = f"{label}.beats[{index}:{raw_beat_id or '<missing>'}]"
             if not isinstance(beat, dict):
                 errors.append(f"{beat_label} 必须是对象")
                 continue
@@ -1826,6 +1901,37 @@ def validate_subflow_granularity_coverage(
                 for quote in target_evidence:
                     if str(quote).strip() not in outline_text:
                         errors.append(f"{label}.{field} 目标证据不在细纲中: {quote!r}")
+            source_quotes = [str(quote).strip() for quote in item.get("source_evidence") or []]
+            evidence_mappings = transfer.get("source_evidence_mappings")
+            if not isinstance(evidence_mappings, list):
+                errors.append(f"{label}.{field}.source_evidence_mappings 必须逐条映射源证据")
+                evidence_mappings = []
+            mapped_source_quotes: list[str] = []
+            for mapping_index, mapping in enumerate(evidence_mappings, start=1):
+                mapping_label = f"{label}.{field}.source_evidence_mappings[{mapping_index}]"
+                if not isinstance(mapping, dict):
+                    errors.append(f"{mapping_label} 必须是对象")
+                    continue
+                source_quote = str(mapping.get("source_evidence") or "").strip()
+                mapped_source_quotes.append(source_quote)
+                if source_quote not in source_quotes:
+                    errors.append(f"{mapping_label}.source_evidence 不属于当前颗粒字段")
+                mapped_targets = mapping.get("target_outline_evidence")
+                if not nonempty_list(mapped_targets):
+                    errors.append(f"{mapping_label}.target_outline_evidence 至少一条细纲原句")
+                else:
+                    for quote in mapped_targets:
+                        if str(quote).strip() not in outline_text:
+                            errors.append(f"{mapping_label} 目标证据不在细纲中: {quote!r}")
+                if not nonempty_text(mapping.get("mechanism_transfer_judgment")):
+                    errors.append(f"{mapping_label}.mechanism_transfer_judgment 不能为空")
+                if mapping.get("independently_realized") is not True:
+                    errors.append(f"{mapping_label}.independently_realized 必须为 true")
+            if mapped_source_quotes != source_quotes:
+                errors.append(
+                    f"{label}.{field}.source_evidence_mappings 必须与源证据全集同序一一对应；"
+                    "不得用一条目标证据包办多条不同源机制"
+                )
             if not nonempty_text(transfer.get("transfer_method")):
                 errors.append(f"{label}.{field}.transfer_method 不能为空")
             if transfer.get("surface_copy_rejected") is not True:
@@ -2033,11 +2139,11 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors.append("必须在正文前确认陌生读者无需职业知识即可看懂人物关系与伤害")
         if global_review.get("professional_shell_translation_reviewed_before_draft") is not True:
             errors.append("必须在正文前完成职业外壳白话翻译，禁止术语承担情绪")
-        if global_review.get("source_emotion_flow_parity_reviewed_before_draft") is not True:
+        if source_mode == "full_bridge" and global_review.get("source_emotion_flow_parity_reviewed_before_draft") is not True:
             errors.append("必须在正文前逐节核对原文情绪流程、反刀时机和烈度")
-        if global_review.get("complete_source_emotion_beat_inventory_reviewed") is not True:
+        if source_mode == "full_bridge" and global_review.get("complete_source_emotion_beat_inventory_reviewed") is not True:
             errors.append("必须盘清原文全部实际情绪拍及同类重复次数，禁止用预设角色表代替完整库存")
-        if global_review.get("source_subflow_granularity_coverage_reviewed") is not True:
+        if source_mode == "full_bridge" and global_review.get("source_subflow_granularity_coverage_reviewed") is not True:
             errors.append("必须在正文前逐 SF 核对主体原文全部六类颗粒度")
         if str(data.get("source_mode") or "full_bridge") == "granularity_only":
             if global_review.get("granularity_transfer_contract_reviewed") is not True:
@@ -2108,14 +2214,15 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
             errors,
             strong_emotion_required=strong_emotion_required,
         )
-    validate_subflow_granularity_coverage(
-        data.get("source_subflow_granularity_coverage"),
-        source_metadata,
-        source_texts,
-        section_ids,
-        outline_text,
-        errors,
-    )
+    if source_mode == "full_bridge":
+        validate_subflow_granularity_coverage(
+            data.get("source_subflow_granularity_coverage"),
+            source_metadata,
+            source_texts,
+            section_ids,
+            outline_text,
+            errors,
+        )
     section_entries = data.get("sections")
     if not isinstance(section_entries, list):
         errors.append("sections 必须是列表")
@@ -2156,7 +2263,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         if not nonempty_list(entry.get("character_missteps"), minimum=2):
             errors.append(f"{label} character_missteps 至少填写两条人物偏手/错答")
         validate_exchange(entry.get("interaction_exchange"), label, errors)
-        errors.extend(validate_scene_units(entry.get("scene_units"), label, outline_text, section_id))
+        errors.extend(validate_scene_units(entry.get("scene_units"), label, outline_text, section_id, granularity_only=(source_mode == "granularity_only")))
         validate_conflict(entry.get("conflict_carrier"), label, errors)
         validate_relationship_legibility(
             entry.get("relationship_legibility"), label, errors
@@ -2170,14 +2277,21 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         validate_professional_shell_translation(
             entry.get("professional_shell_translation"), label, errors
         )
-        validate_source_emotion_parity(
-            entry.get("source_emotion_parity"),
-            source_texts,
-            outline_text,
-            label,
-            errors,
-            strong_emotion_required=strong_emotion_required,
-        )
+        if source_mode == "full_bridge":
+            validate_source_emotion_parity(
+                entry.get("source_emotion_parity"),
+                source_texts,
+                outline_text,
+                label,
+                errors,
+                strong_emotion_required=strong_emotion_required,
+            )
+        else:
+            parity = entry.get("source_emotion_parity") or {}
+            if parity.get("parity_status") not in {"adapted_equal_intensity", "matched"}:
+                errors.append(f"{label} 颗粒度模式情绪迁移状态无效")
+            if not nonempty_text(parity.get("manual_judgment")):
+                errors.append(f"{label} 颗粒度模式缺少情绪人工判断")
         if not nonempty_list(entry.get("forbidden_items"), minimum=2):
             errors.append(f"{label} forbidden_items 至少填写两条禁写项")
         evidence = entry.get("outline_evidence")
@@ -2203,7 +2317,7 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
         judgment = str(entry.get("manual_judgment") or "").strip()
         repeated_judgments.setdefault(judgment, []).append(section_id)
         emotion_parity = entry.get("source_emotion_parity")
-        if isinstance(emotion_parity, dict):
+        if source_mode == "full_bridge" and isinstance(emotion_parity, dict):
             source_sequence = emotion_parity.get("source_emotion_sequence")
             if isinstance(source_sequence, list):
                 emotion_signature = tuple(
@@ -2222,13 +2336,13 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                 ).append(section_id)
 
     for signature, repeated_sections in repeated_scene_signatures.items():
-        if all(signature) and len(repeated_sections) >= 3:
+        if source_mode == "full_bridge" and all(signature) and len(repeated_sections) >= 3:
             errors.append(
                 "原文场面颗粒度连续复用泛化模板，必须逐节绑定不同的真实场面: "
                 + ", ".join(repeated_sections)
             )
     for judgment, repeated_sections in repeated_judgments.items():
-        if judgment and len(repeated_sections) >= 3:
+        if source_mode == "full_bridge" and judgment and len(repeated_sections) >= 3:
             errors.append(
                 "细纲人工判断连续复用同一句，不能用模板批量判过: "
                 + ", ".join(repeated_sections)

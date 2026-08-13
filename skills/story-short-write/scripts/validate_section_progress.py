@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -16,7 +17,7 @@ from typing import Any
 
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 OUTLINE_SECTION_RE = re.compile(r"(?m)^##\s+(\d+)\.")
-DIRECT_DIALOGUE_RE = re.compile(r"「[^」]*」")
+DIRECT_DIALOGUE_RE = re.compile(r"「[^」]*」|“[^”]*”")
 SF_DIMENSIONS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -196,6 +197,34 @@ def validate_sf_assignments(prose: dict[str, Any], expected: list[str]) -> tuple
     return by_section, errors
 
 
+def validate_detail_assignments(prose: dict[str, Any], expected: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    by_section = {sid: [] for sid in expected}
+    reviews = prose.get("source_detail_card_reviews")
+    catalog = (prose.get("primary_detail_catalog") or {}).get("required_card_ids") or []
+    if not catalog:
+        return by_section, []
+    if not isinstance(reviews, list):
+        return by_section, ["full_bridge 文字合同缺少 source_detail_card_reviews"]
+    actual = [str(item.get("card_id")) for item in reviews if isinstance(item, dict)]
+    if actual != [str(value) for value in catalog]:
+        return by_section, ["主体细节卡必须与 primary_detail_catalog 全集同序等数"]
+    errors: list[str] = []
+    for item in reviews:
+        card_id = str(item.get("card_id") or "")
+        targets = [str(value) for value in item.get("target_sections", [])]
+        if item.get("planning_status") != "passed":
+            errors.append(f"{card_id}.planning_status 必须在逐节正文初始化前为 passed")
+        if not targets or any(sid not in expected for sid in targets):
+            errors.append(f"{card_id}.target_sections 必须绑定真实目标小节")
+            continue
+        for field in ("target_adaptation", "distinct_function_to_preserve", "overlap_is_not_omission"):
+            if len(str(item.get(field) or "").strip()) < 12:
+                errors.append(f"{card_id}.{field} 缺少写前逐卡计划")
+        for sid in targets:
+            by_section[sid].append(card_id)
+    return by_section, errors
+
+
 def validate_stale_draft_reset(
     prose: dict[str, Any], emotion: dict[str, Any], draft_path: Path
 ) -> list[str]:
@@ -290,6 +319,9 @@ def command_init(args: argparse.Namespace) -> int:
         sf_assignments, sf_errors = validate_sf_assignments(prose, expected)
         if sf_errors:
             raise ValueError("；".join(sf_errors))
+        detail_assignments, detail_errors = validate_detail_assignments(prose, expected)
+        if detail_errors:
+            raise ValueError("；".join(detail_errors))
         emotion = load_json(emotion_path)
         reset_errors = validate_stale_draft_reset(prose, emotion, draft_path)
         if reset_errors:
@@ -328,6 +360,7 @@ def command_init(args: argparse.Namespace) -> int:
                 **budgets[sid],
                 **beat_ids[sid],
                 "required_sf_ids": sf_assignments[sid],
+                "required_detail_card_ids": detail_assignments[sid],
                 "review_path": "",
                 "text_sha256": "",
                 "char_count": 0,
@@ -416,6 +449,42 @@ def validate_first_draft_plan(plan: dict[str, Any], item: dict[str, Any], sid: s
     return errors
 
 
+def verify_committed_draft_integrity(state: dict[str, Any]) -> list[str]:
+    """Reject stale green state after any out-of-band draft replacement."""
+    draft_path = Path(str((state.get("paths") or {}).get("draft") or ""))
+    if not draft_path.is_file():
+        return [] if not any(item.get("status") == "passed" for item in state.get("sections", [])) else ["已提交正文不存在"]
+    draft_text = draft_path.read_text(encoding="utf-8")
+    _, sections, order = split_sections(draft_text)
+    passed = [str(item.get("section_id")) for item in state.get("sections", []) if item.get("status") == "passed"]
+    errors: list[str] = []
+    if order[: len(passed)] != passed:
+        errors.append(f"正文已提交小节顺序与状态不一致: expected_prefix={passed}, actual={order}")
+    for item in state.get("sections", []):
+        if item.get("status") != "passed":
+            continue
+        sid = str(item.get("section_id"))
+        if sha256_text(sections.get(sid, "")) != item.get("text_sha256"):
+            errors.append(f"第 {sid} 节通过后被外部改写，旧 passed 立即失效")
+    final_sha = str(state.get("final_draft_sha256") or "")
+    if state.get("status") == "final_ready" and (not final_sha or sha256_file(draft_path) != final_sha):
+        errors.append("当前正文 SHA 与 final_ready 绑定 SHA 不一致，旧完成态立即失效")
+    return errors
+
+
+def scene_units_match_upstream(plan_units: Any, upstream_units: Any) -> bool:
+    if not isinstance(plan_units, list) or not isinstance(upstream_units, list):
+        return False
+    normalized = copy.deepcopy(plan_units)
+    for scene in normalized:
+        if not isinstance(scene, dict):
+            return False
+        target_ids = scene.pop("target_emotion_beat_ids", None)
+        if target_ids is not None:
+            scene["emotion_beat_ids"] = target_ids
+    return normalized == upstream_units
+
+
 def command_start(args: argparse.Namespace) -> int:
     state_path = Path(args.state).resolve()
     try:
@@ -454,7 +523,7 @@ def command_start(args: argparse.Namespace) -> int:
             upstream_units = outline_entry.get("scene_units")
             if not isinstance(upstream_units, list) or not upstream_units:
                 errors.append(f"细纲表演验回执未为第 {sid} 节提供 scene_units，必须先回写小节大纲")
-            elif plan.get("scene_units") != upstream_units:
+            elif not scene_units_match_upstream(plan.get("scene_units"), upstream_units):
                 errors.append("当前节计划与已通过的细纲 scene_units 不一致，不得在正文阶段临时改容量")
             if plan.get("outline_performance_receipt_sha256") != sha256_file(outline_receipt):
                 errors.append("当前节计划未绑定最新细纲表演验收回执 SHA")
@@ -559,6 +628,21 @@ def validate_sf_reviews(
             errors.append(f"{sf_id}.automation_used_for_semantic_judgment 必须为 false")
         if len(str(review.get("manual_judgment") or "").strip()) < 20:
             errors.append(f"{sf_id}.manual_judgment 过短")
+        required_steps = source.get("required_sequence") or []
+        step_reviews = review.get("required_sequence_reviews")
+        if not isinstance(step_reviews, list) or [item.get("source_step") for item in step_reviews if isinstance(item, dict)] != required_steps:
+            errors.append(f"{sf_id}.required_sequence_reviews 必须逐步同序覆盖 SF 必经链")
+        else:
+            for index, step_review in enumerate(step_reviews, start=1):
+                label = f"{sf_id}.required_sequence_reviews[{index}]"
+                quotes = step_review.get("target_quotes")
+                if step_review.get("status") != "passed":
+                    errors.append(f"{label}.status 必须为 passed")
+                if not isinstance(quotes, list) or not quotes or any(not isinstance(q, str) or q not in section_text for q in quotes):
+                    errors.append(f"{label}.target_quotes 必须来自当前节")
+                for field in ("visible_change", "manual_judgment"):
+                    if len(str(step_review.get(field) or "").strip()) < 16:
+                        errors.append(f"{label}.{field} 缺少当前步骤的独特结果裁决")
         dimensions = review.get("dimension_transfers")
         source_dimensions = source.get("source_style_granularity", {})
         if not isinstance(dimensions, dict):
@@ -597,6 +681,36 @@ def validate_sf_reviews(
                 errors.append(f"{label}.comparison 过短")
             if item.get("surface_copy_rejected") is not True:
                 errors.append(f"{label}.surface_copy_rejected 必须为 true")
+    return errors
+
+
+def validate_detail_reviews(
+    prose: dict[str, Any], prose_review: dict[str, Any], required_ids: list[str], section_text: str
+) -> list[str]:
+    source = {str(item.get("card_id")): item for item in prose.get("source_detail_card_reviews", []) if isinstance(item, dict)}
+    reviews = prose_review.get("source_detail_card_reviews")
+    if not isinstance(reviews, list):
+        return ["prose_review.source_detail_card_reviews 必须覆盖本节主体细节卡"] if required_ids else []
+    actual = [str(item.get("card_id")) for item in reviews if isinstance(item, dict)]
+    if actual != required_ids:
+        return [f"本节主体细节卡必须完整同序: expected={required_ids}, actual={actual}"]
+    errors: list[str] = []
+    for review in reviews:
+        card_id = str(review.get("card_id"))
+        planned = source.get(card_id, {})
+        label = f"detail_card.{card_id}"
+        if review.get("distinct_function_to_preserve") != planned.get("distinct_function_to_preserve"):
+            errors.append(f"{label}.distinct_function_to_preserve 不得改写或省略")
+        quotes = review.get("target_quotes")
+        if review.get("status") != "passed":
+            errors.append(f"{label}.status 必须为 passed")
+        if not isinstance(quotes, list) or not quotes or any(not isinstance(q, str) or q not in section_text for q in quotes):
+            errors.append(f"{label}.target_quotes 必须逐卡绑定当前节原句")
+        for field in ("comparison", "manual_judgment"):
+            if len(str(review.get(field) or "").strip()) < 20:
+                errors.append(f"{label}.{field} 过短")
+        if review.get("surface_copy_rejected") is not True:
+            errors.append(f"{label}.surface_copy_rejected 必须为 true")
     return errors
 
 
@@ -768,6 +882,28 @@ def command_validate(args: argparse.Namespace) -> int:
         errors.append("semantic_review_method 必须为 current_model_manual")
     if review.get("automation_used_for_semantic_judgment") is not False:
         errors.append("automation_used_for_semantic_judgment 必须为 false")
+    scaffold = review.get("review_scaffold")
+    if not isinstance(scaffold, dict):
+        errors.append("逐节回执必须由官方 init_section_review.py 初始化")
+    else:
+        if scaffold.get("generator") != "story-short-write/init_section_review.py":
+            errors.append("review_scaffold.generator 不是官方初始化器")
+        if scaffold.get("semantic_fields_initialized_pending") is not True:
+            errors.append("review_scaffold 必须证明语义字段从 pending 骨架开始")
+        if scaffold.get("state_sha256") != sha256_file(state_path):
+            errors.append("review_scaffold 未绑定当前 start-section 状态 SHA")
+    provenance = review.get("manual_review_provenance")
+    if not isinstance(provenance, dict):
+        errors.append("缺少 manual_review_provenance，不能证明当前模型逐字段复核")
+    else:
+        if provenance.get("performed_by_current_model") is not True or provenance.get("full_section_read_by_current_model") is not True:
+            errors.append("manual_review_provenance 必须确认当前模型完整读取本节")
+        if provenance.get("semantic_fields_generated_by_script") is not False:
+            errors.append("semantic_fields_generated_by_script 必须为 false")
+        if provenance.get("project_scripts_used_for_semantic_population") != []:
+            errors.append("禁止项目脚本批量生成逐节语义字段")
+        if len(str(provenance.get("manual_judgment") or "").strip()) < 24:
+            errors.append("manual_review_provenance.manual_judgment 过短")
     prose_review = review.get("prose_review")
     emotion_review = review.get("emotion_review")
     if not isinstance(prose_review, dict) or prose_review.get("status") != "passed":
@@ -827,6 +963,7 @@ def command_validate(args: argparse.Namespace) -> int:
         prose_review, "relation_micro_reviews", len(plan.get("relation_micro_examples", [])), section_text, errors
     )
     errors.extend(validate_sf_reviews(prose_contract, prose_review, item.get("required_sf_ids", []), section_text))
+    errors.extend(validate_detail_reviews(prose_contract, prose_review, item.get("required_detail_card_ids", []), section_text))
 
     liveliness = prose_review.get("liveliness_review") if isinstance(prose_review, dict) else None
     live_sentences = liveliness.get("target_live_sentences") if isinstance(liveliness, dict) else None
@@ -1151,6 +1288,9 @@ def command_status(args: argparse.Namespace) -> int:
         state = load_json(Path(args.state).resolve())
     except ValueError as exc:
         return fail("status", [str(exc)])
+    integrity_errors = verify_source_bindings(state) + verify_committed_draft_integrity(state)
+    if integrity_errors:
+        return fail("status", integrity_errors)
     print(f"section_progress_gate: {state.get('status')}")
     print(f"current_section: {state.get('current_section') or 'none'}")
     for item in state.get("sections", []):

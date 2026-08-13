@@ -187,6 +187,19 @@ class HumanQualityGateTest(unittest.TestCase):
                         "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
                         "line_count": len(source_lines),
                     },
+                    "coverage_segments": [
+                        {"segment_id":"PSEG-01","start_line":1,"end_line":1,"kind":"plot_bearing","candidate_ids":["PC-001"]},
+                        {"segment_id":"PSEG-02","start_line":2,"end_line":2,"kind":"non_plot_support","candidate_ids":[],"reason":"这一行只承担普通时间衔接，没有动作、信息或控制权变化。"},
+                        {"segment_id":"PSEG-03","start_line":3,"end_line":3,"kind":"plot_bearing","candidate_ids":["PC-002"]}
+                    ],
+                    "source_plot_candidate_audit": [
+                        {"candidate_id":"PC-001","candidate_type":"独立关系动作","actor":"主角","source_range":{"start_line":1,"end_line":1},"source_evidence":"导语里的刺痛。","decision":"independent_beat","bound_beat_ids":["P-001"],"manual_judgment":"这句改变关系事实与回应权，需要独立登记为情节拍。"},
+                        {"candidate_id":"PC-002","candidate_type":"完成离场动作","actor":"主角","source_range":{"start_line":3,"end_line":3},"source_evidence":"尾声仍然没有回头。","decision":"independent_beat","bound_beat_ids":["P-002"],"manual_judgment":"这句完成不可逆离场后果，需要独立登记为情节拍。"}
+                    ],
+                    "source_emotion_candidate_audit": [
+                        {"candidate_id":"EC-001","change_axis":"关系位置与读者预期","before_state":"主角仍被默认处在旧关系中。","after_state":"主角被确认已经遭到关系伤害。","source_range":{"start_line":1,"end_line":1},"source_evidence":"导语里的刺痛。","decision":"independent_beat","bound_beat_ids":["E-01"],"manual_judgment":"这句改变关系位置与读者预期，需要独立登记为情绪拍。"},
+                        {"candidate_id":"EC-002","change_axis":"行动冲动与尾声余痛","before_state":"旧关系仍可能要求主角回头。","after_state":"主角完成离场且不再回头。","source_range":{"start_line":3,"end_line":3},"source_evidence":"尾声仍然没有回头。","decision":"independent_beat","bound_beat_ids":["E-02"],"manual_judgment":"这句改变行动冲动并形成尾声余痛，需要独立登记。"}
+                    ],
                     "beats": [
                         {
                             "beat_id": "P-001",
@@ -220,6 +233,14 @@ class HumanQualityGateTest(unittest.TestCase):
                         "independent_from_emotion_ledger": True,
                         "no_emotion_beat_substitution": True,
                         "all_effective_plot_beats_preserved": True,
+                        "forward_action_scan_completed": True,
+                        "reverse_consequence_scan_completed": True,
+                        "all_source_candidates_adjudicated": True,
+                        "reviewed_by_current_model": True,
+                        "forward_expectation_scan_completed": True,
+                        "reverse_afterpain_scan_completed": True,
+                        "all_source_emotion_candidates_adjudicated": True,
+                        "automation_used_for_semantic_judgment": False,
                         "manual_judgment": "已从施事者、对象、控制权、信息和现实后果独立切拍。",
                     },
                 },
@@ -258,6 +279,28 @@ class HumanQualityGateTest(unittest.TestCase):
             self.root, source_lines, errors, emotion_ledger
         )
         self.assertTrue(any("复制了情绪总账内容" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_missing_source_candidate_audit(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_plot_candidate_audit"] = []
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("源文候选反查" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_candidate_bound_to_missing_beat(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_plot_candidate_audit"][0]["bound_beat_ids"] = ["P-404"]
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("不存在的 P 拍" in error for error in errors), errors)
 
     def test_full_emotion_ledger_rejects_line_coverage_gap(self) -> None:
         source_lines, ledger = self._write_full_emotion_ledger()

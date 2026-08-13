@@ -93,6 +93,154 @@ class ProseGranularityContractTest(unittest.TestCase):
 
         self.assertTrue(GATE.same_file_path(alias, self.outline))
 
+    def add_source_detail_card(self) -> dict:
+        detail_dir = self.source.parent.parent / "原文细节库"
+        detail_dir.mkdir(parents=True, exist_ok=True)
+        detail_file = detail_dir / "动作细节库.md"
+        detail_file.write_text(
+            "# 动作细节库\n\n"
+            "## 卡 DZ01｜推手后收回钥匙\n\n"
+            "- 原文位置：L1-L2\n"
+            "- 原文短语：`他伸手拦我，我直接把他的手推了回去`\n"
+            "- 动作功能：拒绝阻拦后立刻收回钥匙，让关系撤权落到物件换手。\n"
+            "- 这个细节为什么有用：动作不是姿态，而是把进入权从对方手里拿回来。\n",
+            encoding="utf-8",
+        )
+        receipt = GATE.create_receipt("测试", self.source)
+        review = receipt["source_detail_card_reviews"][0]
+        review.update(
+            {
+                "planning_status": "passed",
+                "target_sections": ["1"],
+                "target_adaptation": "女主在取物现场推开阻拦，并把钥匙重新收回自己手中。",
+                "distinct_function_to_preserve": "推开动作必须实际改变钥匙持有与进入权限，不能只表现生气。",
+                "overlap_binding_ids": ["SF-01", "P-001"],
+                "overlap_is_not_omission": "虽然与子流程和情节拍重叠，本卡仍单独验收推手后钥匙换主的动作功能。",
+                "semantic_review_method": "current_model_manual",
+                "automation_used_for_semantic_judgment": False,
+            }
+        )
+        return receipt
+
+    def test_source_detail_cards_are_inventory_not_optional_candidates(self) -> None:
+        receipt = self.add_source_detail_card()
+        records = GATE.detail_card_records(self.source)
+        self.assertEqual(["DZ01"], [item["card_id"] for item in records])
+        errors: list[str] = []
+        passed = GATE.validate_detail_card_plans(receipt, records, self.outline, errors)
+        self.assertEqual(1, passed)
+        self.assertEqual([], errors)
+
+        receipt["source_detail_card_reviews"] = []
+        errors = []
+        GATE.validate_detail_card_plans(receipt, records, self.outline, errors)
+        self.assertTrue(any("全集同序、等数" in item for item in errors))
+        self.assertTrue(any("未进入迁移计划" in item for item in errors))
+
+    def test_apply_detail_plan_only_merges_complete_current_model_plan(self) -> None:
+        receipt = self.add_source_detail_card()
+        review = receipt["source_detail_card_reviews"][0]
+        review.update({
+            "planning_status": "pending", "target_sections": [], "target_adaptation": "",
+            "distinct_function_to_preserve": "", "overlap_binding_ids": [],
+            "overlap_is_not_omission": "", "automation_used_for_semantic_judgment": None,
+        })
+        receipt["outline"] = {"path": str(self.outline), "sha256": GATE.sha256(self.outline)}
+        plan = {
+            "mode": "full_bridge", "reviewed_by_current_model": True,
+            "semantic_fields_generated_by_script": False,
+            "manual_judgment": "当前模型逐卡回看原文细节和目标细纲后完成对应关系判断。",
+            "cards": [{
+                "card_id": "DZ01", "target_sections": ["1"],
+                "target_adaptation": "女主推开阻拦者并把钥匙收回自己手中。",
+                "distinct_function_to_preserve": "推开动作必须真正改变钥匙持有和进入权限。",
+                "overlap_binding_ids": ["P-001", "SF-01"],
+                "overlap_is_not_omission": "情节拍记录换手结果，本卡另验推开与收钥匙的动作连续性。",
+            }],
+        }
+        merged = GATE.apply_detail_plan(receipt, plan)
+        result = merged["source_detail_card_reviews"][0]
+        self.assertEqual("passed", result["planning_status"])
+        self.assertEqual(["1"], result["target_sections"])
+        self.assertFalse(result["automation_used_for_semantic_judgment"])
+        self.assertEqual("pending", result["status"])
+
+        plan["semantic_fields_generated_by_script"] = True
+        with self.assertRaisesRegex(ValueError, "禁止由脚本生成"):
+            GATE.apply_detail_plan(receipt, plan)
+
+    def test_apply_section_plan_only_serializes_current_model_sidecar(self) -> None:
+        receipt = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source), self.outline
+        )
+        supplied = receipt["section_generation_plans"][:1]
+        supplied[0]["manual_judgment"] = "当前模型针对本节现场逐项完成的独立文字落笔判断。"
+        plan = {
+            "reviewed_by_current_model": True,
+            "semantic_fields_generated_by_script": False,
+            "outline_sha256": GATE.sha256(self.outline),
+            "manual_judgment": "当前模型逐节阅读细纲和主体原文后人工完成全部落笔包。",
+            "section_generation_plans": supplied,
+        }
+        merged = GATE.apply_section_plan(receipt, plan)
+        self.assertIs(supplied[0], merged["section_generation_plans"][0])
+        plan["semantic_fields_generated_by_script"] = True
+        with self.assertRaisesRegex(ValueError, "禁止由脚本生成"):
+            GATE.apply_section_plan(receipt, plan)
+        plan["semantic_fields_generated_by_script"] = False
+        plan["outline_sha256"] = "stale"
+        with self.assertRaisesRegex(ValueError, "当前细纲 SHA"):
+            GATE.apply_section_plan(receipt, plan)
+
+    def test_detail_card_requires_real_draft_quote_even_when_overlap_declared(self) -> None:
+        receipt = self.add_source_detail_card()
+        records = GATE.detail_card_records(self.source)
+        review = receipt["source_detail_card_reviews"][0]
+        review.update(
+            {
+                "status": "passed",
+                "target_quotes": [],
+                "comparison": "目标动作应把源文推开阻拦后的权限变化迁到钥匙换手。",
+                "surface_copy_rejected": True,
+                "manual_judgment": "已人工核对动作功能，但尚未绑定正文原句。",
+            }
+        )
+        errors: list[str] = []
+        passed = GATE.validate_detail_card_draft_reviews(
+            receipt, records, GATE.extract_sections(self.draft.read_text(encoding="utf-8")), errors
+        )
+        self.assertEqual(0, passed)
+        self.assertTrue(any("target_quotes 至少绑定一条正文原句" in item for item in errors))
+
+        review["target_quotes"] = ["他伸手拦我，我把钥匙收了回来。"]
+        errors = []
+        passed = GATE.validate_detail_card_draft_reviews(
+            receipt, records, GATE.extract_sections(self.draft.read_text(encoding="utf-8")), errors
+        )
+        self.assertEqual(1, passed)
+        self.assertEqual([], errors)
+
+    def test_sync_detail_catalog_preserves_existing_manual_review(self) -> None:
+        receipt = self.add_source_detail_card()
+        review = receipt["source_detail_card_reviews"][0]
+        review["target_adaptation"] = "这是已经人工写好的迁移方案，增量同步时必须原样保留。"
+        synced = GATE.sync_detail_catalog(receipt, self.source)
+        self.assertEqual(
+            "这是已经人工写好的迁移方案，增量同步时必须原样保留。",
+            synced["source_detail_card_reviews"][0]["target_adaptation"],
+        )
+        self.assertEqual("pending", synced["prewrite_status"])
+        self.assertEqual("pending", synced["gate_status"])
+
+    def test_sync_detail_catalog_refreshes_source_fields_after_catalog_fix(self) -> None:
+        receipt = self.add_source_detail_card()
+        receipt["source_detail_card_reviews"][0]["source_quote"] = "过时且错误的来源引句"
+        synced = GATE.sync_detail_catalog(receipt, self.source)
+        self.assertEqual(
+            "他伸手拦我，我直接把他的手推了回去",
+            synced["source_detail_card_reviews"][0]["source_quote"],
+        )
+
     def completed_receipt(self, include_draft: bool = True) -> dict:
         receipt = GATE.create_receipt("测试", self.source)
         receipt = GATE.bind_outline(receipt, self.outline)
@@ -1075,6 +1223,23 @@ class ProseGranularityContractTest(unittest.TestCase):
         self.assertEqual([], bound["section_reviews"][0]["dialogue_voice_reviews"])
         self.assertEqual([], bound["section_reviews"][0]["relation_micro_reviews"])
 
+    def test_bind_draft_rebuilds_same_sha_pending_review(self) -> None:
+        receipt = self.completed_receipt(include_draft=False)
+        first = GATE.bind_draft(receipt, self.draft)
+        first["section_reviews"][0]["target_quotes"] = ["stale pending quote"]
+        rebound = GATE.bind_draft(first, self.draft)
+        self.assertEqual([], rebound["section_reviews"][0]["target_quotes"])
+
+    def test_bind_draft_preserves_same_sha_passed_review(self) -> None:
+        receipt = self.completed_receipt(include_draft=False)
+        first = GATE.bind_draft(receipt, self.draft)
+        first["section_reviews"][0]["status"] = "passed"
+        first["section_reviews"][0]["target_quotes"] = ["第一节起事。"]
+        rebound = GATE.bind_draft(first, self.draft)
+        self.assertEqual(
+            ["第一节起事。"], rebound["section_reviews"][0]["target_quotes"]
+        )
+
     def test_bind_draft_locates_abstract_dialogue_candidate(self) -> None:
         candidate_draft = self.root / "抽象答复正文.md"
         candidate_draft.write_text(
@@ -1272,6 +1437,14 @@ class ProseGranularityContractTest(unittest.TestCase):
             GATE.underspecified_action_candidate_quotes("贺承舟先扣住了。"),
         )
         self.assertEqual([], GATE.underspecified_action_candidate_quotes("我忍住了。"))
+        self.assertEqual(
+            [],
+            GATE.underspecified_action_candidate_quotes("电池漏液，后盖已经锈住了。"),
+        )
+        self.assertEqual(
+            ["苏念乔先按住了。"],
+            GATE.underspecified_action_candidate_quotes("苏念乔先按住了。"),
+        )
 
     def test_bare_stage_direction_is_flagged(self) -> None:
         self.assertEqual(
@@ -1359,6 +1532,13 @@ class ProseGranularityContractTest(unittest.TestCase):
                 GATE.dialogue_turn_units(sections[section_id]),
                 [item["quote"] for item in grounding["full_dialogue_reviews"]],
             )
+
+    def test_dialogue_turn_units_supports_all_chinese_quote_styles(self) -> None:
+        text = "「第一轮对白。」\n“第二轮对白。”\n『第三轮对白。』"
+        self.assertEqual(
+            ["「第一轮对白。」", "“第二轮对白。”", "『第三轮对白。』"],
+            GATE.dialogue_turn_units(text),
+        )
 
     def test_full_rewrite_requires_every_section_and_two_full_reads(self) -> None:
         receipt = self.completed_receipt()

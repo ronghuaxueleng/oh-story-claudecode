@@ -34,6 +34,7 @@ ENTITY_CLAUSE_MARKERS = (
     "之后", "以前", "当时", "现场", "突然", "因为", "为了", "已经", "正在", "开始",
     "完成", "发生", "发现", "决定", "要求", "拿走", "交给", "离开", "回到", "走进",
 )
+OUTLINE_SECTION_HEADING = re.compile(r"^##\s+(导语|尾声|\d+[.、．](?:\s*.*)?)\s*$", re.MULTILINE)
 
 
 def load(path: Path) -> dict[str, Any]:
@@ -51,8 +52,63 @@ def surface(value: Any) -> str:
     return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(value or ""))
 
 
+def normalize_outline_region(value: Any) -> str:
+    label = str(value or "").strip()
+    if label in {"导语", "opening"}:
+        return "opening"
+    if label in {"尾声", "epilogue"}:
+        return "epilogue"
+    match = re.fullmatch(r"第(\d+)节", label) or re.fullmatch(r"section:(\d+)", label)
+    return f"section:{int(match.group(1))}" if match else ""
+
+
+def outline_regions(text: str) -> tuple[dict[str, tuple[int, int]], dict[str, int]]:
+    headings = list(OUTLINE_SECTION_HEADING.finditer(text))
+    regions: dict[str, tuple[int, int]] = {}
+    order: dict[str, int] = {}
+    for index, match in enumerate(headings):
+        heading = match.group(1)
+        if heading == "导语":
+            key = "opening"
+        elif heading == "尾声":
+            key = "epilogue"
+        else:
+            section_number = re.match(r"\d+", heading)
+            if section_number is None:
+                continue
+            key = f"section:{int(section_number.group())}"
+        regions[key] = (match.end(), headings[index + 1].start() if index + 1 < len(headings) else len(text))
+        order[key] = index
+    return regions, order
+
+
 def actor_tokens(value: Any) -> list[str]:
     return [x.strip() for x in re.split(r"[、,，/；;]|(?:与|和)", str(value or "")) if len(x.strip()) >= 2]
+
+
+def entity_aliases(value: Any) -> set[str]:
+    """Return conservative Chinese name aliases, including a dropped surname."""
+    label = surface(value)
+    aliases = {label} if label else set()
+    if 3 <= len(label) <= 4 and all("\u4e00" <= char <= "\u9fff" for char in label):
+        aliases.add(label[1:])
+    for suffix in ("母亲", "父亲", "妈妈", "爸爸"):
+        if label.endswith(suffix) and len(label) > len(suffix):
+            aliases.add(suffix)
+    if label.startswith("医院") and len(label) > 2:
+        aliases.add(label[2:])
+    return aliases
+
+
+def entity_mentioned(entity: Any, text: Any, declared_aliases: dict[str, list[str]] | None = None) -> bool:
+    haystack = surface(text)
+    tokens = actor_tokens(entity)
+    if len(tokens) > 1:
+        return all(entity_mentioned(token, text, declared_aliases) for token in tokens)
+    aliases = entity_aliases(entity)
+    if declared_aliases:
+        aliases.update(surface(alias) for alias in declared_aliases.get(str(entity), []) if surface(alias))
+    return any(alias and alias in haystack for alias in aliases)
 
 
 def entity_label_valid(value: Any) -> bool:
@@ -66,17 +122,18 @@ def entity_label_valid(value: Any) -> bool:
     return not any(marker in label for marker in ENTITY_CLAUSE_MARKERS)
 
 
-def actor_resolves(item: dict[str, Any]) -> bool:
+def actor_resolves(item: dict[str, Any], declared_aliases: dict[str, list[str]] | None = None) -> bool:
     tokens = actor_tokens(item.get("actor"))
     actor_evidence = str(item.get("actor_evidence") or "").strip()
     evidence = str(item.get("evidence") or "")
     action = str(item.get("action") or "")
     if actor_evidence not in evidence or not tokens:
         return False
-    if any(surface(x) in surface(actor_evidence) for x in tokens):
+    if any(entity_mentioned(x, actor_evidence, declared_aliases) for x in tokens):
         return True
-    return actor_evidence in {"他", "她", "他们", "她们", "对方", "其", "两人"} and any(
-        surface(x) in surface(action) for x in tokens
+    has_pronoun = bool(re.search(r"他们|她们|两人|对方|[他她其]", actor_evidence))
+    return has_pronoun and any(
+        entity_mentioned(x, action, declared_aliases) for x in tokens
     )
 
 
@@ -104,6 +161,17 @@ def main() -> int:
     plot_ledger = load(args.primary_plot_ledger).get("beats", [])
     emotions = mapping.get("emotions") if isinstance(mapping.get("emotions"), list) else []
     plots = mapping.get("plots") if isinstance(mapping.get("plots"), list) else []
+    raw_aliases = mapping.get("entity_aliases") if isinstance(mapping.get("entity_aliases"), dict) else {}
+    declared_aliases: dict[str, list[str]] = {}
+    for entity, values in raw_aliases.items():
+        if not entity_label_valid(entity) or not isinstance(values, list) or not values:
+            errors.append(f"entity_aliases.{entity} 必须绑定规范实体和非空别名列表")
+            continue
+        aliases = [str(value).strip() for value in values if str(value).strip()]
+        if len(aliases) != len(values) or any(alias not in outline for alias in aliases):
+            errors.append(f"entity_aliases.{entity} 含空值或未在细纲出现的别名")
+            continue
+        declared_aliases[str(entity)] = aliases
     if mapping.get("status") != "approved":
         errors.append("mapping.status 必须为 approved")
     bindings = mapping.get("bindings") if isinstance(mapping.get("bindings"), dict) else {}
@@ -129,6 +197,8 @@ def main() -> int:
     generic = Counter()
     emotion_signatures: dict[str, list[tuple[str, ...]]] = {}
     source_e = {str(x.get("beat_id")): x for x in emotion_ledger}
+    region_bounds, region_order = outline_regions(outline)
+    previous_region_order = -1
     for index, item in enumerate(emotions, 1):
         label = f"emotions[{index}]"
         require_fields(item, E_FIELDS, label, errors)
@@ -146,10 +216,15 @@ def main() -> int:
         hurt = str(item.get("hurt_object") or "").strip()
         if hurt not in ABSTRACT_HURT_OBJECTS and not entity_label_valid(hurt):
             errors.append(f"{label}.hurt_object 必须是人物、关系或读者预期，不能是整句事件")
-        adaptation = str(item.get("target_story_adaptation") or "")
-        has_pronoun = bool(re.search(r"他们|她们|对方|[他她]", evidence))
-        if hurt not in ABSTRACT_HURT_OBJECTS and surface(hurt) not in surface(evidence):
-            if not has_pronoun or surface(hurt) not in surface(adaptation):
+        resolution_context = "".join(str(item.get(field) or "") for field in (
+            "target_story_adaptation", "trigger", "relationship_position_change",
+            "reader_effect", "expectation_before", "expectation_after",
+            "action_impulse_before", "action_impulse_after", "equivalence_reason",
+            "target_evidence_coverage_review",
+        ))
+        has_pronoun = bool(re.search(r"他们|她们|对方|[我他她]", evidence))
+        if hurt not in ABSTRACT_HURT_OBJECTS and not entity_mentioned(hurt, evidence, declared_aliases):
+            if not has_pronoun or not entity_mentioned(hurt, resolution_context, declared_aliases):
                 errors.append(f"{label}.hurt_object 未在证据出现，也没有由代词和适配说明解析")
         if surface(item.get("expectation_before")) == surface(item.get("expectation_after")):
             errors.append(f"{label} 期待前后态未变化")
@@ -159,6 +234,18 @@ def main() -> int:
         if any(x in joined for x in GENERIC_MARKERS):
             generic["E"] += 1
         region = str(item.get("target_outline_region") or "")
+        normalized_region = normalize_outline_region(region)
+        if not normalized_region or normalized_region not in region_bounds:
+            errors.append(f"{label}.target_outline_region 不是当前细纲中的真实区域: {region or '<empty>'}")
+        else:
+            start, end = region_bounds[normalized_region]
+            evidence_offset = outline.find(evidence)
+            if not (start <= evidence_offset < end):
+                errors.append(f"{label}.evidence 不在声明的 {region} 区域内")
+            current_region_order = region_order[normalized_region]
+            if current_region_order < previous_region_order:
+                errors.append(f"{label}.target_outline_region 使主体 E 拍跨节倒序: {region}")
+            previous_region_order = max(previous_region_order, current_region_order)
         emotion_signatures.setdefault(region, []).append(tuple(surface(item.get(field)) for field in (
             "expectation_before", "expectation_after", "action_impulse_before", "action_impulse_after",
         )))
@@ -181,7 +268,7 @@ def main() -> int:
             errors.append(f"{label}.evidence 与其他 P 拍重复")
         used_evidence["P"].add(evidence)
         actor_evidence = str(item.get("actor_evidence") or "")
-        if not actor_resolves(item):
+        if not actor_resolves(item, declared_aliases):
             errors.append(f"{label}.actor_evidence 未点名施事者，或代词未由 action 解析为规范人物名")
         if any(x in evidence for x in CONSTRUCTION_MARKERS):
             errors.append(f"{label}.evidence 是施工说明")

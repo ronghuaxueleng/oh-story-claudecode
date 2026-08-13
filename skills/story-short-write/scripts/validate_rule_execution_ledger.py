@@ -1707,7 +1707,7 @@ def apply_model_group_plan(
         if canonical_id not in member_ids:
             errors.append(f"group[{index}] canonical_id 必须包含在 member_ids")
             continue
-        unknown = [rule_id for rule_id in member_ids if rule_id not in entries]
+        unknown = [rule_id for rule_id in member_ids if rule_id not in entries and not rule_id.startswith("ASSET-")]
         if unknown:
             errors.append(f"group[{index}] 包含不存在的规则: {' / '.join(unknown)}")
             continue
@@ -1778,8 +1778,12 @@ def apply_model_group_plan(
             ):
                 errors.append(f"group[{index}] execution_mode={execution_mode} 时缺少 script_artifacts")
                 continue
+            # Prewrite plans are intentionally allowed to remain pending until
+            # the target artifact exists. Artifact evidence is required during
+            # final validation, not while establishing the rule contract.
             if (
                 status == "completed"
+                and outcome != "pending"
                 and execution_mode in {"human", "hybrid"}
                 and not (group.get("text_evidence") or group.get("human_scope_reviews"))
             ):
@@ -1818,6 +1822,10 @@ def apply_model_group_plan(
                 canonical_updates[optional_field] = group[optional_field]
         canonical.update(canonical_updates)
         for member_id in member_ids:
+            if member_id not in entries:
+                # Derived asset-rule IDs are exported for review but are not
+                # materialized as standalone ledger entries at init time.
+                continue
             claimed.add(member_id)
             if member_id == canonical_id:
                 continue
@@ -2205,7 +2213,15 @@ def validate_prewrite_ledger(ledger_path: Path) -> list[str]:
     }
     if not entries:
         return ["规则执行台账缺少规则条目"]
+    source_asset_ids = {
+        str(item.get("id") or "")
+        for item in data.get("source_assets", [])
+        if isinstance(item, dict)
+    }
     for rule_id, entry in entries.items():
+        if rule_id.startswith("ASSET-") and rule_id not in source_asset_ids:
+            # Derived asset rules are validated through their parent asset.
+            continue
         label = f"规则 {rule_id}"
         applicability = entry.get("applicability")
         if applicability == "merged":

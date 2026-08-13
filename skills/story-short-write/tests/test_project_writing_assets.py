@@ -74,6 +74,41 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         self.assertEqual(units, plan["scene_units"])
         self.assertEqual(800, plan["target_chars"])
 
+    def test_section_plan_maps_target_emotion_ids_by_explicit_semantic_mapping(self) -> None:
+        receipt = self.root / "receipt.json"
+        mapping = self.root / "mapping.json"
+        output = self.root / "plan.json"
+        units = [{"scene_id": "S1-1", "emotion_beat_ids": ["TE-X"], "allocated_chars": 800}]
+        receipt.write_text(
+            json.dumps({"gate_status": "passed", "sections": [{"section_id": "1", "scene_units": units}]}),
+            encoding="utf-8",
+        )
+        mapping.write_text(
+            json.dumps({"status": "approved", "emotions": [{"source_beat_id": "E-009", "target_beat_id": "TE-X"}]}),
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            PLAN, "--receipt", str(receipt), "--section", "1", "--output", str(output),
+            "--beat-mapping", str(mapping),
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        plan = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(["E-009"], plan["scene_units"][0]["emotion_beat_ids"])
+        self.assertEqual(["TE-X"], plan["scene_units"][0]["target_emotion_beat_ids"])
+
+    def test_section_plan_blocks_target_emotion_ids_without_mapping(self) -> None:
+        receipt = self.root / "receipt.json"
+        output = self.root / "plan.json"
+        receipt.write_text(
+            json.dumps({"gate_status": "passed", "sections": [{"section_id": "1", "scene_units": [{"scene_id": "S1-1", "emotion_beat_ids": ["TE-X"], "allocated_chars": 800}]}]}),
+            encoding="utf-8",
+        )
+        result = self.run_script(
+            PLAN, "--receipt", str(receipt), "--section", "1", "--output", str(output)
+        )
+        self.assertEqual(2, result.returncode)
+        self.assertIn("--beat-mapping", result.stdout)
+
     def test_profile_policy_uses_configured_sources(self) -> None:
         profile = self.root / "project.profile.json"
         primary = self.root / "primary.json"

@@ -215,13 +215,33 @@ class WriteReleaseGateTest(unittest.TestCase):
                             "beat_ids": [beat["beat_id"] for beat in ledger_beats],
                         }
                     ],
+                    "source_emotion_candidate_audit": [
+                        {
+                            "candidate_id": f"EC-{index + 1:03d}",
+                            "change_axis": "期待、关系位置与行动冲动变化",
+                            "before_state": f"第{index + 1}拍前仍保留原有期待",
+                            "after_state": f"第{index + 1}拍后期待或行动冲动发生变化",
+                            "source_range": {"start_line": 1, "end_line": 1},
+                            "source_evidence": source_quotes[index],
+                            "decision": "independent_beat",
+                            "bound_beat_ids": [beat["beat_id"]],
+                            "manual_judgment": "该候选独立改变期待、关系位置或行动冲动。",
+                        }
+                        for index, beat in enumerate(ledger_beats)
+                    ],
                     "beats": ledger_beats,
                     "completeness_review": {
+                        "read_start_line": 1,
+                        "read_end_line": 1,
                         "all_source_lines_classified": True,
                         "non_bid_beats_preserved": True,
                         "bid_derived_after_full_inventory": True,
                         "reviewed_by_current_model": True,
+                        "forward_expectation_scan_completed": True,
+                        "reverse_afterpain_scan_completed": True,
+                        "all_source_emotion_candidates_adjudicated": True,
                         "automation_used_for_semantic_judgment": False,
+                        "split_basis": "期待对象、受伤对象、关系位置、行动冲动或读者预期变化均独立切拍。",
                     },
                 },
                 ensure_ascii=False,
@@ -233,13 +253,35 @@ class WriteReleaseGateTest(unittest.TestCase):
         self.source_plot_ledger.write_text(
             json.dumps(
                 {
-                    "schema_version": "story-short-analyze.full-text-plot-ledger.v1",
+                    "schema_version": GATE._OUTLINE_PERFORMANCE_MODULE.FULL_BRIDGE_PLOT_LEDGER_SCHEMA,
                     "source": {
                         "path": str(self.source_original.resolve()),
                         "sha256": GATE._OUTLINE_PERFORMANCE_MODULE.sha256(
                             self.source_original
                         ),
                     },
+                    "coverage_segments": [
+                        {
+                            "segment_id": "SEG-001",
+                            "start_line": 1,
+                            "end_line": 1,
+                            "kind": "plot_bearing",
+                            "candidate_ids": [f"PC-{index:03d}" for index in range(1, 5)],
+                        }
+                    ],
+                    "source_plot_candidate_audit": [
+                        {
+                            "candidate_id": f"PC-{index:03d}",
+                            "candidate_type": "independent_action",
+                            "actor": beat["actor"],
+                            "source_range": beat["source_range"],
+                            "source_evidence": beat["evidence"],
+                            "decision": "independent_beat",
+                            "bound_beat_ids": [beat["beat_id"]],
+                            "manual_judgment": "该候选独立改变控制权、信息或现实后果。",
+                        }
+                        for index, beat in enumerate(source_plot_beats, 1)
+                    ],
                     "beats": [
                         {
                             "beat_id": beat["beat_id"],
@@ -261,6 +303,11 @@ class WriteReleaseGateTest(unittest.TestCase):
                         "independent_from_emotion_ledger": True,
                         "no_emotion_beat_substitution": True,
                         "all_effective_plot_beats_preserved": True,
+                        "forward_action_scan_completed": True,
+                        "reverse_consequence_scan_completed": True,
+                        "all_source_candidates_adjudicated": True,
+                        "reviewed_by_current_model": True,
+                        "automation_used_for_semantic_judgment": False,
                         "manual_judgment": "已独立盘清施事者、对象、动作、信息、控制权和后果。",
                     },
                 },
@@ -454,8 +501,18 @@ class WriteReleaseGateTest(unittest.TestCase):
             }
         )
         for field in GATE._OUTLINE_PERFORMANCE_MODULE.SOURCE_STYLE_GRANULARITY_FIELDS:
+            source_evidence = coverage["source_style_granularity"][field]["source_evidence"]
             coverage["transferred_style_fields"][field] = {
                 "target_outline_evidence": ["动作一"],
+                "source_evidence_mappings": [
+                    {
+                        "source_evidence": quote,
+                        "target_outline_evidence": ["动作一"],
+                        "mechanism_transfer_judgment": f"第{index}条源证据的局部机制已独立迁入目标动作链。",
+                        "independently_realized": True,
+                    }
+                    for index, quote in enumerate(source_evidence, 1)
+                ],
                 "transfer_method": f"将 {field} 转为目标场面的动作与句面安排。",
                 "surface_copy_rejected": True,
             }
