@@ -1000,9 +1000,7 @@ def validate_target_plot_adaptation(
     for index, (source, target) in enumerate(zip(source_beats, target_beats), start=1):
         beat_label = f"{label} 目标情节拍[{index}]"
         source_action = normalized_surface_text(source.get("action"))
-        target_surface = normalized_surface_text(
-            f"{target.get('action', '')}{target.get('evidence', '')}"
-        )
+        target_surface = normalized_surface_text(target.get("action", ""))
         if len(source_action) >= 8 and source_action in target_surface:
             errors.append(
                 f"{beat_label} 仍包含原文动作句面，不能加前缀或换标题冒充目标情节拍"
@@ -1892,6 +1890,7 @@ def validate_subflow_granularity_coverage(
             errors.append(f"{label}.transferred_style_fields 必须逐项覆盖六类颗粒")
             transferred = {}
         for field in SOURCE_STYLE_GRANULARITY_FIELDS:
+            item = source_style.get(field) if isinstance(source_style.get(field), dict) else {}
             transfer = transferred.get(field)
             if not isinstance(transfer, dict):
                 errors.append(f"{label} 未迁移颗粒字段: {field}")

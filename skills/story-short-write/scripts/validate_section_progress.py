@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -17,7 +18,12 @@ from typing import Any
 
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 OUTLINE_SECTION_RE = re.compile(r"(?m)^##\s+(\d+)\.")
-DIRECT_DIALOGUE_RE = re.compile(r"「[^」]*」|“[^”]*”")
+DIRECT_DIALOGUE_RE = re.compile(
+    r"「[^」]*」(?:[^「」\n]{0,40}「[^」]*」)*|“[^”]*”(?:[^“”\n]{0,40}“[^”]*”)*"
+)
+ATTRIBUTION_RE = re.compile(
+    r"[^。！？\n]{0,16}(?:说|问|答|道|回|喊|叫|告诉|回应|解释|追问|提醒)"
+)
 SF_DIMENSIONS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -29,6 +35,27 @@ SF_DIMENSIONS = (
 
 CHAR_COUNT_TOLERANCE = 0.20
 CHAR_COUNT_SHORTFALL_GRACE = 100
+
+
+def iter_direct_dialogue_matches(text: str) -> list[re.Match[str]]:
+    rows: list[re.Match[str]] = []
+    for match in DIRECT_DIALOGUE_RE.finditer(text):
+        start, end = match.span()
+        line_start = text.rfind("\n", 0, start) + 1
+        line_end = text.find("\n", end)
+        if line_end < 0:
+            line_end = len(text)
+        line = text[line_start:line_end].strip()
+        before = text[max(line_start, start - 24):start]
+        after = text[end:line_end]
+        if line == match.group(0).strip() and not ATTRIBUTION_RE.search(before + after):
+            continue
+        rows.append(match)
+    return rows
+
+
+def extract_direct_dialogue(text: str) -> list[str]:
+    return [match.group(0) for match in iter_direct_dialogue_matches(text)]
 
 
 def tolerated_char_range(minimum: int, maximum: int) -> tuple[int, int]:
@@ -66,6 +93,23 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"JSON 顶层必须是对象: {path}")
     return data
+
+
+def apply_section_review_mechanical_normalization(
+    review_path: Path,
+    staged_path: Path,
+) -> list[str]:
+    script_path = Path(__file__).with_name("normalize_section_review.py")
+    spec = importlib.util.spec_from_file_location("normalize_section_review", script_path)
+    if spec is None or spec.loader is None:
+        return [f"无法加载逐节回执机械归一化入口: {script_path}"]
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        _, errors = module.apply_normalization(review_path, staged_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [f"逐节回执机械归一化失败: {exc}"]
+    return list(errors)
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
@@ -821,6 +865,13 @@ def validate_scene_realization(review: dict[str, Any], item: dict[str, Any], sec
 def command_validate(args: argparse.Namespace) -> int:
     state_path = Path(args.state).resolve()
     review_path = Path(args.review).resolve()
+    staged_path = Path(args.staged).resolve() if getattr(args, "staged", None) else None
+    if staged_path is not None and review_path.is_file() and staged_path.is_file():
+        normalization_errors = apply_section_review_mechanical_normalization(
+            review_path, staged_path
+        )
+        if normalization_errors:
+            return fail("commit-section", normalization_errors)
     try:
         state = load_json(state_path)
         review = load_json(review_path)
@@ -892,6 +943,16 @@ def command_validate(args: argparse.Namespace) -> int:
             errors.append("review_scaffold 必须证明语义字段从 pending 骨架开始")
         if scaffold.get("state_sha256") != sha256_file(state_path):
             errors.append("review_scaffold 未绑定当前 start-section 状态 SHA")
+        sidecar = scaffold.get("manual_sidecar")
+        if not isinstance(sidecar, dict):
+            errors.append("逐节回执必须先通过官方 manage_section_review.py 人工侧车合并")
+        else:
+            if sidecar.get("manager") != "story-short-write/manage_section_review.py":
+                errors.append("review_scaffold.manual_sidecar.manager 不是官方侧车入口")
+            if sidecar.get("semantic_fields_generated_by_script") is not False:
+                errors.append("人工侧车不得由脚本生成语义字段")
+            if staged_path is not None and sidecar.get("staged_sha256") != sha256_file(staged_path):
+                errors.append("人工侧车未绑定当前暂存稿 SHA")
     provenance = review.get("manual_review_provenance")
     if not isinstance(provenance, dict):
         errors.append("缺少 manual_review_provenance，不能证明当前模型逐字段复核")
@@ -997,7 +1058,7 @@ def command_validate(args: argparse.Namespace) -> int:
 
     dialogue_grounding = prose_review.get("dialogue_grounding_review") if isinstance(prose_review, dict) else None
     full_dialogue = dialogue_grounding.get("full_dialogue_reviews") if isinstance(dialogue_grounding, dict) else None
-    actual_dialogue = DIRECT_DIALOGUE_RE.findall(section_text)
+    actual_dialogue = extract_direct_dialogue(section_text)
     reviewed_dialogue = [entry.get("quote") for entry in full_dialogue or [] if isinstance(entry, dict)]
     if reviewed_dialogue != actual_dialogue:
         errors.append("full_dialogue_reviews 必须按正文顺序逐字覆盖全部直接对白")
@@ -1125,18 +1186,20 @@ def command_discard_writing(args: argparse.Namespace) -> int:
     draft_text = draft_path.read_text(encoding="utf-8") if draft_path.is_file() else ""
     prefix, sections, order = split_sections(draft_text)
     prior = [str(index) for index in range(1, int(sid))]
-    if order != prior + [sid]:
-        errors.append(f"只能废弃已误写入的最后当前节，实际小节顺序为 {order}")
+    if order not in (prior, prior + [sid]):
+        errors.append(f"当前节只能尚未写入正文或是最后一个误写节，实际小节顺序为 {order}")
     if errors:
         return fail("discard-writing-section", errors)
-    archive_dir = draft_path.parent / "写作资产" / "失败试稿"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    archive_path = archive_dir / f"第{sid}节_旧流程短稿_待重写.md"
-    archive_path.write_text(f"{sid}.\n\n{sections[sid]}\n", encoding="utf-8")
-    prior_text = prefix.rstrip()
-    for previous_sid in prior:
-        prior_text += f"\n\n{previous_sid}.\n\n{sections[previous_sid]}"
-    draft_path.write_text(prior_text.rstrip() + "\n", encoding="utf-8")
+    archive_path: Path | None = None
+    if order == prior + [sid]:
+        archive_dir = draft_path.parent / "写作资产" / "失败试稿"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        archive_path = archive_dir / f"第{sid}节_旧流程短稿_待重写.md"
+        archive_path.write_text(f"{sid}.\n\n{sections[sid]}\n", encoding="utf-8")
+        prior_text = prefix.rstrip()
+        for previous_sid in prior:
+            prior_text += f"\n\n{previous_sid}.\n\n{sections[previous_sid]}"
+        draft_path.write_text(prior_text.rstrip() + "\n", encoding="utf-8")
     item["status"] = "pending"
     for key in ("started_at", "prior_section_hashes", "first_draft_plan_path", "first_draft_plan_sha256"):
         item.pop(key, None)
@@ -1147,10 +1210,16 @@ def command_discard_writing(args: argparse.Namespace) -> int:
     state["current_section"] = sid
     state["status"] = "in_progress"
     state["updated_at"] = now_iso()
-    state["last_discarded_section"] = {"section_id": sid, "archive_path": str(archive_path)}
+    state["last_discarded_section"] = {
+        "section_id": sid,
+        "archive_path": str(archive_path) if archive_path else "",
+    }
     write_json(state_path, state)
     print(f"section_progress_gate: writing_section_discarded ({sid})")
-    print(f"archive: {archive_path}")
+    if archive_path:
+        print(f"archive: {archive_path}")
+    else:
+        print("no committed section text found; cleared orphan writing state")
     print("next_step: create a scene plan, then start-section with --plan")
     return 0
 

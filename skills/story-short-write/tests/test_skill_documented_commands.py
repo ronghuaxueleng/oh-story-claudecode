@@ -23,6 +23,8 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
             'validate_section_progress.py" finalize',
             'validate_section_progress.py" init',
             'init_section_review.py"',
+            'manage_section_review.py" export-template',
+            'manage_section_review.py" apply-template',
             'batch_prewrite_release.py" validate',
             'status / finalize / sync-pending-contracts 使用 --state',
             '禁止先运行主脚本或任一子命令的 --help',

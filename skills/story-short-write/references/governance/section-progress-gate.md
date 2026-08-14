@@ -6,7 +6,7 @@
 
 固定顺序：
 
-`先写场面计划 -> start-section N -> 在独立暂存稿中一次写完第 N 节 -> 填第 N 节回执 -> commit-section N -> 原子写入正文 -> start-section N+1`
+`先写场面计划 -> start-section N -> 在独立暂存稿中一次写完第 N 节 -> 填第 N 节回执 -> commit-section N（自动机械归一化） -> 原子写入正文 -> start-section N+1`
 
 `正文.md` 只是已通过小节的成稿，不是试写区。当前节在 `写作资产/当前节暂存/第N节.md` 一次成形；只有 `commit-section` 可以把它追加到正文。
 
@@ -25,6 +25,9 @@
 - `full_bridge` 还必须在初始化前把主体八类细节卡逐卡分配到目标小节；第 N 节提交时逐卡绑定当前节证据。细节卡仍为 `pending`、未分配或未进入逐节回执时，本节不得通过。
 - 每个 SF 除六维文字颗粒外，必须按 `required_sequence` 原顺序逐步填写当前节引句、可见变化和人工裁决。一个相似动作或一条总括引句不能覆盖多步完整链。
 - 回执中的 `current_model_manual` 和 `automation_used=false` 只是声明，不是机器可证明的事实。发现项目脚本、循环字典或模板批量生成语义字段时，必须判整节合同无效；禁止以验证器只检查非空为由继续使用。
+- `commit-section` 在正式校验前自动调用 `normalize_section_review.py`。它只允许把已选中的连续正文证据恢复为暂存稿中的真实空白/换行，把当前模型明确写出的 `passed/approved` 对白裁决别名归一为 `keep`，并检查 `target_sentence -> target_surface_evidence` 联动；不得选择新证据、填写空字段、把 `pending` 改为通过，或生成任何人工判断。无法唯一恢复的引句必须阻断并退回当前模型核对。独立运行该脚本只用于诊断，不是默认新增步骤。
+- 正式回执初始化后必须通过 `manage_section_review.py export-template` 生成只读正文证据注册表和紧凑人工侧车。当前模型只在侧车中填写语义字段，并以 `Q/D/F` ID 或 `Q-起点..Q-终点` 绑定正文；`apply-template` 只校验节号、正式回执 SHA、暂存稿 SHA、注册表 SHA、ID、枚举和字段完整性，再确定性合并。脚本不得生成 `comparison / manual_judgment / semantic_parity_status / 人物归属 / E/P/SF 等价判断 / keep-revise`。
+- 禁止使用 `jq`、临时 Python、here-doc 或项目专属脚本从正文和大纲拼装正式逐节回执。证据定位、固定字段复制与合并统一走官方侧车入口；正文变化或正式回执变化后旧侧车立即失效，必须重新导出，不能手改 SHA 续用。
 - `status`、`start-section`、`commit-section`、`sync-pending-contracts` 和 `finalize` 均不得信任旧状态名，必须先核对当前正文逐节 SHA；`final_ready` 额外核对全文 SHA。正文被状态机外修改后直接阻断。
 - E/P 不只核对 ID：E 拍必须核对来源 `role / intensity` 和目标 `trigger / relationship_position_change / reader_effect`；P 拍必须核对动作等价、外部变化和关系后果。
 - 每个承重场面必须引用不同的 `进场压力 / 至少三步施压与接招 / 转折动作 / 可见后果 / 场末余波` 原句。一句概括不得重复充当这些字段。
@@ -91,7 +94,7 @@
 
 每节写入独立文件 `写作资产/逐节验收/第N节.json`。最低骨架：
 
-先用 `init_section_review.py` 从当前进度状态与文字合同初始化 `pending` 空骨架，再由当前模型完整读取本节正文逐字段人工回填。初始化器只复制 E/P/SF ID 与主体来源证据，禁止自动挑选目标引句、轮转证据、生成语义判断或填写 `passed`；不得用项目专属脚本重新实现同一结构。
+先用 `init_section_review.py` 从当前进度状态与文字合同初始化 `pending` 空骨架，再用 `manage_section_review.py export-template` 导出证据注册表与人工侧车。当前模型完整读取本节正文，只填写侧车中的证据 ID 和人工语义字段；初始化器和侧车管理器都禁止自动挑选目标引句、轮转证据、生成语义判断或填写 `passed`。人工填写完成后先运行 `apply-template` 合并正式回执，再执行 `commit-section`，由它自动完成机械归一化和正式校验。
 
 ```json
 {
@@ -144,7 +147,7 @@
 
 ## 命令
 
-以下命令是固定公开接口。直接替换 `N` 和真实路径执行；禁止先运行 `validate_section_progress.py --help`、任一子命令 `--help`，也禁止读取参数解析源码或旧项目命令反推参数。参数速记：`status / finalize / sync-pending-contracts` 只接受 `--state`；`start-section / commit-section / reopen-section / discard-writing-section` 均接受 `--state --section`，其中 `start-section` 还要 `--plan`，`commit-section` 还要 `--staged --review`。需要逐节回执时，先运行 `init_section_review.py --state ... --section N --output ...`，再人工回填并提交。
+以下命令是固定公开接口。直接替换 `N` 和真实路径执行；禁止先运行 `validate_section_progress.py --help`、任一子命令 `--help`，也禁止读取参数解析源码或旧项目命令反推参数。参数速记：`status / finalize / sync-pending-contracts` 只接受 `--state`；`start-section / commit-section / reopen-section / discard-writing-section` 均接受 `--state --section`，其中 `start-section` 还要 `--plan`，`commit-section` 还要 `--staged --review`。逐节回执固定走 `init -> export-template -> 当前模型填写侧车 -> apply-template -> commit-section`。
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_section_progress.py" init \
@@ -163,10 +166,26 @@ python3 "$SKILL_ROOT/scripts/validate_section_progress.py" start-section \
   --section N \
   --plan "{项目目录}/写作资产/当前节计划/第N节.json"
 
+python3 "$SKILL_ROOT/scripts/prepare_section_context.py" \
+  --state "{项目目录}/写作资产/逐节正文进度.json" \
+  --section N \
+  --output "{项目目录}/写作资产/当前节写作包/第N节.json"
+
 python3 "$SKILL_ROOT/scripts/init_section_review.py" \
   --state "{项目目录}/写作资产/逐节正文进度.json" \
   --section N \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
   --output "{项目目录}/写作资产/逐节验收/第N节.json"
+
+python3 "$SKILL_ROOT/scripts/manage_section_review.py" export-template \
+  --review "{项目目录}/写作资产/逐节验收/第N节.json" \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
+  --output "{项目目录}/写作资产/逐节验收/侧车/第N节人工.json"
+
+python3 "$SKILL_ROOT/scripts/manage_section_review.py" apply-template \
+  --review "{项目目录}/写作资产/逐节验收/第N节.json" \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
+  --input "{项目目录}/写作资产/逐节验收/侧车/第N节人工.json"
 
 python3 "$SKILL_ROOT/scripts/validate_section_progress.py" commit-section \
   --state "{项目目录}/写作资产/逐节正文进度.json" \

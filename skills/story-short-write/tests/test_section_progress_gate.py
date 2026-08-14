@@ -92,6 +92,14 @@ class SectionProgressGateTest(unittest.TestCase):
         text = "她说：「先等等。」他答：“不用了。”"
         self.assertEqual(["「先等等。」", "“不用了。”"], GATE.DIRECT_DIALOGUE_RE.findall(text))
 
+    def test_dialogue_scan_keeps_attributed_split_turn_together(self) -> None:
+        text = "“陌生人，”我又问了一遍，“你今晚回不回来？”"
+        self.assertEqual([text], GATE.DIRECT_DIALOGUE_RE.findall(text))
+
+    def test_dialogue_attribution_does_not_depend_on_character_names(self) -> None:
+        text = "“你先坐。”陌生人提醒。"
+        self.assertEqual(["“你先坐。”"], GATE.extract_direct_dialogue(text))
+
     def test_template_semantic_receipt_is_blocked(self) -> None:
         quotes = [f"这是场面中第{index}条互不相同的真实句子。" for index in range(1, 8)]
         section = "\n".join(quotes)

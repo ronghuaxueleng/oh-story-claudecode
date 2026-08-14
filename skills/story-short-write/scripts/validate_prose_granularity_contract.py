@@ -856,27 +856,54 @@ def detail_card_records(source: Path) -> list[dict[str, Any]]:
         return []
     records: list[dict[str, Any]] = []
     heading_pattern = re.compile(r"^##\s+卡\s+([^｜|\s]+)\s*[｜|]\s*(.+?)\s*$")
+    legacy_heading_pattern = re.compile(r"^##\s+(.+?)\s*$")
     field_pattern = re.compile(r"^-\s*([^：:]+)[：:]\s*(.*)$")
+    source_range_pattern = re.compile(r"L(\d+)(?:\s*-\s*L(\d+))?")
+    source_lines = read_text(source).splitlines()
     for path in sorted(detail_dir.glob("*.md")):
         lines = read_text(path).splitlines()
-        starts = [index for index, line in enumerate(lines) if heading_pattern.match(line)]
+        starts = [
+            index
+            for index, line in enumerate(lines)
+            if heading_pattern.match(line) or legacy_heading_pattern.match(line)
+        ]
         for position, start in enumerate(starts):
             end = starts[position + 1] if position + 1 < len(starts) else len(lines)
             match = heading_pattern.match(lines[start])
-            assert match is not None
+            legacy_match = legacy_heading_pattern.match(lines[start])
+            assert match is not None or legacy_match is not None
             fields: dict[str, str] = {}
             for line in lines[start + 1 : end]:
                 field_match = field_pattern.match(line.strip())
                 if field_match:
                     fields[field_match.group(1).strip()] = field_match.group(2).strip()
+            if match is not None:
+                card_id = match.group(1).strip()
+                title = match.group(2).strip()
+            else:
+                card_id = f"{path.stem}-{position + 1:03d}"
+                title = legacy_match.group(1).strip()
+            source_range = fields.get("原文位置", "").strip()
+            if not source_range:
+                range_match = source_range_pattern.search(fields.get("具体发生了什么", ""))
+                if range_match:
+                    end_line = range_match.group(2) or range_match.group(1)
+                    source_range = f"L{range_match.group(1)}-L{end_line}"
+            source_quote = fields.get("原文短语", "").strip().strip("`")
+            if not source_quote and source_range:
+                range_match = source_range_pattern.fullmatch(source_range)
+                if range_match:
+                    start_line = max(1, int(range_match.group(1)))
+                    end_line = min(len(source_lines), int(range_match.group(2)))
+                    source_quote = "\n".join(source_lines[start_line - 1 : end_line]).strip()
             records.append(
                 {
-                    "card_id": match.group(1).strip(),
+                    "card_id": card_id,
                     "category": path.stem,
-                    "title": match.group(2).strip(),
+                    "title": title,
                     "source_file": str(path.resolve()),
-                    "source_range": fields.get("原文位置", "").strip(),
-                    "source_quote": fields.get("原文短语", "").strip().strip("`"),
+                    "source_range": source_range,
+                    "source_quote": source_quote,
                     "source_function": (
                         fields.get("这个细节为什么有用")
                         or fields.get("写作功能")
@@ -971,6 +998,50 @@ def apply_detail_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, A
         "reviewed_by_current_model": True,
         "semantic_fields_generated_by_script": False,
         "manual_judgment": str(plan["manual_judgment"]).strip(),
+    }
+    result["gate_status"] = "pending"
+    result["prewrite_status"] = "pending"
+    return result
+
+
+def apply_source_assets(data: dict[str, Any], sidecar: dict[str, Any]) -> dict[str, Any]:
+    """Merge current-model-authored book-level prose assets without generating semantics."""
+    if sidecar.get("reviewed_by_current_model") is not True:
+        raise ValueError("书级文字资产必须由当前模型人工复核")
+    if sidecar.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("书级文字资产禁止由脚本生成语义字段")
+    if len(str(sidecar.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("书级文字资产 manual_judgment 过短")
+    required = (
+        "source_baseline",
+        "ultra_fine_source_baseline",
+        "calibration_samples",
+        "prose_liveliness_layer",
+        "character_personality_layer",
+    )
+    missing = [field for field in required if field not in sidecar]
+    if missing:
+        raise ValueError("书级文字资产侧车缺少字段: " + ", ".join(missing))
+
+    result = dict(data)
+    for field in required:
+        result[field] = sidecar[field]
+    for layer_name in ("prose_liveliness_layer", "character_personality_layer"):
+        layer = result.get(layer_name)
+        if not isinstance(layer, dict):
+            raise ValueError(f"{layer_name} 必须是对象")
+        asset_file_path = Path(str(layer.pop("asset_file_path", "") or "")).resolve()
+        if not asset_file_path.is_file():
+            raise ValueError(f"{layer_name}.asset_file_path 不存在: {asset_file_path}")
+        layer["asset_file"] = {
+            "path": str(asset_file_path),
+            "sha256": sha256(asset_file_path),
+        }
+    result["reviewed_by_current_model"] = True
+    result["source_asset_provenance"] = {
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "manual_judgment": str(sidecar["manual_judgment"]).strip(),
     }
     result["gate_status"] = "pending"
     result["prewrite_status"] = "pending"
@@ -4238,6 +4309,12 @@ def main() -> int:
     )
     apply_detail_parser.add_argument("--receipt", required=True)
     apply_detail_parser.add_argument("--plan", required=True)
+    apply_source_parser = subparsers.add_parser(
+        "apply-source-assets",
+        help="原样合并当前模型人工完成的书级文字基线、活性层与人物层",
+    )
+    apply_source_parser.add_argument("--receipt", required=True)
+    apply_source_parser.add_argument("--sidecar", required=True)
     apply_section_parser = subparsers.add_parser(
         "apply-section-plan",
         help="校验并原样合并当前模型逐节填写的文字写前侧车",
@@ -4306,6 +4383,22 @@ def main() -> int:
         result["detail_plan_provenance"]["sha256"] = sha256(plan_path)
         write_json(receipt, result)
         print(f"prose_granularity_contract: detail plan applied -> {receipt}")
+        return 0
+    if args.command == "apply-source-assets":
+        sidecar_path = Path(args.sidecar).resolve()
+        try:
+            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            if not isinstance(sidecar, dict):
+                raise ValueError("书级文字资产侧车 JSON 顶层必须是对象")
+            result = apply_source_assets(data, sidecar)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (apply-source-assets)")
+            print(f"- {exc}")
+            return 2
+        result["source_asset_provenance"]["path"] = str(sidecar_path)
+        result["source_asset_provenance"]["sha256"] = sha256(sidecar_path)
+        write_json(receipt, result)
+        print(f"prose_granularity_contract: source assets applied -> {receipt}")
         return 0
     if args.command == "apply-section-plan":
         plan_path = Path(args.plan).resolve()

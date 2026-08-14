@@ -849,6 +849,76 @@ def assemble_section_plan(
         for item in outline_contract.get("sections", [])
         if isinstance(item, dict)
     }
+    outside_parity = outline_contract.get("outside_bridge_plot_parity") or {}
+    approved_outside_ids = [
+        str(item.get("beat_id") or "")
+        for item in outside_parity.get("source_emotion_sequence", [])
+        if isinstance(item, dict)
+    ]
+    source_beats = [
+        item for item in source_ledger.get("beats", []) if isinstance(item, dict)
+    ]
+    source_regions = source_beat_regions(
+        source_beats, source_ledger.get("coverage_segments")
+    )
+    opening_ids = [
+        beat_id for beat_id in approved_outside_ids
+        if source_regions.get(beat_id) == "opening"
+    ]
+    epilogue_ids = [
+        beat_id for beat_id in approved_outside_ids
+        if source_regions.get(beat_id) == "epilogue"
+    ]
+    unsupported_outside_ids = [
+        beat_id for beat_id in approved_outside_ids
+        if source_regions.get(beat_id) not in {"opening", "epilogue"}
+    ]
+    if unsupported_outside_ids:
+        raise ValueError(
+            "桥外过场 E 拍必须先在细纲合同中分配到具体数字节: "
+            + ", ".join(unsupported_outside_ids)
+        )
+    approved_outside_plot_ids = [
+        str(item.get("beat_id") or "")
+        for item in outside_parity.get("target_plot_beats", [])
+        if isinstance(item, dict)
+    ]
+    plot_order = {
+        str(item.get("target_beat_id") or ""): index
+        for index, item in enumerate(beat_mapping.get("plots", []))
+        if isinstance(item, dict)
+    }
+    bridge_plot_ids = [
+        str(beat_id)
+        for section in outline_sections.values()
+        for scene in section.get("scene_units", [])
+        if isinstance(scene, dict)
+        for beat_id in scene.get("plot_beat_ids", [])
+    ]
+    bridge_plot_positions = [
+        plot_order[beat_id] for beat_id in bridge_plot_ids if beat_id in plot_order
+    ]
+    if not bridge_plot_positions:
+        raise ValueError("细纲场面合同缺少桥内 P 拍")
+    first_bridge_plot = min(bridge_plot_positions)
+    last_bridge_plot = max(bridge_plot_positions)
+    opening_plot_ids = [
+        beat_id for beat_id in approved_outside_plot_ids
+        if plot_order.get(beat_id, first_bridge_plot) < first_bridge_plot
+    ]
+    epilogue_plot_ids = [
+        beat_id for beat_id in approved_outside_plot_ids
+        if plot_order.get(beat_id, last_bridge_plot) > last_bridge_plot
+    ]
+    unsupported_outside_plot_ids = [
+        beat_id for beat_id in approved_outside_plot_ids
+        if beat_id not in opening_plot_ids and beat_id not in epilogue_plot_ids
+    ]
+    if unsupported_outside_plot_ids:
+        raise ValueError(
+            "桥外过场 P 拍必须先在细纲合同中分配到具体数字节: "
+            + ", ".join(unsupported_outside_plot_ids)
+        )
     expected_contracts = data.get("section_contracts")
     supplied = plan.get("sections")
     if not isinstance(expected_contracts, list) or not isinstance(supplied, list):
@@ -878,6 +948,10 @@ def assemble_section_plan(
             for beat in parity.get("source_emotion_sequence", [])
             if isinstance(beat, dict)
         ]
+        if section_id == expected_ids[0]:
+            expected_emotion_ids = opening_ids + expected_emotion_ids
+        if section_id == expected_ids[-1]:
+            expected_emotion_ids = expected_emotion_ids + epilogue_ids
         actual_emotion_ids = quote_list(item.get("emotion_beat_ids"))
         if actual_emotion_ids != expected_emotion_ids:
             raise ValueError(f"第 {section_id} 节 E 拍必须与已批准细纲合同全集同序相等")
@@ -887,6 +961,10 @@ def assemble_section_plan(
             if isinstance(scene, dict)
             for beat_id in scene.get("plot_beat_ids", [])
         ]
+        if section_id == expected_ids[0]:
+            expected_plot_ids = opening_plot_ids + expected_plot_ids
+        if section_id == expected_ids[-1]:
+            expected_plot_ids = expected_plot_ids + epilogue_plot_ids
         actual_plot_ids = quote_list(item.get("plot_beat_ids"))
         if actual_plot_ids != expected_plot_ids:
             raise ValueError(f"第 {section_id} 节 P 拍必须与已批准场面合同全集同序相等")
@@ -904,7 +982,12 @@ def assemble_section_plan(
             source_beat = source_by_id[beat_id]
             mapped = emotion_by_id[beat_id]
             region = str(mapped.get("target_outline_region") or "").strip()
-            region = "opening" if region == "导语" else f"section:{section_id}"
+            if region == "导语":
+                region = "opening"
+            elif region == "尾声":
+                region = "epilogue"
+            elif region not in {"opening", "epilogue"}:
+                region = f"section:{section_id}"
             target_beats.append({
                 "beat_id": beat_id,
                 "role": source_beat.get("role"),
@@ -927,7 +1010,14 @@ def assemble_section_plan(
         end_line = max(int(beat.get("end_line")) for beat in source_beats)
         reversal = item.get("source_reversal_beat")
         peak = item.get("source_peak_beat")
-        if reversal != parity.get("source_reversal_beat") or peak != parity.get("source_peak_beat"):
+        turning_point_offset = len(opening_ids) if section_id == expected_ids[0] else 0
+        expected_reversal = int(parity.get("source_reversal_beat") or 0)
+        expected_peak = int(parity.get("source_peak_beat") or 0)
+        if expected_reversal:
+            expected_reversal += turning_point_offset
+        if expected_peak:
+            expected_peak += turning_point_offset
+        if reversal != expected_reversal or peak != expected_peak:
             raise ValueError(f"第 {section_id} 节反刀/峰值必须原样匹配已批准细纲合同")
         assembled_by_id[section_id] = {
             "section_id": section_id,

@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.67.35
+  version: 1.67.37
 ---
 
 # story-short-write：短篇网文写作
@@ -170,7 +170,10 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 - `apply_project_profile_policy.py`
 - `batch_draft_prewrite.py`
 - `create_section_plan.py`
+- `prepare_section_context.py`
 - `init_section_review.py`
+- `manage_section_review.py`
+- `normalize_section_review.py`
 - `validate_section_progress.py`
 - `validate_post_write_human_review_gate.py`
 - `validate_zhihu_section_format.py`
@@ -847,10 +850,25 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_section_progress.
   --state "{项目目录}/写作资产/逐节正文进度.json" \
   --section N \
   --plan "{项目目录}/写作资产/当前节计划/第N节.json"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/prepare_section_context.py" \
+  --state "{项目目录}/写作资产/逐节正文进度.json" \
+  --section N \
+  --output "{项目目录}/写作资产/当前节写作包/第N节.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/init_section_review.py" \
   --state "{项目目录}/写作资产/逐节正文进度.json" \
   --section N \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
   --output "{项目目录}/写作资产/逐节验收/第N节.json"
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_section_review.py" export-template \
+  --review "{项目目录}/写作资产/逐节验收/第N节.json" \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
+  --output "{项目目录}/写作资产/逐节验收/侧车/第N节人工.json"
+# 当前模型只填写第N节人工.json中的 manual_items；证据引用使用同目录自动生成的第N节人工.evidence.json内 Q/D/F ID，
+# 连续正文可写成 Q-012..Q-015。禁止修改证据注册表，禁止用 jq、临时 Python 或项目脚本搬运/生成语义字段。
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_section_review.py" apply-template \
+  --review "{项目目录}/写作资产/逐节验收/第N节.json" \
+  --staged "{项目目录}/写作资产/当前节暂存/第N节.md" \
+  --input "{项目目录}/写作资产/逐节验收/侧车/第N节人工.json"
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_section_progress.py" commit-section \
   --state "{项目目录}/写作资产/逐节正文进度.json" \
   --section N \
@@ -866,7 +884,17 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_section_progress.
   --section N
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_section_progress.py" finalize \
   --state "{项目目录}/写作资产/逐节正文进度.json"
-# 状态机参数固定：status / finalize / sync-pending-contracts 使用 --state；start-section / commit-section / reopen-section / discard-writing-section 使用 --state + --section；start-section 另需 --plan，commit-section 另需 --staged + --review。逐节回执先由 init_section_review.py 创建，再由当前模型人工回填。上述命令直接替换 N 和真实路径执行；禁止先运行主脚本或任一子命令的 --help，也禁止读取 argparse 源码探参。参数错误应回到本段固定模板修正，不得用 help 试错。
+# 状态机参数固定：status / finalize / sync-pending-contracts 使用 --state；start-section / commit-section / reopen-section / discard-writing-section 使用 --state + --section；start-section 另需 --plan，commit-section 另需 --staged + --review。逐节回执先由 init_section_review.py 创建，再由 manage_section_review.py export-template 生成只读证据注册表和紧凑人工侧车；当前模型只填写侧车语义字段，apply-template 按 SHA 和证据 ID 确定性合并，不能生成 comparison / manual_judgment / semantic_parity_status / 人物归属 / keep-revise。commit-section 会在正式校验前自动调用 normalize_section_review.py，只恢复正文真实换行、归一化当前模型已明确写出的对白枚举并检查句面镜像。上述命令直接替换 N 和真实路径执行；禁止先运行主脚本或任一子命令的 --help，也禁止读取 argparse 源码探参；禁止再用 jq、临时 Python 或项目脚本装配逐节正式回执。参数错误应回到本段固定模板修正，不得用 help 试错。
+```
+
+细纲表演验收回执变化后，统一刷新全部小节计划，禁止逐节重复调用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/create_section_plan.py" \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --section all \
+  --output-dir "{项目目录}/写作资产/当前节计划" \
+  --beat-mapping "{项目目录}/写作资产/逐拍语义映射.json"
 ```
 
 正文收口、正式审计和回炉的完整命令见：
