@@ -80,6 +80,11 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
 - finalize 只允许生成 `book.profile.json` 和读取正式产物，不允许修改 Markdown
 - 人工复核回执未闭环时，finalize 必须保持阻断
+- 如果本轮来自 `prepare_short_analyze_job.py --upgrade-existing`，先看 `upgrade_actions` 再决定动作顺序：
+  - `safe_refresh_process_files` 只说明过程文件已刷新
+  - `manual_backfill_missing_outputs` 先补缺失正式产物
+  - `profile_regeneration_required` 非空时，本批必须重生 `book.profile.json`
+  - `profile_dependency_review` 列出的上游资产必须在重生 profile 前逐项复核
 - 如果主报告厚、但个别资产文件明显薄，不要在同一长上下文里补丁式连修很多轮
 - 优先冷启动回到对应阶段文档，重做那一批
 - 冷启动只负责验证这次修改是否真的修好；确认有效后，必须把修复落到正式 skill，再回到正式目录重跑，不允许把冷启动目录当正式产物来源

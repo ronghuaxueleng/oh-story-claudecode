@@ -45,6 +45,14 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 - [writing-rule-reading-gate.md](writing-rule-reading-gate.md)
 - [source-reading-gate.md](source-reading-gate.md)
 
+## 执行介质纪律
+
+- 正式流程里的回执、合同、台账和审计文件，优先由 skill 官方脚本创建骨架、绑定 SHA、执行合并和校验。
+- 当前模型补写人工语义字段时，优先直接 `apply_patch` 修改已初始化文件；这类修改应局限在明确需要的人类判断字段，不要整份重写。
+- 临时 Python、shell 循环或 here-doc 只能用于只读诊断、候选定位、统计、或把当前模型已逐字段确认的非语义结果做确定性序列化；不得把它们当成正式回执的默认生成器。
+- 禁止用临时 Python 批量生成或覆写 `manual_judgment / comparison / target_evidence / source_contract_reviews / parity_status / keep-revise` 等需要当前模型逐项裁决的字段。
+- 若同类文件反复需要大批量结构化回填，应补官方脚本或侧车合并入口，而不是在流程中持续追加一次性 here-doc Python。
+
 普通短篇最低需要：
 
 - `写作资产/profile_source.md`
@@ -110,6 +118,48 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 30. 规则资产复核完成后直接跑正式全量审计并回填脚本产物；不再强制执行 `validate_pre_window_revision_gate.py` 或人工模型分段
 33. 若属于仿写 / 融合 / 同桥任务，先对主体原文跑同一套轻审计和全量审计，再运行 `compare_source_baseline_audit.py` 生成基线对照
 34. 全文人工判断剩余问题；仿写任务必须把问题标成 `source_like / craft_tradeoff / draft_extra_ai_shell`
+
+### 推荐合并执行批次
+
+上面的默认闭环是治理顺序，不等于必须把每一步拆成单独回合。默认推荐按以下 4 个批次连续执行；批次内可以顺手完成多个相邻门禁，但不得跨批次偷跑下游产物：
+
+1. `读取批次`
+   - 初始化并回填 `写作规则读取回执`
+   - 校验 `writing_rule_gate`
+   - 初始化并回填 `拆文读取回执`
+   - 校验 `source_read_gate`
+   - 如两份回执时序和字段都通过，再进入下一批
+2. `纲前放行批次`
+   - 初始化 `规则执行台账`
+   - 导出模型分类批次并完成 canonical 归并/分类
+   - 读取 `profile_source.md` 与 `book.profile.json / project.profile.json`
+   - 写设定并通过 `设定顺序契约`
+   - 写大纲并通过 `完整顺序契约`
+   - 通过 `开头承重契约`
+   - 通过 `细纲表演验收`
+   - 若卡在 `细纲表演验收`，推荐先在同一批次内按 `global_review -> 源情绪账本 bid_ids 边界 -> 桥级非逐拍裁决 -> 桥级逐拍/逐情绪 -> 节级场面/scene_units -> 逐拍语义映射 -> SF` 的顺序修，不要直接跳去文字合同或情绪合同
+   - 桥级修复默认走一套连续官方入口：`manage_outline_bridge_review.py sync-source-emotions -> export-template/apply-template -> export-beat-template/apply-beat-template -> manage_outline_section_review.py export-template/apply-template -> rebind-outline -> validate_outline_performance_contract.py validate -> seal-review`
+   - 如这些闸门都过，再进入正文前合同批次
+3. `正文前合同批次`
+   - 初始化并绑定 `全文文字颗粒度合同`
+   - 初始化并绑定 `全文情绪颗粒度合同`
+   - 两份合同都通过各自 `validate-prewrite`
+   - 如两份合同都过，再进入正文开写前最终放行批次
+4. `正文开写前最终放行批次`
+   - 运行 `validate_outline_performance_contract.py validate`
+   - 运行 `batch_draft_prewrite.py validate`
+   - 运行 `validate_write_release_gate.py draft`
+   - 或直接运行 `batch_prewrite_release.py validate`
+   - 只有这一批全部通过，才创建逐节正文状态机并开始正式正文
+
+硬口径：
+
+- 可合并的是“连续执行批次”，不是把多个治理对象合并成一张回执。
+- 同一批次内可以顺手连续修桥级与节级阻断，但前提仍是先修来源账本边界，再修桥级，再修节级场面与 `scene_units`，再修逐拍语义映射与 SF；不要让下游合同替上游桥级试错。
+- `读取门禁`、`顺序契约`、`开头契约`、`细纲表演验收`、`文字颗粒度合同`、`情绪颗粒度合同`、`规则执行台账` 仍是独立硬闸，不能因为批处理而删字段、跳校验或用一份总说明替代。
+- 若某批次中途有一项未 `passed`，应停在当前批次内修正，不得先写下游产物再回补上游。
+- 若当前批次卡在 `细纲表演验收`，先把阻断折成 `bridge_emotion_boundary -> bridge_mapping_missing -> section_scene_units_missing` 三类施工单，再按顺序处理；不要把桥级边界、桥级逐拍、节级空壳和下游合同噪音混成一张无序待办。
+- 若细纲在修桥过程中发生变化，先运行 `manage_outline_bridge_review.py rebind-outline` 重绑 `outline.sha256` 并把顶层验收态重置为 `pending`；全部字段补齐且真实校验通过后，再运行 `seal-review` 落盘 `reviewed_by_current_model=true / gate_status=passed`。不要把这两个顶层状态继续当作手工遗留项。
 35. 只把 `draft_extra_ai_shell` 写进回修任务单；`source_like / craft_tradeoff` 可保留，但必须写明原文基线和情节功能
 36. 回修；设定、大纲或正文 SHA 变化后，对应顺序契约、正式审计和原文基线对照全部失效
 37. 回到第 29 步，重新做规则/资产复核和正式重审
@@ -344,6 +394,188 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate
 ```
 
 设定和大纲阶段分别使用 `--stage setting --output 设定.md` 与 `--stage outline --output 小节大纲.md`。不要在后续阶段重复传入旧的上游产物。
+
+### 官方批处理入口
+
+以下命令块是本 skill 的批处理权威来源。新增、删减或改参时，优先更新这里；`SKILL.md` 只保留总口径与少量高频入口，`writing-workflow.md` 只保留贴近阶段执行的示例。
+
+当前已提供：
+
+1. `batch-read-gates`
+   - 包含：规则读取回执 init/validate + 拆文读取回执 init/validate
+   - 目标：把两道读取门禁收成一个连续批次
+   - 边界：只能初始化骨架、转发路径、做时序/完整性校验；不得生成人工证据词和读取结论
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" init \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" validate \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+2. `batch-outline-release`
+   - 包含：规则执行台账 init/export、设定顺序契约 init、完整顺序契约 init、开头契约 init、细纲表演验收 init
+   - 目标：把“纲前放行批次”的骨架创建与失效重绑收成一轮
+   - 边界：只能创建回执和绑定 SHA；不得代填顺序节点、开头判断、逐拍映射或情绪同级判断
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" init \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --setting "{项目目录}/设定.md" \
+  --outline "{项目目录}/小节大纲.md" \
+  --setting-sequence-receipt "{项目目录}/写作资产/设定顺序契约回执.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --opening-source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
+  --opening-receipt "{项目目录}/写作资产/开头承重契约回执_大纲.json" \
+  --outline-receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-original "拆文库/{辅助书}/原文/{辅助书}.txt" \
+  --export-model-review-output "{项目目录}/写作资产/规则模型分类批次.json"
+```
+
+3. `batch-draft-prewrite`
+   - 包含：文字颗粒度 bind-outline/apply-section-plan/validate-prewrite + 情绪颗粒度 assemble-section-plan/validate-prewrite
+   - 目标：把正文前两份大合同的路径一致性、绑定、缺资产阻断与预检收成一轮
+   - 边界：只能检查 `source-original / 子流程索引 / source-emotion-ledger / outline SHA` 一致性并执行官方校验；不得生成落笔包、对白包、逐拍合同或任何人工裁决字段
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_draft_prewrite.py" prepare \
+  --project "{项目名}" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_draft_prewrite.py" validate \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
+  --outline "{项目目录}/小节大纲.md"
+```
+
+4. `batch-prewrite-release`
+   - 包含：`validate_outline_performance_contract.py validate` + `batch_draft_prewrite.py validate` + `validate_write_release_gate.py draft`
+   - 目标：把“人工回填完成后到正文开写前”的最后三道散门禁收成一轮
+   - 边界：只能做串联校验和统一摘要；不得重写细纲表演回执、两份合同或放行闸中的人工字段
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" validate \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --opening-contract "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --prose-contract "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-contract "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --primary-source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
+  --profile "profiles/{项目名}.project.profile.json"
+```
+
+5. `batch-prewrite-release prepare-validate`
+   - 包含：`batch_draft_prewrite.py prepare` + `validate_outline_performance_contract.py validate` + `batch_draft_prewrite.py validate` + `validate_write_release_gate.py draft`
+   - 目标：把“正文前合同批次 + 正文开写前最终放行批次”直接收成一个总入口
+   - 边界：只能调用官方 prepare/validate 与放行闸，不得自动生成任何 `manual_judgment / target_evidence / parity_status / section_contracts`
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" prepare-validate \
+  --project "{项目名}" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --opening-contract "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --profile "profiles/{项目名}.project.profile.json"
+```
+
+6. `batch-prewrite-blockers`
+   - 包含：`validate_outline_performance_contract.py validate` + `batch_draft_prewrite.py validate`，并可选吸收 `validate_write_release_gate.py draft`
+   - 目标：把正文前重复报出的桥级、节级、SF、细节卡、文字合同、情绪合同阻断去重后折成一份施工单
+   - 边界：只读取现有校验结果并归类，不修改任何正式回执，也不生成人工语义字段
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_blockers.py" \
+  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json"
+```
+
+统一禁止：
+
+- 不得把 batch 入口做成“批量写满正式回执”的黑箱。
+- 不得用 batch 入口自动填 `manual_judgment / comparison / target_evidence / source_contract_reviews / parity_status / keep-revise`。
+- 需要当前模型逐字段判断的内容，只能由当前模型补写，再交给官方校验器验证。
+
+### 桥级原文情绪序列同步
+
+当当前项目卡在 `bridge_emotion_boundary`，且问题是 `source_emotion_sequence` 为空、错桥、漏桥或混入桥外拍时，优先使用官方同步入口把原文情绪真源回填回正式回执；不要在大 JSON 内手工搜索多个同名字段并直接粘贴长数组。
+
+固定命令：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" sync-source-emotions \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
+```
+
+作用边界：
+
+- 只同步 `outside_bridge_plot_parity.source_emotion_sequence` 与 `outline_bridge_flow_parity[*].source_emotion_sequence`
+- 数据真源固定是各桥 `source_path` 同书目录下的 `写作资产/全文情绪颗粒总账.json`
+- `outside_bridge_plot_parity` 只消费 `bid_ids=[]` 的桥外拍
+- `outline_bridge_flow_parity[*]` 只消费与该条 `source_bridge_id` 完全匹配的 `bid_ids`
+- 不生成也不修改 `target_emotion_sequence`
+- 不放宽任何桥级或节级校验，只负责把原文边界真源精确落回正式回执
+
+如果同步后仍报 `bridge_emotion_boundary`，先查：
+
+1. `source_path` 是否真实指向对应原文
+2. 同书 `全文情绪颗粒总账.json` 是否与当前拆文资产口径一致
+3. `source_bridge_id` 是否与桥段施工卡、总账 `bid_ids` 使用相同桥 ID
+
+不要先在正式回执里挪拍硬凑，更不要让 `target_emotion_sequence` 反向替原文边界试错。
+
+### `batch-prewrite-blockers` 聚焦使用顺序
+
+`batch-prewrite-blockers` 的默认职责是去重，不是替执行器决定施工先后。当前推荐读取顺序如下：
+
+1. 先只消费 `bridge_emotion_boundary`
+   - 关注：`全文情绪颗粒总账.json` 的真实 `bid_ids`、桥外 `bid_ids=[]` 误塞、桥段施工卡与总账边界口径冲突。
+   - 口径：桥级情绪边界的唯一真源始终是 `全文情绪颗粒总账.json`；桥段施工卡只用于解释承重件、顺序和桥为什么成立。
+2. 再消费 `bridge_mapping_missing`
+   - 关注：`target_plot_beats / plot_beat_mapping / source_emotion_sequence / target_emotion_sequence` 的缺失、改序、并拍、漏拍。
+   - 口径：桥级逐拍逐情绪没有补齐前，不要让节级 `scene_units` 或两份下游合同代替桥级试错。
+3. 最后消费 `section_scene_units_missing`
+   - 关注：各节 `scene_units`、逐节场面验收承载位和节级空 scaffold。
+   - 口径：节级场面承载必须建立在桥边界和桥级映射已稳定的前提上。
+
+若当前脚本版本尚未自动吐出上述分类，执行器也必须先手工把同轮阻断折成这三类再施工；禁止按报错自然顺序东补一块、西补一块，导致桥级边界反复污染节级证据。
 
 ### 2. 生成并校验拆文读取回执
 

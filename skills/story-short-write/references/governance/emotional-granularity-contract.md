@@ -118,6 +118,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granula
   --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
+`--source-original` 与 `--source-emotion-ledger` 都属于强制显式输入。即使合同回执已经绑定主体原文和情绪总账，执行 `assemble-section-plan / validate-prewrite / validate-draft` 时也不得省略；脚本要校验的是“本次命令输入 + 回执绑定 + 当前文件”三方一致，而不是只信回执。
+
 `apply-section-plan` 只负责把当前模型已人工完成的 `section_contracts` 原样合并进已绑定细纲的合同。侧车可按原序只提交当前完成的小节，未提交小节保持 pending；侧车必须绑定当前细纲 SHA，并声明未使用脚本生成语义。入口不抽情绪拍、不选择原文证据、不推导目标拍，也不自动写入 `passed`；九节的全集、顺序、烈度和区域证据仍由全书 `validate-prewrite` 强制校验。
 
 `bind-draft` 必须位于逐节进度闸 `final_ready` 之后。它会绑定最终全文 SHA 并重建骨架；当前模型随后只能按已验证的逐节回执合并，不得重新批量生成情绪引句或裁决。

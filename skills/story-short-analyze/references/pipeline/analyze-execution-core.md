@@ -201,6 +201,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 6. 再生 `book.profile.json`
 7. 最后跑 `run_short_analyze_finalize.py`
 8. 若脚本返回 `blocked-on-assets`，回到对应批次补件再重跑
+9. 若走 `prepare_short_analyze_job.py --upgrade-existing`，先读 `upgrade_actions`：只把 `safe_refresh_process_files` 视为过程刷新；`manual_backfill_missing_outputs` 先补正式产物；`profile_regeneration_required` 非空时，必须在 finalize 前重生 `book.profile.json`
 
 第 2 批额外硬闸：
 

@@ -339,6 +339,13 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}" --json
 ```
 
+升级输出现在除了 `missing_files`，还必须读取并执行 `upgrade_actions`：
+
+- `safe_refresh_process_files`：这批只表示过程文件已安全刷新，不等于正式内容已升级。
+- `manual_backfill_missing_outputs`：这批缺失正式产物必须人工回填，不能靠脚本补空壳。
+- `profile_regeneration_required`：这批文件必须在内容复核后重生；默认至少包含 `book.profile.json`。
+- `profile_dependency_review`：重生 profile 前必须回看的上游资产，至少覆盖 `profile_source.md / 全文情绪颗粒总账.json / 全文情节微拍总账.json / 桥段施工卡.md` 中本次实际存在者。
+
 硬规则：
 
 - `--upgrade-existing` 不删除、不覆盖已有正式产物。
@@ -346,6 +353,8 @@ python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrad
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
 - 模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后人工回填。
 - `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
+- `upgrade_actions.safe_refresh_process_files` 只代表过程文件刷新完成；不能把它误报成正式资产已通过。
+- `upgrade_actions.profile_regeneration_required` 一旦非空，必须在同一次升级闭环里完成 `book.profile.json` 重生；禁止沿用旧 profile。
 - 必须逐项复核当前 first-write contract、全文情绪总账、各 BID 原序子集贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA；不得用 BID 并集冒充全文全集。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。
 

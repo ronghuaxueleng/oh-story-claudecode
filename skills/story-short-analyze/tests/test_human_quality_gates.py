@@ -1309,6 +1309,46 @@ class HumanQualityGateTest(unittest.TestCase):
         emotion_errors = [item for item in errors if "emotion_sequence" in item or "E-0" in item]
         self.assertEqual([], emotion_errors)
 
+    def test_profile_alignment_error_requires_regenerating_profile_after_ledger_change(self) -> None:
+        full_emotion_ledger = {
+            "beats": [
+                {
+                    "beat_id": "E-01",
+                    "role": "第一次刺痛",
+                    "intensity": 7,
+                    "source_evidence": ["L10 第一次略过"],
+                    "bid_ids": ["BID-01"],
+                },
+                {
+                    "beat_id": "E-02",
+                    "role": "第二次刺痛",
+                    "intensity": 8,
+                    "source_evidence": ["L12 再次略过"],
+                    "bid_ids": ["BID-01"],
+                },
+            ]
+        }
+        book_profile = {
+            "bridge_rules": [
+                {
+                    "id": "BID-01",
+                    "emotion_sequence": [
+                        {
+                            "beat_id": "E-01",
+                            "role": "第一次刺痛",
+                            "intensity": 7,
+                            "source_evidence": "L10 第一次略过",
+                        }
+                    ],
+                }
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_book_profile_emotion_ledger_alignment(
+            self.root, book_profile, full_emotion_ledger, errors
+        )
+        self.assertTrue(any("重生 book.profile.json" in item for item in errors))
+
     def test_human_review_receipt_must_match_current_notes_and_markdown_hashes(self) -> None:
         self._write("拆文报告.md", "第一版\n")
         notes = [

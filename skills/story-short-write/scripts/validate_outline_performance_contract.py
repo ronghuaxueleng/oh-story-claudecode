@@ -179,6 +179,10 @@ def load_ledger_payload(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
+def load_emotion_ledger_payload(path: Path) -> dict[str, Any]:
+    return load_ledger_payload(path, "全文情绪颗粒总账")
+
+
 def require_full_bridge_plot_ledger_v2(payload: dict[str, Any], path: Path) -> None:
     if payload.get("schema_version") != FULL_BRIDGE_PLOT_LEDGER_SCHEMA:
         raise ValueError(
@@ -290,6 +294,9 @@ def create_receipt(
         )
         if source_mode == "full_bridge":
             require_full_bridge_plot_ledger_v2(plot_payload, plot_ledger)
+            if role == "primary":
+                emotion_ledger = source_emotion_ledger_path(source)
+                load_emotion_ledger_payload(emotion_ledger)
         plot_beats = normalized_plot_ledger_beats(plot_payload)
         subflow_catalog = subflow_catalog_path(source)
         if role == "primary" and not subflow_catalog.is_file():
@@ -1027,17 +1034,10 @@ def validate_target_plot_adaptation(
 def load_bridge_emotion_inventory(
     source_path: Path,
     bridge_id: str,
-) -> list[dict[str, Any]] | None:
+) -> list[dict[str, Any]]:
     ledger_path = source_emotion_ledger_path(source_path)
-    if not ledger_path.is_file():
-        return None
-    try:
-        payload = json.loads(read_text(ledger_path))
-    except json.JSONDecodeError:
-        return None
-    beats = payload.get("beats") if isinstance(payload, dict) else None
-    if not isinstance(beats, list):
-        return None
+    payload = load_emotion_ledger_payload(ledger_path)
+    beats = payload.get("beats")
     return [
         beat
         for beat in beats
@@ -1053,8 +1053,10 @@ def validate_bridge_emotion_membership(
     label: str,
     errors: list[str],
 ) -> None:
-    expected = load_bridge_emotion_inventory(source_path, bridge_id)
-    if expected is None:
+    try:
+        expected = load_bridge_emotion_inventory(source_path, bridge_id)
+    except (FileNotFoundError, ValueError) as exc:
+        errors.append(f"{label} 无法读取全文情绪颗粒总账: {exc}")
         return
     expected_ids = [str(beat.get("beat_id") or "").strip() for beat in expected]
     actual_ids = [str(beat.get("beat_id") or "").strip() for beat in source_beats]

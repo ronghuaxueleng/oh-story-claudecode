@@ -3716,6 +3716,75 @@ def check_sample_comparison(path: Path, errors: list[str]) -> None:
         errors.append(f"{path} 对照裁决仍为“需要回炉”，不得进入 finalize")
 
 
+def check_book_profile_emotion_ledger_alignment(
+    root: Path,
+    book_profile: dict,
+    full_emotion_ledger: dict,
+    errors: list[str],
+) -> None:
+    if not full_emotion_ledger:
+        return
+    ledger_beats = {
+        str(item.get("beat_id") or "").strip(): item
+        for item in full_emotion_ledger.get("beats", [])
+        if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
+    }
+    bridge_sequences: dict[str, list[str]] = {}
+    for bridge in book_profile.get("bridge_rules", []):
+        if not isinstance(bridge, dict):
+            continue
+        bridge_id = str(bridge.get("id") or "").strip()
+        sequence_ids: list[str] = []
+        for beat in bridge.get("emotion_sequence", []):
+            if not isinstance(beat, dict):
+                continue
+            beat_id = str(beat.get("beat_id") or "").strip()
+            sequence_ids.append(beat_id)
+            source_beat = ledger_beats.get(beat_id)
+            if source_beat is None:
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id} 引用了全文情绪总账不存在的 beat_id: {beat_id}"
+                )
+                continue
+            if beat.get("role") != source_beat.get("role"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} role 与全文情绪总账不一致"
+                )
+            if beat.get("intensity") != source_beat.get("intensity"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} intensity 与全文情绪总账不一致"
+                )
+            profile_evidence = str(beat.get("source_evidence") or "").strip()
+            ledger_evidence = [
+                str(item).strip() for item in source_beat.get("source_evidence", [])
+            ]
+            if profile_evidence not in ledger_evidence:
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} 原文证据未取自全文情绪总账"
+                )
+        bridge_sequences[bridge_id] = sequence_ids
+    for beat_id, beat in ledger_beats.items():
+        for bridge_id in beat.get("bid_ids", []):
+            bridge_id = str(bridge_id).strip()
+            if beat_id not in bridge_sequences.get(bridge_id, []):
+                errors.append(
+                    f"全文情绪总账 {beat_id} 声明归属 {bridge_id}，但 book.profile 未在该桥原序保留；"
+                    "总账变更后必须回到升级流程重生 book.profile.json 与桥段子序列"
+                )
+    for bridge_id, actual_ids in bridge_sequences.items():
+        expected_ids = [
+            beat_id
+            for beat_id, beat in ledger_beats.items()
+            if bridge_id in [str(item).strip() for item in beat.get("bid_ids", [])]
+        ]
+        if actual_ids != expected_ids:
+            errors.append(
+                f"{root / 'book.profile.json'} {bridge_id} emotion_sequence "
+                "必须与全文情绪总账中归属该 BID 的拍完全同序相等；"
+                "全文情绪总账一旦重切、补尾或改 BID 边界，必须重生 book.profile.json"
+            )
+
+
 def validate(root: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     notes: list[str] = []
@@ -3846,64 +3915,9 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         load_dynamic_object_terms(root, original_text),
     )
     check_bridge_reconciliation(root, book_profile, errors, notes)
-    if full_emotion_ledger:
-        ledger_beats = {
-            str(item.get("beat_id") or "").strip(): item
-            for item in full_emotion_ledger.get("beats", [])
-            if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
-        }
-        bridge_sequences: dict[str, list[str]] = {}
-        for bridge in book_profile.get("bridge_rules", []):
-            if not isinstance(bridge, dict):
-                continue
-            bridge_id = str(bridge.get("id") or "").strip()
-            sequence_ids: list[str] = []
-            for beat in bridge.get("emotion_sequence", []):
-                if not isinstance(beat, dict):
-                    continue
-                beat_id = str(beat.get("beat_id") or "").strip()
-                sequence_ids.append(beat_id)
-                source_beat = ledger_beats.get(beat_id)
-                if source_beat is None:
-                    errors.append(
-                        f"{root / 'book.profile.json'} {bridge_id} 引用了全文情绪总账不存在的 beat_id: {beat_id}"
-                    )
-                    continue
-                if beat.get("role") != source_beat.get("role"):
-                    errors.append(
-                        f"{root / 'book.profile.json'} {bridge_id}/{beat_id} role 与全文情绪总账不一致"
-                    )
-                if beat.get("intensity") != source_beat.get("intensity"):
-                    errors.append(
-                        f"{root / 'book.profile.json'} {bridge_id}/{beat_id} intensity 与全文情绪总账不一致"
-                    )
-                profile_evidence = str(beat.get("source_evidence") or "").strip()
-                ledger_evidence = [
-                    str(item).strip() for item in source_beat.get("source_evidence", [])
-                ]
-                if profile_evidence not in ledger_evidence:
-                    errors.append(
-                        f"{root / 'book.profile.json'} {bridge_id}/{beat_id} 原文证据未取自全文情绪总账"
-                    )
-            bridge_sequences[bridge_id] = sequence_ids
-        for beat_id, beat in ledger_beats.items():
-            for bridge_id in beat.get("bid_ids", []):
-                bridge_id = str(bridge_id).strip()
-                if beat_id not in bridge_sequences.get(bridge_id, []):
-                    errors.append(
-                        f"全文情绪总账 {beat_id} 声明归属 {bridge_id}，但 book.profile 未在该桥原序保留"
-                    )
-        for bridge_id, actual_ids in bridge_sequences.items():
-            expected_ids = [
-                beat_id
-                for beat_id, beat in ledger_beats.items()
-                if bridge_id in [str(item).strip() for item in beat.get("bid_ids", [])]
-            ]
-            if actual_ids != expected_ids:
-                errors.append(
-                    f"{root / 'book.profile.json'} {bridge_id} emotion_sequence "
-                    "必须与全文情绪总账中归属该 BID 的拍完全同序相等"
-                )
+    check_book_profile_emotion_ledger_alignment(
+        root, book_profile, full_emotion_ledger, errors
+    )
 
     generic_hit_counter = Counter(direct_generic_hits)
     for snippet, count in generic_hit_counter.items():

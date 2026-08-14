@@ -39,6 +39,8 @@
 5. 失败批次先二分重跑，二分仍失败才对责任子批降级为双文件模式
 6. 通过当前批次后立即进入下一批
 
+如果是历史目录升级，先运行 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"` 并读取 `_upgrade_plan.md` 与 `upgrade_actions`。`missing_files=[]` 只代表文件层齐备，不代表升级责任完成；`profile_regeneration_required`、`profile_dependency_review` 这类动作仍必须进入本次施工单。
+
 禁止：
 
 - 同时规划 40 多个文件后再开始写
@@ -228,6 +230,8 @@
 2. 单独运行 `generate_story_profile.py`
 3. 检查 `book.profile.json`
 
+若历史升级的 `upgrade_actions` 含 `profile_regeneration_required`，这一组必须强制重跑，不得沿用旧 profile。
+
 ### 本批最低要求
 
 - `profile_source.md` 必须补齐 `## 0-12`
@@ -241,6 +245,7 @@
 - `## 12. 迁移替换资产` 必须逐行提供 5 类换壳资产，与原文 style assets 分开；每类至少 `4 / 3 / 2`
 - 每个 `桥段：` 小节都要补齐 `原文怎么起手 / 承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过`
 - 每个 `桥段：` 小节还要补 `桥段角色`，并与 `桥段施工卡.md / 高敏桥段识别.md` 使用同一角色口径
+- 全文情绪总账只要发生 `重切 / 补尾 / 改 bid_ids 边界 / 改 source_evidence` 任一变化，旧 `book.profile.json` 立刻失效；本批必须重生，并把 `bridge_rules[*].emotion_sequence` 校到与各 BID 子序列完全同序相等
 - 生成后的 `book.profile.json` 不能只有壳，至少确认：
   - 非空 `bridge_rules[*].must_keep`
   - 非空 `scene_assets`

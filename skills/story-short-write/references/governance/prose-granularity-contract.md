@@ -215,6 +215,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --outline "{项目目录}/小节大纲.md"
 ```
 
+`--source-original` 是强制显式输入，不得因回执已经绑定主体原文而省略。该脚本校验的是“当前命令输入 + 回执绑定 + 当前细纲”三方一致；主体路径只写在回执里、不在命令行再次传入，按命令不完整处理，不属于可容错省参。
+
 `apply-section-plan` 只把当前模型已经逐节写完的 `section_generation_plans` 原样合并进当前合同。侧车可按原序只提交当前已人工完成的小节，未提交小节保持 pending；侧车必须绑定当前细纲 SHA，并声明 `reviewed_by_current_model=true`、`semantic_fields_generated_by_script=false`。入口不得生成句链、正反例、人物计划、语义判断或通过状态；九节仍须全部完成后才能通过全书 `validate-prewrite`。
 
 正文放行后，先由当前模型按原文桥段与目标场面语义完成独立写前字段 `section_sf_assignments[]`，每项写明 `subflow_id / target_sections / target_section_rationale`；它必须与主体 SF 全集同序相等。任一 SF 留空或任一目标小节没有 SF 时禁止初始化。`source_subflow_reviews` 保留为提交前六维真实证据，不得在正文前伪填目标引句。再按 [逐节正文进度硬闸](section-progress-gate.md) 初始化字数预算和当前小节状态。每节只在暂存稿一次写完，立即将本合同要求的完整 `section_review` 写入 `写作资产/逐节验收/第N节.json` 的 `prose_review`，并通过 `commit-section N`。该命令必须实际校验完整场面表演、连续原文链、对白包、句间关系、逐句特征、活性、人物、全部对白及本节全部 SF 六维，不能只检查四条映射。本节未通过时禁止写入正文或创建下一节。

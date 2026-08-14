@@ -844,7 +844,12 @@ def write_upgrade_plan(
     missing_dirs: list[str],
     missing_files: list[str],
     refreshed_process_files: list[str],
+    upgrade_actions: dict[str, object],
 ) -> None:
+    safe_refresh = list(upgrade_actions.get("safe_refresh_process_files") or [])
+    manual_backfill = list(upgrade_actions.get("manual_backfill_missing_outputs") or [])
+    profile_regen = list(upgrade_actions.get("profile_regeneration_required") or [])
+    profile_dependency_review = list(upgrade_actions.get("profile_dependency_review") or [])
     lines = [
         f"# {book_name} 历史拆书目录增量升级计划",
         "",
@@ -867,6 +872,50 @@ def write_upgrade_plan(
         "",
     ]
     lines.extend(f"- [x] `{name}`" for name in refreshed_process_files)
+    lines.extend(
+        [
+            "",
+            "## 升级动作分类",
+            "",
+            "### 只需安全刷新（过程文件）",
+            "",
+        ]
+    )
+    if safe_refresh:
+        lines.extend(f"- [x] `{name}`" for name in safe_refresh)
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "### 必须人工补回（缺失正式产物）",
+            "",
+        ]
+    )
+    if manual_backfill:
+        lines.extend(f"- [ ] `{name}`" for name in manual_backfill)
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "### 必须重生 profile / 桥段子序列",
+            "",
+        ]
+    )
+    if profile_regen:
+        lines.extend(f"- [ ] `{name}`" for name in profile_regen)
+    else:
+        lines.append("- 无")
+    if profile_dependency_review:
+        lines.extend(
+            [
+                "",
+                "### profile 重生前必须复核的依赖资产",
+                "",
+            ]
+        )
+        lines.extend(f"- [ ] `{name}`" for name in profile_dependency_review)
     lines.extend(
         [
             "",
@@ -918,6 +967,33 @@ def write_upgrade_plan(
         ]
     )
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def build_upgrade_actions(
+    out_dir: Path,
+    missing_files: list[str],
+    refreshed_process_files: list[str],
+) -> dict[str, object]:
+    profile_dependency_review = [
+        rel
+        for rel in (
+            "写作资产/profile_source.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
+            "写作资产/桥段施工卡.md",
+        )
+        if (out_dir / rel).exists() or rel in missing_files
+    ]
+    return {
+        "safe_refresh_process_files": list(refreshed_process_files),
+        "manual_backfill_missing_outputs": list(missing_files),
+        "profile_regeneration_required": ["book.profile.json"],
+        "profile_dependency_review": profile_dependency_review,
+        "manual_rebuild_reason": (
+            "历史升级默认只安全刷新过程文件；缺失正式产物必须人工回填；"
+            "book.profile.json 必须在内容复核后重生，不能沿用旧版。"
+        ),
+    }
 
 
 def write_upgrade_review_receipt(path: Path) -> None:
@@ -1598,6 +1674,11 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
     refreshed_process_files.extend(
         ["_source_reading_plan.md", "_execution_prompt.md"]
     )
+    upgrade_actions = build_upgrade_actions(
+        out_dir,
+        missing_files,
+        refreshed_process_files,
+    )
     write_upgrade_review_receipt(out_dir / "_finalize_human_review.json")
     write_upgrade_plan(
         out_dir / "_upgrade_plan.md",
@@ -1606,6 +1687,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         missing_dirs,
         missing_files,
         refreshed_process_files,
+        upgrade_actions,
     )
     meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
 
@@ -1617,6 +1699,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "created_dirs": created_dirs,
         "missing_dirs": missing_dirs,
         "missing_files": missing_files,
+        "upgrade_actions": upgrade_actions,
         "meta_refreshed": meta_refreshed,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
@@ -1670,6 +1753,21 @@ def main() -> int:
             print("missing_files:")
             for item in payload["missing_files"]:
                 print(f"- {item}")
+            actions = payload.get("upgrade_actions") or {}
+            print("upgrade_actions:")
+            for key in (
+                "safe_refresh_process_files",
+                "manual_backfill_missing_outputs",
+                "profile_regeneration_required",
+                "profile_dependency_review",
+            ):
+                print(f"  {key}:")
+                values = actions.get(key) or []
+                if values:
+                    for item in values:
+                        print(f"  - {item}")
+                else:
+                    print("  - 无")
         else:
             print("created_files:")
             for item in payload["created_files"]:

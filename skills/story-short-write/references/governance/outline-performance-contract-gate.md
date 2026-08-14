@@ -43,6 +43,49 @@
 
 “和原文一样”指情绪功能、顺序、反刀时机、峰值位置、场末余痛和读者体感烈度对齐，不复制原句、人物、职业或完整情节壳。不能用“整节总分相同”掩盖中间某一拍被削弱。
 
+### 承重桥细拍承载预检
+
+桥级逐拍回填前，必须先做人肉承载力预检。凡是某个数字节要承接主体 `BID-*`，当前节细纲必须先写成“可承载逐拍的细拍场”，再允许补 `target_plot_beats / plot_beat_mapping / target_emotion_sequence`。
+
+最低口径不是“已经有主事件、子事件、场面单元”，而是至少满足：
+
+- 当前节已经把桥内关键换手、物件争夺、错答/改口、见血或失手、旁观纠偏、半句信息、撤权与场末余波拆成连续 `细拍拆分`。
+- 这些 `细拍拆分` 足以为桥内全部目标 `P-* / E-*` 提供独占证据，避免连续多拍复用同一句 `evidence`。
+- 关键目标拍已经有真实可贴的 `actor_evidence` 与 `hurt_object` 落点，不必靠回执层临时抽象兜底。
+
+若桥级校验报出连续的 `evidence 与前拍重复`、`actor_evidence 必须逐字来自本拍 evidence`、`hurt_object 必须在证据中出现` 这类错误，默认先判为“细纲承载不足”。此时必须先扩写 `小节大纲.md` 的细拍场，再回填桥级逐拍；禁止留在正式回执里硬凑语义补丁。
+
+桥级逐拍人工回填前，当前模型还必须做一次最小人工预检，至少逐桥确认：
+
+- 相邻 `target_emotion_sequence[*].evidence` 不得复用同一句细纲证据；若原文连续两拍极近，目标细纲也必须拆出两条可独占的目标证据。
+- 相邻 `target_plot_beats[*].evidence` 不得复用同一句细纲证据；若连续两拍只能共用一句，默认判细纲承载不足，先扩细拍再回填。
+- 每拍 `actor_evidence` 必须逐字来自该拍 `evidence`，且能直接证明当前填写的目标施事者；不能用后果句、总结句或旁观评价句冒充施事者证据。
+- 若绑定细纲原句里施事者只写成“她 / 他 / 对方 / 那人”等代词，而桥级回填想把 `actor` 明确写成实名，默认先判“细纲施事者证据不足”。此时必须先回 `小节大纲.md` 把对应 `细拍拆分` 改成带实名或可唯一识别身份的原句，再回填桥级字段；禁止仅在正式回执里把 `actor / actor_evidence` 从代词硬改成实名。
+
+逐拍实际填写时，不允许“先凭语义写一遍，再等校验器抖错”。当前模型必须按拍执行固定口令式核对：
+
+1. 先圈定本拍唯一 `evidence`，确认它逐字存在于当前绑定细纲原句中。
+2. 再从这句 `evidence` 里原样截取 `actor_evidence`；截不出来就停，先改细纲，不准继续填本拍。
+3. 再写 `actor`，并确认 `actor_evidence -> actor` 的指向无需猜测；若只能靠上下文脑补，仍判不通过。
+4. 最后再写 `action / object_or_receiver / hurt_object / consequence` 等解释字段；这些字段只能解释已被证据承载的事实，不能反过来替证据补施事者。
+
+只要第 1-3 步任一步不成立，本拍不得进入正式回执。禁止整桥先批量写完 `actor / action`，再回头统一补 `actor_evidence`；这类写法默认高概率制造代词漂移、错施事者和证据不命中。
+
+### 成批施事者贴证错误的来源与一次过禁令
+
+同一桥一次出现多条 `actor_evidence` 错误，通常不是多个独立语义难题，而是回填方法已经失控。以下写法会成批制造错误，全部禁止：
+
+- 分轮填写：第一轮只写 `actor / action`，第二轮再统一补 `actor_evidence`，导致证据与施事者脱节。
+- 把受事者代词当成施事者证据：证据写“陆沉舟护住她”，却把“她”填成陆沉舟的 `actor_evidence`。
+- 跨拍批量替换：看到多条报错后，在大 JSON 中把若干相同的“她”统一替换成某个人名，没有逐拍重读 `actor / evidence / action`。
+- 只改一个字段：修改了 `actor` 或 `action`，却没有同步复核本拍 `evidence / actor_evidence / object_or_receiver`；或者修改细纲实名后，只更新情节拍，没有同步更新引用同句的情绪拍。
+
+桥级 P 拍必须以单拍原子单元完成。每写完一拍，当场锁定并人工复述以下四元组：
+
+`谁做(actor) -> 原句哪几个字证明(actor_evidence) -> 对谁/什么做(object_or_receiver) -> 完整原句(evidence)`
+
+四元组未能逐字闭合时，本拍不得保存到侧车或正式回执。`actor_evidence` 不得跨拍批量生成、批量替换或统一修复；即使连续多拍施事者相同，也必须逐拍从各自证据原句中重新截取。校验器只负责最后确认，不得承担首次发现这类基础贴证错误的职责。
+
 ### 逐拍映射先于装配
 
 细纲验收前必须建立 `写作资产/逐拍语义映射.json`。每个情绪拍至少填写 `source_beat_id / target_beat_id / target_outline_region / hurt_object / expectation_before / expectation_after / action_impulse_before / action_impulse_after / equivalence_reason / evidence`；每个情节拍至少填写 `source_beat_id / target_beat_id / actor / actor_evidence / object_or_receiver / pressure_or_trigger / action / control_change / information_change / consequence / adaptation_equivalence / evidence`。这些字段是人工语义裁决结果，不得由装配脚本按编号、位置或统一句式生成。装配器只允许做确定性序列化，并必须在运行前检查映射文件覆盖主体全集、证据独占和目标人物真实出现。
@@ -72,6 +115,75 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 ```
 
 输出不是 `outline_performance_contract: passed` 时，禁止写正文。细纲或任一选中原文 SHA 变化后，旧回执立即失效。
+
+若当前主要卡在桥级非逐拍人工字段，不想直接手改大 JSON，可先导出侧车骨架：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" export-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --output "{项目目录}/写作资产/桥级回填侧车.json"
+```
+
+当前模型在侧车里只补 `target_outline_sections / target_outline_evidence / plot_granularity_parity_judgment / emotion_parity_judgment / reader_experience_parity / parity_status / adaptation_reason / missing_or_weakened_risk / manual_judgment` 后，再确定性合并回正式回执：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --input "{项目目录}/写作资产/桥级回填侧车.json"
+```
+
+该侧车只允许合并桥级非逐拍字段，不会替你生成 `target_plot_beats / plot_beat_mapping / source_emotion_sequence / target_emotion_sequence`，也不会放宽任何校验。
+
+若当前主要卡在桥级逐拍字段，不想直接手改大 JSON，可先导出逐拍侧车骨架：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" export-beat-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --output "{项目目录}/写作资产/桥级逐拍侧车.json"
+```
+
+当前模型在侧车里只补：
+
+- `target_plot_beats`
+- `plot_beat_mapping`
+- `target_emotion_sequence`
+- `source_reversal_beat / target_reversal_beat`
+- `source_peak_beat / target_peak_beat`
+
+再确定性合并回正式回执：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-beat-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --input "{项目目录}/写作资产/桥级逐拍侧车.json"
+```
+
+该侧车同样不会生成任何语义字段，也不会放宽桥级逐拍校验；它只负责让当前模型已写好的逐拍裁决安全回填。
+
+如果在 `export-beat-template` 之后执行过 `rebind-outline`、正式回执被其他官方入口改写，或正式回执 SHA 发生变化，旧逐拍侧车立即失效。此时必须二选一：
+
+1. 重新执行 `export-beat-template`，得到绑定当前 `receipt_sha256` 的新侧车后再继续修改。
+2. 只对侧车顶层 `receipt_sha256` 做与当前正式回执完全一致的确定性刷新；刷新前后不得顺手改动任何人工语义字段。
+
+禁止在 `receipt_sha256` 已失效的旧侧车上继续直接 `apply-beat-template` 试错。
+
+若当前主要卡在节级场面验收字段，不想直接手改大 JSON，可先导出节级侧车骨架：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_review.py" export-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --output "{项目目录}/写作资产/节级回填侧车.json"
+```
+
+当前模型在侧车里按节补 `irreversible_action / controlling_object / source_function_mechanism / original_scene_granularity / source_mechanism / information_delay / character_missteps / interaction_exchange / conflict_carrier / relationship_legibility / emotion_intensity / professional_shell_translation / source_emotion_parity / forbidden_items / outline_evidence / scene_units / manual_judgment` 后，再确定性合并回正式回执：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_review.py" apply-template \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --input "{项目目录}/写作资产/节级回填侧车.json"
+```
+
+该侧车同样不会生成任何语义字段，只负责让当前模型已写好的节级人工裁决安全回填回正式回执。
 
 ### 颗粒度原创模式
 
@@ -142,11 +254,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 4. `plot_granularity_parity_judgment`：人工说明为什么没有漏拍、并拍、压缩、弱化或用复合句吞拍。
 5. `source_emotion_sequence / target_emotion_sequence`：逐拍填写 `role / trigger / relationship_position_change / reader_effect / intensity / evidence`。
    - 目标情绪拍保留原文 `beat_id / role / intensity` 与反刀、峰值位置；`trigger / relationship_position_change / evidence` 必须改写为目标世界。字段与原文完全相同，说明仍是原文分析而不是目标表演。
-   - 每个 BID 的原文情绪拍集合必须与同书 `全文情绪颗粒总账.json` 的 `bid_ids` 完全一致。`bid_ids=[]` 的桥外拍不得塞入任一 BID，只能由全书分节情绪合同另行消费。
+   - 每个 BID 的原文情绪拍集合必须与同书 `全文情绪颗粒总账.json` 的 `bid_ids` 完全一致。`全文情绪颗粒总账.json` 是桥级情绪边界的唯一真源；`桥段施工卡.md` 只负责说明承重件、顺序和为什么成立，不得反向覆盖总账边界。`bid_ids=[]` 的桥外拍不得塞入任一 BID，只能由全书分节情绪合同另行消费。
 6. `source_reversal_beat / target_reversal_beat`：原文真实存在反刀时填写实际拍序并保持同位；原文没有则双方填 `0`，不得补造。
 7. `source_peak_beat / target_peak_beat`：原文真实存在明确峰值时填写实际拍序并保持同位；原文没有则双方填 `0`，不得补造。
 8. `reader_experience_parity / emotion_parity_judgment`：当前模型说明为什么目标桥段给读者的羞辱、刺痛、希望落空或反噬体感与原文同级。
 9. `target_outline_sections / target_outline_evidence`：绑定目标小节及至少两条当前细纲原句。
+   - `target_outline_evidence` 必须逐条精确命中当前 `小节大纲.md` 中真实存在的原始 bullet 文本，包含原有项目符号、标点、引号、箭头链和花括号标签；不得改写成“第X节主事件：...”后再回填。
+   - 同一条证据来自 `- 主事件 / - 子事件 / - 场面单元` 哪一行，回执里就必须原样填写哪一行；只保留摘要内容、补自定义前缀、删掉句末标点或改动引号，校验一律按未命中处理。
 10. `parity_status / adaptation_reason / missing_or_weakened_risk / manual_judgment`：状态只能是 `matched/adapted`，并说明替换边界、缩水风险和人工结论。
 
 以下情况直接失败，必须先回细纲重构，禁止写正文：
@@ -162,6 +276,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 当前模型先套固定情绪角色表而没有逐句盘点原文实际变化；原文任一实际情绪拍被目标稿漏掉或合并；多个情绪拍复用同一句证据。
 - 目标桥段改变原文反刀拍、峰值拍，或任一拍烈度低于原文。
 - 目标情绪拍的触发、关系位移和证据仍与原文相同，或桥内拍集合不符合总账 `bid_ids` 的真实边界。
+- 为了凑齐首尾桥段，手工把 `bid_ids=[]` 的导语、过场、回忆、现实后果或尾声情绪拍塞进任一 BID。
+- 桥段施工卡里登记的“情绪拍区间/桥内全集”与 `全文情绪颗粒总账.json` 不一致，却仍拿施工卡旧口径裁决回执正确性。
 - 只对齐最虐的少数桥段，其余主体 BID 仍只写功能和动作。
 - 主体桥段施工卡中的任一 BID 没有进入库存，或辅助显式选中的任一 BID 没有进入库存。
 - `parity_status` 是 `missing / weakened / merged_unclear / only_function_mapped / pending`。
@@ -220,6 +336,72 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 - 迁移边界：完整参照结构、信息延迟、场内压力、物件/动作/关系推进机制，不复制原人物、职业、原句或完整情节壳；
 - 细纲不是流程清单、证据排队表或分镜施工稿；
 - 本书的场景分工如何避免同场结算全部问题。
+
+## 推荐回填顺序
+
+为减少“字段全空导致的假噪音”和来回返工，`full_bridge` 模式下推荐按以下顺序回填并校验：
+
+1. 先补 `global_review`，把已读、已判边界和“细纲不是流程清单”的顶层确认项一次性写明。
+2. 再核对主体 `全文情绪颗粒总账.json` 的 `bid_ids` 边界，确认桥外 `bid_ids=[]` 与各 BID 子序列真实成立；这里如果报错，先修来源账本或来源理解，不要先在回执里挪拍硬凑。
+3. 再补 `outside_bridge_plot_parity` 与 `outline_bridge_flow_parity` 的非逐拍人工裁决层：`target_outline_sections / target_outline_evidence / parity_status / adaptation_reason / manual_judgment`。
+4. 在桥边界稳定后，先检查承接该桥的数字节是否已经写成可承载逐拍的细拍场；若细拍密度不足、独占证据不足或关键动作仍只存在于摘要句，先扩细纲，不得直接补桥级逐拍字段。
+5. 细拍承载通过后，再补 `target_plot_beats / plot_beat_mapping / source_emotion_sequence / target_emotion_sequence`。
+6. 桥级逐拍通过后，再补逐节 `sections[*]` 场面验收与 `scene_units`，让每节先拥有真实的 E/P 承载位。
+7. 节级场面验收通过后，再补 `写作资产/逐拍语义映射.json`，并运行固定的 `validate_semantic_beat_mapping.py validate` 命令。
+7. 最后再补 `source_subflow_granularity_coverage` 与下游文字/情绪合同。
+
+这只是推荐施工顺序，不是放宽条件。任何一层未 `passed`，都不得跳到正文。
+
+当 `小节大纲.md` 在桥级或节级回填过程中发生变化时，先不要继续手工改顶层状态；使用官方重绑入口把旧 SHA 和旧通过态一次清干净：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" rebind-outline \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --outline "{项目目录}/小节大纲.md"
+```
+
+该命令会重写 `outline.path / outline.sha256`，并把 `reviewed_by_current_model=false`、`gate_status=pending`、`blocking_failures=[]` 一次重置。禁止保留旧 SHA 继续补桥内字段。
+
+全部人工字段补齐、正式校验应通过时，再执行官方封口入口：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" seal-review \
+  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --outline "{项目目录}/小节大纲.md"
+```
+
+`seal-review` 会先调用正式 `validate_outline_performance_contract.py`；只有真实无阻断时，才把 `reviewed_by_current_model=true` 和 `gate_status=passed` 落盘。禁止手工盲改顶层通过态。
+
+## 聚焦阻断读取
+
+当 `outline_performance_contract` 仍处于大面积 `blocked` 时，先把阻断按以下三类聚焦读取并排序，不要一上来平铺所有下游噪音：
+
+1. `bridge_emotion_boundary`
+   - 只看 `bridge 内拍集合不符合总账 bid_ids`、桥外拍误塞 BID、来源总账与桥段施工卡口径冲突。
+   - 这类问题没清掉前，不进入桥级逐拍或节级 `scene_units` 细修。
+2. `bridge_mapping_missing`
+   - 只看 `target_plot_beats / plot_beat_mapping / source_emotion_sequence / target_emotion_sequence` 缺失、漏拍、并拍、改序。
+   - 这类问题清掉前，不让节级合同或下游文字/情绪合同替桥级试错。
+3. `section_scene_units_missing`
+   - 只看各节 `scene_units`、逐节场面验收与节级承载位空壳。
+   - 这类问题应放在桥边界和桥级逐拍之后修，避免节级证据先被错误桥边界带偏。
+
+若当前脚本输出尚未自动分组，执行器也必须先人工把同轮阻断折叠成以上三类，再决定施工顺序；不要把所有报错按出现顺序混修。
+
+## 推荐合并修复批次
+
+桥级与节级阻断允许按一个连续修复批次执行，但不得跨过真实依赖顺序。推荐固定编排为：
+
+1. `sync-source-emotions`
+2. `batch_prewrite_blockers` 读取聚焦顺序
+3. `export-template/apply-template` 补桥级非逐拍裁决
+4. `export-beat-template/apply-beat-template` 补桥级逐拍裁决
+5. `export-template/apply-template`（节级）补 `sections[*] / scene_units`
+6. `rebind-outline`
+7. `validate_outline_performance_contract.py validate`
+8. `seal-review`
+
+这里的“合并”只指连续执行批次，不指把桥级、节级和顶层状态揉成一张回执手工乱改。桥级边界未稳时，不得先补 `scene_units`；顶层 `passed` 未经正式校验，不得提前封口。
 
 ## 双轨参照判定
 

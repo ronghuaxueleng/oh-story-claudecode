@@ -48,6 +48,8 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertIn("book_name: 旧书", result.stdout)
             self.assertIn("missing_files:", result.stdout)
+            self.assertIn("upgrade_actions:", result.stdout)
+            self.assertIn("profile_regeneration_required:", result.stdout)
             self.assertNotIn("source_copy:", result.stdout)
 
     def test_upgrade_existing_keeps_existing_outputs_and_writes_backfill_plan(self) -> None:
@@ -101,6 +103,18 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertFalse((root / "写作资产" / "冲突载体清单.md").exists())
             self.assertIn("写作资产/交流承压拆解.md", payload["missing_files"])
             self.assertIn("写作资产/冲突载体清单.md", payload["missing_files"])
+            self.assertEqual(
+                ["book.profile.json"],
+                payload["upgrade_actions"]["profile_regeneration_required"],
+            )
+            self.assertIn(
+                "写作资产/全文情绪颗粒总账.json",
+                payload["upgrade_actions"]["profile_dependency_review"],
+            )
+            self.assertIn(
+                "_parallel_plan.json",
+                payload["upgrade_actions"]["safe_refresh_process_files"],
+            )
 
             plan = (root / "_upgrade_plan.md").read_text(encoding="utf-8")
             self.assertIn("不自动生成任何正式 Markdown 内容", plan)
@@ -109,6 +123,8 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("写作资产/交流承压拆解.md", plan)
             self.assertIn("写作资产/冲突载体清单.md", plan)
             self.assertIn("过程文件已刷新", plan)
+            self.assertIn("升级动作分类", plan)
+            self.assertIn("必须重生 profile / 桥段子序列", plan)
             self.assertIn("内容合同逐项复核", plan)
             self.assertIn("profile 重新生成", plan)
 

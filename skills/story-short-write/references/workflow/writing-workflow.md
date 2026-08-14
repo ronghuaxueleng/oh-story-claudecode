@@ -1583,6 +1583,36 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 5. 重复表达的情绪 → 合并
 6. 只是“像短篇套路里应该有”的桥段，但放进这篇里不增疼感、不增爽感、不增掉位 → 删
 
+### 正文前总放行示例
+
+当 `细纲表演验收回执.json` 已完成当前模型人工回填，且两份正文前合同只差准备/校验与最终放行时，优先直接走总入口，不再手工串 `prepare -> validate -> draft gate`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" prepare-validate \
+  --project "{项目名}" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
+  --outline "{项目目录}/小节大纲.md" \
+  --prose-receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --opening-contract "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --profile "profiles/{项目名}.project.profile.json"
+```
+
+这个入口只做四件事：
+
+- 准备两份正文前合同骨架
+- 校验细纲表演验收
+- 校验两份正文前合同
+- 校验 `validate_write_release_gate.py draft`
+
+它不会代填任何 `manual_judgment / target_evidence / parity_status / section_contracts`。如果输出不是 `batch_prewrite_release: passed`，就停在正文前继续修回执，不得开写正文。
+
 ---
 
 ## 常见问题与解决方案

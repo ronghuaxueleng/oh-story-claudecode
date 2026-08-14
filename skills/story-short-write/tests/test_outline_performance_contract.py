@@ -41,6 +41,24 @@ class OutlinePerformanceContractTest(unittest.TestCase):
     def test_target_actor_surface_accepts_dropped_surname_alias(self) -> None:
         self.assertTrue(GATE.entity_mentioned("林知微", "知微把号单放回窗口"))
 
+    def test_create_receipt_rejects_invalid_emotion_ledger(self) -> None:
+        self.emotion_ledger.write_text('{"beats":[{"beat_id":"E-001"}],}\n', encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "全文情绪颗粒总账不是有效 JSON"):
+            GATE.create_receipt("测试", self.outline, [self.source])
+
+    def test_validate_bridge_emotion_membership_reports_invalid_emotion_ledger(self) -> None:
+        self.emotion_ledger.write_text('{"beats":[{"beat_id":"E-001"}],}\n', encoding="utf-8")
+        errors: list[str] = []
+        GATE.validate_bridge_emotion_membership(
+            self.source,
+            "BID-01",
+            self.emotion_beats("原文场面"),
+            self.emotion_beats("动作一", target=True),
+            "桥段对齐",
+            errors,
+        )
+        self.assertTrue(any("无法读取全文情绪颗粒总账" in item for item in errors))
+
     @staticmethod
     def emotion_beats(evidence: str, *, target: bool = False) -> list[dict]:
         roles = [

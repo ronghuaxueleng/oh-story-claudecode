@@ -92,6 +92,8 @@
 > - 通过后立即进入下一批，不回头统一“补厚”
 >
 > 全量 `finalize` 只在所有文件齐备后运行一次。若失败，按错误清单整体评估 skill，不在同一次冷启动里反复补丁式修复。
+>
+> 如果本次是历史目录升级，先运行 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`，读取 `_upgrade_plan.md` 与 `upgrade_actions`。不要只看 `missing_files`；凡出现 `profile_regeneration_required` 或 `profile_dependency_review`，都必须把 `profile_source.md -> book.profile.json -> bridge_rules[*].emotion_sequence` 的重生与依赖复核纳入本次闭环。
 
 ---
 
@@ -445,11 +447,13 @@
 ### 写法硬约束
 
 - `profile_source.md` 不是只服务脚本抽取，还要服务人直接拿去写；不能只剩结构桶和 json 友好短句
+- 如果历史升级的 `upgrade_actions` 含 `profile_regeneration_required`，本批三步必须强制重跑，不得沿用旧 `book.profile.json`
 - 在保留结构化小节的同时，必须额外补出明确的人类可读层：`句长切法`、`口气差`、`动作替代`、`旧伤触发器`、`反面句型`
 - 这些人类可读层必须写成“原文怎么做 / 为什么这样才像它 / 换成什么就不像”，不能只写标签词
 - `桥段：...` 小节不只写亮桥，也要把中段承重桥写进去，避免 profile 只剩导语桥和终局桥
 - `style_assets` 显式标签如果已经写了，内容优先写成“原文可逐字命中的短语/短句”，不要把解释句混进 `opening_hooks / misdirection / object_pressure / action_axis / micro_actions / quiet_pressure / character_bias / meltdown_dialogue / rotten_relationship / dialogue_bridges`
 - `opening_hooks` 优先填显式短语，不要把 `开头信号` 里的解释句整段搬进结构化字段
+- 全文情绪总账只要发生 `重切 / 补尾 / 改 bid_ids 边界 / 改 source_evidence` 任一变化，旧 `book.profile.json` 立刻失效；本批必须重生，并把 `bridge_rules[*].emotion_sequence` 校到与各 BID 子序列完全同序相等
 
 ### 本批自检
 
