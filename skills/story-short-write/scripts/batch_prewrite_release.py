@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
@@ -36,6 +37,21 @@ WRITE_RELEASE = _load_module(
 )
 
 
+def prevalidated_entry(path: Path) -> dict[str, Any] | None:
+    """Bind a successful in-process validation to the exact current payload."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return {
+        "path": str(path.resolve()),
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "data": payload,
+    }
+
+
 def validate_batch(
     *,
     writing_receipt: Path,
@@ -56,7 +72,9 @@ def validate_batch(
         "outline_performance_passed": False,
         "draft_prewrite_passed": False,
         "write_release_passed": False,
+        "reused_contract_validations": [],
     }
+    prevalidated_contracts: dict[str, Any] = {}
 
     outline_errors = OUTLINE.validate_receipt(outline_contract, outline)
     if outline_errors:
@@ -64,6 +82,9 @@ def validate_batch(
         errors.extend(outline_errors)
     else:
         summary["outline_performance_passed"] = True
+        entry = prevalidated_entry(outline_contract)
+        if entry is not None:
+            prevalidated_contracts["outline_contract"] = entry
 
     prewrite_errors, prewrite_summary = DRAFT_PREWRITE.validate_batch(
         prose_receipt=prose_contract,
@@ -77,7 +98,15 @@ def validate_batch(
         errors.extend(prewrite_errors)
     else:
         summary["draft_prewrite_passed"] = True
+        for key, path in (
+            ("prose_contract", prose_contract),
+            ("emotional_contract", emotional_contract),
+        ):
+            entry = prevalidated_entry(path)
+            if entry is not None:
+                prevalidated_contracts[key] = entry
     summary["draft_prewrite_summary"] = prewrite_summary
+    summary["reused_contract_validations"] = list(prevalidated_contracts)
 
     release_errors = WRITE_RELEASE.validate_release(
         "draft",
@@ -92,6 +121,7 @@ def validate_batch(
         primary_source_original=primary_source_original,
         emotional_contract=emotional_contract,
         source_emotion_ledger=source_emotion_ledger,
+        prevalidated_contracts=prevalidated_contracts,
     )
     if release_errors:
         errors.append("正文写作放行闸未通过")

@@ -38,20 +38,7 @@ CHAR_COUNT_SHORTFALL_GRACE = 100
 
 
 def iter_direct_dialogue_matches(text: str) -> list[re.Match[str]]:
-    rows: list[re.Match[str]] = []
-    for match in DIRECT_DIALOGUE_RE.finditer(text):
-        start, end = match.span()
-        line_start = text.rfind("\n", 0, start) + 1
-        line_end = text.find("\n", end)
-        if line_end < 0:
-            line_end = len(text)
-        line = text[line_start:line_end].strip()
-        before = text[max(line_start, start - 24):start]
-        after = text[end:line_end]
-        if line == match.group(0).strip() and not ATTRIBUTION_RE.search(before + after):
-            continue
-        rows.append(match)
-    return rows
+    return list(DIRECT_DIALOGUE_RE.finditer(text))
 
 
 def extract_direct_dialogue(text: str) -> list[str]:
@@ -110,6 +97,35 @@ def apply_section_review_mechanical_normalization(
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [f"逐节回执机械归一化失败: {exc}"]
     return list(errors)
+
+
+def write_section_context(state_path: Path, section_id: str, output_path: Path) -> None:
+    script_path = Path(__file__).with_name("prepare_section_context.py")
+    spec = importlib.util.spec_from_file_location("prepare_section_context", script_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"无法加载小节写作包入口: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    context = module.build_context(state_path, section_id)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(context, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def apply_section_review_sidecar(
+    review_path: Path,
+    staged_path: Path,
+    sidecar_path: Path,
+) -> None:
+    script_path = Path(__file__).with_name("manage_section_review.py")
+    spec = importlib.util.spec_from_file_location("manage_section_review", script_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"无法加载逐节人工侧车入口: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.apply_template(review_path, staged_path, sidecar_path)
 
 
 def write_json(path: Path, data: dict[str, Any]) -> None:
@@ -402,7 +418,8 @@ def command_init(args: argparse.Namespace) -> int:
                 "section_id": sid,
                 "status": "pending",
                 **budgets[sid],
-                **beat_ids[sid],
+                "emotion_beat_ids": list(beat_ids[sid]["emotion_beat_ids"]),
+                "plot_beat_ids": list(beat_ids[sid]["plot_beat_ids"]),
                 "required_sf_ids": sf_assignments[sid],
                 "required_detail_card_ids": detail_assignments[sid],
                 "review_path": "",
@@ -424,6 +441,24 @@ def get_section_state(state: dict[str, Any], sid: str) -> dict[str, Any]:
         if str(item.get("section_id")) == sid:
             return item
     raise ValueError(f"状态中不存在第 {sid} 节")
+
+
+def hydrate_section_beat_contracts(
+    item: dict[str, Any],
+    emotion_receipt: dict[str, Any],
+    sid: str,
+) -> dict[str, Any]:
+    """Resolve full E/P source contracts from the canonical emotion receipt."""
+    assignments = expected_ids(emotion_receipt)
+    assignment = assignments.get(sid)
+    if assignment is None:
+        raise ValueError(f"情绪合同没有第 {sid} 节的 E/P 分配")
+    hydrated = copy.deepcopy(item)
+    hydrated["emotion_beat_ids"] = list(assignment["emotion_beat_ids"])
+    hydrated["plot_beat_ids"] = list(assignment["plot_beat_ids"])
+    hydrated["emotion_beat_contracts"] = copy.deepcopy(assignment["emotion_beat_contracts"])
+    hydrated["plot_beat_contracts"] = copy.deepcopy(assignment["plot_beat_contracts"])
+    return hydrated
 
 
 def verify_source_bindings(state: dict[str, Any]) -> list[str]:
@@ -529,6 +564,28 @@ def scene_units_match_upstream(plan_units: Any, upstream_units: Any) -> bool:
     return normalized == upstream_units
 
 
+def materialize_compact_plan(
+    plan: dict[str, Any],
+    upstream_units: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Resolve the compact plan against the already-bound outline receipt."""
+    refs = plan.get("scene_unit_refs")
+    if not isinstance(refs, list):
+        return plan
+    by_id = {
+        str(item.get("scene_id") or ""): item
+        for item in upstream_units
+        if isinstance(item, dict) and str(item.get("scene_id") or "")
+    }
+    expected_ids = [str(item.get("scene_id") or "") for item in upstream_units]
+    actual_ids = [str(item.get("scene_id") or "") for item in refs if isinstance(item, dict)]
+    if actual_ids != expected_ids:
+        raise ValueError("紧凑场面计划的 scene_unit_refs 必须与细纲场面原序一致")
+    hydrated = copy.deepcopy(plan)
+    hydrated["scene_units"] = [copy.deepcopy(by_id[scene_id]) for scene_id in actual_ids]
+    return hydrated
+
+
 def command_start(args: argparse.Namespace) -> int:
     state_path = Path(args.state).resolve()
     try:
@@ -553,7 +610,6 @@ def command_start(args: argparse.Namespace) -> int:
         errors.append(str(exc))
         plan_path = Path(args.plan).resolve()
         plan = {}
-    errors.extend(validate_first_draft_plan(plan, item, sid))
     outline_receipt = Path(state["paths"]["outline"]).resolve().parent / "写作资产" / "细纲表演验收回执.json"
     if not outline_receipt.is_file():
         errors.append(f"写前必须存在细纲表演验收回执: {outline_receipt}")
@@ -567,12 +623,22 @@ def command_start(args: argparse.Namespace) -> int:
             upstream_units = outline_entry.get("scene_units")
             if not isinstance(upstream_units, list) or not upstream_units:
                 errors.append(f"细纲表演验回执未为第 {sid} 节提供 scene_units，必须先回写小节大纲")
-            elif not scene_units_match_upstream(plan.get("scene_units"), upstream_units):
-                errors.append("当前节计划与已通过的细纲 scene_units 不一致，不得在正文阶段临时改容量")
+            else:
+                try:
+                    materialized_plan = materialize_compact_plan(plan, upstream_units)
+                except ValueError as exc:
+                    errors.append(str(exc))
+                    materialized_plan = plan
+                if not scene_units_match_upstream(
+                    materialized_plan.get("scene_units"), upstream_units
+                ):
+                    errors.append("当前节计划与已通过的细纲 scene_units 不一致，不得在正文阶段临时改容量")
+                plan = materialized_plan
             if plan.get("outline_performance_receipt_sha256") != sha256_file(outline_receipt):
                 errors.append("当前节计划未绑定最新细纲表演验收回执 SHA")
         except (ValueError, StopIteration) as exc:
             errors.append(f"细纲表演验回执无法读取当前节: {exc}")
+    errors.extend(validate_first_draft_plan(plan, item, sid))
     if item.get("status") != "pending":
         errors.append(f"第 {sid} 节状态必须是 pending，实际为 {item.get('status')}")
     draft_path = Path(state["paths"]["draft"])
@@ -597,11 +663,19 @@ def command_start(args: argparse.Namespace) -> int:
     state["status"] = "in_progress"
     state["updated_at"] = now_iso()
     write_json(state_path, state)
+    context_output = getattr(args, "context_output", None)
+    if context_output:
+        try:
+            write_section_context(state_path, sid, Path(context_output).resolve())
+        except (OSError, ValueError) as exc:
+            return fail("start-section", [f"小节已启动，但写作包生成失败: {exc}"])
     print(f"section_progress_gate: section_started ({sid})")
     print(f"budget: {item['min_chars']}-{item['max_chars']} chars")
     print(f"required_emotion_beats: {','.join(item['emotion_beat_ids'])}")
     print(f"required_plot_beats: {','.join(item['plot_beat_ids'])}")
     print(f"target_chars: {plan['target_chars']}")
+    if context_output:
+        print(f"section_context: {Path(context_output).resolve()}")
     print("next_step: write one complete staged section, then commit-section; do not append or expand正文.md")
     return 0
 
@@ -699,8 +773,6 @@ def validate_sf_reviews(
             if not isinstance(item, dict):
                 errors.append(f"{label} 缺失")
                 continue
-            if item.get("source_evidence") != source_evidence:
-                errors.append(f"{label}.source_evidence 未完整保留主体证据")
             target_quotes = item.get("target_quotes")
             if not isinstance(target_quotes, list) or not target_quotes:
                 errors.append(f"{label}.target_quotes 不能为空")
@@ -710,6 +782,7 @@ def validate_sf_reviews(
             if not isinstance(mappings, list) or len(mappings) != len(source_evidence):
                 errors.append(f"{label}.evidence_mappings 必须逐条覆盖全部主体证据")
             else:
+                mapped_parent_quotes: list[str] = []
                 for index, mapping in enumerate(mappings):
                     if not isinstance(mapping, dict) or mapping.get("source_quote") != source_evidence[index]:
                         errors.append(f"{label}.evidence_mappings[{index + 1}] 来源证据错位")
@@ -719,8 +792,14 @@ def validate_sf_reviews(
                         not isinstance(quote, str) or quote not in section_text for quote in mapped_quotes
                     ):
                         errors.append(f"{label}.evidence_mappings[{index + 1}] 缺少当前节目标引句")
+                    else:
+                        for quote in mapped_quotes:
+                            if quote not in mapped_parent_quotes:
+                                mapped_parent_quotes.append(quote)
                     if len(str(mapping.get("comparison") or "").strip()) < 16:
                         errors.append(f"{label}.evidence_mappings[{index + 1}].comparison 过短")
+                if target_quotes != mapped_parent_quotes:
+                    errors.append(f"{label}.target_quotes 必须由逐条证据映射同序汇总")
             if len(str(item.get("comparison") or "").strip()) < 20:
                 errors.append(f"{label}.comparison 过短")
             if item.get("surface_copy_rejected") is not True:
@@ -862,20 +941,214 @@ def validate_scene_realization(review: dict[str, Any], item: dict[str, Any], sec
     return errors
 
 
+def validate_delta_manual_review(
+    review: dict[str, Any], item: dict[str, Any], section_text: str
+) -> list[str]:
+    errors: list[str] = []
+    delta = review.get("delta_manual_review")
+    if not isinstance(delta, dict):
+        return ["差量逐节回执缺少 delta_manual_review"]
+    if delta.get("review_mode") != "delta_manual_review":
+        errors.append("delta_manual_review.review_mode 不正确")
+    if delta.get("no_unlisted_deviations") is not True:
+        errors.append("差量模式必须确认不存在未列明偏差")
+    if len(str(delta.get("section_judgment") or "").strip()) < 32:
+        errors.append("delta_manual_review.section_judgment 过短")
+
+    scenes = delta.get("scene_reviews")
+    planned_scenes = review.get("scene_realization_reviews") or []
+    if not isinstance(scenes, list) or [
+        row.get("scene_id") for row in scenes if isinstance(row, dict)
+    ] != [row.get("scene_id") for row in planned_scenes if isinstance(row, dict)]:
+        errors.append("差量场景复核必须完整同序覆盖写前 scene_units")
+        scenes = []
+    actual_e: list[str] = []
+    actual_p: list[str] = []
+    for index, scene in enumerate(scenes, start=1):
+        label = f"delta_manual_review.scene_reviews[{index}]"
+        actual_e.extend(str(value) for value in scene.get("emotion_beat_ids") or [])
+        actual_p.extend(str(value) for value in scene.get("plot_beat_ids") or [])
+        bound: list[str] = []
+        for field in (
+            "entry_pressure_quote",
+            "turning_action_quote",
+            "visible_consequence_quote",
+            "aftershock_quote",
+        ):
+            quote = str(scene.get(field) or "")
+            bound.append(quote)
+            if not quote or quote not in section_text:
+                errors.append(f"{label}.{field} 必须来自当前节")
+        exchanges = scene.get("interaction_exchange_quotes")
+        if not isinstance(exchanges, list) or len(exchanges) < 3 or any(
+            not isinstance(quote, str) or quote not in section_text for quote in exchanges
+        ):
+            errors.append(f"{label}.interaction_exchange_quotes 至少需要三条当前节证据")
+        else:
+            bound.extend(exchanges)
+        if len({quote for quote in bound if quote}) < 5:
+            errors.append(f"{label} 不得复用同一句冒充完整场景")
+        for field in ("reader_emotion_progression", "why_not_summary", "manual_judgment"):
+            if len(str(scene.get(field) or "").strip()) < 24:
+                errors.append(f"{label}.{field} 过短")
+    if actual_e != item.get("emotion_beat_ids"):
+        errors.append("差量场景复核未完整同序领取全部 E 拍")
+    if actual_p != item.get("plot_beat_ids"):
+        errors.append("差量场景复核未完整同序领取全部 P 拍")
+
+    characters = delta.get("character_reviews")
+    if not isinstance(characters, list) or not characters:
+        errors.append("差量模式必须逐人物复核不可互换性")
+    else:
+        for index, row in enumerate(characters, start=1):
+            quotes = row.get("target_quotes")
+            if not isinstance(quotes, list) or len(quotes) < 2 or any(
+                not isinstance(quote, str) or quote not in section_text for quote in quotes
+            ):
+                errors.append(f"delta_manual_review.character_reviews[{index}] 至少需要两条当前节证据")
+            if len(str(row.get("interchangeability_judgment") or "").strip()) < 20:
+                errors.append(f"delta_manual_review.character_reviews[{index}] 人物裁决过短")
+    if not extract_direct_dialogue(section_text) and any("「" in quote for quote in collect_quotes(delta)):
+        errors.append("差量复核对白证据与正文直接对白不一致")
+    return errors
+
+
+def validate_deferred_section_review_bindings(
+    review: dict[str, Any],
+    state: dict[str, Any],
+    item: dict[str, Any],
+    staged_path: Path,
+    state_path: Path,
+) -> list[str]:
+    errors: list[str] = []
+    scaffold = review.get("review_scaffold") or {}
+    if scaffold.get("review_mode") != "deferred_full_contract_review":
+        return ["逐节回执不是 deferred_full_contract_review"]
+    deferred = scaffold.get("deferred_semantic_review")
+    if not isinstance(deferred, dict):
+        return ["逐节回执缺少 deferred_semantic_review"]
+    if deferred.get("prewrite_contracts_remain_source_of_truth") is not True:
+        errors.append("延后模式必须保持写前合同为语义真源")
+    if deferred.get("per_section_manual_sidecar_required") is not False:
+        errors.append("延后模式不得要求逐节人工侧车")
+    if deferred.get("fallback_on_detected_deviation") != "delta_or_full_manual_sidecar":
+        errors.append("延后模式缺少偏差回退路径")
+    if review.get("final_status") != "deferred_to_final_contracts":
+        errors.append("延后模式 final_status 不正确")
+    bindings = deferred.get("bindings") or {}
+    if bindings.get("state_sha256") != sha256_file(state_path):
+        errors.append("延后回执绑定的状态 SHA 已失效")
+    if bindings.get("staged_sha256") != sha256_file(staged_path):
+        errors.append("延后回执绑定的暂存稿 SHA 已失效")
+    prose_path = Path(str((state.get("paths") or {}).get("prose_receipt") or ""))
+    emotion_path = Path(str((state.get("paths") or {}).get("emotion_receipt") or ""))
+    if not prose_path.is_file() or bindings.get("prose_receipt_sha256") != sha256_file(prose_path):
+        errors.append("延后回执绑定的写前文字合同已失效")
+    if not emotion_path.is_file() or bindings.get("emotion_receipt_sha256") != sha256_file(emotion_path):
+        errors.append("延后回执绑定的写前情绪合同已失效")
+    emotion_review = review.get("emotion_review") or {}
+    if emotion_review.get("emotion_beat_ids") != item.get("emotion_beat_ids"):
+        errors.append("延后回执 E 拍领取与当前状态不一致")
+    if emotion_review.get("plot_beat_ids") != item.get("plot_beat_ids"):
+        errors.append("延后回执 P 拍领取与当前状态不一致")
+    scenes = review.get("scene_realization_reviews") or []
+    actual_e = [
+        str(beat_id)
+        for scene in scenes
+        if isinstance(scene, dict)
+        for beat_id in (scene.get("emotion_beat_ids") or [])
+    ]
+    actual_p = [
+        str(beat_id)
+        for scene in scenes
+        if isinstance(scene, dict)
+        for beat_id in (scene.get("plot_beat_ids") or [])
+    ]
+    if actual_e != item.get("emotion_beat_ids"):
+        errors.append("延后回执场景未完整同序领取全部 E 拍")
+    if actual_p != item.get("plot_beat_ids"):
+        errors.append("延后回执场景未完整同序领取全部 P 拍")
+    return errors
+
+
+def finish_section_commit(
+    *,
+    state_path: Path,
+    state: dict[str, Any],
+    state_item: dict[str, Any],
+    draft_path: Path,
+    draft_text: str,
+    staged_mode: bool,
+    sid: str,
+    section_text: str,
+    review_path: Path,
+    count: int,
+) -> int:
+    if staged_mode:
+        existing = draft_text.rstrip()
+        separator = "\n\n" if existing else ""
+        committed = f"{existing}{separator}{sid}.\n\n{section_text}\n"
+        draft_path.write_text(committed, encoding="utf-8")
+    state_item["status"] = "passed"
+    state_item["validated_at"] = now_iso()
+    state_item["review_path"] = str(review_path)
+    state_item["review_sha256"] = sha256_file(review_path)
+    state_item["text_sha256"] = sha256_text(section_text)
+    state_item["char_count"] = count
+    expected_sections = state["expected_sections"]
+    if sid == expected_sections[-1]:
+        state["current_section"] = ""
+        state["status"] = "sections_passed"
+    else:
+        state["current_section"] = str(int(sid) + 1)
+        state["status"] = "in_progress"
+    state["updated_at"] = now_iso()
+    write_json(state_path, state)
+    print(f"section_progress_gate: section_passed ({sid})")
+    print(f"char_count: {count}")
+    if state["current_section"]:
+        print(f"next_section: {state['current_section']}")
+    else:
+        print("next_step: finalize")
+    return 0
+
+
 def command_validate(args: argparse.Namespace) -> int:
     state_path = Path(args.state).resolve()
     review_path = Path(args.review).resolve()
     staged_path = Path(args.staged).resolve() if getattr(args, "staged", None) else None
+    sidecar_path = (
+        Path(args.sidecar).resolve()
+        if getattr(args, "sidecar", None)
+        else None
+    )
+    if sidecar_path is not None:
+        if staged_path is None:
+            return fail("commit-section", ["使用 --sidecar 时必须同时传 --staged"])
+        try:
+            apply_section_review_sidecar(review_path, staged_path, sidecar_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            return fail("commit-section", [f"逐节人工侧车合并失败: {exc}"])
     if staged_path is not None and review_path.is_file() and staged_path.is_file():
-        normalization_errors = apply_section_review_mechanical_normalization(
-            review_path, staged_path
+        current_review = load_json(review_path)
+        manual_review_mode = (
+            ((current_review.get("review_scaffold") or {}).get("manual_sidecar") or {}).get("review_mode")
         )
-        if normalization_errors:
-            return fail("commit-section", normalization_errors)
+        scaffold_review_mode = (current_review.get("review_scaffold") or {}).get("review_mode")
+        if (
+            manual_review_mode != "delta_manual_review"
+            and scaffold_review_mode != "deferred_full_contract_review"
+        ):
+            normalization_errors = apply_section_review_mechanical_normalization(
+                review_path, staged_path
+            )
+            if normalization_errors:
+                return fail("commit-section", normalization_errors)
     try:
         state = load_json(state_path)
         review = load_json(review_path)
         prose_contract = load_json(Path(state["paths"]["prose_receipt"]))
+        emotion_contract = load_json(Path(state["paths"]["emotion_receipt"]))
     except ValueError as exc:
         return fail("validate-section", [str(exc)])
     sid = str(args.section)
@@ -883,7 +1156,12 @@ def command_validate(args: argparse.Namespace) -> int:
     if str(state.get("current_section")) != sid:
         errors.append(f"只能验收当前第 {state.get('current_section')} 节")
     try:
-        item = get_section_state(state, sid)
+        state_item = get_section_state(state, sid)
+        item = hydrate_section_beat_contracts(
+            state_item,
+            emotion_contract,
+            sid,
+        )
     except ValueError as exc:
         return fail("validate-section", [str(exc)])
     if item.get("status") != "writing":
@@ -924,6 +1202,37 @@ def command_validate(args: argparse.Namespace) -> int:
             errors.append(f"写第 {sid} 节时修改了已通过的第 {previous_sid} 节")
     if str(review.get("section_id")) != sid:
         errors.append("逐节回执 section_id 与当前节不一致")
+    scaffold = review.get("review_scaffold")
+    if not isinstance(scaffold, dict):
+        errors.append("逐节回执必须由官方 init_section_review.py 初始化")
+        scaffold = {}
+    else:
+        if scaffold.get("generator") != "story-short-write/init_section_review.py":
+            errors.append("review_scaffold.generator 不是官方初始化器")
+        if scaffold.get("semantic_fields_initialized_pending") is not True:
+            errors.append("review_scaffold 必须证明语义字段从 pending 骨架开始")
+        if scaffold.get("state_sha256") != sha256_file(state_path):
+            errors.append("review_scaffold 未绑定当前 start-section 状态 SHA")
+    if scaffold.get("review_mode") == "deferred_full_contract_review":
+        errors.extend(
+            validate_deferred_section_review_bindings(
+                review, state, item, staged_path, state_path
+            )
+        )
+        if errors:
+            return fail("commit-section" if staged_mode else "validate-section", errors)
+        return finish_section_commit(
+            state_path=state_path,
+            state=state,
+            state_item=state_item,
+            draft_path=draft_path,
+            draft_text=draft_text,
+            staged_mode=staged_mode,
+            sid=sid,
+            section_text=section_text,
+            review_path=review_path,
+            count=count,
+        )
     constraints = review.get("positive_generation_constraints")
     if not isinstance(constraints, list) or not 5 <= len(constraints) <= 9 or not all(isinstance(x, str) and x.strip() for x in constraints):
         errors.append("positive_generation_constraints 必须包含 5-9 条非空正向首写约束")
@@ -933,16 +1242,7 @@ def command_validate(args: argparse.Namespace) -> int:
         errors.append("semantic_review_method 必须为 current_model_manual")
     if review.get("automation_used_for_semantic_judgment") is not False:
         errors.append("automation_used_for_semantic_judgment 必须为 false")
-    scaffold = review.get("review_scaffold")
-    if not isinstance(scaffold, dict):
-        errors.append("逐节回执必须由官方 init_section_review.py 初始化")
-    else:
-        if scaffold.get("generator") != "story-short-write/init_section_review.py":
-            errors.append("review_scaffold.generator 不是官方初始化器")
-        if scaffold.get("semantic_fields_initialized_pending") is not True:
-            errors.append("review_scaffold 必须证明语义字段从 pending 骨架开始")
-        if scaffold.get("state_sha256") != sha256_file(state_path):
-            errors.append("review_scaffold 未绑定当前 start-section 状态 SHA")
+    if isinstance(scaffold, dict):
         sidecar = scaffold.get("manual_sidecar")
         if not isinstance(sidecar, dict):
             errors.append("逐节回执必须先通过官方 manage_section_review.py 人工侧车合并")
@@ -977,6 +1277,29 @@ def command_validate(args: argparse.Namespace) -> int:
         errors.append(f"E 拍必须完整同序: expected={item.get('emotion_beat_ids')}, actual={actual_e}")
     if actual_p != item.get("plot_beat_ids"):
         errors.append(f"P 拍必须完整同序: expected={item.get('plot_beat_ids')}, actual={actual_p}")
+    sidecar_mode = (
+        ((scaffold or {}).get("manual_sidecar") or {}).get("review_mode")
+        if isinstance(scaffold, dict)
+        else None
+    )
+    if sidecar_mode == "delta_manual_review":
+        errors.extend(validate_delta_manual_review(review, item, section_text))
+        if review.get("final_status") != "passed":
+            errors.append("final_status 必须为 passed")
+        if errors:
+            return fail("commit-section" if staged_mode else "validate-section", errors)
+        return finish_section_commit(
+            state_path=state_path,
+            state=state,
+            state_item=state_item,
+            draft_path=draft_path,
+            draft_text=draft_text,
+            staged_mode=staged_mode,
+            sid=sid,
+            section_text=section_text,
+            review_path=review_path,
+            count=count,
+        )
     mappings = prose_review.get("sentence_mappings") if isinstance(prose_review, dict) else None
     if not isinstance(mappings, list) or len(mappings) < 4:
         errors.append("prose_review.sentence_mappings 至少需要 4 条")
@@ -1086,32 +1409,91 @@ def command_validate(args: argparse.Namespace) -> int:
         errors.append("final_status 必须为 passed；存在待改项时只能先修当前节")
     if errors:
         return fail("commit-section" if staged_mode else "validate-section", errors)
-    if staged_mode:
-        existing = draft_text.rstrip()
-        separator = "\n\n" if existing else ""
-        committed = f"{existing}{separator}{sid}.\n\n{section_text}\n"
-        draft_path.write_text(committed, encoding="utf-8")
-    item["status"] = "passed"
-    item["validated_at"] = now_iso()
-    item["review_path"] = str(review_path)
-    item["review_sha256"] = sha256_file(review_path)
-    item["text_sha256"] = sha256_text(section_text)
-    item["char_count"] = count
-    expected_sections = state["expected_sections"]
-    if sid == expected_sections[-1]:
-        state["current_section"] = ""
-        state["status"] = "sections_passed"
+    return finish_section_commit(
+        state_path=state_path,
+        state=state,
+        state_item=state_item,
+        draft_path=draft_path,
+        draft_text=draft_text,
+        staged_mode=staged_mode,
+        sid=sid,
+        section_text=section_text,
+        review_path=review_path,
+        count=count,
+    )
+
+
+def command_recover_half_commit(args: argparse.Namespace) -> int:
+    state_path = Path(args.state).resolve()
+    staged_path = Path(args.staged).resolve()
+    review_path = Path(args.review).resolve()
+    sid = str(args.section)
+    try:
+        state = load_json(state_path)
+        review = load_json(review_path)
+        state_item = get_section_state(state, sid)
+        emotion_contract = load_json(Path(state["paths"]["emotion_receipt"]))
+        item = hydrate_section_beat_contracts(state_item, emotion_contract, sid)
+    except ValueError as exc:
+        return fail("recover-half-commit", [str(exc)])
+
+    errors = verify_source_bindings(state)
+    section_text = staged_path.read_text(encoding="utf-8").strip() if staged_path.is_file() else ""
+    if item.get("status") != "writing":
+        errors.append(f"第 {sid} 节必须仍为 writing，实际为 {item.get('status')}")
+    if not staged_path.is_file():
+        errors.append(f"暂存稿不存在: {staged_path}")
+    draft_path = Path(state["paths"]["draft"])
+    draft_text = draft_path.read_text(encoding="utf-8") if draft_path.is_file() else ""
+    _, sections, order = split_sections(draft_text)
+    expected_order = [str(index) for index in range(1, int(sid) + 1)]
+    if order != expected_order:
+        errors.append(f"正文必须恰好包含 {expected_order}，实际为 {order}")
+    if sections.get(sid, "") != section_text:
+        errors.append("正文当前节与暂存稿不一致")
+    expected_current = "" if sid == state["expected_sections"][-1] else str(int(sid) + 1)
+    if str(state.get("current_section") or "") not in {sid, expected_current}:
+        errors.append("current_section 既不是当前节也不是下一节")
+    scaffold = review.get("review_scaffold")
+    review_mode = scaffold.get("review_mode") if isinstance(scaffold, dict) else ""
+    if str(review.get("section_id")) != sid:
+        errors.append("正式逐节回执 section_id 不一致")
+    if review_mode == "deferred_full_contract_review":
+        errors.extend(
+            validate_deferred_section_review_bindings(
+                review, state, item, staged_path, state_path
+            )
+        )
     else:
-        state["current_section"] = str(int(sid) + 1)
-        state["status"] = "in_progress"
+        sidecar = scaffold.get("manual_sidecar") if isinstance(scaffold, dict) else None
+        if review.get("final_status") != "passed":
+            errors.append("人工侧车模式的正式逐节回执未通过")
+        if not isinstance(sidecar, dict) or sidecar.get("staged_sha256") != sha256_file(staged_path):
+            errors.append("人工侧车模式未绑定当前暂存稿 SHA")
+        if not isinstance(scaffold, dict) or scaffold.get("mechanical_normalization_applied") is not True:
+            errors.append("人工侧车模式未完成机械归一化")
+    count = non_whitespace_chars(section_text)
+    if not char_count_within_tolerance(count, int(item.get("min_chars", 0)), int(item.get("max_chars", 0))):
+        errors.append(f"第 {sid} 节字数 {count} 不在允许范围")
+    for previous_sid, expected_hash in item.get("prior_section_hashes", {}).items():
+        if sha256_text(sections.get(previous_sid, "")) != expected_hash:
+            errors.append(f"已通过的第 {previous_sid} 节 SHA 已变化")
+    if errors:
+        return fail("recover-half-commit", errors)
+
+    state_item["status"] = "passed"
+    state_item["validated_at"] = now_iso()
+    state_item["review_path"] = str(review_path)
+    state_item["review_sha256"] = sha256_file(review_path)
+    state_item["text_sha256"] = sha256_text(section_text)
+    state_item["char_count"] = count
+    state["current_section"] = expected_current
+    state["status"] = "sections_passed" if not expected_current else "in_progress"
     state["updated_at"] = now_iso()
     write_json(state_path, state)
-    print(f"section_progress_gate: section_passed ({sid})")
+    print(f"section_progress_gate: half_commit_recovered ({sid})")
     print(f"char_count: {count}")
-    if state["current_section"]:
-        print(f"next_section: {state['current_section']}")
-    else:
-        print("next_step: finalize")
+    print(f"next_section: {expected_current}" if expected_current else "next_step: finalize")
     return 0
 
 
@@ -1383,6 +1765,7 @@ def main() -> int:
     start_parser.add_argument("--state", required=True)
     start_parser.add_argument("--section", required=True, type=int)
     start_parser.add_argument("--plan", required=True)
+    start_parser.add_argument("--context-output")
 
     validate_parser = subparsers.add_parser("validate-section")
     validate_parser.add_argument("--state", required=True)
@@ -1394,6 +1777,13 @@ def main() -> int:
     commit_parser.add_argument("--section", required=True, type=int)
     commit_parser.add_argument("--staged", required=True)
     commit_parser.add_argument("--review", required=True)
+    commit_parser.add_argument("--sidecar")
+
+    recover_parser = subparsers.add_parser("recover-half-commit")
+    recover_parser.add_argument("--state", required=True)
+    recover_parser.add_argument("--section", required=True, type=int)
+    recover_parser.add_argument("--staged", required=True)
+    recover_parser.add_argument("--review", required=True)
 
     reopen_parser = subparsers.add_parser("reopen-section")
     reopen_parser.add_argument("--state", required=True)
@@ -1421,6 +1811,8 @@ def main() -> int:
         return fail("validate-section", ["validate-section 已废弃：当前节必须在独立暂存稿中完成并使用 commit-section 原子写入"])
     if args.command == "commit-section":
         return command_validate(args)
+    if args.command == "recover-half-commit":
+        return command_recover_half_commit(args)
     if args.command == "reopen-section":
         return command_reopen(args)
     if args.command == "discard-writing-section":

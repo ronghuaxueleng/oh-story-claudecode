@@ -60,6 +60,7 @@ def build_plan(
     section_id: str,
     mapping_path: Path | None,
     constraints: list[str],
+    expanded: bool = False,
 ) -> dict[str, Any]:
     section = next(
         item for item in payload.get("sections", [])
@@ -69,14 +70,31 @@ def build_plan(
     if not isinstance(scene_units, list) or not scene_units:
         raise ValueError(f"第 {section_id} 节缺少 scene_units")
     scene_units = normalize_emotion_ids(scene_units, mapping_path)
+    # The outline receipt is the canonical scene-unit source. A section plan
+    # only needs the section's ordered beat allocation and scene IDs.
     plan = {
+        "version": "1.1",
         "section_id": section_id,
         "mode": "single_pass_scene_realization",
         "target_chars": sum(int(item["allocated_chars"]) for item in scene_units),
         "outline_performance_receipt_sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
         "append_or_expand_after_target_write_forbidden": True,
-        "scene_units": scene_units,
+        "scene_unit_refs": [
+            {
+                "scene_id": str(item.get("scene_id") or ""),
+                "emotion_beat_ids": list(item.get("emotion_beat_ids") or []),
+                "target_emotion_beat_ids": list(item.get("target_emotion_beat_ids") or []),
+                "plot_beat_ids": list(item.get("plot_beat_ids") or []),
+            }
+            for item in scene_units
+        ],
+        "scene_units_source": {
+            "path": str(receipt_path),
+            "sha256": hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+        },
     }
+    if expanded:
+        plan["scene_units"] = scene_units
     if mapping_path:
         plan["beat_mapping_sha256"] = hashlib.sha256(mapping_path.read_bytes()).hexdigest()
     if constraints:
@@ -89,6 +107,30 @@ def write_plan(output_path: Path, plan: dict[str, Any]) -> None:
     output_path.write_text(
         json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+
+
+def materialize_plan(
+    plan: dict[str, Any],
+    upstream_units: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Expand a compact plan for callers that need the full scene payload."""
+    if isinstance(plan.get("scene_units"), list):
+        return copy.deepcopy(plan)
+    refs = plan.get("scene_unit_refs")
+    if not isinstance(refs, list):
+        raise ValueError("当前节计划缺少 scene_unit_refs 或 scene_units")
+    by_id = {
+        str(item.get("scene_id") or ""): item
+        for item in upstream_units
+        if isinstance(item, dict) and str(item.get("scene_id") or "")
+    }
+    ref_ids = [str(item.get("scene_id") or "") for item in refs if isinstance(item, dict)]
+    source_ids = [str(item.get("scene_id") or "") for item in upstream_units]
+    if ref_ids != source_ids:
+        raise ValueError("紧凑场面计划的 scene_unit_refs 必须与细纲场面原序一致")
+    expanded = copy.deepcopy(plan)
+    expanded["scene_units"] = [copy.deepcopy(by_id[scene_id]) for scene_id in ref_ids]
+    return expanded
 
 
 def validate_full_beat_coverage(payload: dict[str, Any], mapping: dict[str, Any]) -> None:
@@ -137,6 +179,11 @@ def main() -> int:
     parser.add_argument("--output-dir", help="--section all 时的输出目录")
     parser.add_argument("--beat-mapping", help="逐拍语义映射.json；scene_units 使用 TE-* 时必填")
     parser.add_argument("--constraints", help="可选 JSON 文件，顶层为字符串数组")
+    parser.add_argument(
+        "--expanded",
+        action="store_true",
+        help="兼容旧调用，额外写入完整 scene_units；默认只写 scene_unit_refs",
+    )
     args = parser.parse_args()
     receipt_path = Path(args.receipt).resolve()
     try:
@@ -167,7 +214,10 @@ def main() -> int:
             for section_id in section_ids:
                 write_plan(
                     output_dir / f"第{section_id}节.json",
-                    build_plan(payload, receipt_path, section_id, mapping_path, constraints),
+                    build_plan(
+                        payload, receipt_path, section_id, mapping_path, constraints,
+                        expanded=bool(args.expanded),
+                    ),
                 )
             print(f"section_plan: refreshed_all ({len(section_ids)})")
             print(f"output_dir: {output_dir}")
@@ -177,7 +227,10 @@ def main() -> int:
         output_path = Path(args.output).resolve()
         write_plan(
             output_path,
-            build_plan(payload, receipt_path, str(args.section), mapping_path, constraints),
+            build_plan(
+                payload, receipt_path, str(args.section), mapping_path, constraints,
+                expanded=bool(args.expanded),
+            ),
         )
     except (OSError, ValueError, StopIteration, KeyError, json.JSONDecodeError) as exc:
         print("section_plan: blocked")

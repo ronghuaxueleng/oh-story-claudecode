@@ -21,19 +21,55 @@ class SemanticBeatMappingTest(unittest.TestCase):
         self.emotion_ledger = self.root / "全文情绪颗粒总账.json"
         self.plot_ledger = self.root / "全文情节微拍总账.json"
         self.mapping = self.root / "逐拍语义映射.json"
+        self.outline_contract = self.root / "细纲表演验收回执.json"
         self.emotion_evidence = "沈知夏听见顾临舟先问别人冷不冷，便把自己的围巾收回包里。"
         self.plot_evidence = "顾临舟把唯一的门卡交给林晚，沈知夏当场失去进入权。"
         self.outline.write_text(
-            f"## 1. 起事\n\n{self.emotion_evidence}\n\n{self.plot_evidence}\n",
+            f"## 导语\n\n导语证据。\n\n## 1. 起事\n\n{self.emotion_evidence}\n\n{self.plot_evidence}\n\n## 尾声\n\n尾声证据。\n",
             encoding="utf-8",
         )
         self.source.write_text("来源正文。", encoding="utf-8")
         self.emotion_ledger.write_text(
-            json.dumps({"beats": [{"beat_id": "E-X", "role": "期待反落", "intensity": 8}]}, ensure_ascii=False),
+            json.dumps({"coverage_segments": [
+                {"start_line": 10, "kind": "structural_marker"},
+            ], "beats": [
+                {"beat_id": "E-OPEN", "role": "导语钩子", "intensity": 6, "end_line": 2, "bid_ids": []},
+                {"beat_id": "E-X", "role": "期待反落", "intensity": 8, "end_line": 12, "bid_ids": ["BID-01"]},
+                {"beat_id": "E-END", "role": "尾声回响", "intensity": 5, "end_line": 20, "bid_ids": []},
+            ]}, ensure_ascii=False),
             encoding="utf-8",
         )
         self.plot_ledger.write_text(
-            json.dumps({"beats": [{"beat_id": "P-X"}]}, ensure_ascii=False),
+            json.dumps({"beats": [{
+                "beat_id": "P-X",
+                "actor": "来源丈夫",
+                "object_or_receiver": "来源妻子与门卡",
+                "pressure_or_trigger": "第三人要求进入住所",
+                "action": "来源丈夫把唯一门卡交给第三人",
+                "control_change": "来源妻子失去住所进入权",
+                "information_change": "来源妻子确认权限已经换主",
+                "consequence": "来源婚姻位置发生现实掉位",
+            }]}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        self.outline_contract.write_text(
+            json.dumps({
+                "gate_status": "passed",
+                "sections": [{
+                    "section_id": "1",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-X"}],
+                    },
+                    "scene_units": [{
+                        "scene_id": "S1-01",
+                        "plot_beat_ids": ["P-X"],
+                    }],
+                }],
+                "outside_bridge_plot_parity": {
+                    "source_emotion_sequence": [{"beat_id": "E-OPEN"}, {"beat_id": "E-END"}],
+                    "target_plot_beats": [],
+                },
+            }, ensure_ascii=False),
             encoding="utf-8",
         )
 
@@ -54,6 +90,17 @@ class SemanticBeatMappingTest(unittest.TestCase):
                 "primary_plot_ledger": self.binding(self.plot_ledger),
             },
             "emotions": [{
+                "source_beat_id": "E-OPEN", "target_beat_id": "E-OPEN", "role": "导语钩子", "intensity": 6,
+                "target_outline_region": "opening", "trigger": "导语证据触发导语钩子",
+                "relationship_position_change": "导语先放出关系谜面",
+                "reader_effect": "读者先被导语钩住",
+                "target_story_adaptation": "导语证据先把关系疑问抛出来。",
+                "hurt_object": "读者预期", "expectation_before": "期待先知道发生了什么",
+                "expectation_after": "转为追问真正伤口", "action_impulse_before": "按常规理解导语",
+                "action_impulse_after": "被迫继续追问正文", "equivalence_reason": "导语同样承担先置钩子的职责",
+                "target_evidence_coverage_review": "导语证据承担钩子与追问功能。",
+                "evidence": "导语证据。",
+            }, {
                 "source_beat_id": "E-X", "target_beat_id": "TE-X", "role": "期待反落", "intensity": 8,
                 "target_outline_region": "section:1", "trigger": "顾临舟先关心林晚的冷暖",
                 "relationship_position_change": "沈知夏从默认伴侣退到无人过问的位置",
@@ -66,9 +113,27 @@ class SemanticBeatMappingTest(unittest.TestCase):
                 "equivalence_reason": "关心对象换位造成同级期待落空和行动撤回",
                 "target_evidence_coverage_review": "证据同时覆盖顾临舟先问林晚这一触发、沈知夏收回围巾的动作以及伴侣位置下降的后果。",
                 "evidence": self.emotion_evidence,
+            }, {
+                "source_beat_id": "E-END", "target_beat_id": "E-END", "role": "尾声回响", "intensity": 5,
+                "target_outline_region": "epilogue", "trigger": "尾声证据把前情余波收住",
+                "relationship_position_change": "人物停在余波后的新位置",
+                "reader_effect": "读者带着余韵离场",
+                "target_story_adaptation": "尾声证据只负责把余波落地，不再重开冲突。",
+                "hurt_object": "读者预期", "expectation_before": "期待尾声交代后果",
+                "expectation_after": "确认故事在余波中收住", "action_impulse_before": "追问后续是否继续爆",
+                "action_impulse_after": "接受尾声把故事落下", "equivalence_reason": "尾声同级承担回响与收束职责",
+                "target_evidence_coverage_review": "尾声证据覆盖了余波与收束结果。",
+                "evidence": "尾声证据。",
             }],
             "plots": [{
                 "source_path": str(self.source.resolve()), "source_beat_id": "P-X", "target_beat_id": "TP-X",
+                "source_actor": "来源丈夫",
+                "source_object_or_receiver": "来源妻子与门卡",
+                "source_pressure_or_trigger": "第三人要求进入住所",
+                "source_action": "来源丈夫把唯一门卡交给第三人",
+                "source_control_change": "来源妻子失去住所进入权",
+                "source_information_change": "来源妻子确认权限已经换主",
+                "source_consequence": "来源婚姻位置发生现实掉位",
                 "actor": "顾临舟", "actor_evidence": "顾临舟", "object_or_receiver": "林晚与门卡",
                 "pressure_or_trigger": "林晚声称自己需要随时进入住所",
                 "action": "顾临舟把唯一门卡交给林晚",
@@ -76,6 +141,11 @@ class SemanticBeatMappingTest(unittest.TestCase):
                 "information_change": "沈知夏确认这不是临时借用而是权限换主",
                 "consequence": "沈知夏当场失去进入共同住所的权利",
                 "adaptation_equivalence": "用门卡换主保留来源拍的控制权转移和现实后果",
+                "action_equivalence_review": "来源与目标都由伴侣主动把唯一门卡交给第三人。",
+                "control_change_equivalence_review": "来源与目标都让原伴侣失去住所进入控制权。",
+                "information_change_equivalence_review": "来源与目标都使受伤者确认权限不是临时借用而是换主。",
+                "consequence_equivalence_review": "来源与目标都把关系掉位落实为无法进入共同住所的现实后果。",
+                "independent_beat_judgment": "本拍独立完成门卡换手，未与前后拍合并、压缩或借用同一证据。",
                 "evidence": self.plot_evidence,
             }],
         }
@@ -89,6 +159,36 @@ class SemanticBeatMappingTest(unittest.TestCase):
             check=False, capture_output=True, text=True,
         )
 
+    def test_export_template_scaffolds_full_order_and_regions(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPT),
+                "export-template",
+                "--mapping",
+                str(self.mapping),
+                "--outline",
+                str(self.outline),
+                "--primary-emotion-ledger",
+                str(self.emotion_ledger),
+                "--primary-plot-ledger",
+                str(self.plot_ledger),
+                "--primary-source",
+                str(self.source),
+                "--outline-contract",
+                str(self.outline_contract),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        exported = json.loads(self.mapping.read_text(encoding="utf-8"))
+        self.assertEqual(["E-OPEN", "E-X", "E-END"], [item["source_beat_id"] for item in exported["emotions"]])
+        self.assertEqual(["opening", "section:1", "epilogue"], [item["target_outline_region"] for item in exported["emotions"]])
+        self.assertEqual(["P-X"], [item["source_beat_id"] for item in exported["plots"]])
+        self.assertEqual("P-X", exported["plots"][0]["target_beat_id"])
+
     def test_unseen_character_names_are_not_hard_coded(self) -> None:
         result = self.run_gate(self.payload())
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -100,6 +200,20 @@ class SemanticBeatMappingTest(unittest.TestCase):
         result = self.run_gate(payload)
         self.assertEqual(2, result.returncode)
         self.assertIn("不能把时间、地点或整句事件当施事者", result.stdout)
+
+    def test_plot_source_snapshot_must_match_ledger(self) -> None:
+        payload = self.payload()
+        payload["plots"][0]["source_action"] = "错误来源动作"
+        result = self.run_gate(payload)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("必须逐字继承全文情节微拍总账", result.stdout)
+
+    def test_plot_equivalence_reviews_cannot_be_skipped(self) -> None:
+        payload = self.payload()
+        payload["plots"][0]["consequence_equivalence_review"] = ""
+        result = self.run_gate(payload)
+        self.assertEqual(2, result.returncode)
+        self.assertIn("不能只凭 P 编号判定覆盖", result.stdout)
 
     def test_sentence_like_hurt_object_is_blocked(self) -> None:
         payload = self.payload()

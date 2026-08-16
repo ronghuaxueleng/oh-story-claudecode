@@ -13,6 +13,8 @@ from typing import Any
 
 
 SCHEMA_VERSION = "story-short-write.section-review-sidecar.v1"
+LEAN_REVIEW_MODE = "delta_manual_review"
+FULL_REVIEW_MODE = "full_manual_review"
 DIRECT_DIALOGUE_RE = re.compile(
     r"「[^」]*」(?:[^「」\n]{0,40}「[^」]*」)*|“[^”]*”(?:[^“”\n]{0,40}“[^”]*”)*"
 )
@@ -44,20 +46,7 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
 
 
 def iter_direct_dialogue_matches(text: str) -> list[re.Match[str]]:
-    rows: list[re.Match[str]] = []
-    for match in DIRECT_DIALOGUE_RE.finditer(text):
-        start, end = match.span()
-        line_start = text.rfind("\n", 0, start) + 1
-        line_end = text.find("\n", end)
-        if line_end < 0:
-            line_end = len(text)
-        line = text[line_start:line_end].strip()
-        before = text[max(line_start, start - 24):start]
-        after = text[end:line_end]
-        if line == match.group(0).strip() and not ATTRIBUTION_RE.search(before + after):
-            continue
-        rows.append(match)
-    return rows
+    return list(DIRECT_DIALOGUE_RE.finditer(text))
 
 
 def extract_direct_dialogue(text: str) -> list[str]:
@@ -353,7 +342,7 @@ def build_items(review: dict[str, Any], registry: list[dict[str, Any]]) -> list[
                 registry,
                 f"{sf_id}-{dim_code}",
                 dim_base,
-                ("target_quotes",),
+                (),
                 ("comparison", "surface_copy_rejected"),
                 {"dimension": dimension},
             )
@@ -487,11 +476,56 @@ def build_items(review: dict[str, Any], registry: list[dict[str, Any]]) -> list[
     return items
 
 
+def build_lean_review(review: dict[str, Any]) -> dict[str, Any]:
+    prose = review.get("prose_review") or {}
+    characters = ((prose.get("character_vitality_review") or {}).get("character_reviews") or [])
+    return {
+        "review_mode": LEAN_REVIEW_MODE,
+        "performed_by_current_model": None,
+        "full_section_read_by_current_model": None,
+        "semantic_fields_generated_by_script": False,
+        "project_scripts_used_for_semantic_population": [],
+        "manual_judgment": "",
+        "positive_generation_constraints": [],
+        "issues_fixed": [],
+        "no_unlisted_deviations": None,
+        "section_judgment": "",
+        "scene_reviews": [
+            {
+                "scene_id": row.get("scene_id"),
+                "emotion_beat_ids": list(row.get("emotion_beat_ids") or []),
+                "plot_beat_ids": list(row.get("plot_beat_ids") or []),
+                "evidence": {
+                    "entry_pressure_quote": [],
+                    "interaction_exchange_quotes": [],
+                    "turning_action_quote": [],
+                    "visible_consequence_quote": [],
+                    "aftershock_quote": [],
+                },
+                "reader_emotion_progression": "",
+                "why_not_summary": "",
+                "manual_judgment": "",
+            }
+            for row in (review.get("scene_realization_reviews") or [])
+        ],
+        "character_reviews": [
+            {
+                "character_name": row.get("character_name"),
+                "target_quotes": [],
+                "interchangeability_judgment": "",
+            }
+            for row in characters
+        ],
+        "final_status": "pending",
+    }
+
+
 def export_template(
     review_path: Path,
     staged_path: Path,
     output_path: Path,
     registry_path: Path | None = None,
+    review_mode: str = LEAN_REVIEW_MODE,
 ) -> dict[str, Any]:
     review = load_json(review_path, "逐节回执")
     staged_text = staged_path.read_text(encoding="utf-8")
@@ -506,6 +540,10 @@ def export_template(
         },
     }
     write_json(registry_path, registry_payload)
+    if review_mode not in {LEAN_REVIEW_MODE, FULL_REVIEW_MODE}:
+        raise ValueError(
+            f"review_mode 只能是 {LEAN_REVIEW_MODE}/{FULL_REVIEW_MODE}"
+        )
     payload = {
         "schema_version": SCHEMA_VERSION,
         "section_id": str(review.get("section_id") or ""),
@@ -521,12 +559,37 @@ def export_template(
             "semantic_fields_must_be_filled_by_current_model": True,
             "evidence_refs_accept_exact_ids_only": True,
             "scripts_generate_semantic_judgment": False,
+            "compact_structure_must_not_compress_semantics": True,
+            "preflight_required_before_apply_or_commit": True,
+            "minimum_semantic_lengths": {
+                "provenance_manual_judgment": 24,
+                "sentence_mechanism": 20,
+                "group_or_detail_judgment": 20,
+                "sf_mapping_comparison": 16,
+                "emotion_or_plot_field": 12,
+                "scene_field": 24,
+            },
+            "short_label_examples_rejected": [
+                "物件换主",
+                "双物证清楚",
+                "动作完整",
+                "后果明确",
+            ],
+            "default_review_mode": LEAN_REVIEW_MODE,
+            "lean_mode_boundary": (
+                "当前模型完整通读后只填写场景、人物、偏差与终审；"
+                "任一未兑现或未列偏差必须退回全量人工侧车"
+            ),
         },
-        "manual_items": [
-            {key: value for key, value in item.items() if key != "_target"}
-            for item in build_items(review, registry)
-        ],
     }
+    if review_mode == LEAN_REVIEW_MODE:
+        payload["lean_manual_review"] = build_lean_review(review)
+    else:
+        items = build_items(review, registry)
+        payload["manual_items"] = [
+            {key: deepcopy(value) for key, value in item.items() if key != "_target"}
+            for item in items
+        ]
     write_json(output_path, payload)
     return payload
 
@@ -614,7 +677,143 @@ def validate_fixed_semantic_contract(items: list[dict[str, Any]]) -> None:
                 raise ValueError(f"{item['item_id']}.keep_or_revise 必须在提交前裁决为 keep")
 
 
-def apply_template(review_path: Path, staged_path: Path, template_path: Path) -> dict[str, Any]:
+def validate_semantic_specificity(items: list[dict[str, Any]]) -> None:
+    """Mirror commit-time minimums before the sidecar can touch the formal receipt."""
+    errors: list[str] = []
+
+    def require_text(item_id: str, fields: dict[str, Any], field: str, minimum: int) -> None:
+        value = str(fields.get(field) or "").strip()
+        if len(value) < minimum:
+            errors.append(f"{item_id}.fields.{field} 过短，至少需要 {minimum} 字的具体语义裁决")
+
+    for item in items:
+        item_id = str(item.get("item_id") or "?")
+        fields = item.get("fields") or {}
+        if item_id == "PROVENANCE":
+            require_text(item_id, fields, "manual_judgment", 24)
+        elif item_id.startswith("SM-"):
+            require_text(item_id, fields, "language_mechanism_match", 20)
+        elif item_id.startswith(("CHAIN-", "VOICE-", "REL-")):
+            if "comparison" in fields:
+                require_text(item_id, fields, "comparison", 20)
+            if "sequence_comparison" in fields:
+                require_text(item_id, fields, "sequence_comparison", 20)
+            if "turn_sequence_comparison" in fields:
+                require_text(item_id, fields, "turn_sequence_comparison", 20)
+            require_text(item_id, fields, "manual_judgment", 20)
+        elif "-MAP-" in item_id:
+            require_text(item_id, fields, "comparison", 16)
+        elif "-STEP-" in item_id:
+            require_text(item_id, fields, "visible_change", 16)
+            require_text(item_id, fields, "manual_judgment", 16)
+        elif item_id.startswith("SF-"):
+            if "comparison" in fields:
+                require_text(item_id, fields, "comparison", 20)
+            if "manual_judgment" in fields:
+                require_text(item_id, fields, "manual_judgment", 20)
+        elif item_id.startswith("DETAIL-"):
+            require_text(item_id, fields, "comparison", 20)
+            require_text(item_id, fields, "manual_judgment", 20)
+        elif item_id.startswith("CHAR-"):
+            require_text(item_id, fields, "interchangeability_judgment", 20)
+            for index, row in enumerate(item.get("ownership_reviews") or [], start=1):
+                if len(str(row.get("ownership_context") or "").strip()) < 12:
+                    errors.append(
+                        f"{item_id}.ownership_reviews[{index}].ownership_context "
+                        "过短，必须点名人物/代词、动作或话轮及其归属"
+                    )
+        elif item_id.startswith("DIALOGUE-"):
+            require_text(item_id, fields, "speaker", 2)
+            for field in ("scene_pressure", "turn_connection", "interchangeability_judgment"):
+                require_text(item_id, fields, field, 4)
+        elif item_id.startswith(("E-", "P-")):
+            semantic_fields = (
+                ("trigger", "relationship_position_change", "reader_effect", "judgment")
+                if item_id.startswith("E-")
+                else ("action_parity", "external_change", "relationship_consequence", "judgment")
+            )
+            for field in semantic_fields:
+                require_text(item_id, fields, field, 12)
+        elif item_id.startswith("SCENE-"):
+            for field in ("reader_emotion_progression", "why_not_summary", "manual_judgment"):
+                require_text(item_id, fields, field, 24)
+    if errors:
+        raise ValueError("逐节人工侧车语义预检失败:\n- " + "\n- ".join(errors))
+
+
+def expand_compact_manual_items(
+    compact: dict[str, Any],
+    expected_items: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    expected_ids = [str(item["item_id"]) for item in expected_items]
+    if set(compact) != set(expected_ids):
+        missing = [item_id for item_id in expected_ids if item_id not in compact]
+        extra = [item_id for item_id in compact if item_id not in expected_ids]
+        raise ValueError(f"compact_manual_items 项目不完整: missing={missing}, extra={extra}")
+    expanded: list[dict[str, Any]] = []
+    for expected in expected_items:
+        item_id = str(expected["item_id"])
+        row = compact[item_id]
+        if not isinstance(row, dict):
+            raise ValueError(f"{item_id} 紧凑人工项必须是对象")
+        evidence_keys = list((expected.get("evidence") or {}).keys())
+        field_keys = list((expected.get("fields") or {}).keys())
+        evidence_values = row.get("e")
+        field_values = row.get("f")
+        if not isinstance(evidence_values, list) or len(evidence_values) != len(evidence_keys):
+            raise ValueError(f"{item_id}.e 必须按官方顺序提供 {len(evidence_keys)} 项")
+        if not isinstance(field_values, list) or len(field_values) != len(field_keys):
+            raise ValueError(f"{item_id}.f 必须按官方顺序提供 {len(field_keys)} 项")
+        item = {
+            "item_id": item_id,
+            "evidence": dict(zip(evidence_keys, evidence_values)),
+            "fields": dict(zip(field_keys, field_values)),
+        }
+        if "ownership_reviews" in expected:
+            ownership = row.get("o")
+            if not isinstance(ownership, list):
+                raise ValueError(f"{item_id}.o 必须提供人物证据归属复核")
+            item["ownership_reviews"] = [
+                {
+                    "evidence_ref": values[0],
+                    "ownership_context": values[1],
+                    "keep_or_revise": values[2],
+                }
+                for values in ownership
+                if isinstance(values, list) and len(values) == 3
+            ]
+            if len(item["ownership_reviews"]) != len(ownership):
+                raise ValueError(f"{item_id}.o 每项必须是 [证据ID, 归属判断, keep/revise]")
+        expanded.append(item)
+    return expanded
+
+
+def derive_sf_parent_quotes(review: dict[str, Any]) -> None:
+    """Aggregate already selected mapping evidence without creating semantic judgments."""
+    prose = review.get("prose_review") or {}
+    for sf in prose.get("source_subflow_reviews") or []:
+        if not isinstance(sf, dict):
+            continue
+        for transfer in (sf.get("dimension_transfers") or {}).values():
+            if not isinstance(transfer, dict):
+                continue
+            target_quotes: list[str] = []
+            for mapping in transfer.get("evidence_mappings") or []:
+                if not isinstance(mapping, dict):
+                    continue
+                for quote in mapping.get("target_quotes") or []:
+                    if isinstance(quote, str) and quote and quote not in target_quotes:
+                        target_quotes.append(quote)
+            transfer["target_quotes"] = target_quotes
+
+
+def apply_template(
+    review_path: Path,
+    staged_path: Path,
+    template_path: Path,
+    *,
+    write: bool = True,
+) -> dict[str, Any]:
     review = load_json(review_path, "逐节回执")
     sidecar = load_json(template_path, "逐节人工侧车")
     if sidecar.get("schema_version") != SCHEMA_VERSION:
@@ -640,9 +839,27 @@ def apply_template(review_path: Path, staged_path: Path, template_path: Path) ->
     if actual_registry != expected_registry_payload:
         raise ValueError("证据注册表已被修改，必须重新 export")
     expected_items = build_items(review, expected_registry)
-    actual_items = sidecar.get("manual_items")
+    lean_review = sidecar.get("lean_manual_review")
+    if isinstance(lean_review, dict):
+        return apply_lean_review(
+            review,
+            staged_text,
+            expected_registry,
+            lean_review,
+            review_path=review_path,
+            staged_path=staged_path,
+            template_path=template_path,
+            bindings=bindings,
+            write=write,
+        )
+    compact_items = sidecar.get("compact_manual_items")
+    actual_items = (
+        expand_compact_manual_items(compact_items, expected_items)
+        if isinstance(compact_items, dict)
+        else sidecar.get("manual_items")
+    )
     if not isinstance(actual_items, list):
-        raise ValueError("逐节人工侧车缺少 manual_items")
+        raise ValueError("逐节人工侧车缺少 manual_items 或 compact_manual_items")
     expected_ids = [item["item_id"] for item in expected_items]
     actual_ids = [item.get("item_id") for item in actual_items if isinstance(item, dict)]
     if actual_ids != expected_ids:
@@ -674,7 +891,9 @@ def apply_template(review_path: Path, staged_path: Path, template_path: Path) ->
                 }
                 for row in actual["ownership_reviews"]
             ]
+    derive_sf_parent_quotes(merged)
     validate_fixed_semantic_contract(actual_items)
+    validate_semantic_specificity(actual_items)
     scaffold = merged.setdefault("review_scaffold", {})
     scaffold["manual_sidecar"] = {
         "manager": "story-short-write/manage_section_review.py",
@@ -684,7 +903,153 @@ def apply_template(review_path: Path, staged_path: Path, template_path: Path) ->
         "staged_sha256": bindings["staged_sha256"],
         "semantic_fields_generated_by_script": False,
     }
-    write_json(review_path, merged)
+    if write:
+        write_json(review_path, merged)
+    return merged
+
+
+def apply_lean_review(
+    review: dict[str, Any],
+    staged_text: str,
+    registry: list[dict[str, Any]],
+    lean: dict[str, Any],
+    *,
+    review_path: Path,
+    staged_path: Path,
+    template_path: Path,
+    bindings: dict[str, Any],
+    write: bool,
+) -> dict[str, Any]:
+    if lean.get("review_mode") != LEAN_REVIEW_MODE:
+        raise ValueError("lean_manual_review.review_mode 不正确")
+    if lean.get("performed_by_current_model") is not True:
+        raise ValueError("lean_manual_review.performed_by_current_model 必须为 true")
+    if lean.get("full_section_read_by_current_model") is not True:
+        raise ValueError("lean_manual_review.full_section_read_by_current_model 必须为 true")
+    if lean.get("semantic_fields_generated_by_script") is not False:
+        raise ValueError("lean_manual_review.semantic_fields_generated_by_script 必须为 false")
+    if lean.get("project_scripts_used_for_semantic_population") != []:
+        raise ValueError("lean_manual_review 禁止项目脚本生成语义裁决")
+    if len(str(lean.get("manual_judgment") or "").strip()) < 24:
+        raise ValueError("lean_manual_review.manual_judgment 过短")
+    constraints = lean.get("positive_generation_constraints")
+    if not isinstance(constraints, list) or not 5 <= len(constraints) <= 9:
+        raise ValueError("lean_manual_review.positive_generation_constraints 必须包含 5-9 条")
+    if lean.get("no_unlisted_deviations") is not True:
+        raise ValueError("存在未列明偏差时禁止使用差量侧车，必须退回全量侧车")
+    if len(str(lean.get("section_judgment") or "").strip()) < 32:
+        raise ValueError("lean_manual_review.section_judgment 必须具体说明全文、情绪和颗粒兑现")
+    if lean.get("final_status") != "passed":
+        raise ValueError("lean_manual_review.final_status 必须为 passed")
+
+    index = registry_index(registry)
+    expected_scenes = review.get("scene_realization_reviews") or []
+    actual_scenes = lean.get("scene_reviews")
+    if not isinstance(actual_scenes, list):
+        raise ValueError("lean_manual_review.scene_reviews 必须为列表")
+    if [row.get("scene_id") for row in actual_scenes if isinstance(row, dict)] != [
+        row.get("scene_id") for row in expected_scenes if isinstance(row, dict)
+    ]:
+        raise ValueError("lean_manual_review.scene_reviews 必须完整同序覆盖当前节场景")
+
+    expanded_scenes: list[dict[str, Any]] = []
+    for expected, actual in zip(expected_scenes, actual_scenes):
+        if actual.get("emotion_beat_ids") != expected.get("emotion_beat_ids"):
+            raise ValueError(f"{actual.get('scene_id')}.emotion_beat_ids 与写前计划不一致")
+        if actual.get("plot_beat_ids") != expected.get("plot_beat_ids"):
+            raise ValueError(f"{actual.get('scene_id')}.plot_beat_ids 与写前计划不一致")
+        evidence = actual.get("evidence") or {}
+        required = (
+            "entry_pressure_quote",
+            "interaction_exchange_quotes",
+            "turning_action_quote",
+            "visible_consequence_quote",
+            "aftershock_quote",
+        )
+        if set(evidence) != set(required):
+            raise ValueError(f"{actual.get('scene_id')}.evidence 字段不完整")
+        resolved: dict[str, Any] = {}
+        for field in required:
+            refs = evidence.get(field)
+            if not isinstance(refs, list) or not refs:
+                raise ValueError(f"{actual.get('scene_id')}.evidence.{field} 不能为空")
+            values = [resolve_ref(ref, index, staged_text) for ref in refs]
+            resolved[field] = values if field == "interaction_exchange_quotes" else values[0]
+        if len(resolved["interaction_exchange_quotes"]) < 3:
+            raise ValueError(f"{actual.get('scene_id')} 至少需要三步施压与接招证据")
+        for field in ("reader_emotion_progression", "why_not_summary", "manual_judgment"):
+            if len(str(actual.get(field) or "").strip()) < 24:
+                raise ValueError(f"{actual.get('scene_id')}.{field} 过短")
+        expanded_scenes.append(
+            {
+                "scene_id": actual["scene_id"],
+                "emotion_beat_ids": list(actual["emotion_beat_ids"]),
+                "plot_beat_ids": list(actual["plot_beat_ids"]),
+                **resolved,
+                "reader_emotion_progression": actual["reader_emotion_progression"],
+                "why_not_summary": actual["why_not_summary"],
+                "manual_judgment": actual["manual_judgment"],
+            }
+        )
+
+    expected_characters = [
+        row.get("character_name")
+        for row in (((review.get("prose_review") or {}).get("character_vitality_review") or {}).get("character_reviews") or [])
+    ]
+    actual_characters = lean.get("character_reviews")
+    if not isinstance(actual_characters, list) or [
+        row.get("character_name") for row in actual_characters if isinstance(row, dict)
+    ] != expected_characters:
+        raise ValueError("lean_manual_review.character_reviews 必须完整同序覆盖写前人物")
+    expanded_characters = []
+    for row in actual_characters:
+        refs = row.get("target_quotes")
+        if not isinstance(refs, list) or len(refs) < 2:
+            raise ValueError(f"{row.get('character_name')} 至少需要两条人物证据")
+        judgment = str(row.get("interchangeability_judgment") or "").strip()
+        if len(judgment) < 20:
+            raise ValueError(f"{row.get('character_name')}.interchangeability_judgment 过短")
+        expanded_characters.append(
+            {
+                "character_name": row["character_name"],
+                "target_quotes": [resolve_ref(ref, index, staged_text) for ref in refs],
+                "interchangeability_judgment": judgment,
+            }
+        )
+
+    merged = deepcopy(review)
+    merged["manual_review_provenance"] = {
+        "performed_by_current_model": True,
+        "full_section_read_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "project_scripts_used_for_semantic_population": [],
+        "manual_judgment": lean["manual_judgment"],
+    }
+    merged["positive_generation_constraints"] = list(constraints)
+    merged["issues_fixed"] = list(lean.get("issues_fixed") or [])
+    merged["final_status"] = "passed"
+    merged.setdefault("prose_review", {})["status"] = "passed"
+    merged.setdefault("emotion_review", {})["status"] = "passed"
+    merged["delta_manual_review"] = {
+        "review_mode": LEAN_REVIEW_MODE,
+        "no_unlisted_deviations": True,
+        "section_judgment": lean["section_judgment"],
+        "scene_reviews": expanded_scenes,
+        "character_reviews": expanded_characters,
+    }
+    scaffold = merged.setdefault("review_scaffold", {})
+    scaffold["manual_sidecar"] = {
+        "manager": "story-short-write/manage_section_review.py",
+        "schema_version": SCHEMA_VERSION,
+        "review_mode": LEAN_REVIEW_MODE,
+        "template_sha256": sha256_file(template_path),
+        "review_sha256_before_apply": bindings["review_sha256"],
+        "staged_sha256": bindings["staged_sha256"],
+        "semantic_fields_generated_by_script": False,
+        "inherited_prewrite_semantics_only": True,
+    }
+    if write:
+        write_json(review_path, merged)
     return merged
 
 
@@ -698,10 +1063,19 @@ def main() -> int:
     export.add_argument("--staged", required=True)
     export.add_argument("--output", required=True)
     export.add_argument("--registry-output")
+    export.add_argument(
+        "--review-mode",
+        choices=(LEAN_REVIEW_MODE, FULL_REVIEW_MODE),
+        default=LEAN_REVIEW_MODE,
+    )
     apply_cmd = sub.add_parser("apply-template")
     apply_cmd.add_argument("--review", required=True)
     apply_cmd.add_argument("--staged", required=True)
     apply_cmd.add_argument("--input", required=True)
+    preflight = sub.add_parser("preflight-template")
+    preflight.add_argument("--review", required=True)
+    preflight.add_argument("--staged", required=True)
+    preflight.add_argument("--input", required=True)
     args = parser.parse_args()
 
     try:
@@ -711,10 +1085,27 @@ def main() -> int:
                 Path(args.staged).resolve(),
                 Path(args.output).resolve(),
                 Path(args.registry_output).resolve() if args.registry_output else None,
+                args.review_mode,
             )
             print("section_review_sidecar: exported")
             print(f"evidence_registry: {payload['bindings']['evidence_registry_path']}")
-            print(f"manual_item_count: {len(payload['manual_items'])}")
+            print(f"review_mode: {args.review_mode}")
+            if args.review_mode == LEAN_REVIEW_MODE:
+                print(f"scene_review_count: {len(payload['lean_manual_review']['scene_reviews'])}")
+                print(f"character_review_count: {len(payload['lean_manual_review']['character_reviews'])}")
+            else:
+                print(f"manual_item_count: {len(payload['manual_items'])}")
+            print("semantic_fields_generated: 0")
+            return 0
+        if args.command == "preflight-template":
+            apply_template(
+                Path(args.review).resolve(),
+                Path(args.staged).resolve(),
+                Path(args.input).resolve(),
+                write=False,
+            )
+            print("section_review_sidecar: preflight_passed")
+            print("formal_receipt_modified: false")
             print("semantic_fields_generated: 0")
             return 0
         apply_template(

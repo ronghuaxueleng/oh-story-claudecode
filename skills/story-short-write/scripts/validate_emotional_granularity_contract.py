@@ -9,7 +9,11 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sidecar_lifecycle import consume_sidecar
 
 
 SCHEMA_VERSION = "story-short-write.emotional-granularity-contract.v4"
@@ -33,6 +37,34 @@ REQUIRED_REVIEW_QUOTE_FIELDS = (
     "embodied_or_object_action_quotes",
     "opponent_pressure_quotes",
     "loss_of_control_or_equivalent_quotes",
+)
+REQUIRED_PLOT_CONTRACT_FIELDS = (
+    "source_beat_id",
+    "source_actor",
+    "source_object_or_receiver",
+    "source_pressure_or_trigger",
+    "source_action",
+    "source_control_change",
+    "source_information_change",
+    "source_consequence",
+    "actor",
+    "object_or_receiver",
+    "pressure_or_trigger",
+    "action",
+    "control_change",
+    "information_change",
+    "consequence",
+    "action_equivalence_review",
+    "control_change_equivalence_review",
+    "information_change_equivalence_review",
+    "consequence_equivalence_review",
+    "independent_beat_judgment",
+)
+PLOT_DRAFT_JUDGMENT_FIELDS = (
+    "action_realization_judgment",
+    "control_change_realization_judgment",
+    "information_change_realization_judgment",
+    "consequence_judgment",
 )
 TARGET_SEMANTIC_FIELDS = (
     "hurt_object",
@@ -185,6 +217,55 @@ def outline_emotion_regions(text: str) -> dict[str, str]:
             raise ValueError(f"细纲情绪区域重复: {region_id}")
         regions[region_id] = text[match.end() : end].strip()
     return regions
+
+
+def normalized_target_region(value: Any) -> str:
+    region = str(value or "").strip()
+    if region in {"导语", "opening"}:
+        return "opening"
+    if region in {"尾声", "epilogue"}:
+        return "epilogue"
+    section_match = re.fullmatch(r"(?:section:|第)?(\d+)(?:节)?", region)
+    return f"section:{section_match.group(1)}" if section_match else region
+
+
+def section_emotion_ids(
+    parity: dict[str, Any],
+    emotion_by_id: dict[str, dict[str, Any]],
+    section_id: str,
+) -> list[str]:
+    """Split a bridge-level approved sequence by explicit target section mapping."""
+    allowed_ids = [
+        str(beat.get("beat_id") or "")
+        for beat in parity.get("source_emotion_sequence", [])
+        if isinstance(beat, dict)
+    ]
+    target_region = f"section:{section_id}"
+    return [
+        beat_id
+        for beat_id in allowed_ids
+        if normalized_target_region(
+            (emotion_by_id.get(beat_id) or {}).get("target_outline_region")
+        )
+        == target_region
+    ]
+
+
+def section_turning_point(
+    parity: dict[str, Any],
+    section_ids: list[str],
+    field: str,
+) -> int:
+    full_ids = [
+        str(beat.get("beat_id") or "")
+        for beat in parity.get("source_emotion_sequence", [])
+        if isinstance(beat, dict)
+    ]
+    full_position = int(parity.get(field) or 0)
+    if full_position <= 0 or full_position > len(full_ids):
+        return 0
+    turning_id = full_ids[full_position - 1]
+    return section_ids.index(turning_id) + 1 if turning_id in section_ids else 0
 
 
 def source_beat_regions(
@@ -524,6 +605,284 @@ def quote_list(value: Any) -> list[str]:
     return [item.strip() for item in value if isinstance(item, str) and item.strip()]
 
 
+def short_quote_preview(value: Any, limit: int = 36) -> str:
+    text = str(value or "").strip().replace("\n", " ")
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def build_emotion_plan_editor_hints(
+    emotion_ids: list[str],
+    plot_ids: list[str],
+    source_by_id: dict[str, dict[str, Any]],
+    emotion_by_id: dict[str, dict[str, Any]],
+    plot_by_target: dict[str, dict[str, Any]],
+    outline_section: dict[str, Any] | None,
+    *,
+    turning_point_offset: int = 0,
+) -> dict[str, Any]:
+    parity = outline_section.get("source_emotion_parity") if isinstance(outline_section, dict) else {}
+    scene_units = outline_section.get("scene_units") if isinstance(outline_section, dict) else []
+    return {
+        "field_fill_order": [
+            "manual_judgment",
+            "turning_point_selection_review",
+            "source_emotion_beat_completion_review",
+            "plot_beat_completion_review",
+            *REQUIRED_PLAN_FIELDS,
+        ],
+        "emotion_beats": [
+            {
+                "beat_id": beat_id,
+                "role": str((source_by_id.get(beat_id) or {}).get("role") or ""),
+                "intensity": (source_by_id.get(beat_id) or {}).get("intensity"),
+                "source_evidence_preview": [
+                    short_quote_preview(quote)
+                    for quote in quote_list((source_by_id.get(beat_id) or {}).get("source_evidence"))
+                ],
+                "outline_evidence_preview": short_quote_preview(
+                    (emotion_by_id.get(beat_id) or {}).get("evidence")
+                ),
+                "adaptation_preview": short_quote_preview(
+                    (emotion_by_id.get(beat_id) or {}).get("target_story_adaptation"),
+                    60,
+                ),
+            }
+            for beat_id in emotion_ids
+        ],
+        "plot_beats": [
+            {
+                "beat_id": beat_id,
+                "action": str((plot_by_target.get(beat_id) or {}).get("action") or ""),
+                "outline_evidence_preview": short_quote_preview(
+                    (plot_by_target.get(beat_id) or {}).get("evidence")
+                ),
+            }
+            for beat_id in plot_ids
+        ],
+        "turning_points": {
+            "source_reversal_beat": (
+                int(parity.get("source_reversal_beat") or 0) + turning_point_offset
+                if isinstance(parity, dict) and int(parity.get("source_reversal_beat") or 0)
+                else 0
+            ),
+            "source_peak_beat": (
+                int(parity.get("source_peak_beat") or 0) + turning_point_offset
+                if isinstance(parity, dict) and int(parity.get("source_peak_beat") or 0)
+                else 0
+            ),
+        },
+        "outline_excerpt": {
+            "source_emotion_sequence_count": len((parity or {}).get("source_emotion_sequence") or []),
+            "scene_unit_count": len(scene_units or []),
+        },
+    }
+
+
+def export_plan_template(
+    data: dict[str, Any],
+    source_ledger: dict[str, Any],
+    beat_mapping: dict[str, Any],
+    outline_contract: dict[str, Any],
+    *,
+    section_id: str | None = None,
+    next_pending: bool = False,
+) -> dict[str, Any]:
+    outline_binding = (data.get("bindings") or {}).get("outline") or {}
+    outline_path = Path(str(outline_binding.get("path") or ""))
+    outline_sha = str(outline_binding.get("sha256") or "")
+    if not outline_path.is_file() or sha256_file(outline_path) != outline_sha:
+        raise ValueError("情绪合同绑定的细纲不存在或 SHA 已失效")
+    if beat_mapping.get("status") != "approved":
+        raise ValueError("逐拍语义映射必须为 approved")
+    if outline_contract.get("gate_status") != "passed":
+        raise ValueError("细纲表演验收回执必须为 passed")
+    if source_ledger.get("schema_version") != SOURCE_LEDGER_SCHEMA:
+        raise ValueError("全文情绪颗粒总账 schema_version 不正确")
+
+    source_by_id = {
+        str(item.get("beat_id") or ""): item
+        for item in source_ledger.get("beats", [])
+        if isinstance(item, dict)
+    }
+    emotion_by_id = {
+        str(item.get("source_beat_id") or ""): item
+        for item in beat_mapping.get("emotions", [])
+        if isinstance(item, dict)
+    }
+    plot_by_target = {
+        str(item.get("target_beat_id") or ""): item
+        for item in beat_mapping.get("plots", [])
+        if isinstance(item, dict)
+    }
+    outline_sections = {
+        str(item.get("section_id") or ""): item
+        for item in outline_contract.get("sections", [])
+        if isinstance(item, dict)
+    }
+    outside_parity = outline_contract.get("outside_bridge_plot_parity") or {}
+    approved_outside_ids = [
+        str(item.get("beat_id") or "")
+        for item in outside_parity.get("source_emotion_sequence", [])
+        if isinstance(item, dict)
+    ]
+    source_beats = [item for item in source_ledger.get("beats", []) if isinstance(item, dict)]
+    source_regions = source_beat_regions(source_beats, source_ledger.get("coverage_segments"))
+    opening_ids = [beat_id for beat_id in approved_outside_ids if source_regions.get(beat_id) == "opening"]
+    epilogue_ids = [beat_id for beat_id in approved_outside_ids if source_regions.get(beat_id) == "epilogue"]
+
+    approved_outside_plot_ids = [
+        str(item.get("beat_id") or "")
+        for item in outside_parity.get("target_plot_beats", [])
+        if isinstance(item, dict)
+    ]
+    plot_order = {
+        str(item.get("target_beat_id") or ""): index
+        for index, item in enumerate(beat_mapping.get("plots", []))
+        if isinstance(item, dict)
+    }
+    bridge_plot_ids = [
+        str(beat_id)
+        for section in outline_sections.values()
+        for scene in section.get("scene_units", [])
+        if isinstance(scene, dict)
+        for beat_id in scene.get("plot_beat_ids", [])
+    ]
+    bridge_plot_positions = [plot_order[beat_id] for beat_id in bridge_plot_ids if beat_id in plot_order]
+    if not bridge_plot_positions:
+        raise ValueError("细纲场面合同缺少桥内 P 拍")
+    first_bridge_plot = min(bridge_plot_positions)
+    last_bridge_plot = max(bridge_plot_positions)
+    opening_plot_ids = [
+        beat_id for beat_id in approved_outside_plot_ids
+        if plot_order.get(beat_id, first_bridge_plot) < first_bridge_plot
+    ]
+    epilogue_plot_ids = [
+        beat_id for beat_id in approved_outside_plot_ids
+        if plot_order.get(beat_id, last_bridge_plot) > last_bridge_plot
+    ]
+
+    expected_contracts = data.get("section_contracts")
+    if not isinstance(expected_contracts, list):
+        raise ValueError("情绪合同缺少 section_contracts")
+    expected_ids = [str(item.get("section_id") or "") for item in expected_contracts]
+    if section_id and next_pending:
+        raise ValueError("export-plan-template 不能同时指定 section_id 和 next_pending")
+    selected_ids = expected_ids
+    if section_id is not None:
+        selected_section = str(section_id).strip()
+        if not selected_section:
+            raise ValueError("section_id 不能为空")
+        if selected_section not in expected_ids:
+            raise ValueError(f"情绪合同不存在第 {selected_section} 节")
+        selected_ids = [selected_section]
+    elif next_pending:
+        pending_id = next(
+            (
+                str(item.get("section_id") or "")
+                for item in expected_contracts
+                if isinstance(item, dict) and item.get("status") != "passed"
+            ),
+            "",
+        )
+        if not pending_id:
+            raise ValueError("情绪合同当前没有待补小节")
+        selected_ids = [pending_id]
+    sections: list[dict[str, Any]] = []
+    section_hints: dict[str, Any] = {}
+    for index, current_section_id in enumerate(expected_ids):
+        if current_section_id not in selected_ids:
+            continue
+        outline_section = outline_sections.get(current_section_id)
+        if outline_section is None:
+            raise ValueError(f"细纲表演回执缺少第 {current_section_id} 节")
+        parity = outline_section.get("source_emotion_parity") or {}
+        emotion_ids = section_emotion_ids(
+            parity, emotion_by_id, current_section_id
+        )
+        if index == 0:
+            emotion_ids = opening_ids + emotion_ids
+        if index == len(expected_ids) - 1:
+            emotion_ids = emotion_ids + epilogue_ids
+        plot_ids = [
+            str(beat_id)
+            for scene in outline_section.get("scene_units", [])
+            if isinstance(scene, dict)
+            for beat_id in scene.get("plot_beat_ids", [])
+        ]
+        if index == 0:
+            plot_ids = opening_plot_ids + plot_ids
+        if index == len(expected_ids) - 1:
+            plot_ids = plot_ids + epilogue_plot_ids
+        turning_point_offset = len(opening_ids) if index == 0 else 0
+        source_reversal_beat = section_turning_point(
+            parity, emotion_ids, "source_reversal_beat"
+        )
+        source_peak_beat = section_turning_point(
+            parity, emotion_ids, "source_peak_beat"
+        )
+        sections.append(
+            {
+                "section_id": current_section_id,
+                "status": "pending",
+                "emotion_beat_ids": emotion_ids,
+                "plot_beat_ids": plot_ids,
+                "source_reversal_beat": source_reversal_beat,
+                "source_peak_beat": source_peak_beat,
+                **{field: "" for field in REQUIRED_PLAN_FIELDS},
+                "turning_point_selection_review": "",
+                "source_emotion_beat_completion_review": "",
+                "plot_beat_completion_review": "",
+                "source_like_direct_emotion_preserved": True,
+                "surface_copy_rejected": True,
+                "manual_judgment": "",
+            }
+        )
+        section_hints[current_section_id] = build_emotion_plan_editor_hints(
+            emotion_ids,
+            plot_ids,
+            source_by_id,
+            emotion_by_id,
+            plot_by_target,
+            outline_section,
+            turning_point_offset=turning_point_offset,
+        )
+    return {
+        "outline_sha256": outline_sha,
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "manual_judgment": "",
+        "sections": sections,
+        "editor_hints": {
+            "generated_by": "validate_emotional_granularity_contract.export-plan-template",
+            "deterministic_only": True,
+            "section_hints": section_hints,
+        },
+    }
+
+
+def export_next_pending_plan_template(
+    data: dict[str, Any],
+    source_ledger: dict[str, Any],
+    beat_mapping: dict[str, Any],
+    outline_contract: dict[str, Any],
+) -> dict[str, Any] | None:
+    expected_contracts = data.get("section_contracts")
+    if not isinstance(expected_contracts, list):
+        raise ValueError("情绪合同缺少 section_contracts")
+    if not any(
+        isinstance(item, dict) and item.get("status") != "passed"
+        for item in expected_contracts
+    ):
+        return None
+    return export_plan_template(
+        data,
+        source_ledger,
+        beat_mapping,
+        outline_contract,
+        next_pending=True,
+    )
+
+
 def validate_binding(
     value: Any, expected: Path, label: str, errors: list[str]
 ) -> None:
@@ -744,6 +1103,11 @@ def validate_required_plot_beats(
             beat_ids.add(beat_id)
         if not action:
             errors.append(f"{label} {beat_id or index} 缺少 action")
+        for field in REQUIRED_PLOT_CONTRACT_FIELDS:
+            if not non_empty_text(beat.get(field)):
+                errors.append(
+                    f"{label} {beat_id or index} 缺少 {field}；P 编号不能替代来源与目标逐字段语义"
+                )
         if not evidence or evidence not in outline_text:
             errors.append(f"{label} {beat_id or index} outline_evidence 不在绑定细纲中")
         elif evidence in evidence_seen:
@@ -943,11 +1307,9 @@ def assemble_section_plan(
         if outline_section is None:
             raise ValueError(f"细纲表演回执缺少第 {section_id} 节")
         parity = outline_section.get("source_emotion_parity") or {}
-        expected_emotion_ids = [
-            str(beat.get("beat_id") or "")
-            for beat in parity.get("source_emotion_sequence", [])
-            if isinstance(beat, dict)
-        ]
+        expected_emotion_ids = section_emotion_ids(
+            parity, emotion_by_id, section_id
+        )
         if section_id == expected_ids[0]:
             expected_emotion_ids = opening_ids + expected_emotion_ids
         if section_id == expected_ids[-1]:
@@ -1010,18 +1372,19 @@ def assemble_section_plan(
         end_line = max(int(beat.get("end_line")) for beat in source_beats)
         reversal = item.get("source_reversal_beat")
         peak = item.get("source_peak_beat")
-        turning_point_offset = len(opening_ids) if section_id == expected_ids[0] else 0
-        expected_reversal = int(parity.get("source_reversal_beat") or 0)
-        expected_peak = int(parity.get("source_peak_beat") or 0)
-        if expected_reversal:
-            expected_reversal += turning_point_offset
-        if expected_peak:
-            expected_peak += turning_point_offset
+        expected_reversal = section_turning_point(
+            parity, expected_emotion_ids, "source_reversal_beat"
+        )
+        expected_peak = section_turning_point(
+            parity, expected_emotion_ids, "source_peak_beat"
+        )
         if reversal != expected_reversal or peak != expected_peak:
             raise ValueError(f"第 {section_id} 节反刀/峰值必须原样匹配已批准细纲合同")
         assembled_by_id[section_id] = {
             "section_id": section_id,
-            "status": item.get("status"),
+            # Reaching assembly means every required manual field and bound asset
+            # for this section has already passed the checks above.
+            "status": "passed",
             "source_excerpt": "\n".join(source_lines[start_line - 1:end_line]),
             "source_emotion_beats": source_beats,
             "target_outline_beats": target_beats,
@@ -1034,7 +1397,26 @@ def assemble_section_plan(
             "required_plot_beats": [
                 {
                     "beat_id": beat_id,
+                    "source_beat_id": plot_by_target[beat_id].get("source_beat_id"),
+                    "source_actor": plot_by_target[beat_id].get("source_actor"),
+                    "source_object_or_receiver": plot_by_target[beat_id].get("source_object_or_receiver"),
+                    "source_pressure_or_trigger": plot_by_target[beat_id].get("source_pressure_or_trigger"),
+                    "source_action": plot_by_target[beat_id].get("source_action"),
+                    "source_control_change": plot_by_target[beat_id].get("source_control_change"),
+                    "source_information_change": plot_by_target[beat_id].get("source_information_change"),
+                    "source_consequence": plot_by_target[beat_id].get("source_consequence"),
+                    "actor": plot_by_target[beat_id].get("actor"),
+                    "object_or_receiver": plot_by_target[beat_id].get("object_or_receiver"),
+                    "pressure_or_trigger": plot_by_target[beat_id].get("pressure_or_trigger"),
                     "action": plot_by_target[beat_id].get("action"),
+                    "control_change": plot_by_target[beat_id].get("control_change"),
+                    "information_change": plot_by_target[beat_id].get("information_change"),
+                    "consequence": plot_by_target[beat_id].get("consequence"),
+                    "action_equivalence_review": plot_by_target[beat_id].get("action_equivalence_review"),
+                    "control_change_equivalence_review": plot_by_target[beat_id].get("control_change_equivalence_review"),
+                    "information_change_equivalence_review": plot_by_target[beat_id].get("information_change_equivalence_review"),
+                    "consequence_equivalence_review": plot_by_target[beat_id].get("consequence_equivalence_review"),
+                    "independent_beat_judgment": plot_by_target[beat_id].get("independent_beat_judgment"),
                     "outline_evidence": plot_by_target[beat_id].get("evidence"),
                 }
                 for beat_id in actual_plot_ids
@@ -1369,10 +1751,30 @@ def validate_draft_data(
         ]
         if review_plot_ids != required_plot_ids:
             errors.append(f"{label} plot_beat_reviews 必须按写前合同原顺序兑现全部情节拍")
-        for index, review in enumerate(plot_reviews, start=1):
+        for index, (contract_beat, review) in enumerate(
+            zip(required_plot_beats, plot_reviews), start=1
+        ):
             if not isinstance(review, dict):
+                errors.append(f"{label} plot_beat_reviews[{index}] 必须是对象")
                 continue
             beat_id = str(review.get("beat_id") or "").strip()
+            if review.get("source_beat_id") != contract_beat.get("source_beat_id"):
+                errors.append(f"{label} {beat_id or index} source_beat_id 未按写前合同回填")
+            expected_semantics = review.get("expected_semantics")
+            if not isinstance(expected_semantics, dict):
+                errors.append(f"{label} {beat_id or index} 缺少 expected_semantics")
+                expected_semantics = {}
+            for field in (
+                "action",
+                "control_change",
+                "information_change",
+                "consequence",
+            ):
+                if expected_semantics.get(field) != contract_beat.get(field):
+                    errors.append(
+                        f"{label} {beat_id or index} expected_semantics.{field} "
+                        "必须逐字继承写前目标情节拍"
+                    )
             quotes = quote_list(review.get("target_quotes"))
             if not quotes:
                 errors.append(f"{label} {beat_id or index} 缺少正文情节拍证据")
@@ -1383,8 +1785,16 @@ def validate_draft_data(
                     errors.append(f"{label} {beat_id or index} 与全文其他情节拍复用正文证据")
                 else:
                     global_plot_quotes.add(quote)
-            if len(str(review.get("consequence_judgment") or "").strip()) < 12:
-                errors.append(f"{label} {beat_id or index} consequence_judgment 过短")
+            for field in PLOT_DRAFT_JUDGMENT_FIELDS:
+                if len(str(review.get(field) or "").strip()) < 12:
+                    errors.append(
+                        f"{label} {beat_id or index} {field} 过短；必须分别核对动作、换权、信息与后果"
+                    )
+            if review.get("parity_status") not in {"matched", "adapted_equal"}:
+                errors.append(
+                    f"{label} {beat_id or index} parity_status 必须是 matched/adapted_equal；"
+                    "missing/weakened/merged/compressed/omitted 一律阻断"
+                )
         if len(str(item.get("complete_plot_beat_review") or "").strip()) < 20:
             errors.append(f"{label} complete_plot_beat_review 过短，必须确认全部情节拍均在正文兑现")
         validate_quote_fields(item, section_text, label, errors)
@@ -1440,7 +1850,7 @@ def main() -> int:
     init_parser.add_argument("--source-emotion-ledger", required=True)
     init_parser.add_argument("--receipt", required=True)
 
-    for command in ("bind-outline", "apply-section-plan", "assemble-section-plan", "validate-prewrite", "bind-draft", "validate-draft"):
+    for command in ("bind-outline", "export-plan-template", "apply-section-plan", "assemble-section-plan", "validate-prewrite", "bind-draft", "validate-draft"):
         sub = subparsers.add_parser(command)
         sub.add_argument("--receipt", required=True)
         if command in ("bind-outline", "validate-prewrite"):
@@ -1453,12 +1863,22 @@ def main() -> int:
             sub.add_argument("--source-emotion-ledger", required=True)
         if command == "apply-section-plan":
             sub.add_argument("--plan", required=True)
+            sub.add_argument("--consume", action="store_true")
         if command == "assemble-section-plan":
             sub.add_argument("--plan", required=True)
+            sub.add_argument("--consume", action="store_true")
             sub.add_argument("--source-original", required=True)
             sub.add_argument("--source-emotion-ledger", required=True)
             sub.add_argument("--beat-mapping", required=True)
             sub.add_argument("--outline-contract", required=True)
+            sub.add_argument("--refresh-next-output")
+        if command == "export-plan-template":
+            sub.add_argument("--output", required=True)
+            sub.add_argument("--source-emotion-ledger", required=True)
+            sub.add_argument("--beat-mapping", required=True)
+            sub.add_argument("--outline-contract", required=True)
+            sub.add_argument("--section-id")
+            sub.add_argument("--next-pending", action="store_true")
 
     args = parser.parse_args()
     receipt = Path(args.receipt).resolve()
@@ -1478,9 +1898,28 @@ def main() -> int:
         write_json(receipt, data)
         print("emotional_granularity_contract: outline bound")
         return 0
+    if args.command == "export-plan-template":
+        try:
+            template = export_plan_template(
+                data,
+                load_json(Path(args.source_emotion_ledger).resolve()),
+                load_json(Path(args.beat_mapping).resolve()),
+                load_json(Path(args.outline_contract).resolve()),
+                section_id=args.section_id,
+                next_pending=args.next_pending,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("emotional_granularity_contract: blocked (export-plan-template)")
+            print(f"- {exc}")
+            return 2
+        output = Path(args.output).resolve()
+        write_json(output, template)
+        print(f"emotional_granularity_contract: plan template exported -> {output}")
+        return 0
     if args.command == "apply-section-plan":
         plan_path = Path(args.plan).resolve()
         try:
+            plan_sha = sha256_file(plan_path)
             plan = load_json(plan_path)
             data = apply_section_plan(data, plan)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -1488,21 +1927,34 @@ def main() -> int:
             print(f"- {exc}")
             return 2
         data["section_plan_provenance"].update(
-            {"path": str(plan_path), "sha256": sha256_file(plan_path)}
+            {"path": str(plan_path), "sha256": plan_sha}
         )
         write_json(receipt, data)
+        if args.consume:
+            consume_sidecar(
+                plan_path,
+                input_sha256=plan_sha,
+                receipt_path=receipt,
+                receipt_sha256=sha256_file(receipt),
+                operation="emotional-section-plan.apply",
+                counts={"sections": len(plan.get("section_contracts") or [])},
+            )
         print("emotional_granularity_contract: section plan applied")
         return 0
     if args.command == "assemble-section-plan":
         plan_path = Path(args.plan).resolve()
         try:
+            plan_sha = sha256_file(plan_path)
             plan = load_json(plan_path)
+            source_ledger = load_json(Path(args.source_emotion_ledger).resolve())
+            beat_mapping = load_json(Path(args.beat_mapping).resolve())
+            outline_contract = load_json(Path(args.outline_contract).resolve())
             data = assemble_section_plan(
                 data,
                 plan,
-                load_json(Path(args.source_emotion_ledger).resolve()),
-                load_json(Path(args.beat_mapping).resolve()),
-                load_json(Path(args.outline_contract).resolve()),
+                source_ledger,
+                beat_mapping,
+                outline_contract,
                 Path(args.source_original).resolve(),
             )
         except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -1510,9 +1962,33 @@ def main() -> int:
             print(f"- {exc}")
             return 2
         data["section_plan_provenance"].update(
-            {"path": str(plan_path), "sha256": sha256_file(plan_path)}
+            {"path": str(plan_path), "sha256": plan_sha}
         )
         write_json(receipt, data)
+        if args.consume:
+            consume_sidecar(
+                plan_path,
+                input_sha256=plan_sha,
+                receipt_path=receipt,
+                receipt_sha256=sha256_file(receipt),
+                operation="emotional-section-plan.assemble",
+                counts={"sections": len(plan.get("sections") or [])},
+            )
+        if args.refresh_next_output:
+            next_output = Path(args.refresh_next_output).resolve()
+            next_template = export_next_pending_plan_template(
+                data,
+                source_ledger,
+                beat_mapping,
+                outline_contract,
+            )
+            if next_template is None:
+                if next_output.exists():
+                    next_output.unlink()
+                print("emotional_granularity_contract: no pending section to refresh")
+            else:
+                write_json(next_output, next_template)
+                print(f"emotional_granularity_contract: next pending plan exported -> {next_output}")
         print("emotional_granularity_contract: section plan assembled")
         return 0
     if args.command == "bind-draft":

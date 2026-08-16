@@ -1064,7 +1064,26 @@ class WriteReleaseGateTest(unittest.TestCase):
                 "required_plot_beats": [
                     {
                         "beat_id": f"TP-{index}",
+                        "source_beat_id": f"P-{index}",
+                        "source_actor": f"来源人物{index}",
+                        "source_object_or_receiver": f"来源动作对象{index}",
+                        "source_pressure_or_trigger": f"来源触发压力{index}",
+                        "source_action": f"来源第{index}拍动作",
+                        "source_control_change": f"来源第{index}拍控制权变化",
+                        "source_information_change": f"来源第{index}拍信息变化",
+                        "source_consequence": f"来源第{index}拍现实后果",
+                        "actor": f"目标人物{index}",
+                        "object_or_receiver": f"目标动作对象{index}",
+                        "pressure_or_trigger": f"目标第{index}拍触发压力",
                         "action": f"第{index}拍动作",
+                        "control_change": f"目标第{index}拍控制权变化",
+                        "information_change": f"目标第{index}拍信息变化",
+                        "consequence": f"目标第{index}拍现实后果",
+                        "action_equivalence_review": f"第{index}拍来源与目标动作功能保持同级且未换拍。",
+                        "control_change_equivalence_review": f"第{index}拍来源与目标控制权变化保持同级。",
+                        "information_change_equivalence_review": f"第{index}拍来源与目标信息变化保持同级。",
+                        "consequence_equivalence_review": f"第{index}拍来源与目标现实后果保持同级。",
+                        "independent_beat_judgment": f"第{index}拍使用独占证据，未与相邻情节拍合并或压缩。",
                         "outline_evidence": f"目标情节拍{index}",
                     }
                     for index in range(1, 5)
@@ -1231,6 +1250,53 @@ class WriteReleaseGateTest(unittest.TestCase):
             emotional_contract=self.files["emotional"],
             source_emotion_ledger=self.source_emotion_ledger,
         )
+        self.assertEqual([], errors)
+
+    def test_batch_prevalidated_contracts_skip_duplicate_contract_validation(self) -> None:
+        def entry(path: Path) -> dict:
+            return {
+                "path": str(path.resolve()),
+                "sha256": GATE.hashlib.sha256(path.read_bytes()).hexdigest(),
+                "data": json.loads(path.read_text(encoding="utf-8")),
+            }
+
+        prevalidated = {
+            "outline_contract": entry(self.files["outline_contract"]),
+            "prose_contract": entry(self.files["prose"]),
+            "emotional_contract": entry(self.files["emotional"]),
+        }
+        original_outline = GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt
+        original_prose = GATE._PROSE_GRANULARITY_MODULE.validate_prewrite_data
+        original_emotion = GATE._EMOTIONAL_GRANULARITY_MODULE.validate_prewrite_data
+        try:
+            GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt = (
+                lambda *_args, **_kwargs: self.fail("outline should be reused")
+            )
+            GATE._PROSE_GRANULARITY_MODULE.validate_prewrite_data = (
+                lambda *_args, **_kwargs: self.fail("prose should be reused")
+            )
+            GATE._EMOTIONAL_GRANULARITY_MODULE.validate_prewrite_data = (
+                lambda *_args, **_kwargs: self.fail("emotion should be reused")
+            )
+            errors = GATE.validate_release(
+                phase="draft",
+                writing_receipt=self.files["writing"],
+                source_receipt=self.files["source"],
+                ledger=self.files["ledger"],
+                opening_contract=self.files["opening"],
+                outline_contract=self.files["outline_contract"],
+                profile=self.files["profile"],
+                sequence_receipt=self.files["sequence"],
+                prose_contract=self.files["prose"],
+                primary_source_original=self.source_original,
+                emotional_contract=self.files["emotional"],
+                source_emotion_ledger=self.source_emotion_ledger,
+                prevalidated_contracts=prevalidated,
+            )
+        finally:
+            GATE._OUTLINE_PERFORMANCE_MODULE.validate_receipt = original_outline
+            GATE._PROSE_GRANULARITY_MODULE.validate_prewrite_data = original_prose
+            GATE._EMOTIONAL_GRANULARITY_MODULE.validate_prewrite_data = original_emotion
         self.assertEqual([], errors)
 
     def test_draft_release_blocks_plot_beat_missing_from_section_contract(self) -> None:

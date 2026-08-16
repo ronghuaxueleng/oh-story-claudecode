@@ -40,14 +40,28 @@ class PrepareSectionContextTest(unittest.TestCase):
                     "section_generation_plans": [{
                         "section_id": "1",
                         "character_plan": {"participants": [{"character_name": "甲"}]},
+                        "continuous_source_chain_packets": [
+                            {"source_excerpt": "重复的完整原文片段"}
+                        ],
+                        "contrastive_examples": [
+                            {"positive_source_excerpt": "重复的完整原文片段"}
+                        ],
                     }],
                     "source_subflow_reviews": [
-                        {"subflow_id": "SF-02"},
-                        {"subflow_id": "SF-01"},
+                        {
+                            "subflow_id": "SF-02",
+                            "source_style_granularity": {"voice": {"source_evidence": ["证据二"]}},
+                            "dimension_transfers": {"voice": {"target_quotes": [], "comparison": ""}},
+                        },
+                        {
+                            "subflow_id": "SF-01",
+                            "source_style_granularity": {"voice": {"source_evidence": ["证据一"]}},
+                            "dimension_transfers": {"voice": {"target_quotes": [], "comparison": ""}},
+                        },
                     ],
                     "source_detail_card_reviews": [
-                        {"card_id": "D-02"},
-                        {"card_id": "D-01"},
+                        {"card_id": "D-02", "source_quote": "细节二", "status": "pending"},
+                        {"card_id": "D-01", "source_quote": "细节一", "status": "pending"},
                     ],
                 }, ensure_ascii=False),
                 encoding="utf-8",
@@ -92,6 +106,23 @@ class PrepareSectionContextTest(unittest.TestCase):
             )
             self.assertEqual(["E-001"], context["required_ids"]["emotion_beat_ids"])
             self.assertEqual(["P-001"], context["required_ids"]["plot_beat_ids"])
+            self.assertEqual("compact_source_complete", context["context_view"])
+            self.assertNotIn("dimension_transfers", context["source_subflow_assets"][0])
+            self.assertNotIn("status", context["source_detail_card_assets"][0])
+            self.assertEqual(
+                ["证据一"],
+                context["source_subflow_assets"][0]["source_style_granularity"]["voice"]["source_evidence"],
+            )
+            detail_ref = context["source_detail_card_assets"][0]["source_quote_ref"]
+            self.assertEqual("细节一", context["source_text_registry"][detail_ref])
+            chain_ref = context["generation_plan"]["continuous_source_chain_packets"][0][
+                "source_excerpt_ref"
+            ]
+            contrast_ref = context["generation_plan"]["contrastive_examples"][0][
+                "positive_source_excerpt_ref"
+            ]
+            self.assertEqual(chain_ref, contrast_ref)
+            self.assertEqual("重复的完整原文片段", context["source_text_registry"][chain_ref])
 
     def test_requires_writing_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

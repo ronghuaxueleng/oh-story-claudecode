@@ -90,6 +90,29 @@ def require_passed(data: dict[str, Any] | None, label: str, errors: list[str]) -
         errors.append(f"{label}未通过: gate_status={data.get('gate_status')!r}")
 
 
+def validated_payload(
+    prevalidated: dict[str, Any] | None,
+    key: str,
+    path: Path,
+) -> dict[str, Any] | None:
+    """Accept only an in-process validation result bound to the current file."""
+    if not isinstance(prevalidated, dict):
+        return None
+    entry = prevalidated.get(key)
+    if not isinstance(entry, dict):
+        return None
+    resolved = path.resolve()
+    if str(Path(str(entry.get("path") or "")).resolve()) != str(resolved):
+        return None
+    if not resolved.is_file():
+        return None
+    current_sha = hashlib.sha256(resolved.read_bytes()).hexdigest()
+    if entry.get("sha256") != current_sha:
+        return None
+    payload = entry.get("data")
+    return payload if isinstance(payload, dict) else None
+
+
 def iter_execution_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
     for key in ("skill_rules", "source_assets", "asset_rules"):
@@ -249,6 +272,7 @@ def validate_release(
     primary_source_original: Path | None = None,
     emotional_contract: Path | None = None,
     source_emotion_ledger: Path | None = None,
+    prevalidated_contracts: dict[str, Any] | None = None,
 ) -> list[str]:
     errors: list[str] = []
     require_passed(
@@ -325,11 +349,19 @@ def validate_release(
         prose_data: dict[str, Any] | None = None
         emotional_data: dict[str, Any] | None = None
         outline_contract_data: dict[str, Any] | None = None
+        prose_prevalidated = False
+        emotional_prevalidated = False
+        outline_prevalidated = False
         bound_outline_path: Path | None = None
         if prose_contract is None or primary_source_original is None:
             errors.append("正文写作放行必须提供全文文字颗粒度合同和主体原文")
         else:
-            prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
+            prose_data = validated_payload(
+                prevalidated_contracts, "prose_contract", prose_contract
+            )
+            prose_prevalidated = prose_data is not None
+            if prose_data is None:
+                prose_data = load_json(prose_contract, "全文文字颗粒度合同", errors)
         if (
             emotional_contract is None
             or primary_source_original is None
@@ -339,11 +371,18 @@ def validate_release(
                 "正文写作放行必须提供全文情绪颗粒度合同、主体原文和主体全文情绪颗粒总账"
             )
         else:
-            emotional_data = load_json(
+            emotional_data = validated_payload(
+                prevalidated_contracts,
+                "emotional_contract",
                 emotional_contract,
-                "全文情绪颗粒度合同",
-                errors,
             )
+            emotional_prevalidated = emotional_data is not None
+            if emotional_data is None:
+                emotional_data = load_json(
+                    emotional_contract,
+                    "全文情绪颗粒度合同",
+                    errors,
+                )
         if opening_contract is None:
             errors.append("正文写作放行必须提供开头承重契约回执")
         else:
@@ -355,11 +394,18 @@ def validate_release(
         if outline_contract is None:
             errors.append("正文写作放行必须提供细纲表演验收回执")
         else:
-            outline_contract_data = load_json(
+            outline_contract_data = validated_payload(
+                prevalidated_contracts,
+                "outline_contract",
                 outline_contract,
-                "细纲表演验收回执",
-                errors,
             )
+            outline_prevalidated = outline_contract_data is not None
+            if outline_contract_data is None:
+                outline_contract_data = load_json(
+                    outline_contract,
+                    "细纲表演验收回执",
+                    errors,
+                )
             require_passed(
                 outline_contract_data,
                 "细纲表演验收门禁",
@@ -376,14 +422,18 @@ def validate_release(
                 if isinstance(binding, dict):
                     outline_path = Path(str(binding.get("path") or "")).resolve()
                     bound_outline_path = outline_path
-                    if outline_path.is_file():
+                    if outline_path.is_file() and not outline_prevalidated:
                         errors.extend(
                             _OUTLINE_PERFORMANCE_MODULE.validate_receipt(
                                 outline_contract,
                                 outline_path,
                             )
                         )
-        if prose_data is not None and primary_source_original is not None:
+        if (
+            prose_data is not None
+            and primary_source_original is not None
+            and not prose_prevalidated
+        ):
             prose_errors, _ = _PROSE_GRANULARITY_MODULE.validate_prewrite_data(
                 prose_data,
                 primary_source_original,
@@ -396,6 +446,7 @@ def validate_release(
             emotional_data is not None
             and primary_source_original is not None
             and bound_outline_path is not None
+            and not emotional_prevalidated
         ):
             emotional_errors, _ = (
                 _EMOTIONAL_GRANULARITY_MODULE.validate_prewrite_data(

@@ -155,6 +155,47 @@ def bridge_ids_from_catalog(path: Path) -> list[str]:
     return list(dict.fromkeys(BRIDGE_HEADING_PATTERN.findall(read_text(path))))
 
 
+def bridge_catalog_records(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.is_file():
+        return {}
+    records: dict[str, dict[str, Any]] = {}
+    current_id = ""
+    current: dict[str, Any] | None = None
+    field_map = {
+        "桥段名": "bridge_name",
+        "一句人话抓手": "bridge_hook",
+        "桥段角色": "bridge_role",
+        "原文位置": "source_range_note",
+        "原文现象证据": "source_scene_granularity",
+        "原文为什么能过": "source_plot_beat_completion_review",
+        "新稿最容易写假的点": "cannot_merge_or_drop_reason",
+        "必须保留的承重件": "source_must_keep_actions_text",
+        "不能丢的顺序": "source_required_sequence_text",
+        "为什么这个顺序不能乱": "sequence_reason",
+        "后续调用方式": "adaptation_usage",
+    }
+    for raw_line in read_text(path).splitlines():
+        line = raw_line.strip()
+        heading = BRIDGE_HEADING_PATTERN.match(line)
+        if heading:
+            current_id = heading.group(1)
+            current = {"bridge_id": current_id, "emotion_beats": []}
+            records[current_id] = current
+            continue
+        if not current_id or current is None:
+            continue
+        if line.startswith("- 情绪拍："):
+            current["emotion_beats"].append(line[2:].strip())
+            continue
+        if not line.startswith("- ") or "：" not in line:
+            continue
+        key, value = line[2:].split("：", 1)
+        mapped = field_map.get(key.strip())
+        if mapped:
+            current[mapped] = value.strip()
+    return records
+
+
 def subflow_catalog_path(source: Path) -> Path:
     return source.parent.parent / "写作资产" / "子流程索引.jsonl"
 
@@ -216,6 +257,114 @@ def normalized_plot_ledger_beats(payload: dict[str, Any]) -> list[dict[str, Any]
             }
         )
     return normalized
+
+
+def plot_sequence_from_beats(beats: list[dict[str, Any]]) -> list[str]:
+    sequence: list[str] = []
+    for beat in beats:
+        actor = str(beat.get("actor") or "").strip()
+        action = str(beat.get("action") or "").strip()
+        target = str(beat.get("object_or_receiver") or "").strip()
+        consequence = str(beat.get("consequence") or "").strip()
+        parts = [part for part in (actor, action, target, consequence) if part]
+        if parts:
+            sequence.append(" / ".join(parts))
+    return sequence
+
+
+def plot_keep_actions_from_beats(beats: list[dict[str, Any]]) -> list[str]:
+    actions: list[str] = []
+    for beat in beats:
+        action = str(beat.get("action") or "").strip()
+        control_change = str(beat.get("control_change") or "").strip()
+        consequence = str(beat.get("consequence") or "").strip()
+        parts = [part for part in (action, control_change, consequence) if part]
+        if parts:
+            actions.append(" / ".join(parts))
+    return actions
+
+
+def bridge_inventory_entry(
+    first_source: dict[str, Any],
+    bridge_id: str,
+    primary_plot_beats: list[dict[str, Any]],
+    bridge_cards: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    beats = [beat for beat in primary_plot_beats if bridge_id in (beat.get("bid_ids") or [])]
+    card = bridge_cards.get(bridge_id, {})
+    required_sequence = plot_sequence_from_beats(beats)
+    keep_actions = plot_keep_actions_from_beats(beats)
+    last_beat = beats[-1] if beats else {}
+    end_state_change = " / ".join(
+        part
+        for part in (
+            str(last_beat.get("control_change") or "").strip(),
+            str(last_beat.get("consequence") or "").strip(),
+        )
+        if part
+    )
+    bridge_name = str(card.get("bridge_name") or "").strip()
+    scene_granularity_parts = [
+        str(card.get("source_scene_granularity") or "").strip(),
+        str(card.get("sequence_reason") or "").strip(),
+    ]
+    scene_granularity = "\n".join(part for part in scene_granularity_parts if part)
+    return {
+        "source_path": first_source["path"],
+        "source_sha256": first_source["sha256"],
+        "bridge_id": bridge_id,
+        "bridge_name": bridge_name,
+        "source_required_sequence": required_sequence,
+        "source_must_keep_actions": keep_actions,
+        "source_scene_granularity": scene_granularity,
+        "source_plot_beats": beats,
+        "source_plot_beat_completion_review": str(
+            card.get("source_plot_beat_completion_review")
+            or f"已按全文情节微拍总账逐拍预填，共 {len(beats)} 拍，待人工逐拍复核是否与原文桥段全集完全一致。"
+        ).strip(),
+        "source_end_state_change": end_state_change,
+        "cannot_merge_or_drop_reason": str(
+            card.get("cannot_merge_or_drop_reason")
+            or card.get("adaptation_usage")
+            or "该桥所有原文情节拍已从全文情节微拍总账完整带入，后续只允许人工核对与迁移，不得再压缩、并拍或漏拍。"
+        ).strip(),
+    }
+
+
+def bridge_parity_entry(
+    first_source: dict[str, Any],
+    bridge_id: str,
+    primary_plot_beats: list[dict[str, Any]],
+    bridge_cards: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    inventory = bridge_inventory_entry(first_source, bridge_id, primary_plot_beats, bridge_cards)
+    return {
+        "source_bridge_id": bridge_id,
+        "source_bridge_name": inventory["bridge_name"],
+        "source_path": inventory["source_path"],
+        "source_sha256": inventory["source_sha256"],
+        "source_required_sequence": inventory["source_required_sequence"],
+        "source_must_keep_actions": inventory["source_must_keep_actions"],
+        "source_scene_granularity": inventory["source_scene_granularity"],
+        "source_plot_beats": inventory["source_plot_beats"],
+        "target_plot_beats": [],
+        "plot_beat_mapping": [],
+        "plot_granularity_parity_judgment": "",
+        "source_emotion_sequence": [],
+        "target_emotion_sequence": [],
+        "source_reversal_beat": 0,
+        "target_reversal_beat": 0,
+        "source_peak_beat": 0,
+        "target_peak_beat": 0,
+        "reader_experience_parity": None,
+        "emotion_parity_judgment": "",
+        "target_outline_sections": [],
+        "target_outline_evidence": [],
+        "parity_status": "pending",
+        "adaptation_reason": "",
+        "missing_or_weakened_risk": "",
+        "manual_judgment": "",
+    }
 
 
 def subflow_records_from_catalog(path: Path) -> list[dict[str, Any]]:
@@ -368,6 +517,9 @@ def create_receipt(
     primary_subflow_records = subflow_records_from_catalog(
         Path(first_source["subflow_catalog"]["path"])
     )
+    primary_bridge_cards = bridge_catalog_records(
+        Path(first_source["bridge_catalog"]["path"])
+    )
     return {
         "version": "1.3",
         "project": project,
@@ -403,57 +555,21 @@ def create_receipt(
             for record in primary_subflow_records
         ],
         "source_bridge_flow_inventory": [
-            {
-                "source_path": first_source["path"],
-                "source_sha256": first_source["sha256"],
-                "bridge_id": bridge_id,
-                "bridge_name": "",
-                "source_required_sequence": [],
-                "source_must_keep_actions": [],
-                "source_scene_granularity": "",
-                "source_plot_beats": [
-                    beat
-                    for beat in primary_plot_beats
-                    if bridge_id in (beat.get("bid_ids") or [])
-                ],
-                "source_plot_beat_completion_review": "",
-                "source_end_state_change": "",
-                "cannot_merge_or_drop_reason": "",
-            }
+            bridge_inventory_entry(
+                first_source,
+                bridge_id,
+                primary_plot_beats,
+                primary_bridge_cards,
+            )
             for bridge_id in primary_bridge_ids
         ],
         "outline_bridge_flow_parity": [
-            {
-                "source_bridge_id": bridge_id,
-                "source_bridge_name": "",
-                "source_path": first_source["path"],
-                "source_sha256": first_source["sha256"],
-                "source_required_sequence": [],
-                "source_must_keep_actions": [],
-                "source_scene_granularity": "",
-                "source_plot_beats": [
-                    beat
-                    for beat in primary_plot_beats
-                    if bridge_id in (beat.get("bid_ids") or [])
-                ],
-                "target_plot_beats": [],
-                "plot_beat_mapping": [],
-                "plot_granularity_parity_judgment": "",
-                "source_emotion_sequence": [],
-                "target_emotion_sequence": [],
-                "source_reversal_beat": 0,
-                "target_reversal_beat": 0,
-                "source_peak_beat": 0,
-                "target_peak_beat": 0,
-                "reader_experience_parity": None,
-                "emotion_parity_judgment": "",
-                "target_outline_sections": [],
-                "target_outline_evidence": [],
-                "parity_status": "pending",
-                "adaptation_reason": "",
-                "missing_or_weakened_risk": "",
-                "manual_judgment": "",
-            }
+            bridge_parity_entry(
+                first_source,
+                bridge_id,
+                primary_plot_beats,
+                primary_bridge_cards,
+            )
             for bridge_id in primary_bridge_ids
         ],
         "outside_bridge_plot_parity": {

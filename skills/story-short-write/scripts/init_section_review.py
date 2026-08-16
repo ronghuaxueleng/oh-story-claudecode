@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from pathlib import Path
@@ -19,6 +20,7 @@ SF_DIMENSIONS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+DEFERRED_REVIEW_MODE = "deferred_full_contract_review"
 DIRECT_DIALOGUE_RE = re.compile(
     r"「[^」]*」(?:[^「」\n]{0,40}「[^」]*」)*|“[^”]*”(?:[^“”\n]{0,40}“[^”]*”)*"
 )
@@ -28,20 +30,7 @@ ATTRIBUTION_RE = re.compile(
 
 
 def iter_direct_dialogue_matches(text: str) -> list[re.Match[str]]:
-    rows: list[re.Match[str]] = []
-    for match in DIRECT_DIALOGUE_RE.finditer(text):
-        start, end = match.span()
-        line_start = text.rfind("\n", 0, start) + 1
-        line_end = text.find("\n", end)
-        if line_end < 0:
-            line_end = len(text)
-        line = text[line_start:line_end].strip()
-        before = text[max(line_start, start - 24):start]
-        after = text[end:line_end]
-        if line == match.group(0).strip() and not ATTRIBUTION_RE.search(before + after):
-            continue
-        rows.append(match)
-    return rows
+    return list(DIRECT_DIALOGUE_RE.finditer(text))
 
 
 def extract_direct_dialogue(text: str) -> list[str]:
@@ -68,7 +57,6 @@ def pending_sf_review(source: dict[str, Any]) -> dict[str, Any]:
     for name in SF_DIMENSIONS:
         evidence = list((source_dimensions.get(name) or {}).get("source_evidence") or [])
         dimensions[name] = {
-            "source_evidence": evidence,
             "evidence_mappings": [
                 {"source_quote": quote, "target_quotes": [], "comparison": ""}
                 for quote in evidence
@@ -100,9 +88,6 @@ def pending_sf_review(source: dict[str, Any]) -> dict[str, Any]:
 def pending_detail_review(source: dict[str, Any]) -> dict[str, Any]:
     return {
         "card_id": source.get("card_id"),
-        "category": source.get("category"),
-        "title": source.get("title"),
-        "source_quote": source.get("source_quote"),
         "distinct_function_to_preserve": source.get("distinct_function_to_preserve"),
         "status": "pending",
         "target_quotes": [],
@@ -130,7 +115,6 @@ def pending_sentence_mappings() -> list[dict[str, Any]]:
 def pending_chain_reviews(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
-            "source_excerpt": packet.get("source_excerpt"),
             "status": "pending",
             "target_quotes": [],
             "target_chain_quotes": [],
@@ -147,7 +131,6 @@ def pending_chain_reviews(plan: dict[str, Any]) -> list[dict[str, Any]]:
 def pending_dialogue_reviews(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
-            "source_excerpt": packet.get("source_excerpt"),
             "status": "pending",
             "target_quotes": [],
             "target_dialogue_turns": [],
@@ -166,7 +149,6 @@ def pending_dialogue_reviews(plan: dict[str, Any]) -> list[dict[str, Any]]:
 def pending_relation_reviews(plan: dict[str, Any]) -> list[dict[str, Any]]:
     return [
         {
-            "source_excerpt": packet.get("source_excerpt"),
             "status": "pending",
             "target_quotes": [],
             "relation_type": packet.get("target_relation_type"),
@@ -245,6 +227,15 @@ def build_review(
     if not plan_path.is_file():
         raise ValueError(f"当前节计划不存在: {plan_path}")
     section_plan = load_json(plan_path)
+    context_path = plan_path.parent.parent / "当前节写作包" / f"第{section_id}节.json"
+    section_context: dict[str, Any] = {}
+    if context_path.is_file():
+        section_context = load_json(context_path)
+        if str(section_context.get("section_id") or "") != section_id:
+            raise ValueError(f"当前节写作包节号不匹配: {context_path}")
+        expanded_plan = section_context.get("section_plan")
+        if isinstance(expanded_plan, dict):
+            section_plan = expanded_plan
     generation_plan = next(
         (
             entry
@@ -273,6 +264,18 @@ def build_review(
     missing_details = [card_id for card_id in required_detail_ids if card_id not in source_details]
     if missing_details:
         raise ValueError(f"文字合同缺少本节主体细节卡: {missing_details}")
+    emotion_sources = section_context.get("emotion_beat_contracts")
+    plot_sources = section_context.get("plot_beat_contracts")
+    if not isinstance(emotion_sources, list) or not emotion_sources:
+        emotion_sources = item.get("emotion_beat_contracts")
+    if not isinstance(plot_sources, list) or not plot_sources:
+        plot_sources = item.get("plot_beat_contracts")
+    if not isinstance(emotion_sources, list) or not emotion_sources:
+        raise ValueError(f"当前节写作包缺少第 {section_id} 节完整 E 拍合同")
+    if not isinstance(plot_sources, list) or not plot_sources:
+        raise ValueError(f"当前节写作包缺少第 {section_id} 节完整 P 拍合同")
+    if not section_plan.get("scene_units"):
+        raise ValueError(f"当前节写作包缺少第 {section_id} 节展开 scene_units")
 
     review = {
         "section_id": section_id,
@@ -335,7 +338,7 @@ def build_review(
                     "relationship_position_change": "", "reader_effect": "", "judgment": "",
                     "semantic_parity_status": "pending",
                 }
-                for source in item.get("emotion_beat_contracts", [])
+                for source in emotion_sources
             ],
             "plot_beat_reviews": [
                 {
@@ -343,7 +346,7 @@ def build_review(
                     "external_change": "", "relationship_consequence": "", "judgment": "",
                     "semantic_parity_status": "pending",
                 }
-                for source in item.get("plot_beat_contracts", [])
+                for source in plot_sources
             ],
         },
         "scene_realization_reviews": pending_scene_reviews(section_plan),
@@ -353,12 +356,57 @@ def build_review(
     return review
 
 
+def mark_review_deferred(
+    review: dict[str, Any],
+    *,
+    state_path: Path,
+    staged_path: Path,
+    prose_path: Path,
+    emotion_path: Path,
+) -> dict[str, Any]:
+    scaffold = review.setdefault("review_scaffold", {})
+    scaffold["review_mode"] = DEFERRED_REVIEW_MODE
+    scaffold["staged_sha256"] = hashlib.sha256(staged_path.read_bytes()).hexdigest()
+    scaffold["deferred_semantic_review"] = {
+        "target_contracts": [
+            "全文文字颗粒度契约回执.json: bind-draft/validate-draft",
+            "全文情绪颗粒度契约回执.json: bind-draft/validate-draft",
+        ],
+        "prewrite_contracts_remain_source_of_truth": True,
+        "per_section_manual_sidecar_required": False,
+        "fallback_on_detected_deviation": "delta_or_full_manual_sidecar",
+        "bindings": {
+            "state_sha256": hashlib.sha256(state_path.read_bytes()).hexdigest(),
+            "staged_sha256": hashlib.sha256(staged_path.read_bytes()).hexdigest(),
+            "prose_receipt_sha256": hashlib.sha256(prose_path.read_bytes()).hexdigest(),
+            "emotion_receipt_sha256": hashlib.sha256(emotion_path.read_bytes()).hexdigest(),
+        },
+    }
+    review["final_status"] = "deferred_to_final_contracts"
+    return review
+
+
+def export_manual_sidecar(
+    review_path: Path,
+    staged_path: Path,
+    sidecar_path: Path,
+) -> None:
+    script_path = Path(__file__).with_name("manage_section_review.py")
+    spec = importlib.util.spec_from_file_location("manage_section_review", script_path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"无法加载逐节人工侧车入口: {script_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.export_template(review_path, staged_path, sidecar_path)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--state", required=True)
     parser.add_argument("--section", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--staged", help="可选；默认自动读取写作资产/当前节暂存/第N节.md")
+    parser.add_argument("--sidecar-output")
     args = parser.parse_args()
     state_path = Path(args.state).resolve()
     output_path = Path(args.output).resolve()
@@ -368,6 +416,9 @@ def main() -> int:
     prose_path = Path(str(state.get("paths", {}).get("prose_receipt") or "")).resolve()
     if not prose_path.is_file():
         raise SystemExit(f"文字合同不存在: {prose_path}")
+    emotion_path = Path(str(state.get("paths", {}).get("emotion_receipt") or "")).resolve()
+    if not emotion_path.is_file():
+        raise SystemExit(f"情绪合同不存在: {emotion_path}")
     staged_path = (
         Path(args.staged).resolve()
         if args.staged
@@ -376,12 +427,35 @@ def main() -> int:
     staged_text = staged_path.read_text(encoding="utf-8") if staged_path.is_file() else ""
     review = build_review(state, load_json(prose_path), str(args.section), staged_text)
     review["review_scaffold"]["state_sha256"] = hashlib.sha256(state_path.read_bytes()).hexdigest()
+    if not args.sidecar_output:
+        if not staged_path.is_file():
+            raise SystemExit("生成延后复核回执前必须存在当前节暂存稿")
+        mark_review_deferred(
+            review,
+            state_path=state_path,
+            staged_path=staged_path,
+            prose_path=prose_path,
+            emotion_path=emotion_path,
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if args.sidecar_output:
+        if not staged_path.is_file():
+            raise SystemExit("生成逐节人工侧车前必须存在当前节暂存稿")
+        export_manual_sidecar(
+            output_path,
+            staged_path,
+            Path(args.sidecar_output).resolve(),
+        )
     print("section_review_scaffold: initialized")
     print(f"section: {args.section}")
     print(f"output: {output_path}")
-    print("semantic_status: pending_current_model_manual_review")
+    if args.sidecar_output:
+        print(f"sidecar: {Path(args.sidecar_output).resolve()}")
+        print("semantic_status: pending_current_model_manual_review")
+    else:
+        print(f"review_mode: {DEFERRED_REVIEW_MODE}")
+        print("semantic_status: deferred_to_final_contracts")
     return 0
 
 

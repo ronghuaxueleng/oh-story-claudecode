@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sidecar_lifecycle import consume_sidecar
 
 
 REQUIRED_DIMENSIONS = (
@@ -757,8 +762,11 @@ def action_continuity_review_scaffold(section_text: str) -> dict[str, Any]:
     }
 
 
-def section_generation_plan_scaffold(section_id: str) -> dict[str, Any]:
-    return {
+def section_generation_plan_scaffold(
+    section_id: str,
+    outline_section_sha256: str = "",
+) -> dict[str, Any]:
+    plan = {
         "section_id": section_id,
         "status": "pending",
         "planned_before_draft": None,
@@ -776,6 +784,337 @@ def section_generation_plan_scaffold(section_id: str) -> dict[str, Any]:
         "character_plan": section_character_plan_scaffold(),
         "surface_copy_rejected": None,
         "manual_judgment": "",
+    }
+    if outline_section_sha256:
+        plan["outline_section_sha256"] = outline_section_sha256
+    return plan
+
+
+def normalized_source_passage_records(data: dict[str, Any]) -> list[dict[str, Any]]:
+    baseline = data.get("ultra_fine_source_baseline") or {}
+    passages = baseline.get("source_passages") or []
+    records: list[dict[str, Any]] = []
+    for index, passage in enumerate(passages, start=1):
+        if not isinstance(passage, dict):
+            continue
+        passage_id = str(passage.get("passage_id") or passage.get("id") or "").strip()
+        source_excerpt = str(passage.get("source_excerpt") or passage.get("quote") or "").strip()
+        purpose = str(passage.get("purpose") or "").strip()
+        sentence_annotations = passage.get("sentence_annotations") or []
+        normalized_annotations = [
+            {
+                "source_sentence": str(item.get("source_sentence") or "").strip(),
+                "feature_ids": nonempty_strings(item.get("feature_ids")),
+            }
+            for item in sentence_annotations
+            if isinstance(item, dict) and str(item.get("source_sentence") or "").strip()
+        ]
+        source_sentences = [item["source_sentence"] for item in normalized_annotations]
+        if not passage_id:
+            passage_id = f"PASSAGE-{index:02d}"
+        records.append(
+            {
+                "passage_id": passage_id,
+                "source_excerpt": source_excerpt,
+                "purpose": purpose,
+                "source_sentences": source_sentences,
+                "sentence_annotations": normalized_annotations,
+                "sentence_count": len(source_sentences),
+            }
+        )
+    return records
+
+
+def dialogue_excerpt_candidates_from_text(
+    source_text: str,
+    minimum_length: int = 60,
+    minimum_turns: int = 2,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    source_units = sentence_units(source_text)
+    source_spans: list[tuple[int, int]] = []
+    cursor = 0
+    for unit in source_units:
+        start = source_text.find(unit, cursor)
+        if start < 0:
+            return []
+        end = start + len(unit)
+        source_spans.append((start, end))
+        cursor = end
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for start in range(len(source_units)):
+        for end in range(start, min(len(source_units), start + 8)):
+            excerpt = source_text[
+                source_spans[start][0] : source_spans[end][1]
+            ].strip()
+            turns = dialogue_turn_units(excerpt)
+            if len(excerpt) < minimum_length or len(turns) < minimum_turns:
+                continue
+            if excerpt not in seen:
+                candidates.append(
+                    {
+                        "source_excerpt": excerpt,
+                        "source_sentence_chain": sentence_units(excerpt),
+                        "source_dialogue_turns": turns,
+                    }
+                )
+                seen.add(excerpt)
+            break
+        if len(candidates) >= limit:
+            break
+    return candidates
+
+
+def source_dialogue_excerpt_candidates(
+    data: dict[str, Any],
+    minimum_length: int = 60,
+    minimum_turns: int = 2,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    binding = data.get("primary_prose_source") or {}
+    source_path = Path(str(binding.get("path") or "")).resolve()
+    if not source_path.is_file():
+        return []
+    return dialogue_excerpt_candidates_from_text(
+        read_text(source_path),
+        minimum_length=minimum_length,
+        minimum_turns=minimum_turns,
+        limit=limit,
+    )
+
+
+def section_editor_hints(
+    data: dict[str, Any],
+    section_id: str,
+    section_text: str,
+    plan: dict[str, Any] | None,
+) -> dict[str, Any]:
+    existing_plan = plan if isinstance(plan, dict) else {}
+    def short_preview(text: str, limit: int = 3) -> str:
+        sentences = sentence_units(text)
+        if not sentences:
+            return text[:120]
+        preview = " ".join(sentences[:limit])
+        return preview if len(preview) <= 180 else preview[:177] + "..."
+    passage_records = normalized_source_passage_records(data)
+    selected_passage_ids = set(nonempty_strings(existing_plan.get("source_passage_ids")))
+    recommended_passages = []
+    for record in passage_records:
+        if selected_passage_ids and record["passage_id"] not in selected_passage_ids:
+            continue
+        recommended_passages.append(
+            {
+                "passage_id": record["passage_id"],
+                "purpose": record["purpose"],
+                "source_excerpt_preview": short_preview(record["source_excerpt"]),
+                "source_excerpt_sentence_count": record["sentence_count"],
+                "source_sentences": record["source_sentences"],
+            }
+        )
+    if not recommended_passages:
+        recommended_passages = [
+            {
+                "passage_id": record["passage_id"],
+                "purpose": record["purpose"],
+                "source_excerpt_preview": short_preview(record["source_excerpt"]),
+                "source_excerpt_sentence_count": record["sentence_count"],
+                "source_sentences": record["source_sentences"],
+            }
+            for record in passage_records
+        ]
+
+    detail_cards = []
+    for item in data.get("source_detail_card_reviews") or []:
+        if not isinstance(item, dict):
+            continue
+        if section_id not in nonempty_strings(item.get("target_sections")):
+            continue
+        detail_cards.append(
+            {
+                "card_id": str(item.get("card_id") or ""),
+                "title": str(item.get("title") or ""),
+                "source_range": str(item.get("source_range") or ""),
+                "source_quote": str(item.get("source_quote") or ""),
+                "source_function": str(item.get("source_function") or ""),
+                "target_adaptation": str(item.get("target_adaptation") or ""),
+                "distinct_function_to_preserve": str(
+                    item.get("distinct_function_to_preserve") or ""
+                ),
+            }
+        )
+
+    subflows = []
+    for item in data.get("source_subflow_reviews") or []:
+        if not isinstance(item, dict):
+            continue
+        if section_id not in nonempty_strings(item.get("target_sections")):
+            continue
+        style = item.get("source_style_granularity") or {}
+        subflows.append(
+            {
+                "subflow_id": str(item.get("subflow_id") or ""),
+                "source_range": str(item.get("source_range") or ""),
+                "target_section_rationale": str(item.get("target_section_rationale") or ""),
+                "style_evidence": {
+                    field: nonempty_strings((style.get(field) or {}).get("source_evidence"))
+                    for field in SOURCE_STYLE_GRANULARITY_FIELDS
+                },
+            }
+        )
+
+    active_character_names = set(
+        nonempty_strings((existing_plan.get("character_plan") or {}).get("active_character_names"))
+    )
+    participant_asset_ids = {
+        asset_id
+        for participant in ((existing_plan.get("character_plan") or {}).get("participants") or [])
+        if isinstance(participant, dict)
+        for asset_id in nonempty_strings(participant.get("source_asset_ids"))
+    }
+    character_profiles = []
+    for item in ((data.get("character_personality_layer") or {}).get("target_character_profiles") or []):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "")
+        if active_character_names and name not in active_character_names:
+            continue
+        character_profiles.append(
+            {
+                "name": name,
+                "role": str(item.get("role") or ""),
+                "source_asset_ids": nonempty_strings(item.get("source_asset_ids")),
+                "speech_pattern": str(item.get("speech_pattern") or ""),
+                "action_bias": str(item.get("action_bias") or ""),
+                "misfire_pattern": str(item.get("misfire_pattern") or ""),
+                "private_relation_language": str(item.get("private_relation_language") or ""),
+                "recommended_source_asset_ids": [
+                    asset_id
+                    for asset_id in nonempty_strings(item.get("source_asset_ids"))
+                    if not participant_asset_ids or asset_id in participant_asset_ids
+                ],
+            }
+        )
+
+    evidence_pool = "\n".join(
+        [
+            section_text.strip(),
+            *[item["source_quote"] for item in detail_cards],
+            *[
+                quote
+                for item in subflows
+                for quotes in item["style_evidence"].values()
+                for quote in quotes
+            ],
+            *["\n".join(item["source_sentences"]) for item in recommended_passages],
+        ]
+    )
+    selected_liveliness_ids = set(
+        nonempty_strings((existing_plan.get("liveliness_plan") or {}).get("asset_ids"))
+    )
+    liveliness_assets = []
+    for item in ((data.get("prose_liveliness_layer") or {}).get("assets") or []):
+        if not isinstance(item, dict):
+            continue
+        asset_id = str(item.get("asset_id") or item.get("id") or "")
+        source_quote = str(item.get("source_quote") or "")
+        if selected_liveliness_ids:
+            if asset_id not in selected_liveliness_ids:
+                continue
+        elif source_quote and source_quote not in evidence_pool:
+            continue
+        liveliness_assets.append(
+            {
+                "asset_id": asset_id,
+                "type": str(item.get("type") or ""),
+                "source_quote": source_quote,
+                "live_core": str(item.get("live_core") or ""),
+                "transfer_mechanism": str(item.get("transfer_mechanism") or ""),
+            }
+        )
+    if not selected_liveliness_ids:
+        liveliness_assets = liveliness_assets[:8]
+
+    source_material_packets = []
+    for record in recommended_passages:
+        full_record = next(
+            (
+                item
+                for item in passage_records
+                if item["passage_id"] == record["passage_id"]
+            ),
+            None,
+        )
+        if not full_record:
+            continue
+        excerpt = full_record["source_excerpt"]
+        units = sentence_units(excerpt)
+        turns = dialogue_turn_units(excerpt)
+        relation_candidates = []
+        for sentence_index, sentence in enumerate(units, start=1):
+            if len(sentence) < 12:
+                continue
+            markers = explicit_relation_markers(sentence)
+            relation_candidates.append(
+                {
+                    "candidate_id": (
+                        f"REL-{full_record['passage_id']}-{sentence_index:02d}"
+                    ),
+                    "source_excerpt": sentence,
+                    "detected_source_markers": markers,
+                    "detected_marking_mode": "explicit" if markers else "implicit",
+                }
+            )
+        mechanism_candidates = []
+        for sentence_index, annotation in enumerate(
+            full_record["sentence_annotations"], start=1
+        ):
+            mechanism_candidates.append(
+                {
+                    **annotation,
+                    "candidate_id": (
+                        f"MECH-{full_record['passage_id']}-{sentence_index:02d}"
+                    ),
+                }
+            )
+        source_material_packets.append(
+            {
+                "passage_id": full_record["passage_id"],
+                "purpose": full_record["purpose"],
+                "source_excerpt": excerpt,
+                "source_sentence_chain": units,
+                "source_dialogue_turns": turns,
+                "relation_sentence_candidates": relation_candidates,
+                "mechanism_sentence_candidates": mechanism_candidates,
+            }
+        )
+
+    return {
+        "section_outline_excerpt": section_text.strip(),
+        "field_fill_order": [
+            "manual_judgment",
+            "continuous_source_chain_packets",
+            "relation_micro_examples",
+            "dialogue_voice_packets",
+            "sentence_mechanisms",
+            "paragraph_plan",
+            "window_plan",
+            "character_plan",
+        ],
+        "recommended_source_passages": recommended_passages,
+        "mapped_detail_cards": detail_cards,
+        "mapped_subflows": subflows,
+        "character_profiles": character_profiles,
+        "liveliness_assets": liveliness_assets,
+        "source_material_packets": source_material_packets,
+        "source_dialogue_excerpt_candidates": source_dialogue_excerpt_candidates(data),
+        "hard_field_checklist": {
+            "continuous_source_chain_packets": "至少 2 组；每组 source_sentence_chain 必须等于 sentence_units(source_excerpt)。",
+            "relation_micro_examples": "至少 2 组；source_relation_type/target_relation_type 只能填允许枚举。",
+            "dialogue_voice_packets": "至少 2 组；对白源摘录、目标试演、错例都要独立完整。",
+            "sentence_mechanisms": "至少 3 个；source_sentence 必须来自本节绑定 source_passage_ids。",
+            "character_plan": "active_character_names 必须含主角；participants 不得复用同一反应方案。",
+        },
     }
 
 
@@ -840,6 +1179,25 @@ def same_file_path(left: Path, right: Path) -> bool:
         return left_resolved.samefile(right_resolved)
     except (FileNotFoundError, OSError):
         return left_resolved == right_resolved
+
+
+def same_file_bindings(
+    bound_files: list[dict[str, Any]],
+    expected_files: list[dict[str, Any]],
+) -> bool:
+    if len(bound_files) != len(expected_files):
+        return False
+    for bound, expected in zip(bound_files, expected_files):
+        if not isinstance(bound, dict) or not isinstance(expected, dict):
+            return False
+        if str(bound.get("sha256") or "") != str(expected.get("sha256") or ""):
+            return False
+        if not same_file_path(
+            Path(str(bound.get("path") or "")),
+            Path(str(expected.get("path") or "")),
+        ):
+            return False
+    return True
 
 
 def subflow_catalog_path(source: Path) -> Path:
@@ -1048,8 +1406,881 @@ def apply_source_assets(data: dict[str, Any], sidecar: dict[str, Any]) -> dict[s
     return result
 
 
+def compact_authoring_scaffold(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "section_id": str(plan.get("section_id") or ""),
+        "manual_judgment": "",
+        "chains": [],
+        "contrasts": [],
+        "relations": [],
+        "dialogues": [],
+        "mechanisms": [],
+        "paragraph": ["", "", "", "", "", "", ""],
+        "window": ["", "", "", ""],
+        "liveliness": {
+            "ids": [],
+            "fields": ["", "", "", "", "", ""],
+            "reject": [],
+            "judgment": "",
+        },
+        "characters": [],
+        "interchangeability": "",
+        "character_judgment": "",
+    }
+
+
+def compact_authoring_v2_scaffold(plan: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(plan.get("section_id") or ""),
+        "j": "",
+        "c": [],
+        "x": [],
+        "r": [],
+        "d": [],
+        "m": [],
+        "p": [""] * len(SECTION_PARAGRAPH_PLAN_FIELDS),
+        "w": [""] * len(SECTION_WINDOW_PLAN_FIELDS),
+        "l": [[], [""] * len(LIVELINESS_SECTION_PLAN_FIELDS), [], ""],
+        "h": [],
+        "i": "",
+        "cj": "",
+    }
+
+
+def convert_export_to_compact_authoring(sidecar: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(sidecar)
+    plans = result.pop("section_generation_plans", [])
+    if not isinstance(plans, list) or not plans:
+        raise ValueError("待转换侧车缺少 section_generation_plans")
+    result["authoring_mode"] = "compact_manual_v2"
+    result["compact_authoring_schema"] = {
+        "section_keys": {
+            "id": "section_id",
+            "j": "manual_judgment",
+            "c": "chains",
+            "x": "contrasts",
+            "r": "relations",
+            "d": "dialogues",
+            "m": "mechanisms",
+            "p": "paragraph",
+            "w": "window",
+            "l": "liveliness",
+            "h": "characters",
+            "i": "interchangeability",
+            "cj": "character_judgment",
+        },
+        "c[]": ["ref", "motion", "use", "relation", "omit", "judgment"],
+        "x[]": ["ref", "bad", "effect", "failure", "rewrite"],
+        "r[]": [
+            "ref",
+            "type",
+            "skeleton",
+            "rehearsal",
+            "bad",
+            "failure",
+            "transfer",
+            "judgment",
+        ],
+        "d[]": [
+            "ref",
+            "character",
+            "rehearsal",
+            "bad",
+            "motion",
+            "use",
+            "texture",
+            "leverage",
+            "avoid",
+            "failure",
+            "rewrite",
+            "judgment",
+        ],
+        "m[]": ["ref", "mechanism", "intent", "deviation", "prohibited"],
+        "paragraph": list(SECTION_PARAGRAPH_PLAN_FIELDS),
+        "window": list(SECTION_WINDOW_PLAN_FIELDS),
+        "l": [
+            "asset_ids",
+            list(LIVELINESS_SECTION_PLAN_FIELDS),
+            "stiffness_patterns_rejected",
+            "manual_judgment",
+        ],
+        "h[]": ["name", "source_asset_ids", *SECTION_CHARACTER_PLAN_FIELDS],
+        "semantic_boundary": (
+            "仅压缩键名、固定布尔值和可机械检测的关系显隐标记；"
+            "其余数组位置与正式人工字段一一对应"
+        ),
+    }
+    result["compact_section_plans"] = [
+        compact_authoring_v2_scaffold(plan)
+        for plan in plans
+        if isinstance(plan, dict)
+    ]
+    return result
+
+
+def externalize_compact_editor_catalog(
+    sidecar: dict[str, Any],
+    catalog_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = copy.deepcopy(sidecar)
+    hints = result.pop("editor_hints", None)
+    if not isinstance(hints, dict):
+        raise ValueError("紧凑人工侧车缺少 editor_hints，无法外置取材目录")
+    catalog = {
+        "catalog_type": "prose_section_plan_editor_catalog_v1",
+        "outline_sha256": result.get("outline_sha256"),
+        "editor_hints": hints,
+    }
+    write_json(catalog_path, catalog)
+    result["editor_catalog"] = {
+        "path": str(catalog_path.resolve()),
+        "sha256": sha256(catalog_path),
+        "catalog_type": catalog["catalog_type"],
+    }
+    return result, catalog
+
+
+def hydrate_compact_editor_catalog(plan: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(plan)
+    if isinstance(result.get("editor_hints"), dict):
+        return result
+    binding = result.get("editor_catalog")
+    if not isinstance(binding, dict):
+        return result
+    catalog_path = Path(str(binding.get("path") or "")).resolve()
+    if not catalog_path.is_file():
+        raise ValueError(f"紧凑人工侧车绑定的取材目录不存在: {catalog_path}")
+    if sha256(catalog_path) != str(binding.get("sha256") or ""):
+        raise ValueError("紧凑人工侧车绑定的取材目录 SHA 已失效")
+    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+    if not isinstance(catalog, dict):
+        raise ValueError("紧凑人工侧车绑定的取材目录顶层必须是对象")
+    if catalog.get("catalog_type") != binding.get("catalog_type"):
+        raise ValueError("紧凑人工侧车绑定的取材目录类型不一致")
+    if catalog.get("outline_sha256") != result.get("outline_sha256"):
+        raise ValueError("紧凑人工侧车绑定的取材目录未绑定当前细纲 SHA")
+    hints = catalog.get("editor_hints")
+    if not isinstance(hints, dict):
+        raise ValueError("紧凑人工侧车绑定的取材目录缺少 editor_hints")
+    result["editor_hints"] = hints
+    return result
+
+
+def convert_compact_v2_to_v1(plan: dict[str, Any]) -> dict[str, Any]:
+    result = copy.deepcopy(plan)
+    compact_plans = result.get("compact_section_plans")
+    if not isinstance(compact_plans, list) or not compact_plans:
+        raise ValueError("compact_manual_v2 缺少 compact_section_plans")
+
+    def row(values: Any, size: int, label: str) -> list[Any]:
+        if not isinstance(values, list) or len(values) != size:
+            raise ValueError(f"{label} 必须按 schema 固定填写 {size} 项")
+        return values
+
+    converted: list[dict[str, Any]] = []
+    for compact in compact_plans:
+        if not isinstance(compact, dict):
+            raise ValueError("compact_section_plans 每项必须是对象")
+        section_id = str(compact.get("id") or "").strip()
+        chains = [
+            {
+                "ref": values[0],
+                "motion": values[1],
+                "use": values[2],
+                "relation": values[3],
+                "omit": values[4],
+                "judgment": values[5],
+            }
+            for index, item in enumerate(compact.get("c") or [], start=1)
+            for values in [row(item, 6, f"第 {section_id} 节 c[{index}]")]
+        ]
+        contrasts = [
+            {
+                "ref": values[0],
+                "bad": values[1],
+                "effect": values[2],
+                "failure": values[3],
+                "rewrite": values[4],
+            }
+            for index, item in enumerate(compact.get("x") or [], start=1)
+            for values in [row(item, 5, f"第 {section_id} 节 x[{index}]")]
+        ]
+        relations = [
+            {
+                "ref": values[0],
+                "type": values[1],
+                "skeleton": values[2],
+                "rehearsal": values[3],
+                "bad": values[4],
+                "failure": values[5],
+                "transfer": values[6],
+                "judgment": values[7],
+                "source_mode": "",
+                "target_mode": "",
+                "source_markers": [],
+                "target_markers": [],
+            }
+            for index, item in enumerate(compact.get("r") or [], start=1)
+            for values in [row(item, 8, f"第 {section_id} 节 r[{index}]")]
+        ]
+        dialogues = [
+            {
+                "ref": values[0],
+                "character": values[1],
+                "rehearsal": values[2],
+                "bad": values[3],
+                "motion": values[4],
+                "use": values[5],
+                "texture": values[6],
+                "leverage": values[7],
+                "avoid": values[8],
+                "failure": values[9],
+                "rewrite": values[10],
+                "judgment": values[11],
+            }
+            for index, item in enumerate(compact.get("d") or [], start=1)
+            for values in [row(item, 12, f"第 {section_id} 节 d[{index}]")]
+        ]
+        mechanisms = [
+            {
+                "ref": values[0],
+                "mechanism": values[1],
+                "intent": values[2],
+                "deviation": values[3],
+                "prohibited": values[4],
+            }
+            for index, item in enumerate(compact.get("m") or [], start=1)
+            for values in [row(item, 5, f"第 {section_id} 节 m[{index}]")]
+        ]
+        liveliness = row(compact.get("l"), 4, f"第 {section_id} 节 l")
+        characters = []
+        for index, item in enumerate(compact.get("h") or [], start=1):
+            values = row(
+                item,
+                2 + len(SECTION_CHARACTER_PLAN_FIELDS),
+                f"第 {section_id} 节 h[{index}]",
+            )
+            characters.append(
+                {
+                    "name": values[0],
+                    "ids": values[1],
+                    "fields": values[2:],
+                }
+            )
+        converted.append(
+            {
+                "section_id": section_id,
+                "manual_judgment": compact.get("j"),
+                "chains": chains,
+                "contrasts": contrasts,
+                "relations": relations,
+                "dialogues": dialogues,
+                "mechanisms": mechanisms,
+                "paragraph": compact.get("p"),
+                "window": compact.get("w"),
+                "liveliness": {
+                    "ids": liveliness[0],
+                    "fields": liveliness[1],
+                    "reject": liveliness[2],
+                    "judgment": liveliness[3],
+                },
+                "characters": characters,
+                "interchangeability": compact.get("i"),
+                "character_judgment": compact.get("cj"),
+            }
+        )
+    result["authoring_mode"] = "compact_manual_v1"
+    result["compact_section_plans"] = converted
+    return result
+
+
+def expand_compact_section_plans(plan: dict[str, Any]) -> dict[str, Any]:
+    if plan.get("authoring_mode") == "compact_manual_v2":
+        return expand_compact_section_plans(convert_compact_v2_to_v1(plan))
+    if plan.get("authoring_mode") != "compact_manual_v1":
+        return copy.deepcopy(plan)
+    result = copy.deepcopy(plan)
+    compact_plans = result.get("compact_section_plans")
+    if not isinstance(compact_plans, list) or not compact_plans:
+        raise ValueError("compact_manual_v1 缺少 compact_section_plans")
+
+    def fixed_fields(
+        values: Any,
+        names: tuple[str, ...],
+        label: str,
+    ) -> dict[str, str]:
+        if not isinstance(values, list) or len(values) != len(names):
+            raise ValueError(f"{label} 必须按固定顺序填写 {len(names)} 项")
+        return {name: str(value or "").strip() for name, value in zip(names, values)}
+
+    expanded: list[dict[str, Any]] = []
+    for compact in compact_plans:
+        if not isinstance(compact, dict):
+            raise ValueError("compact_section_plans 每项必须是对象")
+        section_id = str(compact.get("section_id") or "").strip()
+        if not section_id:
+            raise ValueError("compact_section_plans 包含空 section_id")
+        chains = []
+        for item in compact.get("chains") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 chains 每项必须是对象")
+            chains.append(
+                {
+                    "source_passage_ref": item.get("ref"),
+                    "chain_motion": item.get("motion"),
+                    "target_scene_use": item.get("use"),
+                    "target_sentence_relation": item.get("relation"),
+                    "explanation_to_omit": item.get("omit"),
+                    "surface_copy_rejected": True,
+                    "manual_judgment": item.get("judgment"),
+                }
+            )
+        contrasts = []
+        for item in compact.get("contrasts") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 contrasts 每项必须是对象")
+            contrasts.append(
+                {
+                    "positive_source_ref": item.get("ref"),
+                    "negative_example": item.get("bad"),
+                    "positive_effect": item.get("effect"),
+                    "negative_failure": item.get("failure"),
+                    "rewrite_instruction": item.get("rewrite"),
+                    "surface_copy_rejected": True,
+                }
+            )
+        relations = []
+        for item in compact.get("relations") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 relations 每项必须是对象")
+            relations.append(
+                {
+                    "source_relation_ref": item.get("ref"),
+                    "source_relation_type": item.get("type"),
+                    "target_relation_type": item.get("type"),
+                    "source_marking_mode": item.get("source_mode", "implicit"),
+                    "target_marking_mode": item.get("target_mode", "implicit"),
+                    "source_markers": item.get("source_markers") or [],
+                    "target_markers": item.get("target_markers") or [],
+                    "source_function_word_skeleton": item.get("skeleton"),
+                    "target_rehearsal": item.get("rehearsal"),
+                    "negative_example": item.get("bad"),
+                    "negative_failure": item.get("failure"),
+                    "transfer_instruction": item.get("transfer"),
+                    "manual_judgment": item.get("judgment"),
+                    "mechanical_marker_insertion_forbidden": True,
+                    "surface_copy_rejected": True,
+                }
+            )
+        dialogues = []
+        for item in compact.get("dialogues") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 dialogues 每项必须是对象")
+            dialogues.append(
+                {
+                    "source_dialogue_ref": item.get("ref"),
+                    "target_character": item.get("character"),
+                    "target_rehearsal": item.get("rehearsal"),
+                    "negative_example": item.get("bad"),
+                    "turn_motion": item.get("motion"),
+                    "target_scene_use": item.get("use"),
+                    "oral_texture_transfer": item.get("texture"),
+                    "relationship_leverage": item.get("leverage"),
+                    "functional_compression_to_avoid": item.get("avoid"),
+                    "negative_failure": item.get("failure"),
+                    "rewrite_instruction": item.get("rewrite"),
+                    "surface_copy_rejected": True,
+                    "manual_judgment": item.get("judgment"),
+                }
+            )
+        mechanisms = []
+        for item in compact.get("mechanisms") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 mechanisms 每项必须是对象")
+            mechanisms.append(
+                {
+                    "source_mechanism_ref": item.get("ref"),
+                    "mechanism": item.get("mechanism"),
+                    "target_intent": item.get("intent"),
+                    "allowed_deviation": item.get("deviation"),
+                    "prohibited_shell": item.get("prohibited"),
+                    "surface_copy_rejected": True,
+                }
+            )
+        liveliness = compact.get("liveliness") or {}
+        if not isinstance(liveliness, dict):
+            raise ValueError(f"第 {section_id} 节 liveliness 必须是对象")
+        liveliness_fields = fixed_fields(
+            liveliness.get("fields"),
+            LIVELINESS_SECTION_PLAN_FIELDS,
+            f"第 {section_id} 节 liveliness.fields",
+        )
+        characters = []
+        active_names = []
+        for item in compact.get("characters") or []:
+            if not isinstance(item, dict):
+                raise ValueError(f"第 {section_id} 节 characters 每项必须是对象")
+            name = str(item.get("name") or "").strip()
+            active_names.append(name)
+            character_fields = fixed_fields(
+                item.get("fields"),
+                SECTION_CHARACTER_PLAN_FIELDS,
+                f"第 {section_id} 节人物 {name}.fields",
+            )
+            characters.append(
+                {
+                    "character_name": name,
+                    "source_asset_ids": item.get("ids") or [],
+                    **character_fields,
+                }
+            )
+        expanded.append(
+            {
+                "section_id": section_id,
+                "status": "passed",
+                "planned_before_draft": True,
+                "generation_driver": "continuous_source_chain",
+                "single_sentence_features_secondary": True,
+                "continuous_source_chain_packets": chains,
+                "contrastive_examples": contrasts,
+                "relation_micro_examples": relations,
+                "dialogue_voice_packets": dialogues,
+                "source_passage_ids": [],
+                "sentence_mechanisms": mechanisms,
+                "paragraph_plan": fixed_fields(
+                    compact.get("paragraph"),
+                    SECTION_PARAGRAPH_PLAN_FIELDS,
+                    f"第 {section_id} 节 paragraph",
+                ),
+                "window_plan": fixed_fields(
+                    compact.get("window"),
+                    SECTION_WINDOW_PLAN_FIELDS,
+                    f"第 {section_id} 节 window",
+                ),
+                "liveliness_plan": {
+                    "planned_before_draft": True,
+                    "asset_ids": liveliness.get("ids") or [],
+                    **liveliness_fields,
+                    "stiffness_patterns_rejected": liveliness.get("reject") or [],
+                    "manual_judgment": liveliness.get("judgment"),
+                },
+                "character_plan": {
+                    "planned_before_draft": True,
+                    "active_character_names": active_names,
+                    "participants": characters,
+                    "interchangeability_risk": compact.get("interchangeability"),
+                    "manual_judgment": compact.get("character_judgment"),
+                },
+                "surface_copy_rejected": True,
+                "manual_judgment": compact.get("manual_judgment"),
+            }
+        )
+    result["section_generation_plans"] = expanded
+    result["compact_authoring_provenance"] = {
+        "mode": "deterministic_key_projection",
+        "semantic_fields_generated_by_script": False,
+        "source": "compact_section_plans",
+    }
+    return result
+
+
+def resolve_section_plan_references(plan: dict[str, Any]) -> dict[str, Any]:
+    """Expand source-data references while leaving every semantic field untouched."""
+    result = hydrate_compact_editor_catalog(expand_compact_section_plans(plan))
+    hints = result.get("editor_hints") or {}
+    material_map = {
+        str(item.get("passage_id") or ""): item
+        for item in hints.get("shared_source_material") or []
+        if isinstance(item, dict) and str(item.get("passage_id") or "")
+    }
+    relation_map: dict[str, dict[str, Any]] = {}
+    mechanism_map: dict[str, dict[str, Any]] = {}
+    for passage_id, packet in material_map.items():
+        for candidate_index, candidate in enumerate(
+            packet.get("relation_sentence_candidates") or [], start=1
+        ):
+            if isinstance(candidate, dict):
+                candidate_id = str(
+                    candidate.get("candidate_id")
+                    or f"REL-{passage_id}-{candidate_index:02d}"
+                )
+                if candidate_id:
+                    relation_map[candidate_id] = candidate
+        for candidate_index, candidate in enumerate(
+            packet.get("mechanism_sentence_candidates") or [], start=1
+        ):
+            if isinstance(candidate, dict):
+                candidate_id = str(
+                    candidate.get("candidate_id")
+                    or f"MECH-{passage_id}-{candidate_index:02d}"
+                )
+                if candidate_id:
+                    mechanism_map[candidate_id] = candidate
+    for candidate_index, candidate in enumerate(
+        hints.get("shared_relation_sentence_candidates") or [], start=1
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(
+            candidate.get("candidate_id") or f"REL-CARD-{candidate_index:03d}"
+        )
+        relation_map[candidate_id] = candidate
+    dialogue_map: dict[str, dict[str, Any]] = {}
+    for candidate_index, item in enumerate(
+        hints.get("shared_dialogue_excerpt_candidates") or [], start=1
+    ):
+        if not isinstance(item, dict):
+            continue
+        candidate_id = str(item.get("candidate_id") or f"DLG-{candidate_index:03d}")
+        dialogue_map[candidate_id] = item
+
+    def bind_value(
+        item: dict[str, Any],
+        field: str,
+        expected: Any,
+        label: str,
+    ) -> None:
+        current = item.get(field)
+        if current not in (None, "", []):
+            if current != expected:
+                raise ValueError(f"{label}.{field} 与引用候选不一致")
+            return
+        item[field] = copy.deepcopy(expected)
+
+    plans = result.get("section_generation_plans")
+    if not isinstance(plans, list):
+        return result
+    for section in plans:
+        if not isinstance(section, dict):
+            continue
+        section_id = str(section.get("section_id") or "")
+        used_passage_ids: list[str] = []
+        for index, packet in enumerate(
+            section.get("continuous_source_chain_packets") or [], start=1
+        ):
+            if not isinstance(packet, dict):
+                continue
+            passage_id = str(packet.get("source_passage_ref") or "").strip()
+            if not passage_id:
+                continue
+            source_packet = material_map.get(passage_id)
+            if source_packet is None:
+                raise ValueError(
+                    f"第 {section_id} 节连续句链[{index}].source_passage_ref 无效: "
+                    f"{passage_id}"
+                )
+            bind_value(
+                packet,
+                "source_excerpt",
+                source_packet.get("source_excerpt") or "",
+                f"第 {section_id} 节连续句链[{index}]",
+            )
+            bind_value(
+                packet,
+                "source_sentence_chain",
+                source_packet.get("source_sentence_chain") or [],
+                f"第 {section_id} 节连续句链[{index}]",
+            )
+            used_passage_ids.append(passage_id)
+        for index, example in enumerate(
+            section.get("contrastive_examples") or [], start=1
+        ):
+            if not isinstance(example, dict):
+                continue
+            passage_id = str(example.get("positive_source_ref") or "").strip()
+            if not passage_id:
+                continue
+            source_packet = material_map.get(passage_id)
+            if source_packet is None:
+                raise ValueError(
+                    f"第 {section_id} 节正反例[{index}].positive_source_ref 无效: "
+                    f"{passage_id}"
+                )
+            bind_value(
+                example,
+                "positive_source_excerpt",
+                source_packet.get("source_excerpt") or "",
+                f"第 {section_id} 节正反例[{index}]",
+            )
+        for index, example in enumerate(
+            section.get("relation_micro_examples") or [], start=1
+        ):
+            if not isinstance(example, dict):
+                continue
+            candidate_id = str(example.get("source_relation_ref") or "").strip()
+            if not candidate_id:
+                continue
+            candidate = relation_map.get(candidate_id)
+            if candidate is None:
+                raise ValueError(
+                    f"第 {section_id} 节句间关系包[{index}].source_relation_ref 无效: "
+                    f"{candidate_id}"
+                )
+            bind_value(
+                example,
+                "source_excerpt",
+                candidate.get("source_excerpt") or "",
+                f"第 {section_id} 节句间关系包[{index}]",
+            )
+            bind_value(
+                example,
+                "source_marking_mode",
+                candidate.get("detected_marking_mode") or "implicit",
+                f"第 {section_id} 节句间关系包[{index}]",
+            )
+            bind_value(
+                example,
+                "source_markers",
+                candidate.get("detected_source_markers") or [],
+                f"第 {section_id} 节句间关系包[{index}]",
+            )
+            if not str(example.get("target_marking_mode") or "").strip():
+                target_markers = explicit_relation_markers(
+                    str(example.get("target_rehearsal") or "")
+                )
+                example["target_markers"] = target_markers
+                example["target_marking_mode"] = (
+                    "explicit" if target_markers else "implicit"
+                )
+        for index, packet in enumerate(
+            section.get("dialogue_voice_packets") or [], start=1
+        ):
+            if not isinstance(packet, dict):
+                continue
+            candidate_id = str(packet.get("source_dialogue_ref") or "").strip()
+            if not candidate_id:
+                continue
+            candidate = dialogue_map.get(candidate_id)
+            if candidate is None:
+                raise ValueError(
+                    f"第 {section_id} 节对白三联包[{index}].source_dialogue_ref 无效: "
+                    f"{candidate_id}"
+                )
+            bind_value(
+                packet,
+                "source_excerpt",
+                candidate.get("source_excerpt") or "",
+                f"第 {section_id} 节对白三联包[{index}]",
+            )
+            bind_value(
+                packet,
+                "source_dialogue_turns",
+                candidate.get("source_dialogue_turns") or [],
+                f"第 {section_id} 节对白三联包[{index}]",
+            )
+        for index, mechanism in enumerate(
+            section.get("sentence_mechanisms") or [], start=1
+        ):
+            if not isinstance(mechanism, dict):
+                continue
+            candidate_id = str(mechanism.get("source_mechanism_ref") or "").strip()
+            if not candidate_id:
+                continue
+            candidate = mechanism_map.get(candidate_id)
+            if candidate is None:
+                raise ValueError(
+                    f"第 {section_id} 节句机制[{index}].source_mechanism_ref 无效: "
+                    f"{candidate_id}"
+                )
+            bind_value(
+                mechanism,
+                "source_sentence",
+                candidate.get("source_sentence") or "",
+                f"第 {section_id} 节句机制[{index}]",
+            )
+            bind_value(
+                mechanism,
+                "feature_ids",
+                candidate.get("feature_ids") or [],
+                f"第 {section_id} 节句机制[{index}]",
+            )
+            parts = candidate_id.split("-")
+            if len(parts) >= 3:
+                used_passage_ids.append("-".join(parts[1:-1]))
+        if not nonempty_strings(section.get("source_passage_ids")) and used_passage_ids:
+            section["source_passage_ids"] = list(dict.fromkeys(used_passage_ids))
+    return result
+
+
+def compact_section_plan_references(plan: dict[str, Any]) -> dict[str, Any]:
+    """Replace repeated deterministic source payloads with stable editor-hint refs."""
+    result = copy.deepcopy(plan)
+    hints = result.get("editor_hints") or {}
+    dialogue_candidates = list(hints.get("shared_dialogue_excerpt_candidates") or [])
+    relation_candidates = list(hints.get("shared_relation_sentence_candidates") or [])
+    seen_dialogue = {
+        str(item.get("source_excerpt") or "")
+        for item in dialogue_candidates
+        if isinstance(item, dict)
+    }
+    seen_relation = {
+        str(item.get("source_excerpt") or "")
+        for item in relation_candidates
+        if isinstance(item, dict)
+    }
+    for section_hint in (hints.get("section_hints") or {}).values():
+        if not isinstance(section_hint, dict):
+            continue
+        for card in section_hint.get("mapped_detail_cards") or []:
+            if not isinstance(card, dict):
+                continue
+            source_quote = str(card.get("source_quote") or "")
+            for candidate in dialogue_excerpt_candidates_from_text(
+                source_quote, limit=2
+            ):
+                excerpt = str(candidate.get("source_excerpt") or "")
+                if excerpt and excerpt not in seen_dialogue:
+                    dialogue_candidates.append(candidate)
+                    seen_dialogue.add(excerpt)
+            for sentence in sentence_units(source_quote):
+                if len(sentence) < 12 or sentence in seen_relation:
+                    continue
+                markers = explicit_relation_markers(sentence)
+                relation_candidates.append(
+                    {
+                        "source_excerpt": sentence,
+                        "detected_source_markers": markers,
+                        "detected_marking_mode": (
+                            "explicit" if markers else "implicit"
+                        ),
+                    }
+                )
+                seen_relation.add(sentence)
+    for candidate_index, candidate in enumerate(dialogue_candidates, start=1):
+        if isinstance(candidate, dict) and not candidate.get("candidate_id"):
+            candidate["candidate_id"] = f"DLG-{candidate_index:03d}"
+    for candidate_index, candidate in enumerate(relation_candidates, start=1):
+        if isinstance(candidate, dict) and not candidate.get("candidate_id"):
+            candidate["candidate_id"] = f"REL-CARD-{candidate_index:03d}"
+    hints["shared_dialogue_excerpt_candidates"] = dialogue_candidates
+    hints["shared_relation_sentence_candidates"] = relation_candidates
+    result["editor_hints"] = hints
+    material_map = {
+        str(item.get("passage_id") or ""): item
+        for item in hints.get("shared_source_material") or []
+        if isinstance(item, dict) and str(item.get("passage_id") or "")
+    }
+    excerpt_to_passage = {
+        str(item.get("source_excerpt") or ""): passage_id
+        for passage_id, item in material_map.items()
+    }
+    relation_by_excerpt: dict[str, str] = {}
+    mechanism_by_signature: dict[tuple[str, tuple[str, ...]], str] = {}
+    for passage_id, packet in material_map.items():
+        for candidate_index, candidate in enumerate(
+            packet.get("relation_sentence_candidates") or [], start=1
+        ):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = str(
+                candidate.get("candidate_id")
+                or f"REL-{passage_id}-{candidate_index:02d}"
+            )
+            relation_by_excerpt[str(candidate.get("source_excerpt") or "")] = candidate_id
+        for candidate_index, candidate in enumerate(
+            packet.get("mechanism_sentence_candidates") or [], start=1
+        ):
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = str(
+                candidate.get("candidate_id")
+                or f"MECH-{passage_id}-{candidate_index:02d}"
+            )
+            signature = (
+                str(candidate.get("source_sentence") or ""),
+                tuple(nonempty_strings(candidate.get("feature_ids"))),
+            )
+            mechanism_by_signature[signature] = candidate_id
+    for candidate_index, candidate in enumerate(
+        hints.get("shared_relation_sentence_candidates") or [], start=1
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(
+            candidate.get("candidate_id") or f"REL-CARD-{candidate_index:03d}"
+        )
+        relation_by_excerpt[str(candidate.get("source_excerpt") or "")] = candidate_id
+    dialogue_by_excerpt: dict[str, str] = {}
+    for candidate_index, candidate in enumerate(
+        hints.get("shared_dialogue_excerpt_candidates") or [], start=1
+    ):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(
+            candidate.get("candidate_id") or f"DLG-{candidate_index:03d}"
+        )
+        dialogue_by_excerpt[str(candidate.get("source_excerpt") or "")] = candidate_id
+    plans = result.get("section_generation_plans")
+    if not isinstance(plans, list):
+        raise ValueError("待压缩逐节侧车缺少 section_generation_plans")
+    compacted = 0
+    for section in plans:
+        if not isinstance(section, dict):
+            continue
+        for packet in section.get("continuous_source_chain_packets") or []:
+            if not isinstance(packet, dict):
+                continue
+            passage_id = excerpt_to_passage.get(str(packet.get("source_excerpt") or ""))
+            if passage_id:
+                packet["source_passage_ref"] = passage_id
+                packet.pop("source_excerpt", None)
+                packet.pop("source_sentence_chain", None)
+                compacted += 1
+        for example in section.get("contrastive_examples") or []:
+            if not isinstance(example, dict):
+                continue
+            passage_id = excerpt_to_passage.get(
+                str(example.get("positive_source_excerpt") or "")
+            )
+            if passage_id:
+                example["positive_source_ref"] = passage_id
+                example.pop("positive_source_excerpt", None)
+                compacted += 1
+        for example in section.get("relation_micro_examples") or []:
+            if not isinstance(example, dict):
+                continue
+            candidate_id = relation_by_excerpt.get(
+                str(example.get("source_excerpt") or "")
+            )
+            if candidate_id:
+                example["source_relation_ref"] = candidate_id
+                example.pop("source_excerpt", None)
+                compacted += 1
+        for packet in section.get("dialogue_voice_packets") or []:
+            if not isinstance(packet, dict):
+                continue
+            candidate_id = dialogue_by_excerpt.get(
+                str(packet.get("source_excerpt") or "")
+            )
+            if candidate_id:
+                packet["source_dialogue_ref"] = candidate_id
+                packet.pop("source_excerpt", None)
+                packet.pop("source_dialogue_turns", None)
+                compacted += 1
+        for mechanism in section.get("sentence_mechanisms") or []:
+            if not isinstance(mechanism, dict):
+                continue
+            signature = (
+                str(mechanism.get("source_sentence") or ""),
+                tuple(nonempty_strings(mechanism.get("feature_ids"))),
+            )
+            candidate_id = mechanism_by_signature.get(signature)
+            if candidate_id:
+                mechanism["source_mechanism_ref"] = candidate_id
+                mechanism.pop("source_sentence", None)
+                mechanism.pop("feature_ids", None)
+                compacted += 1
+    result["compact_reference_provenance"] = {
+        "deterministic_only": True,
+        "semantic_fields_changed": False,
+        "compacted_fields": compacted,
+    }
+    return result
+
+
 def apply_section_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, Any]:
     """Merge current-model-authored section plans without generating semantics."""
+    plan = resolve_section_plan_references(plan)
     if plan.get("reviewed_by_current_model") is not True:
         raise ValueError("文字逐节写前侧车必须由当前模型逐节复核")
     if plan.get("semantic_fields_generated_by_script") is not False:
@@ -1080,9 +2311,15 @@ def apply_section_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, 
     supplied_by_id = {
         str(item.get("section_id") or ""): item for item in supplied if isinstance(item, dict)
     }
+    outline_sections = extract_sections(read_text(outline_path))
     result = dict(data)
     result["section_generation_plans"] = [
-        supplied_by_id.get(str(item.get("section_id") or ""), item)
+        {
+            **supplied_by_id.get(str(item.get("section_id") or ""), item),
+            "outline_section_sha256": text_sha256(
+                outline_sections.get(str(item.get("section_id") or ""), "")
+            ),
+        }
         for item in expected
     ]
     result["section_plan_provenance"] = {
@@ -1092,6 +2329,300 @@ def apply_section_plan(data: dict[str, Any], plan: dict[str, Any]) -> dict[str, 
         "manual_judgment": str(plan.get("manual_judgment") or "").strip(),
     }
     return result
+
+
+def export_next_section_plan_pair(
+    data: dict[str, Any],
+    batch_size: int = 2,
+) -> dict[str, Any]:
+    """Export the next pending section-plan pair as a fresh editable sidecar."""
+    if batch_size < 1:
+        raise ValueError("batch_size 必须 >= 1")
+    outline_binding = data.get("outline") or {}
+    outline_sha = str(outline_binding.get("sha256") or "").strip()
+    if not outline_sha:
+        raise ValueError("文字合同尚未绑定细纲，不能导出逐节侧车")
+    outline_path = Path(str(outline_binding.get("path") or "")).resolve()
+    if not outline_path.is_file():
+        raise ValueError("文字合同绑定的细纲不存在，不能导出逐节侧车")
+    sections = extract_sections(read_text(outline_path))
+    plans = data.get("section_generation_plans")
+    if not isinstance(plans, list):
+        raise ValueError("文字合同缺少 section_generation_plans")
+    pending = [
+        item
+        for item in plans
+        if isinstance(item, dict) and str(item.get("status") or "").strip() != "passed"
+    ]
+    if not pending:
+        raise ValueError("没有待补的逐节落笔包")
+    selected = pending[:batch_size]
+    section_hints = {
+        str(item.get("section_id") or ""): section_editor_hints(
+            data,
+            str(item.get("section_id") or ""),
+            sections.get(str(item.get("section_id") or ""), ""),
+            item,
+        )
+        for item in selected
+        if isinstance(item, dict) and str(item.get("section_id") or "")
+    }
+    shared_source_material: dict[str, dict[str, Any]] = {}
+    shared_dialogue_candidates: list[dict[str, Any]] = []
+    shared_relation_candidates: list[dict[str, Any]] = []
+    shared_detail_cards: dict[str, dict[str, Any]] = {}
+    shared_character_profiles: dict[str, dict[str, Any]] = {}
+    shared_liveliness_assets: dict[str, dict[str, Any]] = {}
+    seen_dialogue_excerpts: set[str] = set()
+    seen_relation_excerpts: set[str] = set()
+    for hint in section_hints.values():
+        detail_cards = hint.pop("mapped_detail_cards", [])
+        section_dialogue_count = 0
+        hint["mapped_detail_card_ids"] = [
+            str(card.get("card_id") or "")
+            for card in detail_cards
+            if isinstance(card, dict) and str(card.get("card_id") or "")
+        ]
+        for card in detail_cards:
+            if not isinstance(card, dict):
+                continue
+            card_id = str(card.get("card_id") or "")
+            source_quote = str(card.get("source_quote") or "")
+            if card_id:
+                shared_detail_cards[card_id] = {
+                    key: value
+                    for key, value in card.items()
+                    if key != "source_quote"
+                }
+            if section_dialogue_count >= 2:
+                continue
+            for candidate in dialogue_excerpt_candidates_from_text(source_quote, limit=2):
+                excerpt = str(candidate.get("source_excerpt") or "")
+                if excerpt and excerpt not in seen_dialogue_excerpts:
+                    shared_dialogue_candidates.append(candidate)
+                    seen_dialogue_excerpts.add(excerpt)
+                    section_dialogue_count += 1
+                    if section_dialogue_count >= 2:
+                        break
+        character_profiles = hint.pop("character_profiles", [])
+        hint["character_profile_names"] = [
+            str(profile.get("name") or "")
+            for profile in character_profiles
+            if isinstance(profile, dict) and str(profile.get("name") or "")
+        ]
+        for profile in character_profiles:
+            if isinstance(profile, dict):
+                name = str(profile.get("name") or "")
+                if name:
+                    shared_character_profiles[name] = profile
+        liveliness_assets = hint.pop("liveliness_assets", [])
+        hint["liveliness_asset_ids"] = [
+            str(asset.get("asset_id") or "")
+            for asset in liveliness_assets
+            if isinstance(asset, dict) and str(asset.get("asset_id") or "")
+        ]
+        for asset in liveliness_assets:
+            if isinstance(asset, dict):
+                asset_id = str(asset.get("asset_id") or "")
+                if asset_id:
+                    shared_liveliness_assets[asset_id] = asset
+        packets = hint.pop("source_material_packets", [])
+        hint["source_material_packet_ids"] = [
+            str(packet.get("passage_id") or "")
+            for packet in packets
+            if isinstance(packet, dict) and str(packet.get("passage_id") or "")
+        ]
+        for packet in packets:
+            if not isinstance(packet, dict):
+                continue
+            passage_id = str(packet.get("passage_id") or "")
+            if passage_id:
+                shared_source_material[passage_id] = packet
+        for candidate in hint.pop("source_dialogue_excerpt_candidates", []):
+            if not isinstance(candidate, dict):
+                continue
+            if len(shared_dialogue_candidates) >= 6:
+                break
+            excerpt = str(candidate.get("source_excerpt") or "")
+            if excerpt and excerpt not in seen_dialogue_excerpts:
+                shared_dialogue_candidates.append(candidate)
+                seen_dialogue_excerpts.add(excerpt)
+        for passage in hint.get("recommended_source_passages") or []:
+            if isinstance(passage, dict):
+                passage.pop("source_sentences", None)
+    for candidate_index, candidate in enumerate(shared_dialogue_candidates, start=1):
+        candidate["candidate_id"] = f"DLG-{candidate_index:03d}"
+    for candidate_index, candidate in enumerate(shared_relation_candidates, start=1):
+        candidate["candidate_id"] = f"REL-CARD-{candidate_index:03d}"
+    return {
+        "outline_sha256": outline_sha,
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "manual_judgment": "",
+        "section_generation_plans": selected,
+        "editor_hints": {
+            "generated_by": "validate_prose_granularity_contract.export-next-section-plan-pair",
+            "deterministic_only": True,
+            "shared_source_material": list(shared_source_material.values()),
+            "shared_dialogue_excerpt_candidates": shared_dialogue_candidates,
+            "shared_relation_sentence_candidates": shared_relation_candidates,
+            "shared_detail_cards": list(shared_detail_cards.values()),
+            "shared_character_profiles": list(shared_character_profiles.values()),
+            "shared_liveliness_assets": list(shared_liveliness_assets.values()),
+            "section_hints": section_hints,
+            "compact_reference_schema": {
+                "continuous_source_chain_packets": (
+                    "用 source_passage_ref=UF-* 代替重复抄写 source_excerpt 与 "
+                    "source_sentence_chain"
+                ),
+                "contrastive_examples": (
+                    "用 positive_source_ref=UF-* 代替重复抄写 "
+                    "positive_source_excerpt"
+                ),
+                "relation_micro_examples": (
+                    "用 source_relation_ref=REL-* 代替重复抄写 source_excerpt"
+                ),
+                "dialogue_voice_packets": (
+                    "用 source_dialogue_ref=DLG-* 代替重复抄写 source_excerpt 与 "
+                    "source_dialogue_turns"
+                ),
+                "sentence_mechanisms": (
+                    "用 source_mechanism_ref=MECH-* 代替重复抄写 source_sentence 与 "
+                    "feature_ids"
+                ),
+                "semantic_boundary": (
+                    "引用只展开主体原文与确定性标注；所有迁移说明、人物归属、关系类型、"
+                    "试演、正反例和人工裁决仍由当前模型逐项填写"
+                ),
+            },
+            "manual_brevity_budget": {
+                "principle": "每个字段只写一个不可替代判断，覆盖全维度但不重复解释",
+                "chain_or_contrast_field_chars": "12-36",
+                "relation_or_mechanism_field_chars": "12-32",
+                "paragraph_or_window_field_chars": "8-28",
+                "character_field_chars": "8-28",
+                "section_manual_judgment_chars": "24-60",
+            },
+        },
+    }
+
+
+def split_section_plan_sidecars(sidecar: dict[str, Any]) -> list[dict[str, Any]]:
+    """Split a batch sidecar into independent single-section editing files."""
+    plans = sidecar.get("section_generation_plans")
+    if not isinstance(plans, list) or not plans:
+        raise ValueError("待拆分逐节侧车缺少 section_generation_plans")
+    editor_hints = sidecar.get("editor_hints") or {}
+    section_hints = editor_hints.get("section_hints") or {}
+    results: list[dict[str, Any]] = []
+    for plan in plans:
+        if not isinstance(plan, dict):
+            raise ValueError("待拆分逐节侧车包含非对象小节")
+        section_id = str(plan.get("section_id") or "").strip()
+        if not section_id:
+            raise ValueError("待拆分逐节侧车包含空 section_id")
+        results.append(
+            {
+                "outline_sha256": sidecar.get("outline_sha256"),
+                "reviewed_by_current_model": True,
+                "semantic_fields_generated_by_script": False,
+                "manual_judgment": str(plan.get("manual_judgment") or "").strip(),
+                "section_generation_plans": [plan],
+                "editor_hints": {
+                    **editor_hints,
+                    "generated_by": (
+                        "validate_prose_granularity_contract."
+                        "export-next-section-plan-pair.split"
+                    ),
+                    "section_hints": {
+                        section_id: section_hints.get(section_id, {}),
+                    },
+                },
+            }
+        )
+    return results
+
+
+def merge_section_plan_sidecars(
+    data: dict[str, Any],
+    sidecars: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Merge disjoint current-model-authored sidecars without creating semantics."""
+    if len(sidecars) < 2:
+        raise ValueError("合并逐节侧车至少需要 2 份单节文件")
+    outline_sha = str((data.get("outline") or {}).get("sha256") or "").strip()
+    expected_plans = data.get("section_generation_plans")
+    if not outline_sha or not isinstance(expected_plans, list):
+        raise ValueError("正式文字合同缺少细纲绑定或逐节计划")
+    expected_order = {
+        str(item.get("section_id") or ""): index
+        for index, item in enumerate(expected_plans)
+        if isinstance(item, dict)
+    }
+    merged_plans: list[dict[str, Any]] = []
+    judgments: list[str] = []
+    seen_ids: set[str] = set()
+    merged_hints: dict[str, Any] = {}
+    shared_material: dict[str, dict[str, Any]] = {}
+    dialogue_candidates: dict[str, dict[str, Any]] = {}
+    section_hints: dict[str, Any] = {}
+    for index, sidecar in enumerate(sidecars, start=1):
+        if sidecar.get("reviewed_by_current_model") is not True:
+            raise ValueError(f"第 {index} 份逐节侧车未声明当前模型复核")
+        if sidecar.get("semantic_fields_generated_by_script") is not False:
+            raise ValueError(f"第 {index} 份逐节侧车禁止由脚本生成语义字段")
+        if sidecar.get("outline_sha256") != outline_sha:
+            raise ValueError(f"第 {index} 份逐节侧车未绑定当前细纲 SHA")
+        plans = sidecar.get("section_generation_plans")
+        if not isinstance(plans, list) or len(plans) != 1 or not isinstance(plans[0], dict):
+            raise ValueError(f"第 {index} 份待合并侧车必须只含 1 个小节")
+        section_id = str(plans[0].get("section_id") or "").strip()
+        if section_id not in expected_order:
+            raise ValueError(f"第 {index} 份逐节侧车引用未知小节: {section_id}")
+        if section_id in seen_ids:
+            raise ValueError(f"待合并逐节侧车重复引用小节: {section_id}")
+        seen_ids.add(section_id)
+        merged_plans.append(plans[0])
+        judgment = str(sidecar.get("manual_judgment") or "").strip()
+        if len(judgment) < 24:
+            raise ValueError(f"第 {section_id} 节侧车 manual_judgment 过短")
+        judgments.append(f"第{section_id}节：{judgment}")
+        hints = sidecar.get("editor_hints") or {}
+        if not merged_hints:
+            merged_hints = dict(hints)
+        for packet in hints.get("shared_source_material") or []:
+            if isinstance(packet, dict):
+                passage_id = str(packet.get("passage_id") or "").strip()
+                if passage_id:
+                    shared_material[passage_id] = packet
+        for candidate in hints.get("shared_dialogue_excerpt_candidates") or []:
+            if isinstance(candidate, dict):
+                excerpt = str(candidate.get("source_excerpt") or "")
+                if excerpt:
+                    dialogue_candidates[excerpt] = candidate
+        hint = (hints.get("section_hints") or {}).get(section_id)
+        if isinstance(hint, dict):
+            section_hints[section_id] = hint
+    merged_plans.sort(key=lambda item: expected_order[str(item.get("section_id") or "")])
+    merged_hints.update(
+        {
+            "generated_by": (
+                "validate_prose_granularity_contract.merge-section-plan-sidecars"
+            ),
+            "deterministic_only": True,
+            "shared_source_material": list(shared_material.values()),
+            "shared_dialogue_excerpt_candidates": list(dialogue_candidates.values()),
+            "section_hints": section_hints,
+        }
+    )
+    return {
+        "outline_sha256": outline_sha,
+        "reviewed_by_current_model": True,
+        "semantic_fields_generated_by_script": False,
+        "manual_judgment": "；".join(judgments),
+        "section_generation_plans": merged_plans,
+        "editor_hints": merged_hints,
+    }
 
 
 def subflow_records_from_catalog(path: Path) -> list[dict[str, Any]]:
@@ -1350,7 +2881,7 @@ def validate_detail_catalog_data(
     expected_file_bindings = [
         {"path": str(path.resolve()), "sha256": sha256(path)} for path in expected_files
     ]
-    if bound_files != expected_file_bindings:
+    if not same_file_bindings(bound_files, expected_file_bindings):
         errors.append("主体原文细节库文件或 SHA 已变化，必须重建细节全集合同")
     expected_ids = [str(record.get("card_id") or "") for record in records]
     if binding.get("required_card_ids") != expected_ids:
@@ -1396,7 +2927,14 @@ def validate_detail_card_plans(
             continue
         valid = True
         for field in ("category", "title", "source_file", "source_range", "source_quote", "source_function"):
-            if review.get(field) != record.get(field):
+            if field == "source_file":
+                field_matches = same_file_path(
+                    Path(str(review.get(field) or "")),
+                    Path(str(record.get(field) or "")),
+                )
+            else:
+                field_matches = review.get(field) == record.get(field)
+            if not field_matches:
                 errors.append(f"{label}.{field} 与原文细节库不一致")
                 valid = False
         sections = nonempty_strings(review.get("target_sections"))
@@ -1951,6 +3489,7 @@ def validate_outline_generation_plans(
     personality_assets: dict[str, dict[str, Any]],
     character_profiles: dict[str, dict[str, Any]],
     errors: list[str],
+    target_section_ids: set[str] | None = None,
 ) -> int:
     binding = data.get("outline")
     if not isinstance(binding, dict):
@@ -1974,13 +3513,24 @@ def validate_outline_generation_plans(
         for item in plans
         if isinstance(item, dict) and str(item.get("section_id") or "")
     }
-    for section_id in sorted(set(sections) - set(plan_map)):
-        errors.append(f"正文落笔前缺少小节颗粒度包: {section_id}")
-    for section_id in sorted(set(plan_map) - set(sections)):
-        errors.append(f"颗粒度包引用不存在的细纲小节: {section_id}")
+    if target_section_ids is None:
+        for section_id in sorted(set(sections) - set(plan_map)):
+            errors.append(f"正文落笔前缺少小节颗粒度包: {section_id}")
+        for section_id in sorted(set(plan_map) - set(sections)):
+            errors.append(f"颗粒度包引用不存在的细纲小节: {section_id}")
+        iter_section_ids = list(sections.keys())
+    else:
+        missing_targets = sorted(target_section_ids - set(plan_map))
+        for section_id in missing_targets:
+            errors.append(f"预检侧车缺少目标小节: {section_id}")
+        unknown_targets = sorted(target_section_ids - set(sections))
+        for section_id in unknown_targets:
+            errors.append(f"预检侧车引用不存在的细纲小节: {section_id}")
+        iter_section_ids = [section_id for section_id in sections if section_id in target_section_ids]
     passed = 0
     judgment_signatures: dict[str, list[str]] = {}
-    for section_id, section_text in sections.items():
+    for section_id in iter_section_ids:
+        section_text = sections[section_id]
         plan = plan_map.get(section_id)
         if not plan:
             continue
@@ -2016,7 +3566,11 @@ def validate_outline_generation_plans(
             expected_chain = sentence_units(excerpt)
             recorded_chain = nonempty_strings(packet.get("source_sentence_chain"))
             if len(expected_chain) < 3 or recorded_chain != expected_chain:
-                errors.append(f"{packet_label}.source_sentence_chain 必须完整保留连续原文句序")
+                errors.append(
+                    f"{packet_label}.source_sentence_chain 必须完整保留连续原文句序；"
+                    " expected_sentence_units="
+                    + json.dumps(expected_chain, ensure_ascii=False)
+                )
                 valid = False
             signature_parts: list[str] = []
             for field in CONTINUOUS_SOURCE_CHAIN_PACKET_FIELDS:
@@ -2104,7 +3658,11 @@ def validate_outline_generation_plans(
             source_relation_type = str(example.get("source_relation_type") or "").strip()
             target_relation_type = str(example.get("target_relation_type") or "").strip()
             if source_relation_type not in RELATION_TYPES:
-                errors.append(f"{relation_label}.source_relation_type 无效")
+                errors.append(
+                    f"{relation_label}.source_relation_type 无效；"
+                    " allowed_relation_types="
+                    + json.dumps(list(RELATION_TYPES), ensure_ascii=False)
+                )
                 valid = False
             if target_relation_type != source_relation_type:
                 errors.append(f"{relation_label} 目标必须迁移同类句间关系")
@@ -2124,10 +3682,18 @@ def validate_outline_generation_plans(
                     not source_markers
                     or any(marker not in detected_source_markers for marker in source_markers)
                 ):
-                    errors.append(f"{relation_label}.source_markers 必须是验证器识别到的真实关系词")
+                    errors.append(
+                        f"{relation_label}.source_markers 必须是验证器识别到的真实关系词；"
+                        " detected_source_markers="
+                        + json.dumps(detected_source_markers, ensure_ascii=False)
+                    )
                     valid = False
             elif source_markers or detected_source_markers:
-                errors.append(f"{relation_label} 含显式关系词时不得自报为 implicit")
+                errors.append(
+                    f"{relation_label} 含显式关系词时不得自报为 implicit；"
+                    " detected_source_markers="
+                    + json.dumps(detected_source_markers, ensure_ascii=False)
+                )
                 valid = False
             target_rehearsal = str(example.get("target_rehearsal") or "").strip()
             relation_target_rehearsals.append(target_rehearsal)
@@ -2138,10 +3704,18 @@ def validate_outline_generation_plans(
                     not target_markers
                     or any(marker not in detected_target_markers for marker in target_markers)
                 ):
-                    errors.append(f"{relation_label}.target_markers 必须是正例中真实可识别的关系词")
+                    errors.append(
+                        f"{relation_label}.target_markers 必须是正例中真实可识别的关系词；"
+                        " detected_target_markers="
+                        + json.dumps(detected_target_markers, ensure_ascii=False)
+                    )
                     valid = False
             elif target_markers or detected_target_markers:
-                errors.append(f"{relation_label} 隐式目标关系不得含显式关系词")
+                errors.append(
+                    f"{relation_label} 隐式目标关系不得含显式关系词；"
+                    " detected_target_markers="
+                    + json.dumps(detected_target_markers, ensure_ascii=False)
+                )
                 valid = False
             negative_example = str(example.get("negative_example") or "").strip()
             relation_negative_examples.append(negative_example)
@@ -2203,11 +3777,19 @@ def validate_outline_generation_plans(
             expected_turns = dialogue_turn_units(source_excerpt)
             recorded_turns = nonempty_strings(packet.get("source_dialogue_turns"))
             if len(expected_turns) < 2 or recorded_turns != expected_turns:
-                errors.append(f"{packet_label}.source_dialogue_turns 必须完整保留至少 2 轮原文直接对白")
+                errors.append(
+                    f"{packet_label}.source_dialogue_turns 必须完整保留至少 2 轮原文直接对白；"
+                    " expected_dialogue_turns="
+                    + json.dumps(expected_turns, ensure_ascii=False)
+                )
                 valid = False
             target_character = str(packet.get("target_character") or "").strip()
-            if len(target_character) < 2:
-                errors.append(f"{packet_label}.target_character 必须绑定当前人物")
+            if len(target_character) < 2 and target_character not in character_profiles:
+                errors.append(
+                    f"{packet_label}.target_character 不得使用未绑定母版的单字占位；"
+                    " available_character_profiles="
+                    + json.dumps(sorted(character_profiles), ensure_ascii=False)
+                )
                 valid = False
             rehearsal = str(packet.get("target_rehearsal") or "").strip()
             dialogue_rehearsals.append(rehearsal)
@@ -2253,7 +3835,11 @@ def validate_outline_generation_plans(
                 valid = False
         passage_ids = nonempty_strings(plan.get("source_passage_ids"))
         if not passage_ids or any(item not in passage_map for item in passage_ids):
-            errors.append(f"{label}.source_passage_ids 必须绑定已逐句标注的原文段")
+            errors.append(
+                f"{label}.source_passage_ids 必须绑定已逐句标注的原文段；"
+                " available_source_passage_ids="
+                + json.dumps(sorted(passage_map), ensure_ascii=False)
+            )
             valid = False
         allowed_source_sentences = {
             str(annotation.get("source_sentence") or "").strip()
@@ -2274,7 +3860,11 @@ def validate_outline_generation_plans(
                 continue
             source_sentence = str(mechanism.get("source_sentence") or "").strip()
             if source_sentence not in allowed_source_sentences:
-                errors.append(f"{item_label}.source_sentence 不在本节绑定原文段中")
+                errors.append(
+                    f"{item_label}.source_sentence 不在本节绑定原文段中；"
+                    " allowed_source_sentences="
+                    + json.dumps(sorted(allowed_source_sentences), ensure_ascii=False)
+                )
                 valid = False
             feature_ids = nonempty_strings(mechanism.get("feature_ids"))
             if len(feature_ids) < 2 or any(
@@ -2317,7 +3907,15 @@ def validate_outline_generation_plans(
                 valid = False
             asset_ids = nonempty_strings(liveliness_plan.get("asset_ids"))
             if len(asset_ids) < 4 or any(item not in liveliness_assets for item in asset_ids):
-                errors.append(f"{label}.liveliness_plan.asset_ids 至少绑定 4 条有效活性资产")
+                available_assets = {
+                    asset_id: str(asset.get("type") or "")
+                    for asset_id, asset in liveliness_assets.items()
+                }
+                errors.append(
+                    f"{label}.liveliness_plan.asset_ids 至少绑定 4 条有效活性资产；"
+                    " available_liveliness_assets="
+                    + json.dumps(available_assets, ensure_ascii=False)
+                )
                 valid = False
             selected_types = {
                 str(liveliness_assets[item].get("type") or "")
@@ -2325,7 +3923,11 @@ def validate_outline_generation_plans(
                 if item in liveliness_assets
             }
             if len(selected_types) < 3:
-                errors.append(f"{label}.liveliness_plan 至少覆盖 3 类活性资产")
+                errors.append(
+                    f"{label}.liveliness_plan 至少覆盖 3 类活性资产；"
+                    " selected_types="
+                    + json.dumps(sorted(selected_types), ensure_ascii=False)
+                )
                 valid = False
             for field in LIVELINESS_SECTION_PLAN_FIELDS:
                 if len(str(liveliness_plan.get(field) or "").strip()) < 8:
@@ -2359,6 +3961,43 @@ def validate_outline_generation_plans(
         if len(section_ids) > 1:
             errors.append("不同小节不得复用模板化落笔裁决: " + ", ".join(section_ids))
     return passed
+
+
+def preflight_section_plan_data(
+    data: dict[str, Any],
+    plan: dict[str, Any],
+    source_original: Path,
+) -> tuple[list[str], dict[str, int]]:
+    errors: list[str] = []
+    source_text = validate_source_binding(data, source_original, errors)
+    ultra_fine_passages = validate_ultra_fine_source_baseline(data, source_text, errors)
+    liveliness_assets = validate_prose_liveliness_layer(data, source_text, errors)
+    personality_assets, character_profiles = validate_character_personality_layer(
+        data, source_text, errors
+    )
+    expanded_plan = expand_compact_section_plans(plan)
+    merged = apply_section_plan(data, plan)
+    supplied = expanded_plan.get("section_generation_plans")
+    target_section_ids = {
+        str(item.get("section_id") or "").strip()
+        for item in supplied
+        if isinstance(item, dict) and str(item.get("section_id") or "").strip()
+    } if isinstance(supplied, list) else set()
+    passed_generation_plans = validate_outline_generation_plans(
+        merged,
+        None,
+        source_text,
+        ultra_fine_passages,
+        liveliness_assets,
+        personality_assets,
+        character_profiles,
+        errors,
+        target_section_ids=target_section_ids,
+    )
+    return errors, {
+        "checked_sections": len(target_section_ids),
+        "passed_generation_plans": passed_generation_plans,
+    }
 
 
 def validate_prewrite_data(
@@ -2498,8 +4137,6 @@ def validate_prewrite_data(
             if valid:
                 valid_samples += 1
 
-    if data.get("prewrite_status") != "passed":
-        errors.append("prewrite_status 必须为 passed")
     return errors, {
         "valid_excerpts": valid_excerpts,
         "required_dimensions": len(REQUIRED_DIMENSIONS),
@@ -2531,18 +4168,69 @@ def extract_sections(text: str) -> dict[str, str]:
     return {key: "\n".join(lines) for key, lines in sections.items()}
 
 
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def bind_outline(data: dict[str, Any], outline_path: Path) -> dict[str, Any]:
     outline = outline_path.resolve()
     if not outline.is_file():
         raise FileNotFoundError(f"细纲不存在: {outline}")
     sections = extract_sections(read_text(outline))
+    new_outline_sha = sha256(outline)
+    old_outline_sha = str((data.get("outline") or {}).get("sha256") or "")
+    existing_plans = {
+        str(item.get("section_id") or ""): item
+        for item in data.get("section_generation_plans") or []
+        if isinstance(item, dict) and str(item.get("section_id") or "")
+    }
+    retained_ids: list[str] = []
+    reset_ids: list[str] = []
+    added_ids: list[str] = []
+    rebound_plans: list[dict[str, Any]] = []
+    for section_id, section_text in sections.items():
+        section_sha = text_sha256(section_text)
+        existing = existing_plans.get(section_id)
+        existing_section_sha = (
+            str(existing.get("outline_section_sha256") or "") if existing else ""
+        )
+        unchanged = bool(existing) and (
+            existing_section_sha == section_sha
+            or (not existing_section_sha and old_outline_sha == new_outline_sha)
+        )
+        if unchanged:
+            rebound_plans.append(
+                {
+                    **existing,
+                    "outline_section_sha256": section_sha,
+                }
+            )
+            retained_ids.append(section_id)
+            continue
+        fresh = section_generation_plan_scaffold(section_id, section_sha)
+        if existing:
+            prior_candidate = dict(existing)
+            prior_candidate.pop("prior_plan_candidate", None)
+            fresh["prior_plan_candidate"] = prior_candidate
+            reset_ids.append(section_id)
+        else:
+            added_ids.append(section_id)
+        rebound_plans.append(fresh)
     data["version"] = "2.5"
     data["gate_status"] = "pending"
     data["prewrite_status"] = "pending"
-    data["outline"] = {"path": str(outline), "sha256": sha256(outline)}
-    data["section_generation_plans"] = [
-        section_generation_plan_scaffold(section_id) for section_id in sections
-    ]
+    data["outline"] = {"path": str(outline), "sha256": new_outline_sha}
+    data["section_generation_plans"] = rebound_plans
+    data["outline_rebind_summary"] = {
+        "retained_section_ids": retained_ids,
+        "reset_section_ids": reset_ids,
+        "added_section_ids": added_ids,
+        "removed_section_ids": [
+            section_id for section_id in existing_plans if section_id not in sections
+        ],
+        "full_outline_sha_changed": old_outline_sha != new_outline_sha,
+        "unchanged_sections_preserved": True,
+    }
     data["blocking_failures"] = []
     return data
 
@@ -4309,18 +5997,66 @@ def main() -> int:
     )
     apply_detail_parser.add_argument("--receipt", required=True)
     apply_detail_parser.add_argument("--plan", required=True)
+    apply_detail_parser.add_argument("--consume", action="store_true")
     apply_source_parser = subparsers.add_parser(
         "apply-source-assets",
         help="原样合并当前模型人工完成的书级文字基线、活性层与人物层",
     )
     apply_source_parser.add_argument("--receipt", required=True)
     apply_source_parser.add_argument("--sidecar", required=True)
+    apply_source_parser.add_argument("--consume", action="store_true")
     apply_section_parser = subparsers.add_parser(
         "apply-section-plan",
         help="校验并原样合并当前模型逐节填写的文字写前侧车",
     )
     apply_section_parser.add_argument("--receipt", required=True)
     apply_section_parser.add_argument("--plan", required=True)
+    apply_section_parser.add_argument("--consume", action="store_true")
+    export_section_pair_parser = subparsers.add_parser(
+        "export-next-section-plan-pair",
+        help="从正式真源导出下一对待补小节的可编辑逐节侧车",
+    )
+    export_section_pair_parser.add_argument("--receipt", required=True)
+    export_section_pair_parser.add_argument("--output", required=True)
+    export_section_pair_parser.add_argument("--batch-size", type=int, default=2)
+    export_section_pair_parser.add_argument("--split-output-dir")
+    export_section_pair_parser.add_argument(
+        "--compact-authoring",
+        action="store_true",
+        help="导出短键、定长数组的无损人工填写格式",
+    )
+    export_section_pair_parser.add_argument(
+        "--catalog-output",
+        help="紧凑人工模式的只读取材目录；默认与侧车同目录",
+    )
+    split_section_sidecar_parser = subparsers.add_parser(
+        "split-section-plan-sidecar",
+        help="把已有批次逐节侧车拆成互不冲突的单节人工侧车",
+    )
+    split_section_sidecar_parser.add_argument("--receipt", required=True)
+    split_section_sidecar_parser.add_argument("--plan", required=True)
+    split_section_sidecar_parser.add_argument("--output-dir", required=True)
+    merge_section_sidecars_parser = subparsers.add_parser(
+        "merge-section-plan-sidecars",
+        help="把不同执行者写入不同文件的单节人工侧车确定性合并为正式批次侧车",
+    )
+    merge_section_sidecars_parser.add_argument("--receipt", required=True)
+    merge_section_sidecars_parser.add_argument("--plans", nargs="+", required=True)
+    merge_section_sidecars_parser.add_argument("--output", required=True)
+    compact_section_sidecar_parser = subparsers.add_parser(
+        "compact-section-plan-sidecar",
+        help="把完整逐节侧车中的重复主体原文载荷替换为 UF/REL/DLG/MECH 引用",
+    )
+    compact_section_sidecar_parser.add_argument("--receipt", required=True)
+    compact_section_sidecar_parser.add_argument("--plan", required=True)
+    compact_section_sidecar_parser.add_argument("--output", required=True)
+    preflight_section_parser = subparsers.add_parser(
+        "preflight-section-plan",
+        help="在正式 apply 前预检当前批次逐节侧车，只校验侧车涉及的小节",
+    )
+    preflight_section_parser.add_argument("--receipt", required=True)
+    preflight_section_parser.add_argument("--plan", required=True)
+    preflight_section_parser.add_argument("--source-original", required=True)
     prewrite_parser = subparsers.add_parser("validate-prewrite")
     prewrite_parser.add_argument("--receipt", required=True)
     prewrite_parser.add_argument("--source-original", required=True)
@@ -4360,8 +6096,16 @@ def main() -> int:
         print(f"- 文字颗粒度合同回执不是有效 JSON: {exc}")
         return 2
     if args.command == "bind-outline":
-        write_json(receipt, bind_outline(data, Path(args.outline)))
-        print(f"prose_granularity_contract: outline bound -> {receipt}")
+        result = bind_outline(data, Path(args.outline))
+        write_json(receipt, result)
+        summary = result.get("outline_rebind_summary") or {}
+        print(
+            f"prose_granularity_contract: outline bound -> {receipt}"
+            f" (retained={len(summary.get('retained_section_ids') or [])},"
+            f" reset={len(summary.get('reset_section_ids') or [])},"
+            f" added={len(summary.get('added_section_ids') or [])},"
+            f" removed={len(summary.get('removed_section_ids') or [])})"
+        )
         return 0
     if args.command == "sync-detail-catalog":
         source = Path(args.source_original).resolve()
@@ -4371,6 +6115,7 @@ def main() -> int:
     if args.command == "apply-detail-plan":
         plan_path = Path(args.plan).resolve()
         try:
+            plan_sha = sha256(plan_path)
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
             if not isinstance(plan, dict):
                 raise ValueError("主体细节卡写前映射 JSON 顶层必须是对象")
@@ -4380,13 +6125,23 @@ def main() -> int:
             print(f"- {exc}")
             return 2
         result["detail_plan_provenance"]["path"] = str(plan_path)
-        result["detail_plan_provenance"]["sha256"] = sha256(plan_path)
+        result["detail_plan_provenance"]["sha256"] = plan_sha
         write_json(receipt, result)
+        if args.consume:
+            consume_sidecar(
+                plan_path,
+                input_sha256=plan_sha,
+                receipt_path=receipt,
+                receipt_sha256=sha256(receipt),
+                operation="prose-detail-plan.apply",
+                counts={"cards": len(plan.get("cards") or [])},
+            )
         print(f"prose_granularity_contract: detail plan applied -> {receipt}")
         return 0
     if args.command == "apply-source-assets":
         sidecar_path = Path(args.sidecar).resolve()
         try:
+            sidecar_sha = sha256(sidecar_path)
             sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
             if not isinstance(sidecar, dict):
                 raise ValueError("书级文字资产侧车 JSON 顶层必须是对象")
@@ -4396,13 +6151,28 @@ def main() -> int:
             print(f"- {exc}")
             return 2
         result["source_asset_provenance"]["path"] = str(sidecar_path)
-        result["source_asset_provenance"]["sha256"] = sha256(sidecar_path)
+        result["source_asset_provenance"]["sha256"] = sidecar_sha
         write_json(receipt, result)
+        if args.consume:
+            consume_sidecar(
+                sidecar_path,
+                input_sha256=sidecar_sha,
+                receipt_path=receipt,
+                receipt_sha256=sha256(receipt),
+                operation="prose-source-assets.apply",
+                counts={
+                    "calibration_samples": len(sidecar.get("calibration_samples") or []),
+                    "character_profiles": len(
+                        (sidecar.get("character_personality_layer") or {}).get("characters") or []
+                    ),
+                },
+            )
         print(f"prose_granularity_contract: source assets applied -> {receipt}")
         return 0
     if args.command == "apply-section-plan":
         plan_path = Path(args.plan).resolve()
         try:
+            plan_sha = sha256(plan_path)
             plan = json.loads(plan_path.read_text(encoding="utf-8"))
             if not isinstance(plan, dict):
                 raise ValueError("文字逐节写前侧车 JSON 顶层必须是对象")
@@ -4412,10 +6182,177 @@ def main() -> int:
             print(f"- {exc}")
             return 2
         result["section_plan_provenance"].update(
-            {"path": str(plan_path), "sha256": sha256(plan_path)}
+            {"path": str(plan_path), "sha256": plan_sha}
         )
         write_json(receipt, result)
+        if args.consume:
+            consume_sidecar(
+                plan_path,
+                input_sha256=plan_sha,
+                receipt_path=receipt,
+                receipt_sha256=sha256(receipt),
+                operation="prose-section-plan.apply",
+                counts={
+                    "sections": len(
+                        expand_compact_section_plans(plan).get(
+                            "section_generation_plans"
+                        )
+                        or []
+                    ),
+                },
+            )
         print(f"prose_granularity_contract: section plan applied -> {receipt}")
+        return 0
+    if args.command == "export-next-section-plan-pair":
+        output = Path(args.output).resolve()
+        try:
+            sidecar = export_next_section_plan_pair(data, batch_size=args.batch_size)
+            if args.compact_authoring:
+                sidecar = convert_export_to_compact_authoring(sidecar)
+                catalog_output = (
+                    Path(args.catalog_output).resolve()
+                    if args.catalog_output
+                    else output.with_name(f"{output.stem}.catalog.json")
+                )
+                sidecar, _ = externalize_compact_editor_catalog(
+                    sidecar,
+                    catalog_output,
+                )
+        except ValueError as exc:
+            print("prose_granularity_contract: blocked (export-next-section-plan-pair)")
+            print(f"- {exc}")
+            return 2
+        write_json(output, sidecar)
+        split_paths: list[Path] = []
+        if args.split_output_dir:
+            split_output_dir = Path(args.split_output_dir).resolve()
+            for single_sidecar in split_section_plan_sidecars(sidecar):
+                section_id = str(
+                    single_sidecar["section_generation_plans"][0].get("section_id") or ""
+                )
+                split_path = split_output_dir / f"第{section_id}节人工.json"
+                write_json(split_path, single_sidecar)
+                split_paths.append(split_path)
+        section_ids = [
+            str(item.get("id") or item.get("section_id") or "")
+            for item in (
+                sidecar.get("compact_section_plans")
+                if args.compact_authoring
+                else sidecar.get("section_generation_plans")
+            )
+            or []
+            if isinstance(item, dict)
+        ]
+        print(
+            "prose_granularity_contract: next section plan pair exported"
+            f" -> {output} ({', '.join(section_ids)})"
+        )
+        if args.compact_authoring:
+            print(f"- editor_catalog: {sidecar['editor_catalog']['path']}")
+        for split_path in split_paths:
+            print(f"- independent_sidecar: {split_path}")
+        return 0
+    if args.command == "split-section-plan-sidecar":
+        plan_path = Path(args.plan).resolve()
+        output_dir = Path(args.output_dir).resolve()
+        try:
+            sidecar = json.loads(plan_path.read_text(encoding="utf-8"))
+            if not isinstance(sidecar, dict):
+                raise ValueError("待拆分逐节侧车 JSON 顶层必须是对象")
+            if sidecar.get("outline_sha256") != str(
+                (data.get("outline") or {}).get("sha256") or ""
+            ):
+                raise ValueError("待拆分逐节侧车未绑定当前细纲 SHA")
+            split_sidecars = split_section_plan_sidecars(sidecar)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (split-section-plan-sidecar)")
+            print(f"- {exc}")
+            return 2
+        split_paths: list[Path] = []
+        for single_sidecar in split_sidecars:
+            section_id = str(
+                single_sidecar["section_generation_plans"][0].get("section_id") or ""
+            )
+            split_path = output_dir / f"第{section_id}节人工.json"
+            write_json(split_path, single_sidecar)
+            split_paths.append(split_path)
+        print(
+            "prose_granularity_contract: section sidecar split"
+            f" -> {output_dir} ({len(split_paths)} sections)"
+        )
+        for split_path in split_paths:
+            print(f"- independent_sidecar: {split_path}")
+        return 0
+    if args.command == "merge-section-plan-sidecars":
+        output = Path(args.output).resolve()
+        try:
+            plan_paths = [Path(value).resolve() for value in args.plans]
+            sidecars = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in plan_paths
+            ]
+            if any(not isinstance(sidecar, dict) for sidecar in sidecars):
+                raise ValueError("待合并逐节侧车 JSON 顶层必须是对象")
+            merged = merge_section_plan_sidecars(data, sidecars)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (merge-section-plan-sidecars)")
+            print(f"- {exc}")
+            return 2
+        write_json(output, merged)
+        section_ids = [
+            str(item.get("section_id") or "")
+            for item in merged.get("section_generation_plans") or []
+            if isinstance(item, dict)
+        ]
+        print(
+            "prose_granularity_contract: section sidecars merged"
+            f" -> {output} ({', '.join(section_ids)})"
+        )
+        return 0
+    if args.command == "compact-section-plan-sidecar":
+        plan_path = Path(args.plan).resolve()
+        output = Path(args.output).resolve()
+        try:
+            sidecar = json.loads(plan_path.read_text(encoding="utf-8"))
+            if not isinstance(sidecar, dict):
+                raise ValueError("待压缩逐节侧车 JSON 顶层必须是对象")
+            if sidecar.get("outline_sha256") != str(
+                (data.get("outline") or {}).get("sha256") or ""
+            ):
+                raise ValueError("待压缩逐节侧车未绑定当前细纲 SHA")
+            compacted = compact_section_plan_references(sidecar)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (compact-section-plan-sidecar)")
+            print(f"- {exc}")
+            return 2
+        write_json(output, compacted)
+        stats = compacted.get("compact_reference_provenance") or {}
+        print(
+            "prose_granularity_contract: section sidecar compacted"
+            f" -> {output} (fields={stats.get('compacted_fields', 0)})"
+        )
+        return 0
+    if args.command == "preflight-section-plan":
+        plan_path = Path(args.plan).resolve()
+        source = Path(args.source_original).resolve()
+        try:
+            plan = json.loads(plan_path.read_text(encoding="utf-8"))
+            if not isinstance(plan, dict):
+                raise ValueError("文字逐节写前侧车 JSON 顶层必须是对象")
+            errors, stats = preflight_section_plan_data(data, plan, source)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            print("prose_granularity_contract: blocked (preflight-section-plan)")
+            print(f"- {exc}")
+            return 2
+        if errors:
+            print("prose_granularity_contract: blocked (preflight-section-plan)")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print(
+            "prose_granularity_contract: section plan preflight passed"
+            f" -> {plan_path} ({stats['checked_sections']} sections)"
+        )
         return 0
     if args.command == "bind-draft":
         progress_errors = validate_section_progress_receipt(
@@ -4467,6 +6404,10 @@ def main() -> int:
         for error in errors:
             print(f"- {error}")
         return 2
+    if args.command == "validate-prewrite":
+        updated = dict(data)
+        updated["prewrite_status"] = "passed"
+        write_json(receipt, updated)
     print(f"prose_granularity_contract: passed ({label})")
     print(json.dumps(summary, ensure_ascii=False))
     return 0

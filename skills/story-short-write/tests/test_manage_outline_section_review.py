@@ -51,6 +51,7 @@ class ManageOutlineSectionReviewTest(unittest.TestCase):
         payload = TOOL.export_template(self.receipt, self.template)
         self.assertEqual("story-short-write.outline-section-review-template.v1", payload["schema_version"])
         self.assertEqual(["1", "2"], [item["section_id"] for item in payload["sections"]])
+        self.assertNotIn("source_path", payload["sections"][0])
         self.assertTrue(self.template.is_file())
 
     def test_apply_template_replaces_target_sections(self) -> None:
@@ -75,6 +76,17 @@ class ManageOutlineSectionReviewTest(unittest.TestCase):
         self.assertEqual("passed", merged["sections"][0]["verdict"])
         self.assertEqual("当众撤掉她的解释权", merged["sections"][0]["irreversible_action"])
         self.assertEqual([], merged["sections"][1]["scene_units"])
+
+    def test_apply_preserves_static_fields_not_present_in_sidecar(self) -> None:
+        payload = json.loads(self.receipt.read_text(encoding="utf-8"))
+        payload["sections"][0]["source_path"] = "canonical-source"
+        self.receipt.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        TOOL.export_template(self.receipt, self.template)
+        merged = TOOL.apply_template(self.receipt, self.template)
+        self.assertEqual("canonical-source", merged["sections"][0]["source_path"])
 
     def test_apply_template_rejects_stale_receipt_sha(self) -> None:
         TOOL.export_template(self.receipt, self.template)

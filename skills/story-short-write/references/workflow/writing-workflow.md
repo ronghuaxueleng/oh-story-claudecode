@@ -38,26 +38,425 @@
 
 正式书名锁定后，全新开书必须先验证同名路径从未被占用，再用书名原文创建写作目录。目标路径已存在就退回候选书名阶段；不读其内容，不判断是否为空，不尝试复用。预检前禁止 `mkdir -p` 或初始化项目回执。创建后再验证目录名，两次通过后才能创建 `设定.md`、`小节大纲.md` 和 `正文.md`。项目目录不得使用题材、主体骨架、日期或内部任务代号。
 
+完成上面的 `validate -> mkdir -> validate` 之后，再进入 `batch_read_gates.py` 新项目入口。`bootstrap-project` 与 `start-new-project-read-gates` 现在允许接管这个“刚通过目录硬闸、但尚未初始化任何文件”的空目录；如果目录里已经出现正式文件或其他历史内容，仍按占用阻断，不得冒充全新项目继续。
+
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_project_directory_name.py" \
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" bootstrap-project \
+  --project "{小说书名}" \
   --project-dir "{工作区}/{小说书名}" \
-  --title "{小说书名}" \
-  --new-project
-
-mkdir "{工作区}/{小说书名}"
-
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_project_directory_name.py" \
-  --project-dir "{工作区}/{小说书名}" \
-  --title "{小说书名}"
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --batch-size 20 \
+  --print-paths-json
 ```
 
-两次都输出 `project_directory_name: passed` 才能初始化回执并进入设定阶段。已经写入回执后才发现目录名错误时，必须先移动整个目录，再同步项目内所有绝对路径、相对项目路径、profile 文件名和 `project` 字段；正文 SHA 不因目录移动改变，但所有路径绑定必须按新目录重新验证。
+如果希望全新项目直接起步到“读取批次续跑判断”这一步，用最高层入口：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" start-new-project-read-gates \
+  --project "{小说书名}" \
+  --project-dir "{工作区}/{小说书名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --stage outline \
+  --stage-output "{工作区}/{小说书名}/小节大纲.md" \
+  --output "{工作区}/{小说书名}/设定.md" \
+  --output "{工作区}/{小说书名}/小节大纲.md" \
+  --output "{工作区}/{小说书名}/正文.md" \
+  --batch-size 20
+```
+
+它会自动执行 `bootstrap-project -> prepare-batches -> run-read-gates-cycle`。对全新项目来说，第一次通常会停在“等待人工填写 batch-*.json”。
+
+它会先按正式书名校验项目目录名，再自动创建项目根与标准基础目录：
+
+- `{项目目录}/拆文库/`
+- `{项目目录}/资料库/开头库/`
+- `{项目目录}/资料库/对话刀法库/`
+- `{项目目录}/资料库/微动作库/`
+- `{项目目录}/资料库/安静压迫场库/`
+- `{项目目录}/资料库/AI反例库/`
+- `{项目目录}/资料库/角色口气库/`
+- `{项目目录}/写作资产/`
+- `{项目目录}/写作资产/读取批次/`
+- `{项目目录}/写作资产/当前节计划/`
+- `{项目目录}/写作资产/当前节写作包/`
+- `{项目目录}/写作资产/当前节暂存/`
+- `{项目目录}/写作资产/逐节验收/侧车/`
+- `{项目目录}/写作资产/正式审计/`
+- `{项目目录}/写作资产/单节原型测试/`
+- `{项目目录}/对标/`
+
+同时会写出 `{项目目录}/写作资产/项目骨架索引.json`，只记录已创建目录和 `设定.md / 小节大纲.md / 正文.md` 等保留路径，不提前创建这些时序敏感文件。加上 `--print-paths-json` 后，命令末尾还会额外输出一行可机读 JSON，直接给后续脚本消费 `project_dir / layout_index / writing_receipt / source_receipt / batch_dir / manifest`。随后直接初始化两份读取回执并导出 `读取批次/manifest.json`。已经写入回执后才发现目录名错误时，必须先移动整个目录，再同步项目内所有绝对路径、相对项目路径、profile 文件名和 `project` 字段；正文 SHA 不因目录移动改变，但所有路径绑定必须按新目录重新验证。
 
 用户否定书名时，立即停止设定、大纲和正文生成，退回本阶段。旧书名不得继续约束题面、核心物件或桥段；新名锁定后移动整个项目目录并同步上述字段，再重跑目录校验。若 skill、来源 SHA 或路径绑定随之变化，还必须重跑对应读取门禁、`sync-sources`、`validate-prewrite` 和当前阶段写作放行闸，不能沿用旧回执口头放行。
 
 ---
 
 ## Phase 2 设计任务（框架定住后再做）
+
+### 进入设计任务前的读取批次示例
+
+正式流程里，两道读取门禁的人工中段默认不再使用零散 `cat`、`sed` 或 `/tmp` 文件承载。全新项目优先走 `bootstrap-project`；已有项目再走 `prepare-batches`。高层命令优先；只有排查单批失败时才回落到底层命令。已有项目的推荐顺序如下：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --output-dir "{项目目录}/写作资产/读取批次" \
+  --batch-size 20
+```
+
+当前模型逐批填写 `读取批次/batch-*.json` 中的：
+
+- `status`：刚开始处理时改成 `in_progress`；全部人工字段填完后改成 `reviewed`
+- `review_started_at`：进入 `in_progress` 时写当前 UTC 时间
+- `reviewed_at`：切到 `reviewed` 时写当前 UTC 时间
+- `reviewed_by_current_model=true`
+- `semantic_fields_generated_by_script=false`
+- 每条 `entries[*].evidence_terms / takeaways / used_for`
+- 多来源时按需填写批次顶层 `cross_source_decisions`
+
+不确定还有哪些批次没做完时，先看整份清单状态：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json"
+```
+
+它会汇总 `pending / in_progress / reviewed / consumed` 数量，按批次顺序列出 `batch_id | status | entry_count | first_entry_id | last_entry_id` 简表，并列出尚未完成的批次路径。
+
+如果当前只是想确认某一批里到底有哪些条目、相对路径和文件开头，不要再临时写 Python 或手搓 `jq`。直接用官方只读入口：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" show-batch \
+  --input "{项目目录}/写作资产/读取批次/batch-001.json"
+```
+
+它会输出当前批次的 `batch_id / status / entry_count`，以及每条 `entry_id | gate | relative_path | preview`。`preview` 只取源文件第一条非空行，作用是帮助当前模型快速确认这一批覆盖了哪些规则或拆文资产；它不代填任何人工语义字段。
+
+`apply-batch --consume` 成功后，如果正式回执 SHA 因合并而变化，需要重新执行一次 `export-batches`。现在重导出会按 `gate + relative_path (+ source_root)` 从正式回执自动恢复已经人工补齐的 `evidence_terms / takeaways / used_for`，整批条目都已补齐时会直接恢复为 `reviewed`，不再要求手工把已完成批次重新同步回侧车。
+
+如果不想自己判断下一步该跑什么，可以直接让脚本给出建议：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" next-step \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+它会根据当前批次状态和两份回执是否已 `passed`，直接输出下一条推荐正式命令。
+
+如果希望脚本直接按当前状态继续执行，而不是只给建议，用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" run-read-gates-cycle \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+它会自动分三种情况处理：未完成批次时停在人工阶段；全部 `reviewed` 时自动 `finalize-batches`；批次已 `consumed` 但门禁尚未 `passed` 时自动补跑 `validate`。
+
+如果外层调用方连内部命令名都不想记，直接让脚本吐整段模板：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{工作区}/{项目名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md" \
+  --batch-size 20
+```
+
+它会直接输出一整段可执行 shell，包含 `bootstrap-project -> status -> next-step -> run-read-gates-cycle`。
+
+全部批次填写完后，优先直接按清单顺序一次合并：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --consume \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+只有全部 `batch-*.json` 都已由当前模型填写完成，并把 `status=reviewed + reviewed_by_current_model=true + reviewed_at` 落盘后，才允许执行这一步。`finalize-batches` 会先检查整份 `manifest` 是否仍存在未完成批次；只要还缺一批，就直接阻断，不做部分合并。全部通过后，它再按 `manifest.json` 逐批自动刷新绑定 SHA、逐批合并、逐批消费，并在末尾接正式 `validate`。除排查单批失败外，不再推荐手动逐个点名 `batch-001.json`、`batch-002.json`。
+
+读取门禁通过、`设定.md` 与 `小节大纲.md` 都已落盘后，进入 `6-16` 这段优先走 `batch_outline_release.py` 的高层总入口，不再默认手拼五条 `init`。它会按项目目录自动推导 `规则执行台账.json / 设定顺序契约回执.json / 顺序契约回执.json / 开头承重契约回执_大纲.json / 细纲表演验收回执.json / 规则模型分类批次.json / 规则模型归并计划.json`，主体导语资产和各本 `原文/{书名}.txt` 默认从已通过的 `拆文读取回执.json` 中反推：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" start-outline-release \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --export-model-review-output "{项目目录}/写作资产/规则模型分类批次.json" \
+  --export-model-plan-output "{项目目录}/写作资产/规则模型归并计划.json"
+```
+
+外层调用方如果只想拿整段模板，不想自己记命令名，用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+规则执行台账初始化后，规则模型复核中段也不再默认手拼 `export-model-review / read-model-review-batch / export-model-group-plan / apply-model-groups / validate-prewrite`。现已提供高层总入口 `batch_rule_model_review.py`，按项目目录自动推导 `规则执行台账.json / 规则模型分类批次.json / 规则模型归并计划.json`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" prepare-model-review \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --review-manifest "{项目目录}/写作资产/规则模型分类批次.json" \
+  --group-plan "{项目目录}/写作资产/规则模型归并计划.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" run-model-review-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+它会自动分三种情况处理：还没导出人工载体时先要求 `prepare-model-review`；归并计划还没被当前模型补完时停在人工阶段；计划已补完时自动 `apply-model-groups --consume` 并补跑 `validate-prewrite`。想直接拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+如果当前批次主要卡在细纲表演验收人工回填，不想自己串 `sync-source-emotions / export-template / export-beat-template / apply-template / apply-beat-template / rebind-outline / seal-review`，也已有高层总入口 `batch_outline_review_cycle.py`。它按项目目录自动推导 `细纲表演验收回执.json / 小节大纲.md / 桥级回填侧车.json / 桥级逐拍回填侧车.json / 节级回填侧车.json`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --bridge-review "{项目目录}/写作资产/桥级回填侧车.json" \
+  --bridge-beat-review "{项目目录}/写作资产/桥级逐拍回填侧车.json" \
+  --section-review "{项目目录}/写作资产/节级回填侧车.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+它会自动分四种情况处理：还没导出三份侧车时先做 `prepare-outline-review`；桥级/逐拍/节级仍有未补完字段时停在人工阶段；三份侧车都已补完时统一 `apply+consume`；侧车已消费但顶层还没封口时补做 `rebind-outline + seal-review`。想直接拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+细纲封口通过后，正文前阶段不要直接跳去 `batch_prewrite_release.py prepare-validate`。固定顺序必须先转入下面这一条人工资产链：
+
+1. 确认 `profiles/{项目名}.project.profile.json` 已存在；缺失时先生成 profile。
+2. 运行 `init_project_writing_assets.py` 初始化 `项目写作配置.json / 逐拍语义映射.json / 逐场语义映射.json`；随后立即补齐 `项目写作配置.primary` 的主体确定性路径，不能带着空白 `name / original_path / emotion_ledger_path / plot_ledger_path` 进入下一步。
+3. 先运行 `validate_semantic_beat_mapping.py export-template` 导出 `写作资产/逐拍语义映射.json` 的完整真源骨架。若 `细纲表演验收回执.json` 里已经存在可复用的正式 `target_emotion_sequence / target_plot_beats` 裁决，默认立刻接 `validate_semantic_beat_mapping.py sync-from-outline-contract`，先把已通过细纲真源里的现成拍级裁决回收到映射文件，再人工补剩余缺口，最后跑固定的 `validate_semantic_beat_mapping.py validate`。`小节大纲.md` 的节标题必须保持纯标题行：`## 导语`、`## N.`、`## 尾声`；标题行后空一行，再进入 bullet。不要把首条 bullet 吞进标题块，否则会污染区域识别。opening / epilogue 若在细纲回执里仍未完整闭合，同步后仍要单独人工补齐，不能默认视为通过。这一步属于正文前合同前置，不得跳过，也不得改用临时脚本起盘。
+4. `sync-from-outline-contract` 的职责只是“正式真源回收 + 真实区域重算 + P 拍整条 bullet 候选回收”。如果某批 `P-*` 在同步后仍连续报 `evidence 重复`、`actor_evidence 未点名施事者`、`施事者不贴证`，直接按阻断处理：默认判为“当前细纲句承载不足”或“该拍仍需人工闭合”，不得继续磨脚本。同一错误在未改真源、未改细纲、未补字段前，禁止连续第二轮空跑 `sync -> validate`。
+5. 人工收口顺序固定成两段：先补 `opening / epilogue` 的空壳 `E-*`，再处理最前面那组连续报错的 `P-*`。前一段还空着时，不要先去装配书级情绪合同；前一组 `P-*` 还在重复占用同一 bullet 时，也不要跳去补后面桥段。
+6. 若某条 P 拍候选证据已经扩到完整 bullet，仍无法从该句逐字截出稳定 `actor_evidence`，或该句必须被多个相邻拍复用，处理方式只有两种：`人工逐拍闭合且保证独占`，或者 `回写 小节大纲.md 扩细拍`。禁止继续用临时脚本或批量补丁在正式回执里硬分配同一句。
+7. 一旦因为上面的阻断回修了 `小节大纲.md`，后续正式重建顺序必须锁死：先重绑 `细纲表演验收回执.json` 到新的细纲 SHA，再重导或重同步 `逐拍语义映射.json`，最后单独执行 `validate_semantic_beat_mapping.py validate`。不得跳过中间任何一环，也不得继续消费回修前导出的桥级/节级侧车或旧映射结果。
+8. 先补文字合同书级层：`apply-source-assets` 进入正式真源后，立即补 `ultra_fine_source_baseline.source_passages`。这一步至少完成 `5` 组 `80` 字以上连续主体原文逐句标注，覆盖至少 `4` 类场景；未补齐前，不进入逐节落笔包。
+9. 书级层闭合后，再补文字合同下游真源：`apply-detail-plan -> apply-section-plan`。
+9. 再补情绪合同所需的逐节人工计划，但默认先走官方导出链：`validate_emotional_granularity_contract.py export-plan-template --next-pending -> 人工补当前节计划字段与裁决说明 -> assemble-section-plan --consume --refresh-next-output {下一条计划路径} -> 继续补下一条 -> validate-prewrite`。需要回补指定节时改用 `--section-id N`；只有需要全量巡检时才导出整份计划。这一步不再默认用临时脚本反查 `E/P` 对应、opening/epilogue 归属、反刀、峰值或场面统计。
+10. 只有上述真源都已进入正式回执后，才允许跑 `batch_draft_prewrite.py validate` 或更高层的 `batch_prewrite_release.py prepare-validate`。
+
+正文前合同人工回填一旦开始，默认进入 `单链资产回填`：
+
+1. 只沿 `逐拍语义映射 -> 书级文字资产闭合链 -> 细节卡计划 -> 逐节落笔包链 -> 情绪逐节人工计划 -> assemble-section-plan -> validate` 这条链推进。书级文字资产闭合链不结束，就不进入逐节落笔包链。
+2. 在补出当前链路第一条人工字段之前，不再默认先跑 `status / next-step / prepare-validate / validate` 探路，也不再写项目内临时修补脚本或 here-doc 统计脚本当作前置。
+3. 每补完一个当前节点，只在正式真源落盘后跑一次对应校验，用来确认下一堵墙；没有新增人工字段时不得反复重跑同一校验。
+4. 继续下一节点时，从当前正式回执重新导出或重建所需侧车；旧侧车、旧统计和旧临时脚本输出都视为过期快照。
+5. 情绪逐节人工计划优先直接消费 `export-plan-template` 输出的 `editor_hints`；默认优先导出 `--next-pending` 或 `--section-id N` 的窄切片计划。若还要紧接着补下一条，优先在 `assemble-section-plan --consume` 上追加 `--refresh-next-output` 自动拿到下一份窄计划。人工阶段先按 `field_fill_order` 连续补完当前节，再做一次 `assemble / validate`，不要在 `manual_judgment / turning_point_selection_review / 六个计划字段` 之间来回跳着找料。
+
+书级资产文件的重绑定也属于这条单链的一部分：
+
+1. `成文活性层资产.md` 或 `人物性格颗粒资产.md` 任何一处改动后，正式文字合同中的 `asset_file.sha256` 立即失效。
+2. 继续 `validate-prewrite` 前，必须先把对应书级层和 `asset_file.path/sha256` 刷回正式 `全文文字颗粒度契约回执.json`。
+3. 已消费的 `书级文字资产侧车.json` 不再是可编辑真源；需要续改时从当前正式回执重新导出或按正式字段小范围回写，不能把消费回执改回侧车。
+
+这里要明确区分两种状态：
+
+- `脚手架态`：`全文文字颗粒度契约回执.json / 全文情绪颗粒度契约回执.json` 只是官方 `pending` 空骨架，说明还没走完正式 `apply-*` / `assemble-*` 链。这时禁止直接手改正式大 JSON。
+- `坏数据态`：已经走过正式入口、该有的侧车也已消费回正式真源，但校验仍失败。这时才回到对应的真源资产或上游合同修。
+
+正文前阶段若误把脚手架态当坏数据态，通常会白白消耗在正式合同本体上；正确做法永远是优先补真源资产，而不是直接补大回执。
+
+正文阶段默认不再执行逐节写后人工侧车。高层总入口 `batch_section_review_cycle.py` 会按项目目录自动推导 `逐节正文进度.json / 当前节暂存/第N节.md / 逐节验收/第N节.json / 当前节写作包/第N节.json`，生成 `deferred_full_contract_review` 确定性回执并完成预检、提交：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" prepare-section-review \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --section N
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --section N
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --section N
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" run-section-review-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --section N
+```
+
+默认链只有三步：正式逐节回执不存在时执行 `prepare-section-review`；回执存在后执行 `preflight-section-review` 校验暂存稿、写前合同和场面领取绑定；预检通过后由 `run-section-review-cycle` 代跑不带 `--sidecar` 的 `commit-section`。当前模型仍须在提交前完整通读并重写偏差，但不落盘重复人工字段。只有主动启用差量/全量偏差模式时才创建并消费人工侧车。只想拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --section N
+```
+
+如果逐节都已通过，当前阶段主要卡在全文收口，不想再手拼 `finalize -> 两份 bind-draft -> 两份 validate-draft -> count_words.py -> validate_zhihu_section_format.py`，也已有高层总入口 `batch_full_draft_review.py`。它按项目目录自动推导 `逐节正文进度.json / 正文.md / 全文文字颗粒度契约回执.json / 全文情绪颗粒度契约回执.json`，并优先从两份全文合同自动反推 `主体原文 / 全文情绪颗粒总账`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --zhihu-mode
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --zhihu-mode
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" bind-full-draft-contracts \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" validate-full-draft \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --zhihu-mode
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" run-full-draft-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --zhihu-mode
+```
+
+它会自动分四种情况处理：逐节进度还停在 `sections_passed` 时先代跑底层 `finalize`；两份全文合同还没绑定最终正文 SHA 时先统一 `bind-draft`；全文合同已绑定但人工字段还没补到 `passed` 时停在人工阶段；两份全文合同都处于可校验态后，再统一代跑 `validate-draft`、字数统计和可选平台格式校验。只想拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --zhihu-mode
+```
+
+如果用户在初稿停靠后明确要求继续深审，而你不想再手拼 `run_full_ai_audit.py` 的输出目录、正式审计 JSON 路径和题材首次校准摘要路径，也已有高层总入口 `batch_formal_audit.py`。它按项目目录自动推导 `正文.md / 写作资产/正式审计 / 外部分块审计对齐摘要.json / 内部审计标准.json / 外部分块审计对齐.csv`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --with-calibration
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --with-calibration
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run-audit-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --with-calibration
+```
+
+它会自动分三种情况处理：正式审计 JSON 缺失、过期或绑定正文异常时先跑默认全量审计；若显式要求 `--with-calibration` 且 `外部分块审计对齐摘要.json / 内部审计标准.json` 缺失或过期，再继续跑题材首次校准；两段产物都齐后停在 `formal_audit_ready`，再进入后面的正文开头契约、规则台账最终绑定和写后人工复核。只想拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --with-calibration
+```
+
+如果用户在正文初稿停靠后明确要求继续完整流程，不想再手拼 `validate_opening_contract.py init/validate -> validate_rule_execution_ledger.py preflight-final-rebind/bind-artifacts/validate -> validate_post_write_human_review_gate.py init/validate -> validate_short_write_completion.py mark-complete`，也已有高层总入口 `batch_postdraft_release.py`。它按项目目录自动推导 `规则执行台账.json / 顺序契约回执.json / 开头承重契约回执_正文.json / 写后人工语义复核回执.json / 短篇全流程状态.json`，并优先从 `拆文读取回执.json` 反推主体 `可直接仿写_导语拆解表.md`：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" prepare-postdraft-release \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" run-postdraft-release-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+它会自动分六种情况处理：还没创建正文开头契约、写后人工复核回执或 completion 状态文件时先统一初始化；正文开头承重契约还没补到 `passed` 时停在人工阶段；若正式审计 JSON、题材首次校准摘要或内部审计标准缺失/过期，会先自动接管 `batch_formal_audit.py` 的正式审计链；随后再自动执行规则执行台账 `preflight-final-rebind -> bind-artifacts -> validate`；写后人工复核回执还没补到 `passed` 时继续停在人工阶段；等 completion 状态所需检查都齐了，才执行 `mark-complete`。只想拿整段模板则用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
 
 ### 开始前先把该读的先读掉
 
@@ -1585,7 +1984,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 
 ### 正文前总放行示例
 
-当 `细纲表演验收回执.json` 已完成当前模型人工回填，且两份正文前合同只差准备/校验与最终放行时，优先直接走总入口，不再手工串 `prepare -> validate -> draft gate`：
+当 `细纲表演验收回执.json` 已完成当前模型人工回填，且两份正文前合同只差准备/校验与最终放行时，优先直接走总入口，不再手工串 `prepare -> validate -> draft gate`。逐节计划由同一真源按 `scene_unit_refs` 回解，不要另行复制场面字段：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" prepare-validate \
@@ -1611,7 +2010,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py"
 - 校验两份正文前合同
 - 校验 `validate_write_release_gate.py draft`
 
-它不会代填任何 `manual_judgment / target_evidence / parity_status / section_contracts`。如果输出不是 `batch_prewrite_release: passed`，就停在正文前继续修回执，不得开写正文。
+前三份合同在同一进程内按绝对路径和当前 SHA 复用已通过的校验结果，不再被最终放行闸重复全量解析；路径或 SHA 不一致时自动恢复完整重验。它不会代填任何 `manual_judgment / target_evidence / parity_status / section_contracts`。如果输出不是 `batch_prewrite_release: passed`，就停在正文前继续修回执，不得开写正文。
 
 ---
 

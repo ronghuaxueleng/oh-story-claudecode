@@ -218,12 +218,50 @@ class EmotionalGranularityContractTest(unittest.TestCase):
                 "required_plot_beats": [
                     {
                         "beat_id": "P-01",
+                        "source_beat_id": "SP-01",
+                        "source_actor": "来源丈夫",
+                        "source_object_or_receiver": "来源妻子与席牌",
+                        "source_pressure_or_trigger": "第三人索要公开位置",
+                        "source_action": "来源丈夫先把席牌交给第三人",
+                        "source_control_change": "来源妻子失去公开席位控制权",
+                        "source_information_change": "来源妻子确认丈夫公开偏护第三人",
+                        "source_consequence": "来源妻子的婚姻位置当场下降",
+                        "actor": "丈夫",
+                        "object_or_receiver": "妻子与席牌",
+                        "pressure_or_trigger": "第三人索要创始人席位",
                         "action": "丈夫先把席牌交给别人",
+                        "control_change": "席牌控制权从妻子转到第三人",
+                        "information_change": "妻子确认丈夫公开偏护第三人",
+                        "consequence": "妻子的公开位置被实际夺走",
+                        "action_equivalence_review": "来源与目标都由丈夫主动把承重席位交给第三人。",
+                        "control_change_equivalence_review": "来源与目标都让妻子失去公开席位控制权。",
+                        "information_change_equivalence_review": "来源与目标都使妻子确认丈夫公开偏护第三人。",
+                        "consequence_equivalence_review": "来源与目标都把婚姻掉位落实成可见公开后果。",
+                        "independent_beat_judgment": "本拍独立完成席牌第一次换手，没有与夺回席牌合并。",
                         "outline_evidence": self.outline_quotes[1],
                     },
                     {
                         "beat_id": "P-02",
+                        "source_beat_id": "SP-02",
+                        "source_actor": "来源妻子",
+                        "source_object_or_receiver": "来源第三人与席牌",
+                        "source_pressure_or_trigger": "公开位置已经被夺",
+                        "source_action": "来源妻子当场夺回席牌",
+                        "source_control_change": "来源妻子重新取得席牌控制权",
+                        "source_information_change": "现场确认妻子不再接受丈夫调度",
+                        "source_consequence": "公开秩序发生第二次换主",
+                        "actor": "妻子",
+                        "object_or_receiver": "第三人与席牌",
+                        "pressure_or_trigger": "丈夫要求妻子别闹",
                         "action": "妻子当场夺回席牌",
+                        "control_change": "席牌控制权回到妻子手中",
+                        "information_change": "现场确认妻子停止接受丈夫调度",
+                        "consequence": "公开秩序发生第二次独立变化",
+                        "action_equivalence_review": "来源与目标都由妻子亲手夺回承重物件。",
+                        "control_change_equivalence_review": "来源与目标都让控制权重新回到妻子手中。",
+                        "information_change_equivalence_review": "来源与目标都公开宣告妻子停止接受丈夫调度。",
+                        "consequence_equivalence_review": "来源与目标都造成现场秩序的第二次独立换主。",
+                        "independent_beat_judgment": "本拍是夺回动作，不与前一拍交出席牌共用证据。",
                         "outline_evidence": self.outline_quotes[4],
                     },
                 ],
@@ -307,13 +345,35 @@ class EmotionalGranularityContractTest(unittest.TestCase):
                 "plot_beat_reviews": [
                     {
                         "beat_id": "P-01",
+                        "source_beat_id": "SP-01",
+                        "expected_semantics": {
+                            "action": "丈夫先把席牌交给别人",
+                            "control_change": "席牌控制权从妻子转到第三人",
+                            "information_change": "妻子确认丈夫公开偏护第三人",
+                            "consequence": "妻子的公开位置被实际夺走",
+                        },
                         "target_quotes": [target_quotes[2]],
+                        "action_realization_judgment": "正文明确写出丈夫把席牌按进第三人手里的主动动作。",
+                        "control_change_realization_judgment": "席牌由丈夫交出，妻子当场失去物件控制权。",
+                        "information_change_realization_judgment": "妻子的回缩动作证明她确认丈夫先维护第三人。",
                         "consequence_judgment": "席牌先落入第三人手中，妻子的公开位置被实际夺走。",
+                        "parity_status": "adapted_equal",
                     },
                     {
                         "beat_id": "P-02",
+                        "source_beat_id": "SP-02",
+                        "expected_semantics": {
+                            "action": "妻子当场夺回席牌",
+                            "control_change": "席牌控制权回到妻子手中",
+                            "information_change": "现场确认妻子停止接受丈夫调度",
+                            "consequence": "公开秩序发生第二次独立变化",
+                        },
                         "target_quotes": [target_quotes[4]],
+                        "action_realization_judgment": "正文明确写出妻子甩开阻拦并亲手夺回席牌。",
+                        "control_change_realization_judgment": "席牌重新回到妻子手中，控制权完成第二次换主。",
+                        "information_change_realization_judgment": "公开夺牌让现场确认妻子不再接受丈夫调度。",
                         "consequence_judgment": "妻子公开夺回席牌，现场控制权发生第二次独立变化。",
+                        "parity_status": "adapted_equal",
                     },
                 ],
                 "complete_plot_beat_review": "已按写前情节 beat_id 逐拍核对正文，两个动作均有独占引句和现实后果。",
@@ -499,7 +559,7 @@ class EmotionalGranularityContractTest(unittest.TestCase):
             }],
         }
         section_plan = {
-            "section_id": "1", "status": "passed",
+            "section_id": "1", "status": "pending",
             "emotion_beat_ids": [source_beat["beat_id"]],
             "plot_beat_ids": ["TP-001"],
             "source_reversal_beat": 0, "source_peak_beat": 1,
@@ -526,12 +586,387 @@ class EmotionalGranularityContractTest(unittest.TestCase):
         contract = assembled["section_contracts"][0]
         self.assertEqual([source_beat["beat_id"]], [item["beat_id"] for item in contract["source_emotion_beats"]])
         self.assertEqual(["TP-001"], [item["beat_id"] for item in contract["required_plot_beats"]])
+        self.assertEqual("passed", contract["status"])
+
+    def test_bridge_level_emotions_are_split_by_explicit_target_region(self) -> None:
+        parity = {
+            "source_emotion_sequence": [
+                {"beat_id": "E-001"},
+                {"beat_id": "E-002"},
+            ]
+        }
+        mapping = {
+            "E-001": {"target_outline_region": "section:5"},
+            "E-002": {"target_outline_region": "第6节"},
+        }
+        self.assertEqual(["E-001"], GATE.section_emotion_ids(parity, mapping, "5"))
+        self.assertEqual(["E-002"], GATE.section_emotion_ids(parity, mapping, "6"))
+
+    def test_bridge_turning_point_is_rebased_to_owning_section(self) -> None:
+        parity = {
+            "source_emotion_sequence": [
+                {"beat_id": "E-001"},
+                {"beat_id": "E-002"},
+                {"beat_id": "E-003"},
+            ],
+            "source_peak_beat": 2,
+        }
+        self.assertEqual(
+            1, GATE.section_turning_point(parity, ["E-002", "E-003"], "source_peak_beat")
+        )
+        self.assertEqual(
+            0, GATE.section_turning_point(parity, ["E-001"], "source_peak_beat")
+        )
+
+    def test_export_plan_template_only_exports_deterministic_ids_and_hints(self) -> None:
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            self.outline,
+        )
+        source_beat = self.ledger_beats[0]
+        mapping = {
+            "status": "approved",
+            "emotions": [{
+                "source_beat_id": source_beat["beat_id"],
+                "target_outline_region": "第1节",
+                "target_story_adaptation": "用席牌换手迁移公开掉位",
+                "evidence": self.outline_quotes[0],
+            }],
+            "plots": [{
+                "target_beat_id": "TP-001",
+                "action": "丈夫把席牌交给别人",
+                "evidence": self.outline_quotes[1],
+            }],
+        }
+        outline_contract = {
+            "gate_status": "passed",
+            "sections": [{
+                "section_id": "1",
+                "source_emotion_parity": {
+                    "source_emotion_sequence": [{"beat_id": source_beat["beat_id"]}],
+                    "source_reversal_beat": 0,
+                    "source_peak_beat": 1,
+                },
+                "scene_units": [{"plot_beat_ids": ["TP-001"]}],
+            }],
+        }
+
+        template = GATE.export_plan_template(
+            data,
+            GATE.load_json(self.source_emotion_ledger),
+            mapping,
+            outline_contract,
+        )
+
+        self.assertEqual(GATE.sha256_file(self.outline), template["outline_sha256"])
+        self.assertEqual(["E-1"], template["sections"][0]["emotion_beat_ids"])
+        self.assertEqual(["TP-001"], template["sections"][0]["plot_beat_ids"])
+        self.assertEqual("", template["sections"][0]["manual_judgment"])
+        self.assertEqual(
+            "validate_emotional_granularity_contract.export-plan-template",
+            template["editor_hints"]["generated_by"],
+        )
+        hint = template["editor_hints"]["section_hints"]["1"]
+        self.assertIn("manual_judgment", hint["field_fill_order"])
+        self.assertEqual("E-1", hint["emotion_beats"][0]["beat_id"])
+        self.assertEqual("TP-001", hint["plot_beats"][0]["beat_id"])
+        self.assertEqual(1, hint["turning_points"]["source_peak_beat"])
+
+    def test_editor_hints_offset_turning_points_after_opening_beats(self) -> None:
+        hint = GATE.build_emotion_plan_editor_hints(
+            ["E-OPEN-1", "E-OPEN-2", "E-1"],
+            ["TP-001"],
+            {},
+            {},
+            {},
+            {
+                "source_emotion_parity": {
+                    "source_reversal_beat": 0,
+                    "source_peak_beat": 1,
+                },
+                "scene_units": [],
+            },
+            turning_point_offset=2,
+        )
+
+        self.assertEqual(0, hint["turning_points"]["source_reversal_beat"])
+        self.assertEqual(3, hint["turning_points"]["source_peak_beat"])
+
+    def test_export_plan_template_can_narrow_to_specific_section(self) -> None:
+        custom_outline = self.root / "双节大纲.md"
+        custom_outline.write_text(
+            "## 1.\n\n第一节证据一。第一节证据二。\n\n"
+            "## 2.\n\n第二节证据一。第二节证据二。\n",
+            encoding="utf-8",
+        )
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            custom_outline,
+        )
+        mapping = {
+            "status": "approved",
+            "emotions": [
+                {
+                    "source_beat_id": "E-1",
+                    "target_outline_region": "第1节",
+                    "target_story_adaptation": "第一节迁移",
+                    "evidence": "第一节证据一。",
+                },
+                {
+                    "source_beat_id": "E-2",
+                    "target_outline_region": "第2节",
+                    "target_story_adaptation": "第二节迁移",
+                    "evidence": "第二节证据一。",
+                },
+            ],
+            "plots": [
+                {
+                    "target_beat_id": "TP-001",
+                    "action": "第一节动作",
+                    "evidence": "第一节证据二。",
+                },
+                {
+                    "target_beat_id": "TP-002",
+                    "action": "第二节动作",
+                    "evidence": "第二节证据二。",
+                },
+            ],
+        }
+        outline_contract = {
+            "gate_status": "passed",
+            "outside_bridge_plot_parity": {"source_emotion_sequence": [], "target_plot_beats": []},
+            "sections": [
+                {
+                    "section_id": "1",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-1"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-001"]}],
+                },
+                {
+                    "section_id": "2",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-2"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-002"]}],
+                },
+            ],
+        }
+
+        template = GATE.export_plan_template(
+            data,
+            GATE.load_json(self.source_emotion_ledger),
+            mapping,
+            outline_contract,
+            section_id="2",
+        )
+
+        self.assertEqual(["2"], [item["section_id"] for item in template["sections"]])
+        self.assertEqual(["2"], list(template["editor_hints"]["section_hints"]))
+        self.assertEqual(["E-2"], template["sections"][0]["emotion_beat_ids"])
+        self.assertEqual(["TP-002"], template["sections"][0]["plot_beat_ids"])
+
+    def test_export_plan_template_can_target_next_pending_section(self) -> None:
+        custom_outline = self.root / "待补大纲.md"
+        custom_outline.write_text(
+            "## 1.\n\n第一节证据。\n\n"
+            "## 2.\n\n第二节证据。\n",
+            encoding="utf-8",
+        )
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            custom_outline,
+        )
+        data["section_contracts"][0]["status"] = "passed"
+        mapping = {
+            "status": "approved",
+            "emotions": [
+                {
+                    "source_beat_id": "E-1",
+                    "target_outline_region": "第1节",
+                    "target_story_adaptation": "第一节迁移",
+                    "evidence": "第一节证据。",
+                },
+                {
+                    "source_beat_id": "E-2",
+                    "target_outline_region": "第2节",
+                    "target_story_adaptation": "第二节迁移",
+                    "evidence": "第二节证据。",
+                },
+            ],
+            "plots": [
+                {
+                    "target_beat_id": "TP-001",
+                    "action": "第一节动作",
+                    "evidence": "第一节证据。",
+                },
+                {
+                    "target_beat_id": "TP-002",
+                    "action": "第二节动作",
+                    "evidence": "第二节证据。",
+                },
+            ],
+        }
+        outline_contract = {
+            "gate_status": "passed",
+            "outside_bridge_plot_parity": {"source_emotion_sequence": [], "target_plot_beats": []},
+            "sections": [
+                {
+                    "section_id": "1",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-1"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-001"]}],
+                },
+                {
+                    "section_id": "2",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-2"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-002"]}],
+                },
+            ],
+        }
+
+        template = GATE.export_plan_template(
+            data,
+            GATE.load_json(self.source_emotion_ledger),
+            mapping,
+            outline_contract,
+            next_pending=True,
+        )
+
+        self.assertEqual(["2"], [item["section_id"] for item in template["sections"]])
+        self.assertEqual(["2"], list(template["editor_hints"]["section_hints"]))
+
+    def test_export_next_pending_plan_template_returns_none_when_complete(self) -> None:
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            self.outline,
+        )
+        for item in data["section_contracts"]:
+            item["status"] = "passed"
+
+        template = GATE.export_next_pending_plan_template(
+            data,
+            GATE.load_json(self.source_emotion_ledger),
+            {"status": "approved", "emotions": [], "plots": []},
+            {
+                "gate_status": "passed",
+                "outside_bridge_plot_parity": {"source_emotion_sequence": [], "target_plot_beats": []},
+                "sections": [],
+            },
+        )
+
+        self.assertIsNone(template)
+
+    def test_export_next_pending_plan_template_returns_first_unpassed_section(self) -> None:
+        custom_outline = self.root / "刷新大纲.md"
+        custom_outline.write_text(
+            "## 1.\n\n第一节证据一。第一节证据二。\n\n"
+            "## 2.\n\n第二节证据一。第二节证据二。\n",
+            encoding="utf-8",
+        )
+        data = GATE.bind_outline(
+            GATE.create_receipt("测试", self.source, self.source_emotion_ledger),
+            custom_outline,
+        )
+        data["section_contracts"][0]["status"] = "passed"
+        mapping = {
+            "status": "approved",
+            "emotions": [
+                {
+                    "source_beat_id": "E-1",
+                    "target_outline_region": "第1节",
+                    "target_story_adaptation": "第一节迁移",
+                    "evidence": "第一节证据一。",
+                },
+                {
+                    "source_beat_id": "E-2",
+                    "target_outline_region": "第2节",
+                    "target_story_adaptation": "第二节迁移",
+                    "evidence": "第二节证据一。",
+                },
+            ],
+            "plots": [
+                {
+                    "target_beat_id": "TP-001",
+                    "action": "第一节动作",
+                    "evidence": "第一节证据二。",
+                },
+                {
+                    "target_beat_id": "TP-002",
+                    "action": "第二节动作",
+                    "evidence": "第二节证据二。",
+                },
+            ],
+        }
+        outline_contract = {
+            "gate_status": "passed",
+            "outside_bridge_plot_parity": {"source_emotion_sequence": [], "target_plot_beats": []},
+            "sections": [
+                {
+                    "section_id": "1",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-1"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-001"]}],
+                },
+                {
+                    "section_id": "2",
+                    "source_emotion_parity": {
+                        "source_emotion_sequence": [{"beat_id": "E-2"}],
+                        "source_reversal_beat": 0,
+                        "source_peak_beat": 1,
+                    },
+                    "scene_units": [{"plot_beat_ids": ["TP-002"]}],
+                },
+            ],
+        }
+
+        template = GATE.export_next_pending_plan_template(
+            data,
+            GATE.load_json(self.source_emotion_ledger),
+            mapping,
+            outline_contract,
+        )
+
+        assert template is not None
+        self.assertEqual(["2"], [item["section_id"] for item in template["sections"]])
 
     def test_draft_cannot_drop_required_plot_beat(self) -> None:
         data = self.completed_receipt()
         data["section_reviews"][0]["plot_beat_reviews"].pop()
         errors, _ = GATE.validate_draft_data(data, self.source, self.draft)
         self.assertTrue(any("兑现全部情节拍" in item for item in errors))
+
+    def test_draft_cannot_attach_wrong_semantics_to_valid_plot_id(self) -> None:
+        data = self.completed_receipt()
+        review = data["section_reviews"][0]["plot_beat_reviews"][0]
+        review["expected_semantics"]["consequence"] = "无关的后果说明"
+        errors, _ = GATE.validate_draft_data(data, self.source, self.draft)
+        self.assertTrue(
+            any("expected_semantics.consequence 必须逐字继承" in item for item in errors)
+        )
+
+    def test_draft_requires_all_four_plot_realization_judgments(self) -> None:
+        data = self.completed_receipt()
+        review = data["section_reviews"][0]["plot_beat_reviews"][0]
+        review["control_change_realization_judgment"] = ""
+        errors, _ = GATE.validate_draft_data(data, self.source, self.draft)
+        self.assertTrue(
+            any("control_change_realization_judgment 过短" in item for item in errors)
+        )
 
     def test_draft_requires_exact_quotes_and_equal_intensity(self) -> None:
         data = self.completed_receipt()

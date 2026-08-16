@@ -32,6 +32,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.opening_receipt = self.project_root / "写作资产" / "开头承重契约回执_大纲.json"
         self.outline_receipt = self.project_root / "写作资产" / "细纲表演验收回执.json"
         self.model_review = self.project_root / "写作资产" / "规则模型分类批次.json"
+        self.model_plan = self.project_root / "写作资产" / "规则模型归并计划.json"
         self.source_original = self.source / "原文" / "样本.txt"
 
         self._build_source_inventory()
@@ -228,6 +229,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
             force_opening=False,
             force_outline_receipt=False,
             export_model_review_output=self.model_review,
+            export_model_plan_output=self.model_plan,
             export_batch_size=30,
         )
         self.assertEqual([], errors)
@@ -237,8 +239,10 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertTrue(self.opening_receipt.is_file())
         self.assertTrue(self.outline_receipt.is_file())
         self.assertTrue(self.model_review.is_file())
+        self.assertTrue(self.model_plan.is_file())
         self.assertGreater(summary["skill_rules"], 0)
         self.assertGreater(summary["model_review_entries"], 0)
+        self.assertGreater(summary["model_plan_groups"], 0)
 
     def test_existing_receipt_blocks_without_force(self) -> None:
         self.opening_receipt.parent.mkdir(parents=True, exist_ok=True)
@@ -262,9 +266,80 @@ class BatchOutlineReleaseTest(unittest.TestCase):
             force_opening=False,
             force_outline_receipt=False,
             export_model_review_output=None,
+            export_model_plan_output=None,
             export_batch_size=30,
         )
         self.assertTrue(any("开头契约回执已存在" in item for item in errors))
+
+    def test_status_inspects_default_project_layout(self) -> None:
+        status = GATE.inspect_outline_release_status(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+        self.assertEqual("passed", status["writing_gate_status"])
+        self.assertEqual("passed", status["source_gate_status"])
+        self.assertTrue(status["required_inputs"]["setting_exists"])
+        self.assertTrue(status["required_inputs"]["outline_exists"])
+        self.assertEqual(str(self.opening_source), status["opening_source"])
+        self.assertEqual([str(self.source_original)], status["source_originals"])
+        self.assertFalse(status["initialized"])
+
+    def test_next_step_recommends_high_level_start_command(self) -> None:
+        suggestion = GATE.suggest_next_step(
+            project="测试项目",
+            project_dir=self.project_root,
+            source_receipt=None,
+            source_originals=None,
+            opening_source=None,
+            export_batch_size=18,
+        )
+        self.assertEqual("start_outline_release", suggestion["action"])
+        self.assertIn('batch_outline_release.py" start-outline-release', suggestion["next_command"])
+        self.assertIn("--project-dir", suggestion["next_command"])
+        self.assertIn("--export-batch-size 18", suggestion["next_command"])
+
+    def test_start_outline_release_uses_default_paths(self) -> None:
+        errors, summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+            source_receipt=None,
+            source_originals=None,
+            opening_source=None,
+            force_ledger=False,
+            force_setting_sequence=False,
+            force_sequence=False,
+            force_opening=False,
+            force_outline_receipt=False,
+            export_model_review_output=None,
+            export_model_plan_output=None,
+            export_batch_size=12,
+        )
+        self.assertEqual([], errors)
+        self.assertTrue(self.ledger.is_file())
+        self.assertTrue(self.setting_sequence_receipt.is_file())
+        self.assertTrue(self.sequence_receipt.is_file())
+        self.assertTrue(self.opening_receipt.is_file())
+        self.assertTrue(self.outline_receipt.is_file())
+        self.assertTrue(self.model_review.is_file())
+        self.assertTrue(self.model_plan.is_file())
+        self.assertEqual(str(self.model_review), summary["model_review_output"])
+        self.assertEqual(str(self.model_plan), summary["model_plan_output"])
+
+    def test_emit_shell_template_contains_high_level_commands(self) -> None:
+        template = GATE.emit_shell_template(
+            project="测试项目",
+            project_dir=self.project_root,
+            source_receipt=None,
+            source_originals=None,
+            opening_source=None,
+            export_batch_size=16,
+        )
+        self.assertIn('batch_outline_release.py" status', template)
+        self.assertIn('batch_outline_release.py" next-step', template)
+        self.assertIn('batch_outline_release.py" start-outline-release', template)
+        self.assertIn("--export-model-review-output", template)
+        self.assertIn("--export-model-plan-output", template)
+        self.assertIn("--source-original", template)
 
 
 if __name__ == "__main__":

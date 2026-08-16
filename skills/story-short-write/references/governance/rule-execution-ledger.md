@@ -172,6 +172,38 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 
 先导出模型复核批次：
 
+如果不想自己手拼这段中段命令，现已提供规则模型复核中段的高层总入口。它按项目目录自动推导 `规则执行台账.json / 规则模型分类批次.json / 规则模型归并计划.json`，并把“准备人工载体、查看当前状态、判断下一步、apply 后补跑写前校验”收成正式脚本链：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" prepare-model-review \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --review-manifest "{项目目录}/写作资产/规则模型分类批次.json" \
+  --group-plan "{项目目录}/写作资产/规则模型归并计划.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" run-model-review-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+外层调用方如果想直接拿整段模板，用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+高层总入口只做路径推导、状态判断、确定性导出、`apply-model-groups --consume` 和 `validate-prewrite` 串联；不会替当前模型填写 `canonical_rule_text / classification_notes / decision_reason / target_stage / target_scene` 等语义裁决。
+
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" export-model-review \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
@@ -179,53 +211,67 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
   --batch-size 30
 ```
 
-当前写作模型必须逐批阅读 `cases`，把同一规则的多个案例压成一张规则卡，并生成可审计 `apply-plan`。不得写脚本把建议分类批量改成 `model_semantic_review`。
+默认输出是紧凑清单，只保存台账路径/SHA、批次号、规则 ID、规则标题、案例数和来源数，不再复制整份 `cases/source_refs`。当前写作模型按清单批次逐批读取：
 
-模型归并计划使用：
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" read-model-review-batch \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --manifest "{项目目录}/写作资产/规则模型分类批次.json" \
+  --batch N
+```
+
+该入口按规则 ID 从当前台账即时展开本批全部 `cases/source_refs`；清单绑定的台账 SHA 失效时直接阻断并要求重新导出。当前写作模型必须逐批阅读展开结果，把同一规则的多个案例压成一张规则卡，并生成可审计归并计划。不得写脚本把建议分类批量改成 `model_semantic_review`。只有兼容旧工具确实需要单文件完整展开时，才给 `export-model-review` 追加 `--expanded`。
+
+先生成紧凑归并计划骨架：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" export-model-group-plan \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --manifest "{项目目录}/写作资产/规则模型分类批次.json" \
+  --output "{项目目录}/写作资产/规则模型归并计划.json"
+```
+
+脚本只生成单规则分组、已有分类建议和空人工字段，不生成归并关系或语义裁决。当前模型逐批看完案例后，删除被归并规则的独立组，把其 ID 加入唯一 canonical 的 `member_ids`，再填写紧凑决策：
 
 ```json
 {
+  "version": "2.0",
+  "decision_stage": "prewrite",
+  "reviewed_by_current_model": true,
+  "semantic_fields_generated_by_script": false,
   "groups": [
     {
       "canonical_id": "SKILL-...",
-      "canonical_rule_text": "统一后的可执行规则",
       "member_ids": ["SKILL-...", "SKILL-..."],
-      "rule_role": "draft_constraint",
-      "remediation_target": "draft",
-      "execution_mode": "human",
+      "canonical_rule_text": "统一后的可执行规则",
+      "taxonomy_decision": "accept_suggestions",
       "classification_notes": "这些条目执行动作相同，只是案例和来源不同。",
       "applicability": "applicable",
-      "status": "completed",
-      "outcome": "passed",
-      "decision_reason": "本规则适用于当前正文，已由当前模型人工核对并完成。",
+      "decision_reason": "本规则适用于当前正文，写作时必须持续执行。",
       "target_stage": "draft",
-      "result": "正文已满足该规则。",
-      "human_judgment": "人工判断正文已落实该规则，未发现待改项。",
-      "text_evidence": [
-        {
-          "artifact": "正文",
-          "quote": "必须引用当前最终正文中真实存在的原句",
-          "judgment": "说明这句如何证明规则已执行"
-        }
-      ]
+      "target_scene": "全文正文"
     }
   ]
 }
 ```
+
+`taxonomy_decision=accept_suggestions` 表示当前模型逐例确认并接受 canonical 规则在台账中的 `rule_role / remediation_target / execution_mode`；若不接受，改为 `override` 并在 `taxonomy` 中显式填写这三项。写前 `applicable` 自动展开为 `status=pending + outcome=pending`，`rejected/not_applicable` 自动展开为 `completed + not_applicable`。这些只是当前模型明确选择的确定性序列化，不替模型生成语义。
 
 应用后，canonical 规则卡保留全部 `cases/source_refs`，其他成员自动标记 `merged`：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" apply-model-groups \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
-  --plan "{项目目录}/写作资产/规则模型归并计划.json"
+  --plan "{项目目录}/写作资产/规则模型归并计划.json" \
+  --source-review "{项目目录}/写作资产/规则模型分类批次.json" \
+  --consume
 ```
 
-`apply-model-groups` 不只是归并工具，也是 canonical 规则裁决入口。写前可先提交 `applicable + status=pending + outcome=pending` 的分类计划；最终绑定后再把同一规则补为 `completed + passed` 并填写证据。每个 group 必须同时完成：
+`apply-model-groups` 不只是归并工具，也是 canonical 规则裁决入口。`--source-review` 会核对分类批次绑定的是同一台账，且计划成员确实来自该批次；归并成功后 `--consume` 才把分类批次与归并计划压缩成小型消费回执，全部规则、来源和案例仍完整保存在台账。最终绑定后再在台账中把适用规则补为 `completed + passed/failed` 并填写证据。每个 group 必须同时完成：
 
 - `applicability`：只能是 `applicable / rejected / not_applicable`，不得留空或写 `merged`。
-- `status`：必须是 `completed`，归并计划不得留下 `pending`。
-- `outcome`：适用规则必须是 `passed / failed`；跳过规则必须是 `not_applicable`。
+- `taxonomy_decision`：接受已有建议填 `accept_suggestions`；人工覆盖填 `override + taxonomy`。
+- `status/outcome`：v2 写前计划不手填，由 `decision_stage + applicability` 确定性展开。
 - `decision_reason`：必须写具体裁决原因。
 - 适用规则必须补 `target_stage`、`result`，并按 `execution_mode` 补 `script_artifacts`、`text_evidence` 或 `human_scope_reviews`。
 - 带关键 `source_refs` 的 canonical 必须补 `source_contract_reviews`；不能只靠成员被合并来绕过来源契约。

@@ -70,6 +70,53 @@ class BatchPrewriteReleaseTest(unittest.TestCase):
         self.assertTrue(summary["draft_prewrite_passed"])
         self.assertTrue(summary["write_release_passed"])
 
+    def test_validate_reuses_successful_contract_checks_in_release_gate(self) -> None:
+        original_outline = GATE.OUTLINE.validate_receipt
+        original_prewrite = GATE.DRAFT_PREWRITE.validate_batch
+        original_release = GATE.WRITE_RELEASE.validate_release
+        captured = {}
+        try:
+            GATE.OUTLINE.validate_receipt = lambda *_args, **_kwargs: []
+            GATE.DRAFT_PREWRITE.validate_batch = (
+                lambda **_kwargs: ([], {"prose_summary": {}, "emotional_summary": {}})
+            )
+            for path in (
+                self.outline_contract,
+                self.prose_contract,
+                self.emotional_contract,
+            ):
+                path.write_text("{}", encoding="utf-8")
+
+            def capture_release(*_args, **kwargs):
+                captured.update(kwargs.get("prevalidated_contracts") or {})
+                return []
+
+            GATE.WRITE_RELEASE.validate_release = capture_release
+            errors, summary = GATE.validate_batch(
+                writing_receipt=self.writing_receipt,
+                source_receipt=self.source_receipt,
+                ledger=self.ledger,
+                sequence_receipt=self.sequence_receipt,
+                opening_contract=self.opening_contract,
+                outline_contract=self.outline_contract,
+                outline=self.outline,
+                prose_contract=self.prose_contract,
+                emotional_contract=self.emotional_contract,
+                primary_source_original=self.primary_source_original,
+                source_emotion_ledger=self.source_emotion_ledger,
+                profile=self.profile,
+            )
+        finally:
+            GATE.OUTLINE.validate_receipt = original_outline
+            GATE.DRAFT_PREWRITE.validate_batch = original_prewrite
+            GATE.WRITE_RELEASE.validate_release = original_release
+        self.assertEqual([], errors)
+        self.assertEqual(
+            ["outline_contract", "prose_contract", "emotional_contract"],
+            summary["reused_contract_validations"],
+        )
+        self.assertEqual(set(summary["reused_contract_validations"]), set(captured))
+
     def test_validate_accumulates_all_stage_failures(self) -> None:
         original_outline = GATE.OUTLINE.validate_receipt
         original_prewrite = GATE.DRAFT_PREWRITE.validate_batch

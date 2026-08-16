@@ -56,3 +56,69 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 `--output` 是强制参数，禁止省略后绕过事后补填检查；尚未生成的文件也应提前传入其预定路径。
 
 只有输出 `source_read_gate: passed` 才能开稿。
+
+## 官方批次中段
+
+正式流程不再推荐用零散 `cat`、`sed` 或 `/tmp` 文件承载 56 个拆文资产的人工读取。高层命令优先：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --output-dir "{项目目录}/写作资产/读取批次" \
+  --batch-size 20
+```
+
+- `batch-*.json` 会逐条内嵌本批次源文件全文、源文件 SHA、来源根目录和正式回执 SHA。
+- 当前模型逐批填写 `evidence_terms / takeaways / used_for`，并显式走状态机：开始处理时写 `status=in_progress + review_started_at`，完成后写 `status=reviewed + reviewed_at + reviewed_by_current_model=true`，同时保持 `semantic_fields_generated_by_script=false`。
+
+需要查看整份读取批次的完成度时，先运行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json"
+```
+
+输出会先给出四种状态的数量，再列出按批次顺序排列的简表，方便直接看哪一批卡住、这一批覆盖了哪段条目。
+- 多来源融合时，当前模型可在批次顶层填写 `cross_source_decisions`；`apply-batch` 只做原样合并，不生成裁决。
+
+每完成一个批次后执行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply-batch \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --input "{项目目录}/写作资产/读取批次/batch-001.json" \
+  --consume
+```
+
+该命令会同时校验：
+
+- 批次文件绑定的写作回执 / 拆文回执 SHA 仍等于当前正式回执。
+- 每条源文件的 `file_sha256` 仍等于当前文件。
+- `evidence_terms` 真实存在于对应源文件。
+- `takeaways / used_for` 不为空。
+
+校验通过后，脚本才会把本批次条目标记为正式回执中的 `status=read` 并回填人工字段；`--consume` 成功后会把已合并的大侧车压缩成消费回执。所有批次应用完成后，再运行正式 `validate` 过门禁。
+
+当 `读取批次/` 下的全部 `batch-*.json` 都已由当前模型填写完毕时，推荐直接执行：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --consume \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+```
+
+该入口会先检查清单下是否还有未完成批次；只要任一 `batch-*.json` 尚未切到 `status=reviewed` 并由当前模型完整确认，就直接阻断，不做部分写回。全部完成后，它才按清单顺序逐批应用、逐批消费并在末尾接正式 `validate`，不再需要手动逐个点名 `batch-001.json`、`batch-002.json`。底层 `export-batches / apply-batch / apply-manifest` 只留给单批排障。

@@ -108,7 +108,7 @@
 - 写后逐卡绑定真实 `target_quotes`，填写具体句面对照和人工裁决，再将 `status` 置为 `passed`。
 - 一张细节卡可以与 E/P/SF 描述同一段原文，但重叠不等于已消费。必须单独说明该卡独有的动作、对白、关系、旧伤、情绪、场景、场面或翻车功能怎样保留。
 - 禁止把八类卡简单相加成互不重叠的剧情事件数，也禁止为了凑卡重复桥段；允许同一目标场面承接多卡，但每卡必须有自己的功能裁决和正文证据。
-- 写前映射先由当前模型逐卡写入独立 JSON，再通过通用 `apply-detail-plan` 入口校验并原样合并。该入口不得生成语义；项目专属脚本批量填计划或直接把卡置为 `passed` 均无效。
+- 写前映射先由当前模型逐卡写入独立 JSON，再通过通用 `apply-detail-plan --consume` 入口校验并原样合并。该入口不得生成语义；成功后侧车只保留原输入 SHA 与正式合同 SHA，项目专属脚本批量填计划或直接把卡置为 `passed` 均无效。
 
 任一细节卡缺计划、缺正文证据、标为未选或只写“已由 E/P/SF 覆盖”，`validate-prewrite / validate-draft` 必须失败。
 
@@ -122,7 +122,7 @@
 
 脚本只能初始化骨架、校验 SHA/完整性，或把当前模型已经逐字段明确写出的数据确定性序列化到回执。禁止用循环从章节首尾或“第 N 句”自动抽句、轮转源锚、自动分配人物证据，再批量生成 `status / comparison / manual_judgment / target_section_rationale / evidence ownership` 等语义裁决。逐节必须声明 `semantic_review_method=current_model_manual` 与 `automation_used_for_semantic_judgment=false`。验证器输出 `passed` 仍不替代当前模型逐项判断。
 
-固定执行顺序是“展开本节连续原文正例、原文对白三联包与完整错误反例 -> 读取人物、活性和情绪计划 -> 写本节 -> 立即回填连续句链、对白三联包消费与逐句映射 -> 下一节”。禁止先写完整篇正文，再批量生成 `generation_plan_consumed`、`continuous_chain_reviews`、`dialogue_voice_reviews`、`sentence_mappings` 或人工裁决。正文全部写完后，只允许运行本合同的 `validate-draft`、字数统计和平台格式校验，然后立即执行初稿停靠。该窄门禁属于首写质量控制，不代表已进入 AI 深审、滑窗审计或正文回炉。
+固定执行顺序是“展开本节连续原文正例、原文对白三联包与完整错误反例 -> 读取人物、活性和情绪计划 -> 写本节 -> 当前模型完整通读并先重写任何偏差 -> 确定性提交 -> 下一节”。默认不在每节写后重复填写 `generation_plan_consumed / continuous_chain_reviews / dialogue_voice_reviews / sentence_mappings`；全部小节 `final_ready` 后，当前模型必须基于最终正文逐节一次性完成这些人工裁决。禁止脚本按章节首尾、第 N 句或统一模板批量生成终审字段。全文终审通过后只允许运行字数统计和平台格式校验，然后立即执行初稿停靠。该窄门禁属于首写质量控制，不代表已进入 AI 深审、滑窗审计或正文回炉。
 
 强情绪稿还必须并行通过 [全文情绪颗粒度合同](emotional-granularity-contract.md)。文字颗粒度通过只能证明句面机制被消费，不能证明原文的情绪锯齿、直接判断和峰值动作没有被降级。
 
@@ -203,12 +203,23 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --outline "{项目目录}/小节大纲.md"
 ```
 
-当前模型逐节完成落笔包后：
+当前模型逐节完成落笔包后，默认先导出“下一对待补小节侧车”，再在正式消费前跑批内预检：
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" export-next-section-plan-pair \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --output "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
+  --compact-authoring
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-section-plan \
+  --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
+  --source-original "拆文库/{主体书}/原文/{主体书}.txt"
+
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" apply-section-plan \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
-  --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json"
+  --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
+  --consume
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
@@ -217,9 +228,29 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 
 `--source-original` 是强制显式输入，不得因回执已经绑定主体原文而省略。该脚本校验的是“当前命令输入 + 回执绑定 + 当前细纲”三方一致；主体路径只写在回执里、不在命令行再次传入，按命令不完整处理，不属于可容错省参。
 
-`apply-section-plan` 只把当前模型已经逐节写完的 `section_generation_plans` 原样合并进当前合同。侧车可按原序只提交当前已人工完成的小节，未提交小节保持 pending；侧车必须绑定当前细纲 SHA，并声明 `reviewed_by_current_model=true`、`semantic_fields_generated_by_script=false`。入口不得生成句链、正反例、人物计划、语义判断或通过状态；九节仍须全部完成后才能通过全书 `validate-prewrite`。
+`apply-section-plan` 只把当前模型已经逐节写完的 `section_generation_plans` 原样合并进当前合同。侧车可按原序只提交当前已人工完成的小节，未提交小节保持 pending；侧车必须绑定当前细纲 SHA，并声明 `reviewed_by_current_model=true`、`semantic_fields_generated_by_script=false`。入口不得生成句链、正反例、人物计划、语义判断或通过状态；九节仍须全部完成后才能通过全书 `validate-prewrite`。标准流程使用 `--consume`，合并成功后正式合同是唯一真源；要续改某节时重新导出或重建侧车。
 
-正文放行后，先由当前模型按原文桥段与目标场面语义完成独立写前字段 `section_sf_assignments[]`，每项写明 `subflow_id / target_sections / target_section_rationale`；它必须与主体 SF 全集同序相等。任一 SF 留空或任一目标小节没有 SF 时禁止初始化。`source_subflow_reviews` 保留为提交前六维真实证据，不得在正文前伪填目标引句。再按 [逐节正文进度硬闸](section-progress-gate.md) 初始化字数预算和当前小节状态。每节只在暂存稿一次写完，立即将本合同要求的完整 `section_review` 写入 `写作资产/逐节验收/第N节.json` 的 `prose_review`，并通过 `commit-section N`。该命令必须实际校验完整场面表演、连续原文链、对白包、句间关系、逐句特征、活性、人物、全部对白及本节全部 SF 六维，不能只检查四条映射。本节未通过时禁止写入正文或创建下一节。
+逐节落笔包链默认按 `2` 节为一批推进：先用 `export-next-section-plan-pair` 从正式真源导出下一对待补小节侧车，由当前主线程连续补完 `N/N+1` 两节，跑一次 `preflight-section-plan`，最后一次性 `apply-section-plan --consume`，随后只跑一次正式 `validate-prewrite` 看下一堵墙；不要一节一节零碎消费，也不要拆给两个子代理。该环节单节人工字段本身才是主要耗时，多代理会重复读取大体量 skill 与资产，不能作为默认提速方案。导出侧车时，官方入口会同步给出 deterministic `editor_hints`，包含当前节细纲摘录、已分配细节卡、已分配 SF、可用逐句标注原文段、人物母版摘要与活性资产摘要，以及可直接选用的 `UF / REL / DLG / MECH` 引用 ID。当前模型优先填写这些引用 ID，不再重复抄写主体原文摘录、切句数组、对白轮次和 feature IDs；脚本在 `preflight-section-plan / apply-section-plan` 内只做确定性展开。`chain_motion / target_scene_use / relation_type / target_rehearsal / negative_example / mechanism / character_plan / manual_judgment` 等语义字段仍须逐项人工完成，不得脚本生成。`preflight-section-plan` 负责完成“批内四项自检”：展开后的 `source_excerpt` 逐字存在于主体原文且满足长度门槛；单字 `target_character` 必须真实存在于正式人物母版，不能用未绑定占位；`target_marking_mode=implicit` 的正例不得混入显式关系词；`source_function_word_skeleton / turn_motion / rewrite_instruction` 等硬字段长度必须达到校验门槛。若正式 `validate-prewrite` 只剩当前已消费批次里的少量局部字段真错，默认直接在正式 `全文文字颗粒度契约回执.json` 小范围回写并立刻复校；不要为了 1-4 个局部字段重建整份逐节侧车。
+
+默认追加 `--compact-authoring`。v2 格式把全部重复记录写成侧车内 `compact_authoring_schema` 声明的定长元组，并把原文候选、细节卡、人物母版和活性资产外置到同目录 SHA 绑定的 `*.catalog.json` 只读文件；每批人工侧车只保留绑定、schema 和当前小节人工槽。来源关系词与显隐模式直接取引用候选，目标关系词与显隐模式直接从目标试演机械检测，当前模型仍须人工填写关系类型、句面骨架、试演、错例和迁移裁决。预检和应用时确定性还原为完整正式 schema。它不删字段、不缩短最低内容要求，也不选择来源或生成迁移语义。禁止脱离侧车 schema 猜元组顺序，禁止手改取材目录后继续使用旧 SHA。
+
+同一批人工回填再加四条高置信预检，默认交给 `preflight-section-plan` 一次做完，减少正式校验后的回补轮次：
+
+- `continuous_source_chain_packets[*].source_sentence_chain` 必须逐条等于验证器 `sentence_units(source_excerpt)` 的真实输出；原文若把脏字符 `Ż / Ȥ` 单独切成一条，或把 `「……」\n动作句` 并成同一条，就必须原样保留，不能按肉眼顺句自行美化。
+- `relation_micro_examples[*].source_relation_type / target_relation_type` 只能使用合同验证器允许的枚举：`succession / contrast / cause_effect / addition / counterevidence / question_echo / interruption`。人工语义可在说明文字里写“转折/突断/回声”，但字段值不得临时自造 `turn` 等近义标签。
+- `sentence_mechanisms[*].source_sentence` 只能取自本节 `source_passage_ids` 已绑定原文段里的逐句标注句；若本节要消费新的源句，先补书级 `source_passages` 或改回已绑定句，不得把连续句链里的任意一句直接塞进机制位。
+- 若本批 `character_plan.participants[*].character_name` 新增了当前正式 `target_character_profiles` 尚不存在的人物，必须先补正式人物母版，再继续本批落笔包；新增母版默认至少 `5` 条 `source_asset_ids`，且至少覆盖 `4` 类原文性格颗粒，禁止只为当前两节临时挂一个瘦壳人物名。
+
+人工填包的默认提速顺序也固定下来，避免在同一节里来回切字段和重复搜源：
+
+1. 先一次性锁定本节可用的 `2` 组连续句链和 `2` 组对白源摘录；同一节有了这四组源摘录后，默认禁止再回头大段巡检原文。
+2. 立刻从这批已锁定源摘录顺手展开 `contrastive_examples / relation_micro_examples / sentence_mechanisms`，不要写完句链后切去补别节，再回来重找同一批句子。
+3. `paragraph_plan / window_plan / liveliness_plan / character_plan` 统一放在最后一轮补完，因为它们应当消费前面已经锁定的句链和对白，不应反过来重新决定取材。
+4. 若中途发现“需要新增正式人物母版”“机制句不在已绑定 `source_passage_ids`”“当前源摘录会触发 `sentence_units` 特殊切句”，立即停在这一点先修前置门槛，再继续当前节；不要先把其余字段补满，最后整节被同一前置问题打回。
+
+`apply-section-plan --consume` 与后续 `validate-prewrite` 必须严格串行。先确认 `apply` 已完成、正式回执 SHA 已更新，再单独执行 `validate-prewrite`；禁止把两条命令放进同一次并行工具调用，或在后台同时启动。否则即使 `apply` 最终成功，也按“校验读取旧回执状态”的流程错误处理。
+
+正文放行后，先由当前模型按原文桥段与目标场面语义完成独立写前字段 `section_sf_assignments[]`，每项写明 `subflow_id / target_sections / target_section_rationale`；它必须与主体 SF 全集同序相等。任一 SF 留空或任一目标小节没有 SF 时禁止初始化。`source_subflow_reviews` 保留为最终正文六维验收骨架，不得在正文前伪填目标引句。再按 [逐节正文进度硬闸](section-progress-gate.md) 初始化字数预算和当前小节状态。每节只在暂存稿一次写完，由当前模型完整通读并先重写偏差，再通过 `commit-section N` 做确定性提交；默认逐节回执不再重复保存完整 `prose_review`。本节未提交时禁止写入正文或创建下一节；全部小节结束后，完整场面表演、连续原文链、对白包、句间关系、逐句特征、活性、人物、全部对白及 SF 六维统一在全文合同中终审。
 
 全部小节逐节通过且进度闸输出 `final_ready` 后，才绑定最终 SHA 并自动生成全部小节复核骨架：
 
@@ -230,7 +261,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
-当前模型将已逐节验证的独立回执按小节合并到全文骨架后运行：
+当前模型基于最终正文逐节填写全文骨架。允许使用全文人工侧车分批编辑，但侧车只承载当前模型已明确写出的裁决，不能从延后逐节回执自动生成语义字段。完成后运行：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-manual-sidecar \
@@ -245,4 +276,4 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
   --section-progress "{项目目录}/写作资产/逐节正文进度.json"
 ```
 
-逐节独立回执是首写必须产物，不再属于可选侧车。全文人工侧车仍只在分批合并时创建；没有需要时不得伪造空文件过闸。只要存在全文侧车，就必须在每次合并前重跑预检。`validate-draft` 的 `passed_sections` 必须等于 `draft_sections`；两者不等即使总状态异常显示 passed，也按验证器缺陷处理并停止交付。任一命令未输出 `passed` 都必须回到当前步骤修正，不得运行 `--help` 探路，也不得降级成 warning。
+逐节确定性回执是首写必须产物，但默认不含重复人工语义。全文人工侧车只在分批编辑最终合同需要时创建；没有需要时不得伪造空文件过闸。只要存在全文侧车，就必须在每次合并前重跑预检。`validate-draft` 的 `passed_sections` 必须等于 `draft_sections`；两者不等即使总状态异常显示 passed，也按验证器缺陷处理并停止交付。任一命令未输出 `passed` 都必须回到当前步骤修正，不得运行 `--help` 探路，也不得降级成 warning。

@@ -129,7 +129,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --input "{项目目录}/写作资产/桥级回填侧车.json"
+  --input "{项目目录}/写作资产/桥级回填侧车.json" \
+  --consume
 ```
 
 该侧车只允许合并桥级非逐拍字段，不会替你生成 `target_plot_beats / plot_beat_mapping / source_emotion_sequence / target_emotion_sequence`，也不会放宽任何校验。
@@ -155,7 +156,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-beat-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --input "{项目目录}/写作资产/桥级逐拍侧车.json"
+  --input "{项目目录}/写作资产/桥级逐拍侧车.json" \
+  --consume
 ```
 
 该侧车同样不会生成任何语义字段，也不会放宽桥级逐拍校验；它只负责让当前模型已写好的逐拍裁决安全回填。
@@ -180,10 +182,44 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_rev
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_review.py" apply-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --input "{项目目录}/写作资产/节级回填侧车.json"
+  --input "{项目目录}/写作资产/节级回填侧车.json" \
+  --consume
 ```
 
-该侧车同样不会生成任何语义字段，只负责让当前模型已写好的节级人工裁决安全回填回正式回执。
+该侧车同样不会生成任何语义字段，只负责让当前模型已写好的节级人工裁决安全回填回正式回执。`--consume` 只在合并成功后把侧车压缩成小型消费回执；全部人工字段仍完整保存在正式回执。后续要改时重新 `export-template`，不要编辑消费回执。
+
+如果不想自己手拼这条细纲表演验收人工回填链，现已提供高层总入口。它按项目目录自动推导 `细纲表演验收回执.json / 小节大纲.md / 桥级回填侧车.json / 桥级逐拍回填侧车.json / 节级回填侧车.json`，并把 `sync-source-emotions -> 导出桥级/逐拍/节级侧车 -> 判断人工阶段是否补完 -> apply+consume 三份侧车 -> rebind-outline -> seal-review` 收成正式脚本链：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --bridge-review "{项目目录}/写作资产/桥级回填侧车.json" \
+  --bridge-beat-review "{项目目录}/写作资产/桥级逐拍回填侧车.json" \
+  --section-review "{项目目录}/写作资产/节级回填侧车.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+外层调用方如果只想拿整段模板，用：
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+```
+
+这个高层总入口只做路径推导、状态判断、三份侧车的确定性 apply/consume 与顶层重绑封口，不会替当前模型生成桥级/逐拍/节级的语义字段。
 
 ### 颗粒度原创模式
 
@@ -460,7 +496,7 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
   --config "{项目目录}/写作资产/项目写作配置.json"
 ```
 
-逐节计划必须直接复制已通过的上游 `scene_units`：
+逐节计划默认只保存已通过上游场面的引用，不再复制整块 `scene_units`。细纲表演验收回执是场面真源；正文阶段由官方入口按 `scene_id + receipt_sha256` 回解完整场面。只有排查旧调用兼容性时才显式使用 `--expanded`：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/create_section_plan.py" \
@@ -470,6 +506,8 @@ python3 "$SKILL_ROOT/scripts/create_section_plan.py" \
   --output "{项目目录}/写作资产/当前节计划/第N节.json"
 ```
 
-场面合同使用目标 `TE-*` 时，计划生成器必须从已批准的逐拍语义映射按显式 ID 查回主体 `E-*`，并同时保留 `target_emotion_beat_ids` 供追溯。禁止按数组位置、编号尾数或字符串替换猜配；缺映射、重复映射或映射未批准均阻断。
+计划文件只保留 `scene_unit_refs`、本节 E/P 领取序列、目标字数和上游回执路径/SHA；写作包生成器才回解完整 `scene_units`。场面合同使用目标 `TE-*` 时，计划生成器必须从已批准的逐拍语义映射按显式 ID 查回主体 `E-*`，并把 `target_emotion_beat_ids` 留在引用项中供追溯。禁止按数组位置、编号尾数或字符串替换猜配；缺映射、重复映射或映射未批准均阻断。下游计划不得自行修改场面字段。
+
+节级侧车同样只承载当前模型要填写的人工字段；应用时按字段局部合并，不清空或复制整节静态来源结构。侧车可以随时重新导出，不能作为第二份场面真源。
 
 书名、主体/辅助来源、选中 BID 和路径属于项目配置；E/P 拍、场面链和情绪等价理由属于项目人工语义资产。通用脚本不得硬编码这些单书信息，项目也不得长期保留复制自某本书的几百行装配脚本作为下一本书模板。

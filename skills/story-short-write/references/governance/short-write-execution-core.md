@@ -108,8 +108,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 20. 仿写 / 融合任务先初始化文字颗粒度 v2.4 合同，完成连续片段逐句语义标注、逐特征原句证据、成文活性资产和人物性格颗粒；为核心人物建立不可互换母版，再执行 `bind-outline` 并逐节完成连续句链、句间关系正反例、对白三联包、活性计划和人物计划，通过 `validate-prewrite`，由第一本主体原文独占正文声线
 21. 绑定主体拆文的 `全文情绪颗粒总账.json` 后初始化情绪颗粒度合同，把总账全部实际情绪拍按原序逐节唯一分配并绑定细纲和独占证据；各节并集必须与总账全集同序相等。同时从细纲表演回执领取全部目标情节拍并逐节唯一归属，通过 `validate-prewrite`
 22. 通过 `validate_write_release_gate.py draft --writing-receipt "项目目录/写作资产/写作规则读取回执.json" --source-receipt "项目目录/写作资产/拆文读取回执.json" --ledger "项目目录/写作资产/规则执行台账.json" --sequence-receipt "项目目录/写作资产/顺序契约回执.json" --opening-contract "项目目录/写作资产/开头承重契约回执_正文.json" --outline-contract "项目目录/写作资产/细纲表演验收回执.json" --prose-contract "项目目录/写作资产/全文文字颗粒度契约回执.json" --emotional-contract "项目目录/写作资产/全文情绪颗粒度契约回执.json" --primary-source-original "拆文库/主体书/原文/主体书.txt" --source-emotion-ledger "拆文库/主体书/写作资产/全文情绪颗粒总账.json" --profile "profiles/项目名.project.profile.json"`；随后创建逐节字数预算并初始化 `逐节正文进度.json`，正文此时必须不存在或为空
-23. 为第 1 节写完整场面计划并运行 `start-section`，再固定按“只读本节两类合同和人物计划 -> 在独立暂存稿一次写完本节 -> 提交前回填本节场面、句面、活性、人物与情绪映射 -> `commit-section` 原子写入正文并输出 `section_passed` -> 才能 `start-section` 下一节”推进。当前节未通过时禁止创建未来标题，已通过旧节禁止修改；首稿不执行去 AI 味
-24. 全部小节逐节通过后运行 `finalize`；只有输出 `final_ready` 才能绑定最终 SHA、合并已验证的逐节回执并运行文字颗粒度与情绪颗粒度 `validate-draft`
+23. 为第 1 节写完整场面计划并运行 `start-section`，再固定按“只读本节两类写前合同和人物计划 -> 在独立暂存稿一次写完并完整通读本节 -> 初始化确定性延后回执 -> 预检当前暂存稿、写前合同和场面领取 SHA/ID -> `commit-section` 原子写入正文并输出 `section_passed` -> 才能 `start-section` 下一节”推进。默认不再逐节重复填写人工侧车；发现未兑现、错脸、摘要化或偏离时先重写正文，必要时显式退回差量/全量侧车。当前节未通过时禁止创建未来标题，已通过旧节禁止修改；首稿不执行去 AI 味
+24. 全部小节逐节通过后运行 `finalize`；只有输出 `final_ready` 才能绑定最终 SHA。随后必须基于最终正文一次性完整填写文字颗粒度与情绪颗粒度全文终审，并分别通过 `validate-draft`；逐节延后回执不能替代这两道最终人工合同。情节终审必须读取每个 P 拍的来源七项语义快照与目标七项语义，分别核对动作、控制权、信息变化和现实后果；只见 P 编号和一条正文引句不得判过
 25. 只再运行统一字数统计；知乎 / 盐言稿另运行平台格式校验
 26. 立即向用户交付初稿并停靠，明确报告正文路径、字数、格式和“尚未执行深审、去味与回炉”；禁止自动运行后续步骤
 27. 只有用户明确回复“继续深审”“继续完整流程”或同义指令后，才补正文节点证据并通过 `validate_sequence_contract.py validate --receipt "项目目录/写作资产/顺序契约回执.json" --setting "项目目录/设定.md" --outline "项目目录/小节大纲.md" --draft "项目目录/正文.md"`
@@ -137,7 +137,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
    - 写大纲并通过 `完整顺序契约`
    - 通过 `开头承重契约`
    - 通过 `细纲表演验收`
-   - 若卡在 `细纲表演验收`，推荐先在同一批次内按 `global_review -> 源情绪账本 bid_ids 边界 -> 桥级非逐拍裁决 -> 桥级逐拍/逐情绪 -> 节级场面/scene_units -> 逐拍语义映射 -> SF` 的顺序修，不要直接跳去文字合同或情绪合同
+   - 若卡在 `细纲表演验收`，推荐先在同一批次内按 `global_review -> 源情绪账本 bid_ids 边界 -> 桥级非逐拍裁决 -> 桥级逐拍/逐情绪 -> 逐场语义资产 -> 节级场面/scene_units -> 逐拍语义映射 -> SF` 的顺序修，不要直接跳去文字合同或情绪合同
    - 桥级修复默认走一套连续官方入口：`manage_outline_bridge_review.py sync-source-emotions -> export-template/apply-template -> export-beat-template/apply-beat-template -> manage_outline_section_review.py export-template/apply-template -> rebind-outline -> validate_outline_performance_contract.py validate -> seal-review`
    - 如这些闸门都过，再进入正文前合同批次
 3. `正文前合同批次`
@@ -155,6 +155,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 硬口径：
 
 - 可合并的是“连续执行批次”，不是把多个治理对象合并成一张回执。
+- `细纲表演验收回执.json` 是节级场面真源；`逐节计划`、写作包和正文状态只保存 ID、领取序列与 SHA，正文前入口按引用回解，不再复制整块 `scene_units`。侧车只保存人工可编辑字段，应用时局部合并。
 - 同一批次内可以顺手连续修桥级与节级阻断，但前提仍是先修来源账本边界，再修桥级，再修节级场面与 `scene_units`，再修逐拍语义映射与 SF；不要让下游合同替上游桥级试错。
 - `读取门禁`、`顺序契约`、`开头契约`、`细纲表演验收`、`文字颗粒度合同`、`情绪颗粒度合同`、`规则执行台账` 仍是独立硬闸，不能因为批处理而删字段、跳校验或用一份总说明替代。
 - 若某批次中途有一项未 `passed`，应停在当前批次内修正，不得先写下游产物再回补上游。
@@ -402,11 +403,89 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate
 当前已提供：
 
 1. `batch-read-gates`
-   - 包含：规则读取回执 init/validate + 拆文读取回执 init/validate
+   - 包含：新项目总入口 + 项目骨架 bootstrap + 外层 shell 模板导出 + 规则读取回执 init/validate + 拆文读取回执 init/validate + 读取批次 prepare/status/next-step/run-cycle/finalize/export/apply
    - 目标：把两道读取门禁收成一个连续批次
-   - 边界：只能初始化骨架、转发路径、做时序/完整性校验；不得生成人工证据词和读取结论
+   - 边界：只能初始化骨架、转发路径、切分文件正文、绑定 SHA、做时序/完整性校验与确定性合并；不得生成人工证据词和读取结论
+   - 口径：高层命令优先，`bootstrap-project` 只建标准目录和项目骨架索引，不提前创建设定/大纲/正文；全新项目既可传入不存在的目标路径，也可传入“已按目录硬闸创建、但尚未初始化任何文件”的空目录；目录里已有正式文件或历史内容时仍按占用阻断。批次显式走 `pending -> in_progress -> reviewed -> consumed`；`status` 输出状态计数和批次简表；`finalize-batches` 先检查全批次完成性，存在未 reviewed 批次时直接阻断；`export-batches` 重导出时会按正式回执自动恢复已审核条目的人工字段，并把整批已补齐的侧车恢复为 `reviewed`；`export-batches / apply-batch / apply-manifest` 仅用于单批排障或中途续跑
 
 ```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" bootstrap-project \
+  --project "{项目名}" \
+  --project-dir "{工作区}/{项目名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --batch-size 20 \
+  --print-paths-json
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" start-new-project-read-gates \
+  --project "{项目名}" \
+  --project-dir "{工作区}/{项目名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --stage outline \
+  --stage-output "{工作区}/{项目名}/小节大纲.md" \
+  --output "{工作区}/{项目名}/设定.md" \
+  --output "{工作区}/{项目名}/小节大纲.md" \
+  --output "{工作区}/{项目名}/正文.md" \
+  --batch-size 20
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+  --project "{项目名}" \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --output-dir "{项目目录}/写作资产/读取批次" \
+  --batch-size 20
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --consume \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" next-step \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" run-read-gates-cycle \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{工作区}/{项目名}" \
+  --source-dir "拆文库/{主体书}" \
+  --source-dir "拆文库/{辅助书}" \
+  --stage outline \
+  --stage-output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/设定.md" \
+  --output "{项目目录}/小节大纲.md" \
+  --output "{项目目录}/正文.md" \
+  --batch-size 20
+
 python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" init \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
@@ -422,12 +501,53 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" valid
   --output "{项目目录}/设定.md" \
   --output "{项目目录}/小节大纲.md" \
   --output "{项目目录}/正文.md"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" export-batches \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --output-dir "{项目目录}/写作资产/读取批次" \
+  --batch-size 20
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply-batch \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --input "{项目目录}/写作资产/读取批次/batch-001.json" \
+  --consume
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply-manifest \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --consume
 ```
 
 2. `batch-outline-release`
    - 包含：规则执行台账 init/export、设定顺序契约 init、完整顺序契约 init、开头契约 init、细纲表演验收 init
    - 目标：把“纲前放行批次”的骨架创建与失效重绑收成一轮
    - 边界：只能创建回执和绑定 SHA；不得代填顺序节点、开头判断、逐拍映射或情绪同级判断
+   - 规则分类：导出的 `规则模型分类批次.json` 默认只是紧凑索引；用 `read-model-review-batch` 按批从台账即时展开完整案例，不再提前复制整份规则案例库
+   - 高层命令：现已支持按项目目录自动推导正式路径；高层总入口优先，`init` 仅用于排障或手动重绑
+
+```bash
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" status \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" emit-shell-template \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" start-outline-release \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --export-model-review-output "{项目目录}/写作资产/规则模型分类批次.json" \
+  --export-model-plan-output "{项目目录}/写作资产/规则模型归并计划.json"
+```
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" init \
@@ -444,7 +564,8 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" 
   --outline-receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-original "拆文库/{辅助书}/原文/{辅助书}.txt" \
-  --export-model-review-output "{项目目录}/写作资产/规则模型分类批次.json"
+  --export-model-review-output "{项目目录}/写作资产/规则模型分类批次.json" \
+  --export-model-plan-output "{项目目录}/写作资产/规则模型归并计划.json"
 ```
 
 3. `batch-draft-prewrite`
@@ -473,6 +594,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_draft_prewrite.py" v
    - 包含：`validate_outline_performance_contract.py validate` + `batch_draft_prewrite.py validate` + `validate_write_release_gate.py draft`
    - 目标：把“人工回填完成后到正文开写前”的最后三道散门禁收成一轮
    - 边界：只能做串联校验和统一摘要；不得重写细纲表演回执、两份合同或放行闸中的人工字段
+   - 复用：前两步已经按绝对路径与当前 SHA 成功验证的细纲、文字、情绪合同直接传给最终放行闸，避免同一进程内重复全量校验；绑定不一致时自动回退重验
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" validate \

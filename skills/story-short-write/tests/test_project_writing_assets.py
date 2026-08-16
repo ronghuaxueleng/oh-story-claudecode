@@ -58,7 +58,7 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         self.assertFalse((assets / "项目写作配置.json").exists())
         self.assertFalse((assets / "逐拍语义映射.json").exists())
 
-    def test_section_plan_copies_approved_scene_units(self) -> None:
+    def test_section_plan_stores_scene_refs_instead_of_copying_scene_units(self) -> None:
         receipt = self.root / "receipt.json"
         output = self.root / "plan.json"
         units = [{"scene_id": "S1-1", "allocated_chars": 800}]
@@ -71,7 +71,8 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         plan = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(units, plan["scene_units"])
+        self.assertEqual([{"scene_id": "S1-1", "emotion_beat_ids": [], "target_emotion_beat_ids": [], "plot_beat_ids": []}], plan["scene_unit_refs"])
+        self.assertNotIn("scene_units", plan)
         self.assertEqual(800, plan["target_chars"])
 
     def test_section_plan_maps_target_emotion_ids_by_explicit_semantic_mapping(self) -> None:
@@ -93,8 +94,8 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         plan = json.loads(output.read_text(encoding="utf-8"))
-        self.assertEqual(["E-009"], plan["scene_units"][0]["emotion_beat_ids"])
-        self.assertEqual(["TE-X"], plan["scene_units"][0]["target_emotion_beat_ids"])
+        self.assertEqual(["E-009"], plan["scene_unit_refs"][0]["emotion_beat_ids"])
+        self.assertEqual(["TE-X"], plan["scene_unit_refs"][0]["target_emotion_beat_ids"])
 
     def test_section_plan_blocks_target_emotion_ids_without_mapping(self) -> None:
         receipt = self.root / "receipt.json"
@@ -108,6 +109,28 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         )
         self.assertEqual(2, result.returncode)
         self.assertIn("--beat-mapping", result.stdout)
+
+    def test_compact_plan_can_be_materialized_from_upstream_scene_units(self) -> None:
+        plan_module = importlib.util.spec_from_file_location("create_section_plan", PLAN)
+        assert plan_module and plan_module.loader
+        module = importlib.util.module_from_spec(plan_module)
+        plan_module.loader.exec_module(module)
+        plan = {
+            "section_id": "1",
+            "scene_unit_refs": [
+                {
+                    "scene_id": "S1-1",
+                    "emotion_beat_ids": ["E-001"],
+                    "target_emotion_beat_ids": [],
+                    "plot_beat_ids": ["P-001"],
+                }
+            ],
+        }
+        expanded = module.materialize_plan(
+            plan,
+            [{"scene_id": "S1-1", "allocated_chars": 800}],
+        )
+        self.assertEqual(800, expanded["scene_units"][0]["allocated_chars"])
 
     def test_profile_policy_uses_configured_sources(self) -> None:
         profile = self.root / "project.profile.json"

@@ -9,8 +9,12 @@ import importlib.util
 import json
 from copy import deepcopy
 from pathlib import Path
+import sys
 import tempfile
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sidecar_lifecycle import consume_sidecar, refresh_sidecar_receipt_sha
 
 
 TEMPLATE_SCHEMA = "story-short-write.outline-bridge-review-template.v1"
@@ -26,6 +30,17 @@ BRIDGE_FIELDS = (
     "adaptation_reason",
     "missing_or_weakened_risk",
     "manual_judgment",
+)
+BRIDGE_CONTEXT_FIELDS = (
+    "source_path",
+    "source_sha256",
+    "source_required_sequence",
+    "source_must_keep_actions",
+    "source_scene_granularity",
+    "source_plot_beats",
+    "source_emotion_sequence",
+    "target_outline_sections",
+    "target_outline_evidence",
 )
 BRIDGE_BEAT_FIELDS = (
     "target_plot_beats",
@@ -204,11 +219,59 @@ def _bridge_sidecar_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_bridge_id": entry.get("source_bridge_id", ""),
         "source_bridge_name": entry.get("source_bridge_name", ""),
+        **{field: deepcopy(entry.get(field)) for field in BRIDGE_CONTEXT_FIELDS},
         **{field: deepcopy(entry.get(field)) for field in BRIDGE_FIELDS},
     }
 
 
-def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
+def _compact_plot_beats(beats: Any) -> list[dict[str, Any]]:
+    if not isinstance(beats, list):
+        return []
+    compact: list[dict[str, Any]] = []
+    for item in beats:
+        if not isinstance(item, dict):
+            continue
+        compact.append(
+            {
+                "beat_id": deepcopy(item.get("beat_id")),
+                "action": deepcopy(item.get("action")),
+                "object_or_receiver": deepcopy(item.get("object_or_receiver")),
+                "consequence": deepcopy(item.get("consequence")),
+                "evidence": deepcopy(item.get("evidence")),
+            }
+        )
+    return compact
+
+
+def _bridge_sidecar_entry_compact(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_bridge_id": entry.get("source_bridge_id", ""),
+        "source_bridge_name": entry.get("source_bridge_name", ""),
+        "source_path": deepcopy(entry.get("source_path")),
+        "source_sha256": deepcopy(entry.get("source_sha256")),
+        "source_scene_granularity": deepcopy(entry.get("source_scene_granularity")),
+        "source_required_sequence": deepcopy(entry.get("source_required_sequence")),
+        "source_must_keep_actions": deepcopy(entry.get("source_must_keep_actions")),
+        "source_plot_beats": _compact_plot_beats(entry.get("source_plot_beats")),
+        "source_emotion_sequence": deepcopy(entry.get("source_emotion_sequence")),
+        "target_outline_sections": deepcopy(entry.get("target_outline_sections")),
+        "target_outline_evidence": deepcopy(entry.get("target_outline_evidence")),
+        **{field: deepcopy(entry.get(field)) for field in BRIDGE_FIELDS},
+    }
+
+
+def _normalize_bridge_filter(bridge_ids: list[str] | None) -> set[str]:
+    if not bridge_ids:
+        return set()
+    return {str(item).strip() for item in bridge_ids if str(item).strip()}
+
+
+def export_template(
+    receipt_path: Path,
+    output_path: Path,
+    bridge_ids: list[str] | None = None,
+    compact_context: bool = False,
+) -> dict[str, Any]:
     receipt = read_json(receipt_path, "细纲表演验收回执")
     bridges = receipt.get("outline_bridge_flow_parity")
     outside = receipt.get("outside_bridge_plot_parity")
@@ -216,6 +279,16 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         raise ValueError("回执缺少 outline_bridge_flow_parity 列表")
     if outside is not None and not isinstance(outside, dict):
         raise ValueError("outside_bridge_plot_parity 必须是对象")
+    selected_bridge_ids = _normalize_bridge_filter(bridge_ids)
+    filtered_bridges = [
+        entry
+        for entry in bridges
+        if isinstance(entry, dict)
+        and (
+            not selected_bridge_ids
+            or str(entry.get("source_bridge_id") or "").strip() in selected_bridge_ids
+        )
+    ]
 
     payload: dict[str, Any] = {
         "schema_version": TEMPLATE_SCHEMA,
@@ -224,15 +297,19 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         "outside_bridge_plot_parity": None,
         "outline_bridge_flow_parity": [],
     }
-    if isinstance(outside, dict):
+    first_bridge = next((entry for entry in filtered_bridges if isinstance(entry, dict)), None)
+    if isinstance(outside, dict) and not selected_bridge_ids:
         payload["outside_bridge_plot_parity"] = {
             "source_bridge_id": "outside",
+            "source_path": deepcopy(outside.get("source_path") or (first_bridge or {}).get("source_path")),
+            "source_sha256": deepcopy(outside.get("source_sha256") or (first_bridge or {}).get("source_sha256")),
+            "source_plot_beats": deepcopy(outside.get("source_plot_beats")),
+            "source_emotion_sequence": deepcopy(outside.get("source_emotion_sequence")),
             **{field: deepcopy(outside.get(field)) for field in BRIDGE_FIELDS},
         }
     payload["outline_bridge_flow_parity"] = [
-        _bridge_sidecar_entry(entry)
-        for entry in bridges
-        if isinstance(entry, dict)
+        (_bridge_sidecar_entry_compact(entry) if compact_context else _bridge_sidecar_entry(entry))
+        for entry in filtered_bridges
     ]
     write_json(output_path, payload)
     return payload
@@ -242,11 +319,34 @@ def _bridge_beat_sidecar_entry(entry: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_bridge_id": entry.get("source_bridge_id", ""),
         "source_bridge_name": entry.get("source_bridge_name", ""),
+        **{field: deepcopy(entry.get(field)) for field in BRIDGE_CONTEXT_FIELDS},
         **{field: deepcopy(entry.get(field)) for field in BRIDGE_BEAT_FIELDS},
     }
 
 
-def export_beat_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
+def _bridge_beat_sidecar_entry_compact(entry: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "source_bridge_id": entry.get("source_bridge_id", ""),
+        "source_bridge_name": entry.get("source_bridge_name", ""),
+        "source_path": deepcopy(entry.get("source_path")),
+        "source_sha256": deepcopy(entry.get("source_sha256")),
+        "source_scene_granularity": deepcopy(entry.get("source_scene_granularity")),
+        "source_required_sequence": deepcopy(entry.get("source_required_sequence")),
+        "source_must_keep_actions": deepcopy(entry.get("source_must_keep_actions")),
+        "source_plot_beats": _compact_plot_beats(entry.get("source_plot_beats")),
+        "source_emotion_sequence": deepcopy(entry.get("source_emotion_sequence")),
+        "target_outline_sections": deepcopy(entry.get("target_outline_sections")),
+        "target_outline_evidence": deepcopy(entry.get("target_outline_evidence")),
+        **{field: deepcopy(entry.get(field)) for field in BRIDGE_BEAT_FIELDS},
+    }
+
+
+def export_beat_template(
+    receipt_path: Path,
+    output_path: Path,
+    bridge_ids: list[str] | None = None,
+    compact_context: bool = False,
+) -> dict[str, Any]:
     receipt = read_json(receipt_path, "细纲表演验收回执")
     bridges = receipt.get("outline_bridge_flow_parity")
     outside = receipt.get("outside_bridge_plot_parity")
@@ -254,6 +354,16 @@ def export_beat_template(receipt_path: Path, output_path: Path) -> dict[str, Any
         raise ValueError("回执缺少 outline_bridge_flow_parity 列表")
     if outside is not None and not isinstance(outside, dict):
         raise ValueError("outside_bridge_plot_parity 必须是对象")
+    selected_bridge_ids = _normalize_bridge_filter(bridge_ids)
+    filtered_bridges = [
+        entry
+        for entry in bridges
+        if isinstance(entry, dict)
+        and (
+            not selected_bridge_ids
+            or str(entry.get("source_bridge_id") or "").strip() in selected_bridge_ids
+        )
+    ]
 
     payload: dict[str, Any] = {
         "schema_version": BEAT_TEMPLATE_SCHEMA,
@@ -261,14 +371,20 @@ def export_beat_template(receipt_path: Path, output_path: Path) -> dict[str, Any
         "receipt_sha256": sha256_file(receipt_path),
         "outside_bridge_plot_parity": None,
         "outline_bridge_flow_parity": [
-            _bridge_beat_sidecar_entry(entry)
-            for entry in bridges
-            if isinstance(entry, dict)
+            (_bridge_beat_sidecar_entry_compact(entry) if compact_context else _bridge_beat_sidecar_entry(entry))
+            for entry in filtered_bridges
         ],
     }
-    if isinstance(outside, dict):
+    first_bridge = next((entry for entry in filtered_bridges if isinstance(entry, dict)), None)
+    if isinstance(outside, dict) and not selected_bridge_ids:
         payload["outside_bridge_plot_parity"] = {
             "source_bridge_id": "outside",
+            "source_path": deepcopy(outside.get("source_path") or (first_bridge or {}).get("source_path")),
+            "source_sha256": deepcopy(outside.get("source_sha256") or (first_bridge or {}).get("source_sha256")),
+            "source_plot_beats": deepcopy(outside.get("source_plot_beats")),
+            "source_emotion_sequence": deepcopy(outside.get("source_emotion_sequence")),
+            "target_outline_sections": deepcopy(outside.get("target_outline_sections")),
+            "target_outline_evidence": deepcopy(outside.get("target_outline_evidence")),
             **{field: deepcopy(outside.get(field)) for field in OUTSIDE_BEAT_FIELDS},
         }
     write_json(output_path, payload)
@@ -506,18 +622,26 @@ def main() -> int:
     export = sub.add_parser("export-template")
     export.add_argument("--receipt", required=True)
     export.add_argument("--output", required=True)
+    export.add_argument("--bridge-id", action="append", default=[])
+    export.add_argument("--compact-context", action="store_true")
 
     export_beat = sub.add_parser("export-beat-template")
     export_beat.add_argument("--receipt", required=True)
     export_beat.add_argument("--output", required=True)
+    export_beat.add_argument("--bridge-id", action="append", default=[])
+    export_beat.add_argument("--compact-context", action="store_true")
 
     apply_cmd = sub.add_parser("apply-template")
     apply_cmd.add_argument("--receipt", required=True)
     apply_cmd.add_argument("--input", required=True)
+    apply_cmd.add_argument("--consume", action="store_true")
+    apply_cmd.add_argument("--refresh-sidecar", action="append", default=[])
 
     apply_beat_cmd = sub.add_parser("apply-beat-template")
     apply_beat_cmd.add_argument("--receipt", required=True)
     apply_beat_cmd.add_argument("--input", required=True)
+    apply_beat_cmd.add_argument("--consume", action="store_true")
+    apply_beat_cmd.add_argument("--refresh-sidecar", action="append", default=[])
 
     sync_cmd = sub.add_parser("sync-source-emotions")
     sync_cmd.add_argument("--receipt", required=True)
@@ -533,14 +657,24 @@ def main() -> int:
     args = parser.parse_args()
     try:
         if args.command == "export-template":
-            payload = export_template(Path(args.receipt).resolve(), Path(args.output).resolve())
+            payload = export_template(
+                Path(args.receipt).resolve(),
+                Path(args.output).resolve(),
+                args.bridge_id,
+                args.compact_context,
+            )
             print(
                 "outline_bridge_review_template: exported "
                 f"({len(payload['outline_bridge_flow_parity'])} bridges)"
             )
             return 0
         if args.command == "export-beat-template":
-            payload = export_beat_template(Path(args.receipt).resolve(), Path(args.output).resolve())
+            payload = export_beat_template(
+                Path(args.receipt).resolve(),
+                Path(args.output).resolve(),
+                args.bridge_id,
+                args.compact_context,
+            )
             print(
                 "outline_bridge_beat_review_template: exported "
                 f"({len(payload['outline_bridge_flow_parity'])} bridges)"
@@ -562,10 +696,50 @@ def main() -> int:
             print("outline_bridge_review_status: sealed")
             return 0
         if args.command == "apply-beat-template":
-            apply_beat_template(Path(args.receipt).resolve(), Path(args.input).resolve())
+            receipt_path = Path(args.receipt).resolve()
+            template_path = Path(args.input).resolve()
+            template_sha = sha256_file(template_path)
+            merged = apply_beat_template(receipt_path, template_path)
+            receipt_sha = sha256_file(receipt_path)
+            for raw_path in args.refresh_sidecar:
+                refresh_sidecar_receipt_sha(Path(raw_path).resolve(), receipt_sha)
+            if args.consume:
+                consume_sidecar(
+                    template_path,
+                    input_sha256=template_sha,
+                    receipt_path=receipt_path,
+                    receipt_sha256=receipt_sha,
+                    operation="outline-bridge-beat-review.apply",
+                    counts={
+                        "bridges": len(merged.get("outline_bridge_flow_parity") or []),
+                        "outside_bridges": int(
+                            isinstance(merged.get("outside_bridge_plot_parity"), dict)
+                        ),
+                    },
+                )
             print("outline_bridge_beat_review_template: applied")
             return 0
-        apply_template(Path(args.receipt).resolve(), Path(args.input).resolve())
+        receipt_path = Path(args.receipt).resolve()
+        template_path = Path(args.input).resolve()
+        template_sha = sha256_file(template_path)
+        merged = apply_template(receipt_path, template_path)
+        receipt_sha = sha256_file(receipt_path)
+        for raw_path in args.refresh_sidecar:
+            refresh_sidecar_receipt_sha(Path(raw_path).resolve(), receipt_sha)
+        if args.consume:
+            consume_sidecar(
+                template_path,
+                input_sha256=template_sha,
+                receipt_path=receipt_path,
+                receipt_sha256=receipt_sha,
+                operation="outline-bridge-review.apply",
+                counts={
+                    "bridges": len(merged.get("outline_bridge_flow_parity") or []),
+                    "outside_bridges": int(
+                        isinstance(merged.get("outside_bridge_plot_parity"), dict)
+                    ),
+                },
+            )
         print("outline_bridge_review_template: applied")
         return 0
     except (FileNotFoundError, ValueError) as exc:

@@ -57,8 +57,10 @@ class InitSectionReviewTest(unittest.TestCase):
     def test_scaffold_initializes_sf_steps_and_detail_cards_pending(self) -> None:
         state = {"sections": [{
             "section_id": "1", "required_sf_ids": ["SF-01"],
-            "required_detail_card_ids": ["DB01"], "emotion_beat_ids": [],
-            "plot_beat_ids": [], "emotion_beat_contracts": [], "plot_beat_contracts": [],
+            "required_detail_card_ids": ["DB01"], "emotion_beat_ids": ["E-001"],
+            "plot_beat_ids": ["P-001"],
+            "emotion_beat_contracts": [{"beat_id": "E-001", "role": "进入", "intensity": 5}],
+            "plot_beat_contracts": [{"beat_id": "P-001", "action": "位置换主"}],
         }]}
         dimensions = {name: {"source_evidence": []} for name in MODULE.SF_DIMENSIONS}
         prose = {
@@ -78,13 +80,20 @@ class InitSectionReviewTest(unittest.TestCase):
         detail = review["prose_review"]["source_detail_card_reviews"][0]
         self.assertEqual("DB01", detail["card_id"])
         self.assertEqual("pending", detail["status"])
+        self.assertNotIn("source_quote", detail)
+        self.assertNotIn("category", detail)
+        self.assertNotIn(
+            "source_evidence",
+            sf["dimension_transfers"]["narrative_voice_and_attitude"],
+        )
         self.assertIsNone(review["manual_review_provenance"]["semantic_fields_generated_by_script"])
 
     def test_scaffold_matches_validator_shapes_and_extracts_dialogue_candidates(self) -> None:
         state = {"sections": [{
             "section_id": "1", "required_sf_ids": [], "required_detail_card_ids": [],
             "emotion_beat_ids": ["E-001"], "plot_beat_ids": ["P-001"],
-            "emotion_beat_contracts": [], "plot_beat_contracts": [],
+            "emotion_beat_contracts": [{"beat_id": "E-001", "role": "错答", "intensity": 7}],
+            "plot_beat_contracts": [{"beat_id": "P-001", "action": "人物离场"}],
         }]}
         prose = {"section_generation_plans": [{
             "section_id": "1",
@@ -99,8 +108,9 @@ class InitSectionReviewTest(unittest.TestCase):
         review = self.build_review(state, prose, "1", "她问：“你走吗？”\n他答：“不走。”")
         prose_review = review["prose_review"]
         self.assertEqual(4, len(prose_review["sentence_mappings"]))
-        self.assertEqual("chain", prose_review["continuous_chain_reviews"][0]["source_excerpt"])
-        self.assertEqual("dialogue", prose_review["dialogue_voice_reviews"][0]["source_excerpt"])
+        self.assertNotIn("source_excerpt", prose_review["continuous_chain_reviews"][0])
+        self.assertNotIn("source_excerpt", prose_review["dialogue_voice_reviews"][0])
+        self.assertNotIn("source_excerpt", prose_review["relation_micro_reviews"][0])
         self.assertEqual("contrast", prose_review["relation_micro_reviews"][0]["relation_type"])
         self.assertEqual("程雾", prose_review["character_vitality_review"]["character_reviews"][0]["character_name"])
         self.assertEqual(

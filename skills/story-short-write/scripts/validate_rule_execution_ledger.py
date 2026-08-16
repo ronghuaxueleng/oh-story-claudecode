@@ -10,10 +10,17 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
+import sys
 from typing import Any, Iterable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sidecar_lifecycle import consume_sidecar
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
+MODEL_GROUP_PRESET_FILE = (
+    SKILL_ROOT / "references" / "integration" / "rule-model-group-presets.json"
+)
 
 CORE_SKILL_RULE_FILES = (
     "SKILL.md",
@@ -1421,6 +1428,7 @@ def export_model_review(
     ledger_path: Path,
     output_path: Path,
     batch_size: int,
+    expanded: bool = False,
 ) -> dict[str, int]:
     data = json.loads(ledger_path.read_text(encoding="utf-8"))
     entries = [
@@ -1432,18 +1440,20 @@ def export_model_review(
     for start in range(0, len(entries), batch_size):
         items = []
         for entry in entries[start : start + batch_size]:
-            items.append(
-                {
-                    "id": entry.get("id"),
-                    "rule_text": entry.get("rule_text")
-                    or entry.get("relative_path"),
-                    "suggested_rule_role": entry.get("rule_role"),
-                    "suggested_execution_mode": entry.get("execution_mode"),
-                    "suggested_remediation_target": entry.get("remediation_target"),
-                    "source_refs": entry.get("source_refs", []),
-                    "cases": entry.get("cases", []),
-                }
-            )
+            item = {
+                "id": entry.get("id"),
+                "rule_text": entry.get("rule_text")
+                or entry.get("relative_path"),
+                "suggested_rule_role": entry.get("rule_role"),
+                "suggested_execution_mode": entry.get("execution_mode"),
+                "suggested_remediation_target": entry.get("remediation_target"),
+                "source_ref_count": len(entry.get("source_refs", [])),
+                "case_count": len(entry.get("cases", [])),
+            }
+            if expanded:
+                item["source_refs"] = entry.get("source_refs", [])
+                item["cases"] = entry.get("cases", [])
+            items.append(item)
         batches.append(
             {
                 "batch": len(batches) + 1,
@@ -1451,8 +1461,10 @@ def export_model_review(
             }
         )
     payload = {
-        "version": "1.0",
+        "version": "1.1",
+        "mode": "expanded" if expanded else "compact",
         "ledger": str(ledger_path),
+        "ledger_sha256": sha256(ledger_path),
         "instructions": [
             "必须由当前写作模型逐族阅读 cases 后归纳 canonical_rule_text，脚本建议只能参考。",
             "剔除导航、示例、说明性材料时标 not_applicable，并写具体原因。",
@@ -1484,6 +1496,380 @@ def export_model_review(
         encoding="utf-8",
     )
     return {"entries": len(entries), "batches": len(batches)}
+
+
+def read_model_review_batch(
+    ledger_path: Path,
+    manifest_path: Path,
+    batch_number: int,
+) -> dict[str, Any]:
+    """Resolve one compact review batch from the ledger without duplicating all cases."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("规则模型分类批次顶层必须是 JSON 对象")
+    if Path(str(manifest.get("ledger") or "")).resolve() != ledger_path.resolve():
+        raise ValueError("规则模型分类批次绑定的 ledger 与当前台账不一致")
+    expected_sha = str(manifest.get("ledger_sha256") or "").strip()
+    if expected_sha and expected_sha != sha256(ledger_path):
+        raise ValueError("规则模型分类批次绑定的 ledger SHA 已失效，请重新导出")
+
+    batches = manifest.get("batches")
+    if not isinstance(batches, list):
+        raise ValueError("规则模型分类批次缺少 batches")
+    selected = next(
+        (
+            batch
+            for batch in batches
+            if isinstance(batch, dict) and batch.get("batch") == batch_number
+        ),
+        None,
+    )
+    if not isinstance(selected, dict):
+        raise ValueError(f"规则模型分类批次不存在 batch={batch_number}")
+
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if entry.get("id")
+    }
+    resolved_items: list[dict[str, Any]] = []
+    for index, item in enumerate(selected.get("items") or []):
+        if not isinstance(item, dict):
+            raise ValueError(f"batch={batch_number}.items[{index}] 必须是对象")
+        rule_id = str(item.get("id") or "").strip()
+        entry = entries.get(rule_id)
+        if not entry:
+            raise ValueError(f"batch={batch_number} 引用的规则已不存在: {rule_id}")
+        resolved_items.append(
+            {
+                "id": rule_id,
+                "rule_text": entry.get("rule_text") or entry.get("relative_path"),
+                "suggested_rule_role": entry.get("rule_role"),
+                "suggested_execution_mode": entry.get("execution_mode"),
+                "suggested_remediation_target": entry.get("remediation_target"),
+                "source_refs": entry.get("source_refs", []),
+                "cases": entry.get("cases", []),
+            }
+        )
+    return {
+        "version": "1.0",
+        "ledger": str(ledger_path),
+        "ledger_sha256": sha256(ledger_path),
+        "manifest": str(manifest_path),
+        "batch": batch_number,
+        "items": resolved_items,
+    }
+
+
+def export_model_group_plan_template(
+    ledger_path: Path,
+    manifest_path: Path,
+    output_path: Path,
+) -> dict[str, int]:
+    """Create a compact, non-semantic plan skeleton from a bound review manifest."""
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("规则模型分类批次顶层必须是 JSON 对象")
+    if Path(str(manifest.get("ledger") or "")).resolve() != ledger_path.resolve():
+        raise ValueError("规则模型分类批次绑定的 ledger 与当前台账不一致")
+    expected_sha = str(manifest.get("ledger_sha256") or "").strip()
+    if expected_sha and expected_sha != sha256(ledger_path):
+        raise ValueError("规则模型分类批次绑定的 ledger SHA 已失效，请重新导出")
+
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if entry.get("id")
+    }
+    ordered_ids: list[str] = []
+    for batch in manifest.get("batches") or []:
+        if not isinstance(batch, dict):
+            continue
+        for item in batch.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            rule_id = str(item.get("id") or "").strip()
+            if rule_id and rule_id not in ordered_ids:
+                ordered_ids.append(rule_id)
+    missing = [rule_id for rule_id in ordered_ids if rule_id not in entries]
+    if missing:
+        raise ValueError("规则模型分类批次引用的规则已不存在: " + " / ".join(missing))
+
+    payload = {
+        "version": "2.0",
+        "ledger": str(ledger_path),
+        "ledger_sha256": sha256(ledger_path),
+        "manifest": str(manifest_path),
+        "manifest_sha256": sha256(manifest_path),
+        "decision_stage": "prewrite",
+        "reviewed_by_current_model": False,
+        "semantic_fields_generated_by_script": False,
+        "instructions": [
+            "逐批读取完整 cases/source_refs 后再编辑本文件。",
+            "近义规则合并时，把全部 member_ids 放进唯一 canonical 组并删除其他重复组。",
+            "taxonomy_decision 只能填 accept_suggestions 或 override；override 时补 taxonomy 三字段。",
+            "脚本只展开当前模型的明确选择，不生成 canonical_rule_text、适用性或裁决理由。",
+        ],
+        "groups": [
+            {
+                "canonical_id": rule_id,
+                "member_ids": [rule_id],
+                "canonical_rule_text": "",
+                "taxonomy_decision": "pending",
+                "suggested_taxonomy": {
+                    "rule_role": entries[rule_id].get("rule_role"),
+                    "remediation_target": entries[rule_id].get("remediation_target"),
+                    "execution_mode": entries[rule_id].get("execution_mode"),
+                },
+                "taxonomy": {},
+                "classification_notes": "",
+                "applicability": "pending",
+                "decision_reason": "",
+                "target_stage": "",
+                "target_scene": "",
+            }
+            for rule_id in ordered_ids
+        ],
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return {"groups": len(payload["groups"])}
+
+
+def load_model_group_presets(preset_path: Path) -> list[dict[str, Any]]:
+    data = json.loads(preset_path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("规则模型 preset 顶层必须是 JSON 对象")
+    presets = data.get("presets")
+    if not isinstance(presets, list):
+        raise ValueError("规则模型 preset 缺少 presets 列表")
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(presets, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"规则模型 preset[{index}] 必须是对象")
+        canonical_id = str(item.get("canonical_id") or "").strip()
+        match_strategy = str(item.get("match_strategy") or "source_fingerprint").strip()
+        source_sha256 = str(item.get("source_sha256") or "").strip()
+        source_path_suffix = str(item.get("source_path_suffix") or "").strip()
+        if not canonical_id:
+            raise ValueError(f"规则模型 preset[{index}] 缺少 canonical_id")
+        if not source_path_suffix:
+            raise ValueError(f"规则模型 preset[{index}] 缺少 source_path_suffix")
+        if match_strategy not in {"source_fingerprint", "path_only"}:
+            raise ValueError(
+                f"规则模型 preset[{index}] match_strategy 仅支持 source_fingerprint/path_only"
+            )
+        if match_strategy == "source_fingerprint" and not source_sha256:
+            raise ValueError(f"规则模型 preset[{index}] 缺少 source_sha256")
+        normalized_item = dict(item)
+        normalized_item["match_strategy"] = match_strategy
+        normalized.append(normalized_item)
+    return normalized
+
+
+def model_group_preset_matches_entry(
+    preset: dict[str, Any],
+    entry: dict[str, Any],
+) -> tuple[bool, bool]:
+    if str(preset.get("canonical_id") or "").strip() != str(entry.get("id") or "").strip():
+        return False, False
+    refs = entry.get("source_refs")
+    if not isinstance(refs, list) or not refs:
+        return False, False
+    match_strategy = str(preset.get("match_strategy") or "source_fingerprint").strip()
+    suffix = str(preset.get("source_path_suffix") or "").strip()
+    expected_sha = str(preset.get("source_sha256") or "").strip()
+    path_matched = False
+    sha_matched = False
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        source_path = str(ref.get("source_path") or "").strip()
+        if suffix and not source_path.endswith(suffix):
+            continue
+        path_matched = True
+        if match_strategy == "path_only":
+            return True, False
+        if expected_sha and str(ref.get("source_sha256") or "").strip() == expected_sha:
+            sha_matched = True
+            break
+    return path_matched and sha_matched, path_matched and not sha_matched
+
+
+def apply_model_group_presets(
+    ledger_path: Path,
+    plan_path: Path,
+    preset_path: Path | None = None,
+) -> tuple[list[str], dict[str, Any]]:
+    resolved_preset_path = (
+        preset_path.expanduser().resolve()
+        if preset_path is not None
+        else MODEL_GROUP_PRESET_FILE.resolve()
+    )
+    if not resolved_preset_path.is_file():
+        return [], {
+            "preset_path": str(resolved_preset_path),
+            "applied_groups": 0,
+            "fingerprint_mismatch_groups": 0,
+            "pending_groups": 0,
+            "missing_preset_groups": 0,
+        }
+
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if not isinstance(plan, dict):
+        return ["规则模型归并计划顶层必须是 JSON 对象"], {}
+    groups = plan.get("groups")
+    if not isinstance(groups, list) or not groups:
+        return ["规则模型归并计划 groups 必须是非空列表"], {}
+    entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if entry.get("id")
+    }
+    try:
+        presets = load_model_group_presets(resolved_preset_path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return [str(exc)], {}
+    preset_index: dict[str, list[dict[str, Any]]] = {}
+    for item in presets:
+        preset_index.setdefault(str(item["canonical_id"]), []).append(item)
+
+    applied_groups = 0
+    fingerprint_mismatch_groups = 0
+    pending_groups = 0
+    missing_preset_groups = 0
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        canonical_id = str(group.get("canonical_id") or "").strip()
+        if not canonical_id:
+            continue
+        if str(group.get("taxonomy_decision") or "").strip() not in {"", "pending"}:
+            continue
+        if str(group.get("applicability") or "").strip() not in {"", "pending"}:
+            continue
+        entry = entries.get(canonical_id)
+        if not entry:
+            continue
+        candidates = preset_index.get(canonical_id) or []
+        if not candidates:
+            pending_groups += 1
+            missing_preset_groups += 1
+            continue
+        matched_preset: dict[str, Any] | None = None
+        matched_path_only = False
+        for preset in candidates:
+            matched, path_only = model_group_preset_matches_entry(preset, entry)
+            if matched:
+                matched_preset = preset
+                break
+            if path_only:
+                matched_path_only = True
+        if matched_preset is None:
+            pending_groups += 1
+            if matched_path_only:
+                fingerprint_mismatch_groups += 1
+            else:
+                missing_preset_groups += 1
+            continue
+        for field in (
+            "canonical_rule_text",
+            "taxonomy_decision",
+            "classification_notes",
+            "applicability",
+            "decision_reason",
+            "target_stage",
+            "target_scene",
+        ):
+            group[field] = matched_preset.get(field, "")
+        group["taxonomy"] = matched_preset.get("taxonomy", {})
+        applied_groups += 1
+
+    plan["preset_application"] = {
+        "preset_path": str(resolved_preset_path),
+        "preset_sha256": sha256(resolved_preset_path),
+        "applied_groups": applied_groups,
+        "fingerprint_mismatch_groups": fingerprint_mismatch_groups,
+        "pending_groups": pending_groups,
+        "missing_preset_groups": missing_preset_groups,
+        "applied_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    plan_path.write_text(
+        json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return [], plan["preset_application"]
+
+
+def normalize_compact_model_group_plan(
+    plan: dict[str, Any],
+    entries: dict[str, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Expand explicit v2 model choices into the legacy validated group shape."""
+    if str(plan.get("version") or "") != "2.0":
+        groups = plan.get("groups")
+        return (groups if isinstance(groups, list) else []), []
+    errors: list[str] = []
+    if plan.get("reviewed_by_current_model") is not True:
+        errors.append("紧凑模型归并计划必须由当前模型逐组复核")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        errors.append("紧凑模型归并计划禁止由脚本生成语义字段")
+    if plan.get("decision_stage") != "prewrite":
+        errors.append("紧凑模型归并计划 decision_stage 当前只支持 prewrite")
+    raw_groups = plan.get("groups")
+    if not isinstance(raw_groups, list) or not raw_groups:
+        errors.append("模型归并计划 groups 必须是非空列表")
+        return [], errors
+
+    normalized: list[dict[str, Any]] = []
+    for index, raw in enumerate(raw_groups, start=1):
+        if not isinstance(raw, dict):
+            errors.append(f"group[{index}] 必须是对象")
+            continue
+        group = dict(raw)
+        canonical_id = str(group.get("canonical_id") or "").strip()
+        canonical = entries.get(canonical_id)
+        taxonomy_decision = str(group.get("taxonomy_decision") or "").strip()
+        if not canonical:
+            errors.append(f"group[{index}] canonical_id 不存在: {canonical_id}")
+            continue
+        if taxonomy_decision == "accept_suggestions":
+            group["rule_role"] = canonical.get("rule_role")
+            group["remediation_target"] = canonical.get("remediation_target")
+            group["execution_mode"] = canonical.get("execution_mode")
+        elif taxonomy_decision == "override":
+            taxonomy = group.get("taxonomy")
+            if not isinstance(taxonomy, dict):
+                errors.append(f"group[{index}].taxonomy 必须是对象")
+                continue
+            for field in ("rule_role", "remediation_target", "execution_mode"):
+                group[field] = taxonomy.get(field)
+        else:
+            errors.append(
+                f"group[{index}].taxonomy_decision 必须为 accept_suggestions/override"
+            )
+            continue
+
+        applicability = str(group.get("applicability") or "").strip()
+        if applicability == "applicable":
+            group["status"] = "pending"
+            group["outcome"] = "pending"
+        elif applicability in {"rejected", "not_applicable"}:
+            group["status"] = "completed"
+            group["outcome"] = "not_applicable"
+        else:
+            errors.append(
+                f"group[{index}].applicability 必须为 applicable/rejected/not_applicable"
+            )
+            continue
+        normalized.append(group)
+    return normalized, errors
 
 
 ALLOWED_PLAN_FIELDS = {
@@ -1676,6 +2062,9 @@ def apply_model_group_plan(
         for entry in iter_execution_entries(data)
         if entry.get("id")
     }
+    groups, normalization_errors = normalize_compact_model_group_plan(plan, entries)
+    if normalization_errors:
+        return normalization_errors, []
     claimed: set[str] = set()
     results: list[dict[str, Any]] = []
     required = {
@@ -1891,6 +2280,45 @@ def apply_model_group_plan(
         encoding="utf-8",
     )
     return [], results
+
+
+def validate_model_review_source(
+    ledger_path: Path,
+    plan_path: Path,
+    review_path: Path,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Verify that cleanup inputs belong to this ledger and model plan."""
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    review = json.loads(review_path.read_text(encoding="utf-8"))
+    if not isinstance(plan, dict) or not isinstance(review, dict):
+        raise ValueError("模型归并计划与分类批次顶层都必须是 JSON 对象")
+    if Path(str(review.get("ledger") or "")).resolve() != ledger_path.resolve():
+        raise ValueError("规则模型分类批次绑定的 ledger 与当前台账不一致")
+    expected_ledger_sha = str(review.get("ledger_sha256") or "").strip()
+    if expected_ledger_sha and expected_ledger_sha != sha256(ledger_path):
+        raise ValueError("规则模型分类批次绑定的 ledger SHA 已失效，请重新导出")
+
+    exported_ids = {
+        str(item.get("id") or "")
+        for batch in review.get("batches") or []
+        if isinstance(batch, dict)
+        for item in batch.get("items") or []
+        if isinstance(item, dict) and str(item.get("id") or "").strip()
+    }
+    planned_ids = {
+        str(member_id)
+        for group in plan.get("groups") or []
+        if isinstance(group, dict)
+        for member_id in group.get("member_ids") or []
+        if str(member_id).strip() and not str(member_id).startswith("ASSET-")
+    }
+    missing = sorted(planned_ids - exported_ids)
+    if missing:
+        raise ValueError(
+            "规则模型归并计划包含未出现在绑定分类批次中的成员: "
+            + " / ".join(missing)
+        )
+    return plan, review
 
 
 def validate_receipt_binding(info: Any, label: str, errors: list[str]) -> None:
@@ -2688,6 +3116,32 @@ def main() -> int:
     review_parser.add_argument("--ledger", required=True)
     review_parser.add_argument("--output", required=True)
     review_parser.add_argument("--batch-size", type=int, default=30)
+    review_parser.add_argument("--expanded", action="store_true")
+
+    read_review_parser = subparsers.add_parser(
+        "read-model-review-batch",
+        help="按批从当前台账展开完整规则案例，不在分类清单中复制全部 cases",
+    )
+    read_review_parser.add_argument("--ledger", required=True)
+    read_review_parser.add_argument("--manifest", required=True)
+    read_review_parser.add_argument("--batch", type=int, required=True)
+    read_review_parser.add_argument("--output")
+
+    plan_template_parser = subparsers.add_parser(
+        "export-model-group-plan",
+        help="从紧凑分类清单生成不含语义裁决的 v2 归并计划骨架",
+    )
+    plan_template_parser.add_argument("--ledger", required=True)
+    plan_template_parser.add_argument("--manifest", required=True)
+    plan_template_parser.add_argument("--output", required=True)
+
+    preset_parser = subparsers.add_parser(
+        "apply-model-group-presets",
+        help="按 skill/source 指纹把公共 preset 预填进 v2 归并计划；指纹不匹配时保留待人工裁决",
+    )
+    preset_parser.add_argument("--ledger", required=True)
+    preset_parser.add_argument("--plan", required=True)
+    preset_parser.add_argument("--preset-file")
 
     group_parser = subparsers.add_parser(
         "apply-model-groups",
@@ -2695,6 +3149,8 @@ def main() -> int:
     )
     group_parser.add_argument("--ledger", required=True)
     group_parser.add_argument("--plan", required=True)
+    group_parser.add_argument("--source-review")
+    group_parser.add_argument("--consume", action="store_true")
 
     validate_parser = subparsers.add_parser("validate", help="校验逐项规则执行台账")
     validate_parser.add_argument("--ledger", required=True)
@@ -2842,16 +3298,96 @@ def main() -> int:
             ledger_path,
             Path(args.output).resolve(),
             args.batch_size,
+            expanded=bool(args.expanded),
         )
         print("rule_execution_gate: model_review_exported")
         print(f"entries: {summary['entries']}")
         print(f"batches: {summary['batches']}")
         print(f"output: {Path(args.output).resolve()}")
         return 0
+    if args.command == "read-model-review-batch":
+        if args.batch < 1:
+            print("batch 必须大于 0")
+            return 2
+        try:
+            payload = read_model_review_batch(
+                ledger_path,
+                Path(args.manifest).resolve(),
+                args.batch,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
+        if args.output:
+            output = Path(args.output).resolve()
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            print(f"output: {output}")
+        else:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+    if args.command == "export-model-group-plan":
+        try:
+            summary = export_model_group_plan_template(
+                ledger_path,
+                Path(args.manifest).resolve(),
+                Path(args.output).resolve(),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
+        print("rule_execution_gate: model_group_plan_exported")
+        print(f"groups: {summary['groups']}")
+        print(f"output: {Path(args.output).resolve()}")
+        return 0
+    if args.command == "apply-model-group-presets":
+        try:
+            errors, summary = apply_model_group_presets(
+                ledger_path,
+                Path(args.plan).resolve(),
+                Path(args.preset_file).resolve() if args.preset_file else None,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
+        if errors:
+            print("rule_execution_gate: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("rule_execution_gate: model_group_presets_applied")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print(f"plan: {Path(args.plan).resolve()}")
+        return 0
     if args.command == "apply-model-groups":
+        plan_path = Path(args.plan).resolve()
+        review_path = Path(args.source_review).resolve() if args.source_review else None
+        try:
+            plan_sha = sha256(plan_path)
+            review_sha = sha256(review_path) if review_path else ""
+            if review_path:
+                plan, review = validate_model_review_source(
+                    ledger_path,
+                    plan_path,
+                    review_path,
+                )
+            else:
+                plan = json.loads(plan_path.read_text(encoding="utf-8"))
+                review = {}
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
         errors, results = apply_model_group_plan(
             ledger_path,
-            Path(args.plan).resolve(),
+            plan_path,
         )
         for item in results:
             print(
@@ -2863,6 +3399,32 @@ def main() -> int:
             for error in errors:
                 print(f"- {error}")
             return 2
+        if args.consume:
+            ledger_sha = sha256(ledger_path)
+            consume_sidecar(
+                plan_path,
+                input_sha256=plan_sha,
+                receipt_path=ledger_path,
+                receipt_sha256=ledger_sha,
+                operation="rule-model-groups.apply",
+                counts={"groups": len(plan.get("groups") or [])},
+            )
+            if review_path:
+                consume_sidecar(
+                    review_path,
+                    input_sha256=review_sha,
+                    receipt_path=ledger_path,
+                    receipt_sha256=ledger_sha,
+                    operation="rule-model-review.consume",
+                    counts={
+                        "batches": len(review.get("batches") or []),
+                        "entries": sum(
+                            len(batch.get("items") or [])
+                            for batch in review.get("batches") or []
+                            if isinstance(batch, dict)
+                        ),
+                    },
+                )
         print("rule_execution_gate: model_groups_applied")
         print(f"ledger: {ledger_path}")
         return 0

@@ -716,7 +716,246 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         summary = GATE.export_model_review(self.ledger_path, output, batch_size=2)
         payload = json.loads(output.read_text(encoding="utf-8"))
         self.assertEqual(summary["entries"], sum(len(b["items"]) for b in payload["batches"]))
+        self.assertEqual("compact", payload["mode"])
+        self.assertNotIn("cases", payload["batches"][0]["items"][0])
+        self.assertGreater(payload["batches"][0]["items"][0]["case_count"], 0)
+
+        batch = GATE.read_model_review_batch(self.ledger_path, output, 1)
+        self.assertTrue(batch["items"][0]["cases"])
+        self.assertTrue(batch["items"][0]["source_refs"])
+
+    def test_model_review_export_can_keep_legacy_expanded_shape(self) -> None:
+        ledger = self._create_ledger()
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        output = self.project / "写作资产" / "模型分类批次_展开.json"
+        GATE.export_model_review(
+            self.ledger_path,
+            output,
+            batch_size=2,
+            expanded=True,
+        )
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual("expanded", payload["mode"])
         self.assertTrue(payload["batches"][0]["items"][0]["cases"])
+
+    def test_model_review_batch_blocks_stale_ledger(self) -> None:
+        ledger = self._create_ledger()
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        output = self.project / "写作资产" / "模型分类批次.json"
+        GATE.export_model_review(self.ledger_path, output, batch_size=2)
+        self.ledger_path.write_text(
+            self.ledger_path.read_text(encoding="utf-8") + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "ledger SHA 已失效"):
+            GATE.read_model_review_batch(self.ledger_path, output, 1)
+
+    def test_compact_model_group_plan_template_contains_only_decision_scaffold(self) -> None:
+        ledger = self._create_ledger()
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        summary = GATE.export_model_group_plan_template(
+            self.ledger_path,
+            manifest,
+            plan,
+        )
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        first = payload["groups"][0]
+        self.assertEqual("2.0", payload["version"])
+        self.assertFalse(payload["reviewed_by_current_model"])
+        self.assertEqual(summary["groups"], len(payload["groups"]))
+        self.assertEqual([first["canonical_id"]], first["member_ids"])
+        self.assertEqual("pending", first["taxonomy_decision"])
+        self.assertNotIn("status", first)
+        self.assertNotIn("outcome", first)
+
+    def test_compact_model_group_plan_expands_explicit_prewrite_choices(self) -> None:
+        ledger = self._create_ledger()
+        candidates = ledger["skill_rules"][:2]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        plan = self.project / "写作资产" / "模型归并计划_v2.json"
+        plan.write_text(
+            json.dumps(
+                {
+                    "version": "2.0",
+                    "decision_stage": "prewrite",
+                    "reviewed_by_current_model": True,
+                    "semantic_fields_generated_by_script": False,
+                    "groups": [
+                        {
+                            "canonical_id": candidates[0]["id"],
+                            "member_ids": [item["id"] for item in candidates],
+                            "canonical_rule_text": "同类规则只执行一次并保留全部案例。",
+                            "taxonomy_decision": "accept_suggestions",
+                            "classification_notes": "当前模型逐例确认执行动作相同。",
+                            "applicability": "not_applicable",
+                            "decision_reason": "当前任务不采用这组候选规则。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        errors, results = GATE.apply_model_group_plan(self.ledger_path, plan)
+        self.assertEqual([], errors)
+        self.assertEqual(2, results[0]["members"])
+        updated = json.loads(self.ledger_path.read_text(encoding="utf-8"))
+        canonical = next(
+            item for item in updated["skill_rules"] if item["id"] == candidates[0]["id"]
+        )
+        self.assertEqual("completed", canonical["status"])
+        self.assertEqual("not_applicable", canonical["outcome"])
+        self.assertEqual(candidates[0]["rule_role"], canonical["rule_role"])
+
+    def test_compact_applicable_group_stays_pending_until_artifact_exists(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        entries = {candidate["id"]: candidate}
+        groups, errors = GATE.normalize_compact_model_group_plan(
+            {
+                "version": "2.0",
+                "decision_stage": "prewrite",
+                "reviewed_by_current_model": True,
+                "semantic_fields_generated_by_script": False,
+                "groups": [
+                    {
+                        "canonical_id": candidate["id"],
+                        "member_ids": [candidate["id"]],
+                        "canonical_rule_text": "写作阶段持续执行该规则。",
+                        "taxonomy_decision": "accept_suggestions",
+                        "classification_notes": "当前模型确认已有分类准确。",
+                        "applicability": "applicable",
+                        "decision_reason": "当前项目需要执行。",
+                        "target_stage": "draft",
+                        "target_scene": "全文正文",
+                    }
+                ],
+            },
+            entries,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual("pending", groups[0]["status"])
+        self.assertEqual("pending", groups[0]["outcome"])
+
+    def test_apply_model_group_presets_uses_source_fingerprint(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        GATE.export_model_group_plan_template(self.ledger_path, manifest, plan)
+        preset = self.project / "preset.json"
+        preset.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "presets": [
+                        {
+                            "canonical_id": candidate["id"],
+                            "source_path_suffix": "SKILL.md",
+                            "source_sha256": candidate["source_refs"][0]["source_sha256"],
+                            "canonical_rule_text": "指纹匹配时自动预填。",
+                            "taxonomy_decision": "accept_suggestions",
+                            "taxonomy": {},
+                            "classification_notes": "固定规则允许复用公共 preset。",
+                            "applicability": "not_applicable",
+                            "decision_reason": "当前测试只验证指纹命中。",
+                            "target_stage": "",
+                            "target_scene": "",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        errors, summary = GATE.apply_model_group_presets(
+            self.ledger_path,
+            plan,
+            preset,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, summary["applied_groups"])
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        first = payload["groups"][0]
+        self.assertEqual("accept_suggestions", first["taxonomy_decision"])
+        self.assertEqual("指纹匹配时自动预填。", first["canonical_rule_text"])
+
+    def test_apply_model_group_presets_leaves_pending_on_fingerprint_change(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        GATE.export_model_group_plan_template(self.ledger_path, manifest, plan)
+        preset = self.project / "preset.json"
+        preset.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "presets": [
+                        {
+                            "canonical_id": candidate["id"],
+                            "source_path_suffix": "SKILL.md",
+                            "source_sha256": "deadbeef",
+                            "canonical_rule_text": "不应命中。",
+                            "taxonomy_decision": "accept_suggestions",
+                            "taxonomy": {},
+                            "classification_notes": "SHA 已变化。",
+                            "applicability": "not_applicable",
+                            "decision_reason": "等待人工重新解析。",
+                            "target_stage": "",
+                            "target_scene": "",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        errors, summary = GATE.apply_model_group_presets(
+            self.ledger_path,
+            plan,
+            preset,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(0, summary["applied_groups"])
+        self.assertEqual(1, summary["fingerprint_mismatch_groups"])
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        first = payload["groups"][0]
+        self.assertEqual("pending", first["taxonomy_decision"])
+        self.assertEqual("pending", first["applicability"])
 
     def test_empty_ledger_is_not_prewrite_ready(self) -> None:
         ledger = self._create_ledger()
@@ -987,6 +1226,62 @@ class RuleExecutionLedgerTest(unittest.TestCase):
             item for item in updated["skill_rules"] if item["id"] == descendant["id"]
         )
         self.assertEqual(first["id"], updated_descendant["merged_into"])
+
+    def test_model_review_source_must_match_ledger_and_plan_members(self) -> None:
+        ledger = self._create_ledger()
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        rule_id = str(next(GATE.iter_execution_entries(ledger))["id"])
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        review = self.project / "写作资产" / "模型分类批次.json"
+        plan.write_text(
+            json.dumps(
+                {"groups": [{"member_ids": [rule_id]}]},
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        review.write_text(
+            json.dumps(
+                {
+                    "ledger": str(self.ledger_path),
+                    "batches": [{"items": [{"id": rule_id}]}],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        loaded_plan, loaded_review = GATE.validate_model_review_source(
+            self.ledger_path,
+            plan,
+            review,
+        )
+        self.assertEqual(rule_id, loaded_plan["groups"][0]["member_ids"][0])
+        self.assertEqual(str(self.ledger_path), loaded_review["ledger"])
+
+        loaded_review["ledger"] = str(self.project / "其他台账.json")
+        review.write_text(
+            json.dumps(loaded_review, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "ledger 与当前台账不一致"):
+            GATE.validate_model_review_source(self.ledger_path, plan, review)
+
+        loaded_review["ledger"] = str(self.ledger_path)
+        loaded_review["batches"] = [{"items": [{"id": "RULE-OTHER"}]}]
+        review.write_text(
+            json.dumps(loaded_review, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "未出现在绑定分类批次"):
+            GATE.validate_model_review_source(self.ledger_path, plan, review)
 
     def test_role_and_remediation_mismatch_is_blocked(self) -> None:
         ledger = self._write_completed_ledger()

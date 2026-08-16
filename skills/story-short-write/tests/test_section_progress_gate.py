@@ -15,6 +15,32 @@ SPEC.loader.exec_module(GATE)
 
 
 class SectionProgressGateTest(unittest.TestCase):
+    def test_hydrated_contract_copy_does_not_replace_persisted_section_item(self) -> None:
+        state_item = {
+            "section_id": "1",
+            "status": "writing",
+            "emotion_beat_ids": ["old-e"],
+            "plot_beat_ids": ["old-p"],
+        }
+        emotion_receipt = {
+            "section_contracts": [{
+                "section_id": "1",
+                "source_emotion_beats": [{"beat_id": "E-001"}],
+                "required_plot_beats": [{"beat_id": "P-001"}],
+            }]
+        }
+
+        hydrated = GATE.hydrate_section_beat_contracts(
+            state_item,
+            emotion_receipt,
+            "1",
+        )
+        hydrated["status"] = "passed"
+
+        self.assertEqual("writing", state_item["status"])
+        self.assertEqual(["E-001"], hydrated["emotion_beat_ids"])
+        self.assertEqual(["P-001"], hydrated["plot_beat_ids"])
+
     def setUp(self) -> None:
         self.item = {
             "min_chars": 900,

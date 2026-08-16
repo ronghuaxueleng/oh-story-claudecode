@@ -137,6 +137,27 @@ class ProseGranularityContractTest(unittest.TestCase):
         self.assertTrue(any("全集同序、等数" in item for item in errors))
         self.assertTrue(any("未进入迁移计划" in item for item in errors))
 
+    def test_detail_catalog_accepts_same_file_alias_paths(self) -> None:
+        receipt = self.add_source_detail_card()
+        detail_file = self.source.parent.parent / "原文细节库" / "动作细节库.md"
+        alias_dir = self.root / "细节库别名"
+        alias_dir.mkdir()
+        alias = alias_dir / detail_file.name
+        alias.hardlink_to(detail_file)
+        receipt["primary_detail_catalog"]["files"][0]["path"] = str(alias)
+        receipt["source_detail_card_reviews"][0]["source_file"] = str(alias)
+
+        errors: list[str] = []
+        records = GATE.validate_detail_catalog_data(
+            receipt,
+            self.source,
+            self.source_text,
+            errors,
+        )
+        GATE.validate_detail_card_plans(receipt, records, self.outline, errors)
+
+        self.assertEqual([], errors)
+
     def test_apply_detail_plan_only_merges_complete_current_model_plan(self) -> None:
         receipt = self.add_source_detail_card()
         review = receipt["source_detail_card_reviews"][0]
@@ -183,7 +204,7 @@ class ProseGranularityContractTest(unittest.TestCase):
             "section_generation_plans": supplied,
         }
         merged = GATE.apply_section_plan(receipt, plan)
-        self.assertIs(supplied[0], merged["section_generation_plans"][0])
+        self.assertEqual(supplied[0], merged["section_generation_plans"][0])
         plan["semantic_fields_generated_by_script"] = True
         with self.assertRaisesRegex(ValueError, "禁止由脚本生成"):
             GATE.apply_section_plan(receipt, plan)
@@ -191,6 +212,137 @@ class ProseGranularityContractTest(unittest.TestCase):
         plan["outline_sha256"] = "stale"
         with self.assertRaisesRegex(ValueError, "当前细纲 SHA"):
             GATE.apply_section_plan(receipt, plan)
+
+    def test_export_next_section_plan_pair_includes_deterministic_editor_hints(self) -> None:
+        self.add_source_detail_card()
+        receipt = self.completed_receipt(include_draft=False)
+        for plan in receipt["section_generation_plans"]:
+            plan["status"] = "pending"
+        receipt["source_detail_card_reviews"][0]["target_sections"] = ["1"]
+        receipt["source_subflow_reviews"][0]["target_sections"] = ["1"]
+        receipt["source_subflow_reviews"][0]["target_section_rationale"] = "这一节先承接撞见后的压位和错答。"
+
+        sidecar = GATE.export_next_section_plan_pair(receipt, batch_size=1)
+        hints = sidecar["editor_hints"]["section_hints"]["1"]
+
+        self.assertEqual("validate_prose_granularity_contract.export-next-section-plan-pair", sidecar["editor_hints"]["generated_by"])
+        self.assertIn("取东西时撞见两人", hints["section_outline_excerpt"])
+        self.assertEqual(["DZ01"], hints["mapped_detail_card_ids"])
+        self.assertEqual(
+            "DZ01",
+            sidecar["editor_hints"]["shared_detail_cards"][0]["card_id"],
+        )
+        self.assertEqual("SF-01", hints["mapped_subflows"][0]["subflow_id"])
+        self.assertEqual("P-1", hints["recommended_source_passages"][0]["passage_id"])
+        self.assertTrue(
+            sidecar["editor_hints"]["shared_source_material"][0][
+                "source_sentence_chain"
+            ]
+        )
+        self.assertIn("我没想到今天会在这里遇见他。", hints["recommended_source_passages"][0]["source_excerpt_preview"])
+        self.assertIn("manual_judgment", hints["field_fill_order"])
+        self.assertEqual(["林初", "周远"], hints["character_profile_names"])
+        self.assertEqual(
+            2, len(sidecar["editor_hints"]["shared_character_profiles"])
+        )
+        self.assertEqual(4, len(hints["liveliness_asset_ids"]))
+        self.assertTrue(
+            sidecar["editor_hints"]["shared_liveliness_assets"][0]["asset_id"]
+        )
+
+    def test_compact_authoring_projection_preserves_all_manual_fields(self) -> None:
+        self.add_source_detail_card()
+        receipt = self.completed_receipt(include_draft=False)
+        for plan in receipt["section_generation_plans"]:
+            plan["status"] = "pending"
+
+        exported = GATE.export_next_section_plan_pair(receipt, batch_size=1)
+        compact = GATE.convert_export_to_compact_authoring(exported)
+        compact_plan = compact["compact_section_plans"][0]
+        compact_plan.update(
+            {
+                "j": "本节以现场错答推进关系掉位，收口停在钥匙换主后的现实后果。",
+                "p": [f"段落字段{index}保持本节独立推进。" for index in range(7)],
+                "w": [f"窗口字段{index}控制句群运动差异。" for index in range(4)],
+                "l": [
+                    ["LIVE-1", "LIVE-2", "LIVE-3", "LIVE-4"],
+                    [f"活性字段{index}绑定具体动作与气口。" for index in range(6)],
+                    ["总结盖章", "整齐对答", "空转动作"],
+                    "本节让动作和错答先承担情绪，不追加作者总结。",
+                ],
+                "h": [
+                    [
+                        "林初",
+                        ["CP-1", "CP-2"],
+                        *[
+                            f"人物字段{index}体现林初本节不可互换的反应。"
+                            for index in range(7)
+                        ],
+                    ]
+                ],
+                "i": "若换成其他人物，收钥匙前的错答与注意顺序便不成立。",
+                "cj": "林初先盯住钥匙归属，再处理对方解释，符合人物偏手。",
+            }
+        )
+
+        expanded = GATE.expand_compact_section_plans(compact)
+        expanded_plan = expanded["section_generation_plans"][0]
+
+        self.assertEqual(
+            list(GATE.SECTION_PARAGRAPH_PLAN_FIELDS),
+            list(expanded_plan["paragraph_plan"]),
+        )
+        self.assertEqual(
+            list(GATE.SECTION_WINDOW_PLAN_FIELDS),
+            list(expanded_plan["window_plan"]),
+        )
+        self.assertEqual(
+            list(GATE.LIVELINESS_SECTION_PLAN_FIELDS),
+            [
+                field
+                for field in expanded_plan["liveliness_plan"]
+                if field in GATE.LIVELINESS_SECTION_PLAN_FIELDS
+            ],
+        )
+        self.assertEqual(
+            list(GATE.SECTION_CHARACTER_PLAN_FIELDS),
+            [
+                field
+                for field in expanded_plan["character_plan"]["participants"][0]
+                if field in GATE.SECTION_CHARACTER_PLAN_FIELDS
+            ],
+        )
+        self.assertEqual("compact_manual_v2", compact["authoring_mode"])
+        self.assertEqual("passed", expanded_plan["status"])
+        self.assertTrue(expanded_plan["surface_copy_rejected"])
+        self.assertFalse(
+            expanded["compact_authoring_provenance"][
+                "semantic_fields_generated_by_script"
+            ]
+        )
+
+    def test_compact_authoring_catalog_is_sha_bound_and_hydrated(self) -> None:
+        self.add_source_detail_card()
+        receipt = self.completed_receipt(include_draft=False)
+        for plan in receipt["section_generation_plans"]:
+            plan["status"] = "pending"
+
+        exported = GATE.export_next_section_plan_pair(receipt, batch_size=1)
+        compact = GATE.convert_export_to_compact_authoring(exported)
+        catalog_path = self.root / "取材目录.json"
+        sidecar, catalog = GATE.externalize_compact_editor_catalog(
+            compact,
+            catalog_path,
+        )
+
+        self.assertNotIn("editor_hints", sidecar)
+        self.assertEqual(
+            catalog["editor_hints"],
+            GATE.hydrate_compact_editor_catalog(sidecar)["editor_hints"],
+        )
+        catalog_path.write_text("{}\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "SHA 已失效"):
+            GATE.hydrate_compact_editor_catalog(sidecar)
 
     def test_detail_card_requires_real_draft_quote_even_when_overlap_declared(self) -> None:
         receipt = self.add_source_detail_card()
