@@ -425,7 +425,7 @@ def suggest_next_step(
     )
 
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_outline_release.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
     )
@@ -437,7 +437,7 @@ def suggest_next_step(
         status_command += " " + _join_shell_flags("--source-original", paths["source_originals"])
 
     start_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" start-outline-release '
+        'python3 "$SKILL_ROOT/scripts/batch_outline_release.py" start-outline-release '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))} '
         f'--export-batch-size {export_batch_size}'
@@ -498,7 +498,7 @@ def emit_shell_template(
     )
     source_original_flags = _join_shell_flags("--source-original", paths["source_originals"])
     lines = [
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" status \\',
+        'python3 "$SKILL_ROOT/scripts/batch_outline_release.py" status \\',
         f"  --project {_quote_shell(project)} \\",
         f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
     ]
@@ -514,7 +514,7 @@ def emit_shell_template(
     lines.extend(
         [
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_release.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --export-batch-size {export_batch_size} \\",
@@ -532,7 +532,7 @@ def emit_shell_template(
     lines.extend(
         [
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" start-outline-release \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_release.py" start-outline-release \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --export-batch-size {export_batch_size} \\",

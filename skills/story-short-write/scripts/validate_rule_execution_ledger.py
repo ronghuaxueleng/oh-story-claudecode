@@ -24,6 +24,9 @@ MODEL_GROUP_PRESET_FILE = (
 
 CORE_SKILL_RULE_FILES = (
     "SKILL.md",
+    "references/governance/execution-rules.md",
+    "references/workflow/profile-and-gates.md",
+    "references/workflow/writing-method.md",
     "references/workflow/format-and-structure.md",
     "references/anti-ai-writing.md",
     "references/craft/narrator-voice.md",
@@ -1641,6 +1644,53 @@ def export_model_group_plan_template(
     return {"groups": len(payload["groups"])}
 
 
+COMMON_PRESET_FIELDS = (
+    "canonical_rule_text",
+    "taxonomy_decision",
+    "taxonomy",
+    "classification_notes",
+)
+PROJECT_DECISION_FIELDS = (
+    "applicability",
+    "decision_reason",
+    "target_stage",
+    "target_scene",
+)
+PROJECT_SPECIFIC_PRESET_TEXT = re.compile(
+    r"本项目|当前项目|该项目|该次执行|当前题型|当前用户|幼薇|辅助书|主体书"
+)
+
+
+def rule_text_fingerprint(rule_text: Any) -> str:
+    normalized = normalized_rule_text(str(rule_text or ""))
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def entry_source_path_suffix(entry: dict[str, Any]) -> str:
+    relative_path = str(entry.get("relative_path") or "").strip()
+    if relative_path:
+        return relative_path.replace("\\", "/")
+    source_path = str(entry.get("source_path") or "").replace("\\", "/")
+    skill_marker = "/skills/story-short-write/"
+    if skill_marker in source_path:
+        return "skills/story-short-write/" + source_path.split(skill_marker, 1)[1]
+    source_marker = "/拆文库/"
+    if source_marker in source_path:
+        remainder = source_path.split(source_marker, 1)[1]
+        parts = remainder.split("/", 1)
+        if len(parts) == 2:
+            return parts[1]
+    return Path(source_path).name
+
+
+def _legacy_preset_common(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        field: item.get(field, {} if field == "taxonomy" else "")
+        for field in COMMON_PRESET_FIELDS
+        if field in item
+    }
+
+
 def load_model_group_presets(preset_path: Path) -> list[dict[str, Any]]:
     data = json.loads(preset_path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
@@ -1652,23 +1702,78 @@ def load_model_group_presets(preset_path: Path) -> list[dict[str, Any]]:
     for index, item in enumerate(presets, start=1):
         if not isinstance(item, dict):
             raise ValueError(f"规则模型 preset[{index}] 必须是对象")
-        canonical_id = str(item.get("canonical_id") or "").strip()
-        match_strategy = str(item.get("match_strategy") or "source_fingerprint").strip()
-        source_sha256 = str(item.get("source_sha256") or "").strip()
-        source_path_suffix = str(item.get("source_path_suffix") or "").strip()
-        if not canonical_id:
-            raise ValueError(f"规则模型 preset[{index}] 缺少 canonical_id")
+        selector = item.get("selector")
+        legacy = not isinstance(selector, dict)
+        if legacy:
+            selector = {
+                "match_strategy": str(
+                    item.get("match_strategy") or "source_fingerprint"
+                ).strip(),
+                "canonical_id": str(item.get("canonical_id") or "").strip(),
+                "source_path_suffix": str(
+                    item.get("source_path_suffix") or ""
+                ).strip(),
+                "source_sha256": str(item.get("source_sha256") or "").strip(),
+            }
+            common = _legacy_preset_common(item)
+        else:
+            selector = dict(selector)
+            common = item.get("common")
+        if not isinstance(common, dict) or not common:
+            raise ValueError(f"规则模型 preset[{index}] 缺少 common 公共字段")
+        unknown_common = sorted(set(common) - set(COMMON_PRESET_FIELDS))
+        if unknown_common:
+            raise ValueError(
+                f"规则模型 preset[{index}] common 含项目字段或未知字段: "
+                + " / ".join(unknown_common)
+            )
+        project_fields = sorted(set(item) & set(PROJECT_DECISION_FIELDS))
+        if not legacy and project_fields:
+            raise ValueError(
+                f"规则模型 preset[{index}] 不得包含项目裁决字段: "
+                + " / ".join(project_fields)
+            )
+        canonical_id = str(selector.get("canonical_id") or "").strip()
+        match_strategy = str(
+            selector.get("match_strategy") or "rule_fingerprint"
+        ).strip()
+        source_sha256 = str(selector.get("source_sha256") or "").strip()
+        source_path_suffix = str(selector.get("source_path_suffix") or "").strip()
         if not source_path_suffix:
             raise ValueError(f"规则模型 preset[{index}] 缺少 source_path_suffix")
-        if match_strategy not in {"source_fingerprint", "path_only"}:
+        if match_strategy not in {
+            "rule_fingerprint",
+            "asset_family",
+            "source_fingerprint",
+            "path_only",
+        }:
             raise ValueError(
-                f"规则模型 preset[{index}] match_strategy 仅支持 source_fingerprint/path_only"
+                f"规则模型 preset[{index}] match_strategy 无效: {match_strategy}"
             )
-        if match_strategy == "source_fingerprint" and not source_sha256:
+        if match_strategy == "rule_fingerprint" and not str(
+            selector.get("rule_text_sha256") or ""
+        ).strip():
+            raise ValueError(f"规则模型 preset[{index}] 缺少 rule_text_sha256")
+        if match_strategy == "source_fingerprint" and (
+            not source_sha256 or not canonical_id
+        ):
             raise ValueError(f"规则模型 preset[{index}] 缺少 source_sha256")
-        normalized_item = dict(item)
-        normalized_item["match_strategy"] = match_strategy
-        normalized.append(normalized_item)
+        normalized.append(
+            {
+                "preset_id": str(item.get("preset_id") or f"preset-{index:03d}"),
+                "selector": {
+                    **selector,
+                    "match_strategy": match_strategy,
+                    "source_path_suffix": source_path_suffix,
+                },
+                "common": {
+                    field: common.get(field, {} if field == "taxonomy" else "")
+                    for field in COMMON_PRESET_FIELDS
+                    if field in common
+                },
+                "legacy": legacy,
+            }
+        )
     return normalized
 
 
@@ -1676,29 +1781,239 @@ def model_group_preset_matches_entry(
     preset: dict[str, Any],
     entry: dict[str, Any],
 ) -> tuple[bool, bool]:
-    if str(preset.get("canonical_id") or "").strip() != str(entry.get("id") or "").strip():
+    selector = preset["selector"]
+    canonical_id = str(selector.get("canonical_id") or "").strip()
+    if canonical_id and canonical_id != str(entry.get("id") or "").strip():
         return False, False
+    match_strategy = str(selector.get("match_strategy") or "").strip()
+    suffix = str(selector.get("source_path_suffix") or "").strip()
+    path_matched = entry_source_path_suffix(entry).endswith(suffix)
+    if not path_matched:
+        return False, False
+    if match_strategy in {"asset_family", "path_only"}:
+        return True, False
+    if match_strategy == "rule_fingerprint":
+        expected = str(selector.get("rule_text_sha256") or "").strip()
+        return expected == rule_text_fingerprint(entry.get("rule_text")), False
+    expected_sha = str(selector.get("source_sha256") or "").strip()
     refs = entry.get("source_refs")
-    if not isinstance(refs, list) or not refs:
-        return False, False
-    match_strategy = str(preset.get("match_strategy") or "source_fingerprint").strip()
-    suffix = str(preset.get("source_path_suffix") or "").strip()
-    expected_sha = str(preset.get("source_sha256") or "").strip()
-    path_matched = False
-    sha_matched = False
-    for ref in refs:
-        if not isinstance(ref, dict):
+    sha_matched = any(
+        isinstance(ref, dict)
+        and str(ref.get("source_sha256") or "").strip() == expected_sha
+        for ref in (refs if isinstance(refs, list) else [])
+    )
+    return sha_matched, not sha_matched
+
+
+def _preset_target_is_pending(group: dict[str, Any], field: str) -> bool:
+    value = group.get(field)
+    if field == "taxonomy_decision":
+        return str(value or "").strip() in {"", "pending"}
+    if field == "taxonomy":
+        return not isinstance(value, dict) or not value
+    return not str(value or "").strip()
+
+
+def _preset_values_equal(field: str, current: Any, incoming: Any) -> bool:
+    if field == "taxonomy":
+        return (current or {}) == (incoming or {})
+    return str(current or "").strip() == str(incoming or "").strip()
+
+
+def export_model_group_preset_candidates(
+    ledger_path: Path,
+    plan_path: Path,
+    output_path: Path,
+) -> dict[str, int]:
+    data = json.loads(ledger_path.read_text(encoding="utf-8"))
+    plan = json.loads(plan_path.read_text(encoding="utf-8"))
+    if not isinstance(plan, dict):
+        raise ValueError("规则模型归并计划顶层必须是 JSON 对象")
+    entries = {
+        str(entry.get("id") or ""): entry
+        for entry in iter_execution_entries(data)
+        if entry.get("id")
+    }
+    presets: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for index, group in enumerate(plan.get("groups") or [], start=1):
+        if not isinstance(group, dict):
+            rejected.append({"group": index, "reason": "group_not_object"})
             continue
-        source_path = str(ref.get("source_path") or "").strip()
-        if suffix and not source_path.endswith(suffix):
+        member_ids = [
+            str(item or "").strip()
+            for item in group.get("member_ids") or []
+            if str(item or "").strip()
+        ]
+        canonical_id = str(group.get("canonical_id") or "").strip()
+        entry = entries.get(canonical_id)
+        if len(member_ids) != 1 or not entry:
+            rejected.append(
+                {
+                    "group": index,
+                    "canonical_id": canonical_id,
+                    "reason": "only_single_existing_group_can_be_promoted",
+                }
+            )
             continue
-        path_matched = True
-        if match_strategy == "path_only":
-            return True, False
-        if expected_sha and str(ref.get("source_sha256") or "").strip() == expected_sha:
-            sha_matched = True
-            break
-    return path_matched and sha_matched, path_matched and not sha_matched
+        decision = str(group.get("taxonomy_decision") or "").strip()
+        taxonomy = (
+            group.get("taxonomy")
+            if decision == "override"
+            else {
+                "rule_role": entry.get("rule_role"),
+                "remediation_target": entry.get("remediation_target"),
+                "execution_mode": entry.get("execution_mode"),
+            }
+        )
+        role = str((taxonomy or {}).get("rule_role") or "").strip()
+        target = str((taxonomy or {}).get("remediation_target") or "").strip()
+        mode = str((taxonomy or {}).get("execution_mode") or "").strip()
+        invalid: list[str] = []
+        if decision not in {"accept_suggestions", "override"}:
+            invalid.append("taxonomy_decision")
+        if role not in VALID_RULE_ROLES:
+            invalid.append("rule_role")
+        if target not in VALID_REMEDIATION_TARGETS:
+            invalid.append("remediation_target")
+        elif role in ROLE_REMEDIATION_TARGETS and target not in ROLE_REMEDIATION_TARGETS[role]:
+            invalid.append("role_target_pair")
+        if mode not in VALID_EXECUTION_MODES:
+            invalid.append("execution_mode")
+        if invalid:
+            rejected.append(
+                {
+                    "group": index,
+                    "canonical_id": canonical_id,
+                    "reason": "invalid_taxonomy",
+                    "fields": invalid,
+                }
+            )
+            continue
+        common: dict[str, Any] = {
+            "taxonomy_decision": decision,
+            "taxonomy": group.get("taxonomy") if decision == "override" else {},
+        }
+        omitted: list[str] = []
+        for field in ("canonical_rule_text", "classification_notes"):
+            value = str(group.get(field) or "").strip()
+            if value and not PROJECT_SPECIFIC_PRESET_TEXT.search(value):
+                common[field] = value
+            else:
+                omitted.append(field)
+        source_suffix = entry_source_path_suffix(entry)
+        presets.append(
+            {
+                "preset_id": f"{source_suffix}::{rule_text_fingerprint(entry.get('rule_text'))[:16]}",
+                "selector": {
+                    "match_strategy": "rule_fingerprint",
+                    "source_path_suffix": source_suffix,
+                    "rule_text_sha256": rule_text_fingerprint(entry.get("rule_text")),
+                },
+                "common": common,
+                "promotion_review": {
+                    "source_canonical_id": canonical_id,
+                    "omitted_project_sensitive_fields": omitted,
+                },
+            }
+        )
+    payload = {
+        "version": "2.0",
+        "description": "规则模型公共 preset 候选；只含公共分类字段，不含项目适用性、理由和目标场景。",
+        "presets": presets,
+        "rejected": rejected,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return {"presets": len(presets), "rejected": len(rejected)}
+
+
+def merge_model_group_preset_candidates(
+    candidate_path: Path,
+    base_preset_path: Path,
+    output_path: Path,
+    source_prefixes: list[str],
+) -> dict[str, int]:
+    candidate_data = json.loads(candidate_path.read_text(encoding="utf-8"))
+    if not isinstance(candidate_data, dict) or not isinstance(
+        candidate_data.get("presets"), list
+    ):
+        raise ValueError("规则模型 preset 候选文件缺少 presets")
+    base_presets = load_model_group_presets(base_preset_path)
+    selected: list[dict[str, Any]] = []
+    for item in candidate_data["presets"]:
+        if not isinstance(item, dict):
+            continue
+        selector = item.get("selector")
+        common = item.get("common")
+        if not isinstance(selector, dict) or not isinstance(common, dict):
+            continue
+        suffix = str(selector.get("source_path_suffix") or "")
+        if source_prefixes and not any(
+            suffix.startswith(prefix) for prefix in source_prefixes
+        ):
+            continue
+        selected.append(
+            {
+                "preset_id": str(item.get("preset_id") or ""),
+                "selector": selector,
+                "common": common,
+            }
+        )
+    preserved_asset_families = 0
+    for preset in base_presets:
+        strategy = str(preset["selector"].get("match_strategy") or "")
+        if strategy not in {"asset_family", "path_only"}:
+            continue
+        selected.append(
+            {
+                "preset_id": preset["preset_id"],
+                "selector": {
+                    "match_strategy": "asset_family",
+                    "source_path_suffix": preset["selector"]["source_path_suffix"],
+                },
+                "common": preset["common"],
+            }
+        )
+        preserved_asset_families += 1
+
+    merged: list[dict[str, Any]] = []
+    selector_index: dict[str, dict[str, Any]] = {}
+    conflicts = 0
+    for item in selected:
+        selector_key = json.dumps(
+            item["selector"], ensure_ascii=False, sort_keys=True
+        )
+        existing = selector_index.get(selector_key)
+        if existing is None:
+            selector_index[selector_key] = item
+            merged.append(item)
+            continue
+        if existing["common"] != item["common"]:
+            conflicts += 1
+    if conflicts:
+        raise ValueError(f"公共 preset 合并出现 {conflicts} 个同选择器冲突")
+    payload = {
+        "version": "2.0",
+        "description": (
+            "公共规则模型预设：只复制稳定 canonical 分类与固定资产职责；"
+            "不复制 applicability、decision_reason、target_stage、target_scene。"
+        ),
+        "presets": merged,
+    }
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return {
+        "candidate_presets": len(selected) - preserved_asset_families,
+        "preserved_asset_families": preserved_asset_families,
+        "presets": len(merged),
+    }
 
 
 def apply_model_group_presets(
@@ -1718,6 +2033,8 @@ def apply_model_group_presets(
             "fingerprint_mismatch_groups": 0,
             "pending_groups": 0,
             "missing_preset_groups": 0,
+            "conflict_groups": 0,
+            "common_fields_applied": 0,
         }
 
     data = json.loads(ledger_path.read_text(encoding="utf-8"))
@@ -1736,60 +2053,80 @@ def apply_model_group_presets(
         presets = load_model_group_presets(resolved_preset_path)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return [str(exc)], {}
-    preset_index: dict[str, list[dict[str, Any]]] = {}
-    for item in presets:
-        preset_index.setdefault(str(item["canonical_id"]), []).append(item)
-
     applied_groups = 0
     fingerprint_mismatch_groups = 0
     pending_groups = 0
     missing_preset_groups = 0
+    conflict_groups = 0
+    common_fields_applied = 0
+    legacy_presets_used = 0
+    matched_preset_ids: set[str] = set()
+    conflicts: list[dict[str, Any]] = []
     for group in groups:
         if not isinstance(group, dict):
             continue
         canonical_id = str(group.get("canonical_id") or "").strip()
         if not canonical_id:
             continue
-        if str(group.get("taxonomy_decision") or "").strip() not in {"", "pending"}:
-            continue
-        if str(group.get("applicability") or "").strip() not in {"", "pending"}:
-            continue
         entry = entries.get(canonical_id)
         if not entry:
             continue
-        candidates = preset_index.get(canonical_id) or []
-        if not candidates:
-            pending_groups += 1
-            missing_preset_groups += 1
-            continue
-        matched_preset: dict[str, Any] | None = None
-        matched_path_only = False
-        for preset in candidates:
-            matched, path_only = model_group_preset_matches_entry(preset, entry)
+        matches: list[dict[str, Any]] = []
+        stale_match = False
+        for preset in presets:
+            matched, stale = model_group_preset_matches_entry(preset, entry)
             if matched:
-                matched_preset = preset
-                break
-            if path_only:
-                matched_path_only = True
-        if matched_preset is None:
+                matches.append(preset)
+            stale_match = stale_match or stale
+        if not matches:
             pending_groups += 1
-            if matched_path_only:
+            if stale_match:
                 fingerprint_mismatch_groups += 1
             else:
                 missing_preset_groups += 1
             continue
-        for field in (
-            "canonical_rule_text",
-            "taxonomy_decision",
-            "classification_notes",
-            "applicability",
-            "decision_reason",
-            "target_stage",
-            "target_scene",
-        ):
-            group[field] = matched_preset.get(field, "")
-        group["taxonomy"] = matched_preset.get("taxonomy", {})
-        applied_groups += 1
+        common_shapes = {
+            json.dumps(item["common"], ensure_ascii=False, sort_keys=True)
+            for item in matches
+        }
+        if len(common_shapes) != 1:
+            conflict_groups += 1
+            conflicts.append(
+                {
+                    "canonical_id": canonical_id,
+                    "reason": "multiple_matching_presets_disagree",
+                    "preset_ids": [item["preset_id"] for item in matches],
+                }
+            )
+            continue
+        matched_preset = matches[0]
+        matched_preset_ids.update(item["preset_id"] for item in matches)
+        if matched_preset["legacy"]:
+            legacy_presets_used += 1
+        group_conflicts: list[str] = []
+        applied_fields = 0
+        for field, incoming in matched_preset["common"].items():
+            if _preset_target_is_pending(group, field):
+                group[field] = incoming
+                applied_fields += 1
+            elif not _preset_values_equal(field, group.get(field), incoming):
+                group_conflicts.append(field)
+        if group_conflicts:
+            conflict_groups += 1
+            conflicts.append(
+                {
+                    "canonical_id": canonical_id,
+                    "reason": "existing_manual_value_conflicts",
+                    "fields": group_conflicts,
+                    "preset_id": matched_preset["preset_id"],
+                }
+            )
+            continue
+        if applied_fields:
+            applied_groups += 1
+            common_fields_applied += applied_fields
+        if any(_preset_target_is_pending(group, field) for field in PROJECT_DECISION_FIELDS):
+            pending_groups += 1
 
     plan["preset_application"] = {
         "preset_path": str(resolved_preset_path),
@@ -1798,6 +2135,12 @@ def apply_model_group_presets(
         "fingerprint_mismatch_groups": fingerprint_mismatch_groups,
         "pending_groups": pending_groups,
         "missing_preset_groups": missing_preset_groups,
+        "conflict_groups": conflict_groups,
+        "common_fields_applied": common_fields_applied,
+        "legacy_presets_used": legacy_presets_used,
+        "matched_presets": len(matched_preset_ids),
+        "unmatched_presets": len(presets) - len(matched_preset_ids),
+        "conflicts": conflicts,
         "applied_at": datetime.now().isoformat(timespec="seconds"),
     }
     plan_path.write_text(
@@ -3143,6 +3486,28 @@ def main() -> int:
     preset_parser.add_argument("--plan", required=True)
     preset_parser.add_argument("--preset-file")
 
+    preset_candidate_parser = subparsers.add_parser(
+        "export-model-group-preset-candidates",
+        help="从已人工裁决的归并计划导出只含公共字段的 v2 preset 候选",
+    )
+    preset_candidate_parser.add_argument("--ledger", required=True)
+    preset_candidate_parser.add_argument("--plan", required=True)
+    preset_candidate_parser.add_argument("--output", required=True)
+
+    preset_merge_parser = subparsers.add_parser(
+        "merge-model-group-preset-candidates",
+        help="把已审阅候选与旧库中的固定资产职责合并为 v2 公共 preset",
+    )
+    preset_merge_parser.add_argument("--candidates", required=True)
+    preset_merge_parser.add_argument("--base-preset", required=True)
+    preset_merge_parser.add_argument("--output", required=True)
+    preset_merge_parser.add_argument(
+        "--source-prefix",
+        action="append",
+        default=[],
+        help="只晋级指定来源前缀，可重复传入",
+    )
+
     group_parser = subparsers.add_parser(
         "apply-model-groups",
         help="应用模型语义归并计划，生成一条规则、多来源案例的 canonical 规则卡",
@@ -3156,6 +3521,23 @@ def main() -> int:
     validate_parser.add_argument("--ledger", required=True)
 
     args = parser.parse_args()
+    if args.command == "merge-model-group-preset-candidates":
+        try:
+            summary = merge_model_group_preset_candidates(
+                Path(args.candidates).resolve(),
+                Path(args.base_preset).resolve(),
+                Path(args.output).resolve(),
+                list(args.source_prefix),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
+        print("rule_execution_gate: model_group_presets_merged")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print(f"output: {Path(args.output).resolve()}")
+        return 0
     ledger_path = Path(args.ledger).resolve()
     if args.command == "init":
         if ledger_path.exists() and not args.force:
@@ -3365,6 +3747,22 @@ def main() -> int:
         for key, value in summary.items():
             print(f"{key}: {value}")
         print(f"plan: {Path(args.plan).resolve()}")
+        return 0
+    if args.command == "export-model-group-preset-candidates":
+        try:
+            summary = export_model_group_preset_candidates(
+                ledger_path,
+                Path(args.plan).resolve(),
+                Path(args.output).resolve(),
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            print("rule_execution_gate: blocked")
+            print(f"- {exc}")
+            return 2
+        print("rule_execution_gate: model_group_preset_candidates_exported")
+        for key, value in summary.items():
+            print(f"{key}: {value}")
+        print(f"output: {Path(args.output).resolve()}")
         return 0
     if args.command == "apply-model-groups":
         plan_path = Path(args.plan).resolve()

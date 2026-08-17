@@ -284,13 +284,13 @@ def suggest_next_step(
         with_calibration=with_calibration,
     )
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
         + (" --with-calibration" if with_calibration else "")
     )
     run_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run-audit-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" run-audit-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
         + (" --with-calibration" if with_calibration else "")
@@ -402,15 +402,15 @@ def emit_shell_template(*, project: str, project_dir: Path, with_calibration: bo
     suffix = " \\\n  --with-calibration" if with_calibration else ""
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" status \\',
+            'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" status \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}{suffix}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}{suffix}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run-audit-cycle \\',
+            'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" run-audit-cycle \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}{suffix}",
         ]

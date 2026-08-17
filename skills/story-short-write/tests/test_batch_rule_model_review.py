@@ -188,6 +188,173 @@ class BatchRuleModelReviewTest(unittest.TestCase):
         self.assertFalse(status["group_plan"]["reviewed_by_current_model"])
         self.assertFalse(status["prewrite_ready"])
 
+    def test_inspect_model_review_batch_writes_full_payload_and_compact_status(self) -> None:
+        BATCH.prepare_model_review(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_size=10,
+        )
+        payload = BATCH.inspect_model_review_batch(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_number=1,
+        )
+        output = Path(payload["output"])
+        self.assertTrue(output.is_file())
+        self.assertEqual(1, payload["batch"])
+        self.assertGreater(len(payload["expanded_batch"]["items"]), 0)
+        self.assertEqual(
+            len(payload["expanded_batch"]["items"]),
+            len(payload["index"]),
+        )
+        self.assertGreater(payload["global_plan_status"]["pending_groups"], 0)
+        self.assertGreater(
+            payload["global_plan_status"]["missing_fields"]["applicability"],
+            0,
+        )
+        self.assertTrue(
+            all("case_count" in item and "source_ref_count" in item for item in payload["index"])
+        )
+
+    def test_inspect_model_review_batch_handles_null_plan_groups(self) -> None:
+        BATCH.prepare_model_review(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_size=10,
+        )
+        plan = json.loads(self.group_plan.read_text(encoding="utf-8"))
+        plan["groups"] = None
+        self.group_plan.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        payload = BATCH.inspect_model_review_batch(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_number=1,
+        )
+        self.assertFalse(payload["global_plan_status"]["groups_field_is_list"])
+        self.assertEqual(0, payload["global_plan_status"]["groups"])
+        self.assertTrue(
+            all(item["missing_fields"] == ["plan_group"] for item in payload["index"])
+        )
+
+    def test_inspect_model_review_batch_reports_invalid_taxonomy(self) -> None:
+        BATCH.prepare_model_review(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_size=10,
+        )
+        plan = json.loads(self.group_plan.read_text(encoding="utf-8"))
+        group = plan["groups"][0]
+        group["canonical_rule_text"] = "统一后的可执行规则。"
+        group["taxonomy_decision"] = "override"
+        group["taxonomy"] = {
+            "rule_role": "custom_role",
+            "remediation_target": "draft",
+            "execution_mode": "human",
+        }
+        group["classification_notes"] = "当前模型人工改写分类。"
+        group["applicability"] = "not_applicable"
+        group["decision_reason"] = "当前项目不采用。"
+        self.group_plan.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        payload = BATCH.inspect_model_review_batch(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_number=1,
+        )
+        self.assertEqual(
+            1,
+            payload["global_plan_status"]["validation_issues"]["invalid_rule_role"],
+        )
+        self.assertIn(
+            "invalid_rule_role:custom_role",
+            payload["index"][0]["validation_issues"],
+        )
+
+    def test_inspect_all_model_review_batches_writes_every_batch_and_summary(self) -> None:
+        _, summary = BATCH.prepare_model_review(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_size=2,
+        )
+        payload = BATCH.inspect_all_model_review_batches(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+        )
+        self.assertEqual(summary["batches"], payload["batch_count"])
+        self.assertEqual(summary["entries"], payload["entry_count"])
+        self.assertTrue(Path(payload["output"]).is_file())
+        self.assertEqual(
+            list(range(1, payload["batch_count"] + 1)),
+            [item["batch"] for item in payload["batch_outputs"]],
+        )
+        self.assertTrue(
+            all(Path(item["output"]).is_file() for item in payload["batch_outputs"])
+        )
+
+    def test_export_pending_groups_contains_only_incomplete_groups(self) -> None:
+        BATCH.prepare_model_review(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+            batch_size=10,
+        )
+        plan = json.loads(self.group_plan.read_text(encoding="utf-8"))
+        first = plan["groups"][0]
+        first["canonical_rule_text"] = "已完成规则。"
+        first["taxonomy_decision"] = "accept_suggestions"
+        first["classification_notes"] = "当前模型已确认。"
+        first["applicability"] = "not_applicable"
+        first["decision_reason"] = "当前项目不采用。"
+        self.group_plan.write_text(
+            json.dumps(plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        payload = BATCH.export_pending_groups(
+            project="测试项目",
+            project_dir=self.project_dir,
+            ledger=None,
+            review_manifest=None,
+            group_plan=None,
+        )
+        self.assertTrue(Path(payload["output"]).is_file())
+        self.assertEqual(len(plan["groups"]) - 1, payload["pending_group_count"])
+        self.assertNotIn(
+            first["canonical_id"],
+            {item["canonical_id"] for item in payload["groups"]},
+        )
+        self.assertTrue(all(item["missing_fields"] for item in payload["groups"]))
+
     def test_next_step_recommends_prepare_then_manual_then_run(self) -> None:
         suggestion = BATCH.suggest_next_step(
             project="测试项目",
@@ -217,6 +384,14 @@ class BatchRuleModelReviewTest(unittest.TestCase):
             batch_size=12,
         )
         self.assertEqual("complete_manual_group_plan", suggestion["action"])
+        self.assertIn(
+            'batch_rule_model_review.py" export-pending-groups',
+            suggestion["next_command"],
+        )
+        self.assertIn(
+            'batch_rule_model_review.py" inspect-all-model-review-batches',
+            suggestion["inspect_all_command"],
+        )
 
         self._mark_plan_ready()
         suggestion = BATCH.suggest_next_step(
@@ -266,6 +441,8 @@ class BatchRuleModelReviewTest(unittest.TestCase):
         )
         self.assertIn('batch_rule_model_review.py" prepare-model-review', template)
         self.assertIn('batch_rule_model_review.py" status', template)
+        self.assertIn('batch_rule_model_review.py" inspect-all-model-review-batches', template)
+        self.assertIn('batch_rule_model_review.py" export-pending-groups', template)
         self.assertIn('batch_rule_model_review.py" next-step', template)
         self.assertIn('batch_rule_model_review.py" run-model-review-cycle', template)
 

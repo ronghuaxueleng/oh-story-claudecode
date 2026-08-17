@@ -86,7 +86,7 @@
 写大纲后先对 `小节大纲.md` 过一次：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_opening_contract.py" init \
   --project "{项目名}" \
   --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
   --target "{项目目录}/小节大纲.md" \
@@ -97,7 +97,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.
 正文首写或开头回炉后，再对 `正文.md` 过一次：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_opening_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_opening_contract.py" init \
   --project "{项目名}" \
   --source "拆文库/{主体书}/可直接仿写_导语拆解表.md" \
   --target "{项目目录}/正文.md" \

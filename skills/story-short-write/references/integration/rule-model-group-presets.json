@@ -1,1566 +1,2799 @@
 {
-  "version": "1.0",
-  "description": "按 skill/source 指纹预填规则模型归并计划中的稳定 canonical 语义组；对固定命名的拆书资产职责，允许用 path_only 只预填公共语义，项目级适用性仍回到人工裁决。",
+  "version": "2.0",
+  "description": "公共规则模型预设：只复制稳定 canonical 分类与固定资产职责；不复制 applicability、decision_reason、target_stage、target_scene。",
   "presets": [
     {
-      "canonical_id": "SKILL-e08cd2c440f5",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "这是 skill 主文件的编写边界，只允许主文件保留定位、入口、强制闸门和 references/scripts 路由，不是写作项目需要执行的正文或流程约束。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::d973afb6b91eed60",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "d973afb6b91eed60d0a1f0a334bfed25e7cec47e7df42b59239fe4d432000e4e"
       },
-      "classification_notes": "cases 全是对 SKILL.md 主文件结构的约束，作用对象是 skill 文档维护，不是项目的设定、大纲或正文。",
-      "applicability": "not_applicable",
-      "decision_reason": "该组规范的是 skill 入口文件如何写，不要求在写作项目内单独执行或留痕，故标记为当前写作计划不适用。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "human"
+        },
+        "classification_notes": "该族描述 skill 总入口与职责，不是正文句面约束。"
+      }
     },
     {
-      "canonical_id": "SKILL-8872f458ae5e",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "短篇写作执行只负责起盘、换链、正文和定点回炉，不把拆书、默认去味或通用脚本手册混入当前写作主流程。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::698a3c65bd9a049c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "698a3c65bd9a049ce452b9b0986a90b7923390ae7578cc95f1232e370ff38af7"
       },
-      "classification_notes": "这是当前任务的边界裁决，不是审计项；它决定主流程中哪些动作允许进入、哪些必须留在其他 skill。",
-      "applicability": "applicable",
-      "decision_reason": "项目已在正式写作链中推进，必须持续维持 skill 边界，避免把拆文、去味和工具手册混写进当前环节。",
-      "target_stage": "prewrite",
-      "target_scene": "任务边界、流程路由"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "写作主流程不得混入拆书、默认去味或通用工具说明。",
+        "classification_notes": "边界规则在停靠前持续生效。"
+      }
     },
     {
-      "canonical_id": "SKILL-58b6aa7aac9e",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "全新开书时，只允许读取本次指定样本、对应拆文库、skill 自身资源和目标项目目录，禁止接触任何旧项目内容或模板。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 同时列出允许读取根和旧项目禁读范围，属于新项目隔离硬闸本体。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行明确要求全新开书且已声明隔离边界，后续规则复核和写前流程都必须继续受该约束。",
-      "target_stage": "prewrite",
-      "target_scene": "读取隔离、项目边界"
-    },
-    {
-      "canonical_id": "SKILL-7e16de581cdd",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "书名必须在卖点和情绪承诺清楚后锁定，并完成候选比对、探索心校验与命名回执，不能用模板化标题抢跑。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 聚焦标题口语性、探索心、未泄底和题面独有性，指向书名锁定前的命名治理。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行书名已锁定并占用项目目录，命名规则已实际发生且后续若改名仍需回到这组规则处理。",
-      "target_stage": "prewrite",
-      "target_scene": "书名锁定、命名回执"
-    },
-    {
-      "canonical_id": "SKILL-25f95d13543b",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "正式回执和批次流程优先走官方脚本与固定命令模板；人工语义字段只能在脚本建骨架后小范围补写，不能靠临时 Python 或 help 试参替代流程。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 同时覆盖禁止先跑 --help、禁止 here-doc 代替正式入口、允许 apply_patch 补人工语义字段等脚本纪律。",
-      "applicability": "applicable",
-      "decision_reason": "该阶段正在做规则模型人工回填，后续 apply 与批处理继续依赖这组脚本纪律，必须保留为适用规则。",
-      "target_stage": "prewrite",
-      "target_scene": "官方脚本调用、正式回执编辑"
-    },
-    {
-      "canonical_id": "SKILL-02fac93779de",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "执行时始终以真人成文、关系后果顺序和人物差异为高优先级，禁止把正文越修越像安全稿、规则稿或分镜施工稿。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是全局写作原则组，cases 覆盖起手位置、主角动作、爽点定义、段落任务与回修禁忌，不是单一门禁。",
-      "applicability": "applicable",
-      "decision_reason": "该组将直接约束设定、大纲、正文和回修的生成取向，属于本项目的长期执行规则。",
-      "target_stage": "setting、outline、draft、revision",
-      "target_scene": "全流程写作取向"
-    },
-    {
-      "canonical_id": "SKILL-e47896decafd",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "遇到同桥仿写、原情节实验、对标重写或反复回修硬化时，必须转入高敏流程：先判型、护母稿、轻挂规则、命名式滑窗审计，并且一轮只拆一个活结。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "项目是以单一主体骨架和唯一正文声线换壳推进，天然接近高敏仿写治理范围，这组规则用于后续回修和风险判型。",
-      "applicability": "applicable",
-      "decision_reason": "虽然尚未进入正文回修，但该类题型属于高仿写敏感场景，后续若出现同桥或硬化问题必须按此组转高敏流程。",
-      "target_stage": "prewrite、revision",
-      "target_scene": "高敏判型、回修转路由"
-    },
-    {
-      "canonical_id": "SKILL-721cbcb4b5c4",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "写设定、大纲或正文前，必须真实读取三份当前规则文件并通过 writing_rule_gate；规则文件或 SHA 一变，旧回执立即失效。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是独立读取门禁，cases 明确 init、实际读取、回填证据和按 stage validate 的四步。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行写作规则读取回执已经通过，但后续写设定、写大纲、写正文仍持续依赖这道门禁的有效性。",
-      "target_stage": "setting、outline、draft",
-      "target_scene": "写作规则读取门禁"
-    },
-    {
-      "canonical_id": "SKILL-eeefb9da70b5",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "写设定、大纲或正文前，必须逐文件读取主体与辅助拆文资产并通过 source_read_gate；只读 profile、摘要或项目内二手稿件都不算通过。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 明确读取对象、无效替代物和缺资产时的回退动作，属于拆文读取门禁本体。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行拆文读取回执已通过，但后续设定、大纲和正文放行仍建立在这道门禁持续有效的前提上。",
-      "target_stage": "setting、outline、draft",
-      "target_scene": "拆文读取门禁"
-    },
-    {
-      "canonical_id": "SKILL-e2e7a4bf5f6d",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "两道读取门禁通过后，必须建立规则执行台账、完成模型归并分类与写前计划，并在各阶段放行前绑定对应合同和产物 SHA；任一 canonical 未完成，不得进入下游写作。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是当前正在执行的核心门禁组，cases 覆盖 export/read/apply model review、写作放行、顺序契约、开头契约和细纲表演验收的串联要求。",
-      "applicability": "applicable",
-      "decision_reason": "当前卡点正是规则模型人工归并计划，这组规则必须落盘为适用并驱动后续 apply-model-groups 和 validate-prewrite。",
-      "target_stage": "prewrite",
-      "target_scene": "规则执行台账、写前放行"
-    },
-    {
-      "canonical_id": "SKILL-34cab88daefd",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "批处理入口只允许做骨架初始化、SHA 绑定、确定性合并和统一校验摘要，任何人工语义裁决仍必须由当前模型逐项填写。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::2d1f370fcd80c738",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "2d1f370fcd80c73892e4b5ba78a4374bde262333ade3a7f1a80070c7edf2265e"
       },
-      "classification_notes": "这组规则约束 batch 入口的职责边界，核心是防止把人工判断塞回脚本自动化，不是正文内容约束。",
-      "applicability": "applicable",
-      "decision_reason": "当前正使用 batch_rule_model_review 和前置 batch 入口推进正式流程，需要明确 batch 只能搬运机械步骤、不能代做语义裁决。",
-      "target_stage": "prewrite",
-      "target_scene": "批处理入口边界"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "全新项目只读取本轮指定样本、对应拆文资产、skill 与新项目目录，隔离全部旧项目内容。",
+        "classification_notes": "隔离既需人工边界判断，也需路径与回执核验。"
+      }
     },
     {
-      "canonical_id": "SKILL-49006b78eda7",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "主体导语的功能顺序和不可换序理由必须通过独立开头承重契约绑定到大纲或正文；来源或目标 SHA 一变就重建回执并重新人工核对。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 明确 init/validate、--force 重建条件和人工读取主体开头样本与目标前 120 字的要求。",
-      "applicability": "applicable",
-      "decision_reason": "已完成大纲并将继续进入细纲验收与正文前链路，后续必须以这组规则检查开头承重是否真正落地。",
-      "target_stage": "outline、draft",
-      "target_scene": "开头承重契约"
-    },
-    {
-      "canonical_id": "SKILL-888ef9a88c61",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "正文开写前必须建立并通过全文文字颗粒度合同，确认主体原文独占声线、最终细纲已绑定、逐节写前包齐备，未过 validate-prewrite 不得开写。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "该组只管声线颗粒与成文活性层，不处理桥段功能；项目以主体原文为唯一正文声线，故为核心正文前合同。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型把主体原文锁为唯一正文声线，开正文前必须用这组合同验证声线迁移与逐节落笔包。",
-      "target_stage": "draft",
-      "target_scene": "全文文字颗粒度合同"
-    },
-    {
-      "canonical_id": "SKILL-31d28e298da7",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "强情绪稿在正文开写前必须建立并通过全文情绪颗粒度合同，逐节兑现原文情绪锯齿、旧伤触发和峰值动作，未过 validate-prewrite 不得开写。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "当前题型就是强情绪追妻文，cases 直接指向情绪总账、E 拍唯一分配和同级烈度兑现。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行题型明确是强情绪追妻，正文前必须靠这组合同确认情绪轨与主体总账按原序落实。",
-      "target_stage": "draft",
-      "target_scene": "全文情绪颗粒度合同"
-    },
-    {
-      "canonical_id": "SKILL-2c0578f8185c",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "写前最少要备齐 profile_source 与主体 book.profile；仿写、高敏或融合场景还要补对应约束资产，缺任何关键输入就先回上游补齐。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是输入矩阵，不同 cases 对应默认、仿写/高敏、融合三种前提，属于写前资料完备性规则。",
-      "applicability": "applicable",
-      "decision_reason": "项目以主体骨架与唯一声线推进，至少要受默认输入和仿写附加输入约束，缺项时不能跳过。",
-      "target_stage": "prewrite",
-      "target_scene": "profile 与写前输入"
-    },
-    {
-      "canonical_id": "SKILL-e24de87af8ee",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "全流程必须按隔离、读取门禁、规则台账、设定顺序、细纲验收、正文前合同、逐节状态机、初稿停靠、深审回炉的固定顺序推进，任何门禁未过都只能留在本批次内修正。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::acf83ad47493ca28",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "acf83ad47493ca287254bbe6ba2e9b37d9142e93167a908fcfdd242ede5553fd"
       },
-      "classification_notes": "这是整条正式流程的顺序骨架，既覆盖正文前批次，也明确初稿停靠后与深审阶段的衔接条件。",
-      "applicability": "applicable",
-      "decision_reason": "项目正处于默认闭环的中段，后续所有合同与放行都要继续沿这条顺序链推进，不能跳闸或倒序。",
-      "target_stage": "prewrite、draft、postdraft",
-      "target_scene": "全流程闭环"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "书名必须在设定前锁定，承诺追妻误判与追不回的核心读点且保留探索问题。",
+        "classification_notes": "标题直接约束题面与设定。"
+      }
     },
     {
-      "canonical_id": "SKILL-a30aa3df37a8",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "正文初稿全部写入后必须强制停靠，只允许做字数、平台格式和两份全文合同的基础验证，不得自动继续深审、回炉或最终绑定。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组规则把初稿完成与完整流程完成严格切开，并限定停靠回复字段与用户下一步选择范围。",
-      "applicability": "applicable",
-      "decision_reason": "用户已明确接受 skill 明文规定的强制停靠点，因此正文完成后必须按这组规则停靠，不能把“继续”预先解释成深审授权。",
-      "target_stage": "draft",
-      "target_scene": "正文初稿停靠"
-    },
-    {
-      "canonical_id": "SKILL-0f4488580e13",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "只有用户明确点名要先写单节原型时，才允许生成非正式单节测试稿；且只能落在原型目录，不能冒充正文放行或正式逐节通过。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "当前用户明确禁止快速稿、测试稿和演示稿，这组规则虽然存在，但触发条件是用户另行点名单节原型。",
-      "applicability": "not_applicable",
-      "decision_reason": "该次执行用户没有授权单节原型，且显式禁止测试稿路径，因此该组在正式流程中不启用。",
-      "target_stage": "",
-      "target_scene": ""
-    },
-    {
-      "canonical_id": "SKILL-5a267debb9b1",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "回修必须按既定优先级处理真实感、题面承诺、主桥后果和人物交流，并在每轮声明主修规则、保护规则和冲突裁决，禁止跳过承重件直接润句。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 全是回修阶段的优先级排序、必报字段和禁改方式，属于正文回修与深审后的执行约束。",
-      "applicability": "applicable",
-      "decision_reason": "虽尚未进入正文回修，但该类题型后续深审和定点回炉必须以这组优先级裁决推进，不能到时再临时起意改顺序。",
-      "target_stage": "revision",
-      "target_scene": "回修裁决、冲突收口"
-    },
-    {
-      "canonical_id": "SKILL-d3a6023c0d2b",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "脚本入口只认主 skill 指定的权威命令源和固定模板；涉及读取门禁、合同校验和逐节状态机时，参数必须显式传齐，不能拿回执已绑定当作省略理由。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::f073bbf9dc3d7ad7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "f073bbf9dc3d7ad79ff39137bcfd1fe9d1de6f720365c3079daf4313015045db"
       },
-      "classification_notes": "这组规则约束的是命令模板和参数完整性，不是正文内容表现；核心是流程执行口径统一。",
-      "applicability": "applicable",
-      "decision_reason": "项目仍在正式写前链路，后续合同和逐节状态机都会依赖这些固定入口，必须作为流程硬闸保留。",
-      "target_stage": "prewrite、draft、postdraft",
-      "target_scene": "官方命令模板、显式参数"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "优先执行文档给出的官方命令；正式回执由官方脚本初始化和合并，人工语义只由当前模型填写。",
+        "classification_notes": "这是工具链纪律，不是正文修辞规则。"
+      }
     },
     {
-      "canonical_id": "SKILL-8c835b967b2c",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "正文格式必须与工作流隔离，正文只写在 `正文.md`，分节与分段服从平台和阅读节奏，既不能碎句施工，也不能糊成整块墙文。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "format_check",
-        "remediation_target": "draft",
-        "execution_mode": "hybrid"
+      "preset_id": "skills/story-short-write/SKILL.md::eca65cf30bda7bf7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "eca65cf30bda7bf760e478fa76da5fbea1f287f7a787ae24d322dc23b192afdb"
       },
-      "classification_notes": "cases 同时覆盖正文载体、平台分节、段落粒度和自检记录隔离，属于正文格式与排版边界，不只是一般写作偏好。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续进入正文时必须受这组格式规范约束，既要兼容平台，也要防止生成碎句稿或墙文稿。",
-      "target_stage": "draft",
-      "target_scene": "正文文件、分节分段格式"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "按 skill 80项执行规则和独立硬闸顺序推进，任何阶段不得用进度汇报替代放行。",
+        "classification_notes": "规则族覆盖流程、设定、细纲、正文和审计，应作为总治理闸。"
+      }
     },
     {
-      "canonical_id": "SKILL-1cca3cb19015",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "开头、高潮和回炉是三道基础硬闸：开头要尽快起事，高潮要炸在最该公开的地方，回炉先回题面骨架和关系后果，再处理句面。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "虽然标题写成“3 个硬闸”，实质是正文和回修都要持续对照的结构性写作约束。",
-      "applicability": "applicable",
-      "decision_reason": "项目已完成设定和细纲，后续正文落笔与回修判断都要围绕这三道硬闸核验成文是否成立。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "开头、高潮、回炉顺序"
-    },
-    {
-      "canonical_id": "SKILL-d1efe6ce42a0",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "时间紧时先做五条最短自检：开头起事、中段持续掉位、高潮公开爆点、人物开口分脸和结尾留下后果；答不上两条就回结构层，不做润句。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "audit_check",
-        "remediation_target": "audit",
-        "execution_mode": "hybrid"
+      "preset_id": "skills/story-short-write/SKILL.md::3317e79fcc19e4f5",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "3317e79fcc19e4f50706cec91076f9a73f950dbab43f73d2382fc352f01fd139"
       },
-      "classification_notes": "这组不是正文生成规则，而是快速验收与返工分流规则；需要人工判断，也可被轻量审查链复用。",
-      "applicability": "applicable",
-      "decision_reason": "后续正文和回修阶段都需要一套短链自检来判断是否该回结构层，这组规则应保留为适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "最短自检、返工分流"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "classification_notes": "高敏路由决定后续合同与审计强度。"
+      }
     },
     {
-      "canonical_id": "SKILL-c98c2d45f011",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "起盘、正文和高敏同桥场景必须先挂默认参考包；不同任务额外挂对白、人设或高敏治理资料，不能缺包裸写。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组规则明确默认挂载哪些 references，以及对白、高敏场景要追加哪些包，属于写前参考装配规则。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型以单一主体骨架和唯一声线推进，后续写前与回修都依赖这套挂载包维持写法一致性。",
-      "target_stage": "prewrite、draft、revision",
-      "target_scene": "默认参考包、专项挂载"
-    },
-    {
-      "canonical_id": "SKILL-0768bf315946",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "Phase 1 起盘必须先锁平台、卖点、核心情绪、后果期待、高潮场合和禁止漂移方向，并把题材壳与付费承诺落进设定，后续不得偷换。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "setting_constraint",
-        "remediation_target": "setting",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::a35c6312cb58483a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "a35c6312cb58483ad1a3e77686c6f76b026589738babc415be11974cf8bc2457"
       },
-      "classification_notes": "cases 指向的是起盘期必须产出的设定核心项和命名检查，作用目标是设定层而不是正文层。",
-      "applicability": "applicable",
-      "decision_reason": "该次执行起盘产物已经生成，但后续所有设定校验与防漂移都依赖这组起盘约束，故在正式台账中应记为适用。",
-      "target_stage": "setting",
-      "target_scene": "起盘、设定核心项"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "写作规则读取回执必须在设计前通过且绑定真实规则文件。",
+        "classification_notes": "官方读取门禁。"
+      }
     },
     {
-      "canonical_id": "SKILL-95af6876aeee",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "Phase 2 细纲必须先写连续表演型 `小节大纲.md`，逐节锁主任务、主桥顺序、承重物件、情绪升级和对应桥段颗粒度，不能把回执字段抄进正文式细纲。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "该组完整对应大纲阶段的场面化要求和仿写场景下的最小读取前提，属于标准 outline constraint。",
-      "applicability": "applicable",
-      "decision_reason": "项目已写出小节大纲，后续细纲验收和必要回修都必须继续遵守这组细纲承载规则。",
-      "target_stage": "outline",
-      "target_scene": "小节大纲、场面化细纲"
-    },
-    {
-      "canonical_id": "SKILL-7f46687ca1c9",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "Phase 3 正文必须按场景写、按主体原文声线与情绪颗粒逐节落笔，先写动作与秩序变化，再落判断；禁止把去味写成概述、把场面写成解释块。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 覆盖逐场四问、对白分脸、情绪落点和禁止安全块化，是正文阶段的核心成文约束。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型的唯一正文声线和强情绪要求都将在正文阶段落地，这组规则必须直接约束首稿生成。",
-      "target_stage": "draft",
-      "target_scene": "逐场正文、对白与情绪落笔"
-    },
-    {
-      "canonical_id": "SKILL-6a6353566e38",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "Phase 4 只有在初稿停靠后得到用户明确授权，才进入内部审计与回炉；审计只负责定位风险，最终还要重绑规则台账和写后人工复核，不能拿零命中冒充通过。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是完整深审尾链的准入与验收规则，cases 同时覆盖审计项、旧证据清债和最终 rule_execution 闭环要求。",
-      "applicability": "applicable",
-      "decision_reason": "当前虽然尚未进入深审，但用户已明确要完整正式流程，因此正文停靠后的审计与回炉将受这组规则直接约束。",
-      "target_stage": "postdraft",
-      "target_scene": "正式审计、回炉、最终闭环"
-    },
-    {
-      "canonical_id": "SKILL-5b13ace53527",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "当任务目标切换为拆文、去味、扫榜或长篇化时，必须显式跳转到对应 skill，不能在当前短篇写作流程里混做相邻任务。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::ccde9cf41adf479b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "ccde9cf41adf479b1ee85f6115d6a257aed3ebba7f10c9ef10389fbf2413b49b"
       },
-      "classification_notes": "cases 全是任务分流路由：拆文去 `story-short-analyze`，去味去 `story-deslop`，扫榜去 `story-short-scan`，长篇化去 `story-long-write`。",
-      "applicability": "applicable",
-      "decision_reason": "项目仍在短篇正式写作链，但后续若用户把任务改成拆文、去味或转长篇，必须按这组规则跳 skill，不能在本链路里混做。",
-      "target_stage": "prewrite、draft、postdraft",
-      "target_scene": "任务分流、skill 路由"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "所有选定拆文资产必须逐文件读取并完成多来源裁决后才能设计。",
+        "classification_notes": "官方来源门禁。"
+      }
     },
     {
-      "canonical_id": "SKILL-224dbcad00d0",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "参考资料区只是主流程的索引目录，用来指向常用 workflow、craft、governance 和 integration 文档，本身不是项目里要单独执行的一条写作约束。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::e50b7e194e83086a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "e50b7e194e83086a08e11307521239ec070abdae78e3275d9873c7f898014deb"
       },
-      "classification_notes": "cases 是按用途分类的 reference 链接集合，作用是给执行器提供索引入口，不直接形成独立合同或正文约束。",
-      "applicability": "not_applicable",
-      "decision_reason": "这些链接已经被上游具体规则组拆分吸收；在项目的规则模型归并计划里不需要把“参考资料目录”再当成独立执行项。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "规则执行台账须逐族完成模型分类、适用性和目标阶段，写前与最终均通过真实校验。",
+        "classification_notes": "台账本身是独立流程硬闸。"
+      }
     },
     {
-      "canonical_id": "SKILL-9e725bc56bd5",
-      "source_path_suffix": "skills/story-short-write/SKILL.md",
-      "source_sha256": "2436e57ea44f082521d3bd82136e3c16fb0c63bbb4460b31901bf252fd067a10",
-      "canonical_rule_text": "执行器回复必须跟随用户语言；中文场景统一用中文，并遵循中文排版规范，不混入不必要的外语回复格式。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::3be06799402b2844",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "3be06799402b284418e6bdbd1ce7f752913610b7ead73b249adba9e9222f853e"
       },
-      "classification_notes": "这组约束的是执行器回复语言与排版，不是小说正文内容规则，但会持续影响该流程的交付方式。",
-      "applicability": "applicable",
-      "decision_reason": "当前用户明确要求中文回复，这组语言规则在整个项目执行过程中都持续适用。",
-      "target_stage": "prewrite、draft、postdraft",
-      "target_scene": "回复语言、中文排版"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "重复而确定的结构操作走官方批处理，人工语义仍逐项由当前模型判断。",
+        "classification_notes": "工具化合并点服务流程效率和真源一致性。"
+      }
     },
     {
-      "canonical_id": "SKILL-384e812d5aca",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "章节标记必须按平台格式输出，知乎/盐言用纯数字 `1.`，部分平台可用 `###1.` 或 `###第一章`，不得混用错误章节标记。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 是平台章节标记对照表，核心是不同平台只能使用对应的章节标记样式。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续正文要适配目标平台，章节标记属于基础格式校验项，必须提前锁定。",
-      "target_stage": "draft、revision",
-      "target_scene": "章节标记、平台分节"
-    },
-    {
-      "canonical_id": "SKILL-7d14d540c817",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "知乎/盐言正文只能使用纯数字分节，正文不得继承大纲小节标题，且每次正文完成或回修后都必须通过 `validate_zhihu_section_format.py`。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是知乎/盐言场景下的专门格式硬闸，既限制章节样式，也绑定了正式校验脚本。",
-      "applicability": "applicable",
-      "decision_reason": "当前短篇正文默认按知乎/盐言纯数字分节口径执行，这组规则应作为目标平台的强格式约束保留。",
-      "target_stage": "draft、revision",
-      "target_scene": "知乎/盐言正文格式"
-    },
-    {
-      "canonical_id": "SKILL-af6974eea888",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "段落必须紧密、长短交错、不机械等长；新动作、新物件、新信息和新话轮要断段，但不能拆成分镜清单，也不能堆成长墙文。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 既限制单段长度与空行，也强调断段按镜头和信息变化，而不是按动作层流水拆分。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续正文成文要同时避免碎句施工稿和整块墙文，这组段落规则必须直接约束正文输出。",
-      "target_stage": "draft、revision",
-      "target_scene": "段落节奏、断段规则"
-    },
-    {
-      "canonical_id": "SKILL-7909dc86ea01",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "对话引号必须按平台格式统一选择，默认主流平台用中文双引号，古言或知乎投稿版可用 `「」`，`【】` 只在平台明确要求时使用。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是平台对话标记选择表，部分平台需人工判断，部分可由格式检查辅助验证，故保留 hybrid。",
-      "applicability": "applicable",
-      "decision_reason": "正文的对话标记必须和目标平台一致，这组规则会直接影响正文排版与平台适配。",
-      "target_stage": "draft、revision",
-      "target_scene": "对话引号、平台适配"
-    },
-    {
-      "canonical_id": "SKILL-10312d8a4dc5",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "对话应独立成行，减少机械对话标签，连续话轮能省标签就省，主要靠内容、动作和上下文区分说话人。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "该组是对话排版与话轮识别规则，既有可机械检查部分，也有说话人可辨与标签频率的人工作用面。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型对人物分脸和对话活人感要求高，这组对话规则属于正文阶段的核心格式与表现约束。",
-      "target_stage": "draft、revision",
-      "target_scene": "对话成行、标签频率"
-    },
-    {
-      "canonical_id": "SKILL-a7698dbcc2f8",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "正文小节必须用数字编号切成完整叙事 beat，每节承担明确情节点，并按目标总字数反推合理的小节数量与单节字数。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "draft_constraint",
-        "remediation_target": "draft",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::85521b6ae11786cb",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "85521b6ae11786cb0ec00441a0e0bd56788cfbb18edd750b49e53a697de5f23a"
       },
-      "classification_notes": "虽然建议分类为 format_check，但这组不只是排版，它同时约束小节作为叙事 beat 的承载功能，更接近正文结构约束。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型正文将按数字小节推进情节与情绪，这组规则同时决定小节结构和字数节奏，应按正文约束执行。",
-      "target_stage": "draft",
-      "target_scene": "数字小节、单节承载"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "大纲和正文开头必须分别通过承重契约，功能顺序取自主体导语资产。",
+        "classification_notes": "先约束大纲，正文阶段再独立复验。"
+      }
     },
     {
-      "canonical_id": "SKILL-3e4e96b0fcb5",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "每个小节内部都要具备主事件、情绪变化、新信息、对话交锋和三维度织入；若计划内子事件不足，应回小节或细纲补足，而不是用去味阶段补剧情。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "draft_constraint",
-        "remediation_target": "draft",
-        "execution_mode": "hybrid"
+      "preset_id": "skills/story-short-write/SKILL.md::f638c220a569693e",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "f638c220a569693e93f21544925970eb4aad2b7b404c37822f96ea2f8be403e5"
       },
-      "classification_notes": "虽然部分元素可被清单化检查，但小节内部是否完成事件、情绪和信息并轨主要仍是正文结构判断，不只是格式检查。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续逐节正文必须同时兑现情节和情绪颗粒，这组小节内部结构规则直接决定正文可写性。",
-      "target_stage": "draft",
-      "target_scene": "单节内部结构、三维织入"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文前必须完成全文文字颗粒度合同并逐节按主体连续句链施工。",
+        "classification_notes": "文字颗粒度是正文放行硬闸。"
+      }
     },
     {
-      "canonical_id": "SKILL-83bc0de727ce",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "小节之间必须留下钩子、快速续接并保持跨节情绪递进，峰值后可短暂停平但不能骤降重置。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "draft_constraint",
-        "remediation_target": "draft",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::fa523aeddc71a3a0",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "fa523aeddc71a3a04a9f4dcf97814a6975e9ed554e2bd5f81da31d9fddcbc411"
       },
-      "classification_notes": "这组控制节与节的叙事衔接和情绪坡度，核心不是格式，而是正文推进关系。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻题必须保证跨节持续掉位和递进，这组规则直接约束正文整体节奏。",
-      "target_stage": "draft",
-      "target_scene": "小节衔接、情绪递进"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文放行严格按读取、规则、顺序、开头、细纲、文字、情绪合同及来源绑定顺序执行。",
+        "classification_notes": "建议的混合执行正确。"
+      }
     },
     {
-      "canonical_id": "SKILL-f9f2ffb6006b",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "平台对话格式必须整体联动章节标记与引号样式：不同平台对应不同章节前缀、引号和额外备注，不能只改一项格式而忽略其余平台约束。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 是平台格式覆盖表，既有章节标记也有对话引号与额外平台备注，适合保留为 format_check。",
-      "applicability": "applicable",
-      "decision_reason": "当前正文平台格式要整体一致，这组平台覆盖表能防止只修章节、不修对话引号的半成品适配。",
-      "target_stage": "draft、revision",
-      "target_scene": "平台格式覆盖表"
-    },
-    {
-      "canonical_id": "SKILL-8388bac55922",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "正文绝对禁止超长段、段间空行、机械化对话标签、缩进以及正文段内的 Markdown 渲染标记。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是格式规范中的绝对禁止项，全部指向正文审查期的硬错误清单。",
-      "applicability": "applicable",
-      "decision_reason": "这些禁项一旦出现在正文里就会直接破坏平台适配和阅读体验，应作为强格式审查规则保留。",
-      "target_stage": "draft、revision",
-      "target_scene": "格式禁项、正文排版"
-    },
-    {
-      "canonical_id": "SKILL-c8cc7b232beb",
-      "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
-      "source_sha256": "f86f0f682f94408ff060174d01b36c797004920a4ada7778afdfc8930a20ee41",
-      "canonical_rule_text": "正文交付前必须做快速格式检查：段长、空行、对话成行、引号、缩进、小节承载和等长短句密排都要过一遍，不能只看有没有语法错误。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是格式快检清单，既包含可脚本定位项，也包含需人工目测的段落节奏与小节承载。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续正文每轮停靠或回修后都需要一套快检清单来做最低限度收口，这组规则应持续适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "快速格式检查"
-    },
-    {
-      "canonical_id": "SKILL-cdb92f750052",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "反 AI 文档中的“决策路由”只是问题定位索引，用来告诉执行器该去哪个子节查问题，不是项目里要单独执行的一条正文约束。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "workflow",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::c4b479267f217d94",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "c4b479267f217d943531e684f963c3c68d9c06f7b6def071bb969630b6b90156"
       },
-      "classification_notes": "cases 全是去 AI 味文档内部的导航入口，例如去查禁用词、章末总结体、篇章级指纹等，作用是索引而非直接裁决正文。",
-      "applicability": "not_applicable",
-      "decision_reason": "正式流程尚未进入用户授权的去 AI 味阶段，这组路由索引不应在本项目台账中作为独立执行规则生效。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "主体185个E拍和情绪母线须逐拍等价映射并通过全文情绪颗粒度合同。",
+        "classification_notes": "情绪合同是强情绪题核心硬闸。"
+      }
     },
     {
-      "canonical_id": "SKILL-23e24fca876b",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "首稿阶段不得用三遍法、禁词替换、直接心理清零或命中清零反向改文；修正只能以主体原文声线为准，不追求比原文更干净。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是反 AI 文档里最关键的阶段边界，明确首稿不能让去味规则接管正文，也不能删除主体原文本来就有的粗粝和直接判断。",
-      "applicability": "applicable",
-      "decision_reason": "若仍处在正文前/正文首稿阶段，这组边界规则直接决定后续正文不能被去 AI 规则反向清洗。",
-      "target_stage": "draft",
-      "target_scene": "首稿阶段边界、主体声线保护"
-    },
-    {
-      "canonical_id": "SKILL-d65666a2e8c2",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "正文与对话要优先落在自然口语层，允许符合角色身份的粗粝和俚语，但口语化不等于乱造句，第一反应不像人话的句子必须回退。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组围绕口语化表达的正反面：反书面、反端着、反成语腔，同时明确不能为了有味道硬拧句子。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型要保持主体原文式活人口气，这组规则直接约束正文叙述和对话的口语落点。",
-      "target_stage": "draft、revision",
-      "target_scene": "叙述口气、人物对白"
-    },
-    {
-      "canonical_id": "SKILL-46f32bd83777",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "尽量用行为、细节、对话和反应代替直接形容与旁白总结，让人物性格、关系和环境从现场里显出来，而不是先下结论再举例。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "cases 给了多组典型替换范例，核心是把抽象判断落回可见动作、环境细节和现场对话。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻题需要现场感和后果感，这组 Show Don't Tell 规则应直接作用于正文成文。",
-      "target_stage": "draft、revision",
-      "target_scene": "人物刻画、关系表现、环境显影"
-    },
-    {
-      "canonical_id": "SKILL-8b2353f6d811",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "任何防 AI 处理都不能先破坏核心一致性：剧情要对齐前文和大纲，人物行为要符合人设，设定前后不能自相矛盾。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "draft_constraint",
-        "remediation_target": "draft",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::a3022a5b878b9f26",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "a3022a5b878b9f26eacbaa3f3211cce5a4de76ca14013371302790e1374aa61c"
       },
-      "classification_notes": "虽然原文标题更像检查维度，但本质是正文修改和首稿生成都必须服从的一致性约束，不只是事后轻审条目。",
-      "applicability": "applicable",
-      "decision_reason": "项目之后所有正文与回修都不能为防 AI 味牺牲剧情、人设和设定闭环，这组规则必须保留为高优先级适用项。",
-      "target_stage": "draft、revision",
-      "target_scene": "剧情一致性、人设一致性、设定一致性"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "设定、细纲和正文所需主体原文、E/P账、细节库、profile及正式回执必须齐全。",
+        "classification_notes": "必备输入是阶段入口条件。"
+      }
     },
     {
-      "canonical_id": "SKILL-c2eb78b651c5",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "防 AI 指纹只能作为表面风险检查：查高频词、章尾总结、脱场心理、信息过载、生造口气和代判句，但不能把脚本零命中误当成人工语义通过。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组把多类常见 AI 味收成一张表面风险清单，同时明确脚本命中与人工通过不是一回事。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续不管是首稿自检还是深审，都要用这组规则做表面风险定位，但不能让它盖过主体声线与结构判断。",
-      "target_stage": "draft、revision",
-      "target_scene": "表面 AI 指纹、轻审定位"
-    },
-    {
-      "canonical_id": "SKILL-9031bb860b0d",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "格式一致性要求对话格式按目标平台统一，场景切换有明显标记，时间线清晰可追踪；这些属于正文成稿的机械一致性底线。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "format_check",
-        "remediation_target": "draft",
-        "execution_mode": "hybrid"
+      "preset_id": "skills/story-short-write/SKILL.md::335e231b64a64d7a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "335e231b64a64d7a6cb6e550f8aef314e2199076c8de83ef8b9186c576254047"
       },
-      "classification_notes": "建议分类成 draft_constraint，但这里更接近格式与成稿一致性检查；部分可脚本校验，部分需人工看场景切换与时间线。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型后续正文交付前必须保证平台格式、场景跳转和时间线基本清楚，这组规则应作为格式一致性底线。",
-      "target_stage": "draft、revision",
-      "target_scene": "对话格式、场景切换、时间线"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "从命名隔离到逐节正文提交形成完整闭环，未到初稿停靠不得中止或跳步。",
+        "classification_notes": "闭环规则统辖全部阶段。"
+      }
     },
     {
-      "canonical_id": "SKILL-85b6d4575a6c",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "可读性至少要过五关：长句不卡顿、短句不机械、对话口语化、术语不悬空、节奏有快有慢，不能整篇只有一种呼吸方式。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是正文可读性的综合体检，覆盖长句、短句、口语、术语说明和节奏层，不等同单一格式错误。",
-      "applicability": "applicable",
-      "decision_reason": "主体原文声线要有呼吸和起伏，这组规则能防止正文变成统一节奏的安全块或术语堆。",
-      "target_stage": "draft、revision",
-      "target_scene": "可读性、节奏体检"
-    },
-    {
-      "canonical_id": "SKILL-c979e51fe85b",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "正文必须保持逻辑连贯：角色动机要合理，因果链清晰，时间线对得上，人物认知范围不能越界成上帝视角。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是正文逻辑底层体检，覆盖动机、因果、时间线和知识边界，直接约束正文可信度。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻题里一旦动机、因果或认知边界漂掉，掉位和误判就会失真，这组规则必须持续适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "动机、因果、时间线、认知边界"
-    },
-    {
-      "canonical_id": "SKILL-1a9d2228bc0f",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "抽象情绪句、平直对话标签和万能动作词要替换成更具体的身体动作、现场细节或带人物性的动作标签。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是具体替代范例库，核心不是照抄例句，而是把抽象写法替回动作和细节显影。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型正文要避免抽象告知和统一动作词，这组替代思路可直接指导首稿和回修。",
-      "target_stage": "draft、revision",
-      "target_scene": "动作替代、细节替代、对话标签替代"
-    },
-    {
-      "canonical_id": "SKILL-d80ccd1038d4",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "高频 AI 词如“不禁”“映入眼帘”“目光如炬”“心中暗道”应删掉或改成具体动作、表情和现场思考，不让套词撑句。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是典型套词黑名单，集中处理最容易暴露 AI 味的固定词和陈词滥调。",
-      "applicability": "applicable",
-      "decision_reason": "主体原文声线要求具体、利落，这组高频词规则可提前拦截套词污染。",
-      "target_stage": "draft、revision",
-      "target_scene": "高频套词、陈词滥调"
-    },
-    {
-      "canonical_id": "SKILL-34fcbd44907a",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "遇到“意义深远”“前所未有”“可谓”这类意义膨胀写法时，必须缩回具体后果、具体对比和实际影响，不让句子自己虚胖。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组针对语义虚胖和拔高腔，要求所有宏大判断回到可见后果和参照物。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型的后果链必须写实，不能靠拔高词来冒充重量，这组规则直接作用于正文句面。",
-      "target_stage": "draft、revision",
-      "target_scene": "意义膨胀、后果落地"
-    },
-    {
-      "canonical_id": "SKILL-ac04bd557076",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "万能结论句如“未来可期”“充满希望”应删掉或改成具体下一步动作与未解张力，不用空泛前景词收尾。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组和章尾总结体相邻，专门处理结尾/段尾那种空泛向前看的盖章句。",
-      "applicability": "applicable",
-      "decision_reason": "追妻题的尾声和节尾应留在动作与后果，不应让空结论抢走场面，这组规则必须适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "结尾、段尾万能结论"
-    },
-    {
-      "canonical_id": "SKILL-a3ad8ee2b0d3",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "正文不得写成论文体段落结构，像“不难看出”“由此可见”“综上所述”这类论证接缝词要直接清除。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "format_check",
-        "remediation_target": "draft",
-        "execution_mode": "script"
+      "preset_id": "skills/story-short-write/SKILL.md::6b44bf50c3e3d6c6",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "6b44bf50c3e3d6c64c22c71b41875c57ed83812bffb366243f2b74a367123063"
       },
-      "classification_notes": "虽然建议分类为 draft_constraint 也说得通，但这类论文接缝词有明显字面模式，适合作为格式/脚本拦截项优先处理。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型正文必须像现场叙事，不像议论文，这组规则可通过脚本先做机械拦截。",
-      "target_stage": "draft、revision",
-      "target_scene": "论文体接缝词、论证腔"
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "正文初稿完成全部逐节提交和两份全文合同终审后强制停靠，停靠前不运行去味与深审。",
+        "classification_notes": "这是交付边界而非正文句面规则。"
+      }
     },
     {
-      "canonical_id": "SKILL-7df0ce47b5ca",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "不要在事件后立刻由叙述者替读者顿悟、解释主题或宣布人物终于明白了什么；含义应留给场面和反应自己成立。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是篇章级的主题过度解释风险，和前面的代判句不同，它更偏整段/整节的叙述者盖章。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻文一旦频繁自带主题说明，情绪会立刻变假，这组规则必须直接约束正文尾句和旁白。",
-      "target_stage": "draft、revision",
-      "target_scene": "主题解释、顿悟旁白"
-    },
-    {
-      "canonical_id": "SKILL-d588d0009f26",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "不要连续多节都用冷硬、工整、象征化的点题短句盖章收尾；偶尔可以有，但高密度堆叠会让结构像模板。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "该组控制篇章节尾的工整化风险，重点不在单句好不好，而在是否连续密排成套路。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型如果每节都收在冷句上，会迅速掉成过闸稿，这组规则应直接管节尾节奏。",
-      "target_stage": "draft、revision",
-      "target_scene": "节尾短句、冷硬点题"
-    },
-    {
-      "canonical_id": "SKILL-87b0ade021ee",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "全篇结构不能对仗得像在填对照表；允许闲笔、长短失衡和不完全对照，避免每节都机械服务同一主题模板。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "draft_constraint",
-        "remediation_target": "draft",
-        "execution_mode": "hybrid"
+      "preset_id": "skills/story-short-write/SKILL.md::12cc9d79056808d7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "12cc9d79056808d7c0918cd6bb6db5b8b26c8e969a2879eb39487cdfb596158f"
       },
-      "classification_notes": "建议 execution_mode 为 script，但这组既有可被结构统计辅助定位的对称风险，也要靠人工判断哪些闲笔和失衡是活的。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型必须保留生活层和毛边，不能把整篇修成主题对照表，这组规则要在正文和回修阶段持续适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "篇章对称、闲笔与失衡"
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "仅在用户明确点名时执行单节原型测试，不得以测试稿替代正式流程。"
+      }
     },
     {
-      "canonical_id": "SKILL-9e69cd613c02",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "人物情绪不能从头到尾零度受控，必须允许毛刺、失控、回跳和破绽，避免每句话都成熟得体到像统一打磨过。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是篇章级情绪稳定过头的风险识别，和强情绪合同互补，重点抓“过稳”而不是“过猛”。",
-      "applicability": "applicable",
-      "decision_reason": "当前题型就是强情绪追妻，人物如果全程零度受控会直接失真，这组规则必须适用。",
-      "target_stage": "draft、revision",
-      "target_scene": "情绪毛刺、失控与回跳"
-    },
-    {
-      "canonical_id": "SKILL-e4a9d85cc471",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "配角不能只当功能件，对话也不能问一句答一句、把潜台词说满；要允许跑题枝节、错位和不完全回应。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组同时抓配角功能化和对话过度 articulate，两者都会把现场写成剧情输送管道。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型要保留生活层和人物不同脸，这组规则直接约束配角与对话活性。",
-      "target_stage": "draft、revision",
-      "target_scene": "配角功能化、对话枝节"
-    },
-    {
-      "canonical_id": "SKILL-160fde82152d",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "去泛化的第一遍只负责删掉抽象总结、假深度、空洞结论、工整对比和高级同声腔，让句子先回到具体、分脸和常用口语层。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "audit_check",
-        "remediation_target": "audit",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::65808c9c2b3cd16e",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "65808c9c2b3cd16ef7adb1da90927a43ac60f71b44d69c6c839038cb99dca588"
       },
-      "classification_notes": "这组是去 AI 流程里的 pass 方法，不是首稿阶段规则；它描述的是授权去味后第一遍改写要清除哪些泛化现象。",
-      "applicability": "not_applicable",
-      "decision_reason": "项目尚未进入用户授权的去 AI 味 pass 流程，这组方法论现在不应作为独立执行项启用。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "发现问题按设定、结构、场面、颗粒度、句面顺序回修，禁止补丁式只磨句子。",
+        "classification_notes": "回修优先级贯穿设计和正文。"
+      }
     },
     {
-      "canonical_id": "SKILL-794f5d0191ff",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "同一瞬间的动作、感知和身体反应不能拆成三段重复播报，必须织回一个连续现场，避免同一动作被掰开写三遍。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组专抓同一动作被概括层、感知层、反应层拆段重说的问题，本质是正文现场组织约束，不是去味后置流程。",
-      "applicability": "applicable",
-      "decision_reason": "主体原文声线要求动作和反应在一个气口里落地，强情绪场面更不能靠重复拆写拉长，这组规则应直接进入首稿和回修。",
-      "target_stage": "draft、revision",
-      "target_scene": "动作现场、情绪反应、连续瞬间"
-    },
-    {
-      "canonical_id": "SKILL-361337c55594",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "段落密度要按动作、信息变化和换气点分配，既不能一段塞太满，也不能碎成提纲式短段清单。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组关注手机阅读和朗读气口，既处理过密长段，也处理连续极短段导致的提纲感，属于正文颗粒度控制。",
-      "applicability": "applicable",
-      "decision_reason": "项目后续正文必须避免施工单式碎段和信息糊成一坨的长段，这组规则直接影响现场可读性与活人感。",
-      "target_stage": "draft、revision",
-      "target_scene": "段落换气、信息密度、镜头连续性"
-    },
-    {
-      "canonical_id": "SKILL-a74569f00756",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "正文推进要让动作、对话和情绪反应交替咬合，不能连续多段只播报心理或只靠“他觉得”“她感到”代替现场。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组要求三要素循环推进，核心是现场承载方式；脚本最多能定位连续心理播报候选，真正裁决仍靠人工，所以沿用建议分类。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻文的压力交换必须靠动作、对白和反应互相推动，这组规则会直接约束首稿场面组织和后续回修。",
-      "target_stage": "draft、revision",
-      "target_scene": "场面推进、对白接招、情绪显影"
-    },
-    {
-      "canonical_id": "SKILL-a1e612381e96",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "句长必须交错呼吸，短句负责打点，正常长度句负责挂主观和临场信息，不能整页密排成差不多长度的机械短句。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组专门处理句长节奏单一、短句模板化和缺少稍长补充句的问题，属于正文呼吸与节奏层规则。",
-      "applicability": "applicable",
-      "decision_reason": "该类题型如果全篇都压成规整短句，会很快掉成检测器喜欢的安全块，这组规则需要直接前置到首稿生成。",
-      "target_stage": "draft、revision",
-      "target_scene": "句长节奏、短句密排、人物呼吸"
-    },
-    {
-      "canonical_id": "SKILL-ada4f18bc6b8",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "去书面化这一遍专门清掉分析性用词、抽象名词、体制化措辞和无必要术语，把句子从专业腔退回日常表达。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "audit_check",
-        "remediation_target": "audit",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::f50ba0edeaf43862",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "f50ba0edeaf43862355e5348d139dde72c2cf7f2308329fd49c2bdd4c45e3934"
       },
-      "classification_notes": "这组属于“三遍法”的第二遍处理方法，描述的是授权去 AI 味后的回炉动作，不是当前首稿正式流程必须单独执行的写前规则。",
-      "applicability": "not_applicable",
-      "decision_reason": "项目仍处于写前规则模型复核阶段，且用户尚未授权进入去 AI 味 pass 流程，这组方法论现在不应作为独立执行项启用。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "script"
+        },
+        "canonical_rule_text": "正式流程优先使用 skill 列出的高层脚本入口，底层仅作初始化或排障。",
+        "classification_notes": "脚本入口由命令执行结果验证。"
+      }
     },
     {
-      "canonical_id": "SKILL-640e0247a817",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "回自然感这一遍要补回感官细节、人物分脸、句长变化、社会位置感、场景记忆点和角色专属口气，让文本重新像活人现场。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "audit_check",
-        "remediation_target": "audit",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::795c891e69d23e6c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "795c891e69d23e6cdec93d2482a177fb888f74268257558c991dc928e0dc3449"
       },
-      "classification_notes": "虽然内容和首稿目标相通，但这里写的是三遍法第三遍的回补动作，属于已成稿去味或回炉时的专项复原步骤。",
-      "applicability": "not_applicable",
-      "decision_reason": "该流程还没进入用户授权的去味回炉阶段，这组“第三遍回自然感”方法不应提前当成独立执行步骤启用。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "全文采用黑岩/点众兼容的统一章节标记、紧密自然段落和规范引号。",
+        "classification_notes": "格式既需脚本检查，也需人工判断自然断段。"
+      }
     },
     {
-      "canonical_id": "SKILL-c7ad6b254c56",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "三遍法的升级强度要按 AI 味轻重决定：轻度只做第一遍，中度做前两遍，重度才做完整三遍并重写重点段落。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "workflow_gate",
-        "remediation_target": "audit",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::29a009dbe29341b2",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "29a009dbe29341b2972a2b7ae7a2ac45a627f9bd329e9601bdaf8a3d4ba2d9fb"
       },
-      "classification_notes": "这组不是正文句面规则，而是去 AI 味专项流程里根据污染程度决定 pass 数量和是否重写的操作路由。",
-      "applicability": "not_applicable",
-      "decision_reason": "项目没有进入去味流程，也不存在该次执行要按轻中重决定三遍法强度的任务，这组升级路由暂不启用。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文必须同时通过承重对白、场面表演和主体颗粒度三类核心硬闸。",
+        "classification_notes": "三闸共同约束正文成活。"
+      }
     },
     {
-      "canonical_id": "SKILL-c83a12e90aef",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "去 AI 自检时要逐项检查对话口语度、删句冗余、人物分脸、场景独特细节、非人话表达和作者替人物说透的句子。",
-      "taxonomy_decision": "override",
-      "taxonomy": {
-        "rule_role": "audit_check",
-        "remediation_target": "audit",
-        "execution_mode": "human"
+      "preset_id": "skills/story-short-write/SKILL.md::bda029fb78b76bc7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "bda029fb78b76bc7a17f78607c71b4b7a7eb6c1566920541469e20bbc86fb1ba"
       },
-      "classification_notes": "这是一张写后人工自检单，内容会和其他正文规则重叠，但它自身是成稿复扫方法，不是当前写前计划里的独立首稿约束。",
-      "applicability": "not_applicable",
-      "decision_reason": "用户尚未授权进入初稿后的去 AI 自检阶段，这组清单现在只作为后续深审工具储备，不在当前预写执行项内。",
-      "target_stage": "",
-      "target_scene": ""
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "按结构顺序、人物动作、情绪后果、声线与格式的次序执行最短自检。",
+        "classification_notes": "混合检查适合逐节和全文。"
+      }
     },
     {
-      "canonical_id": "SKILL-e7194d813010",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "不要直接告诉读者人物期待、目的、态度和剧情走向，而要用行动、细节、对话和铺垫后的变化把这些信息展示出来。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组是 Show vs Tell 的细化版，明确期待、目的、态度和走向都不能先由作者宣布，属于正文现场表达底线。",
-      "applicability": "applicable",
-      "decision_reason": "强情绪追妻文最怕作者先替场面下定义，这组规则会直接约束正文显影方式和情绪价值兑现。",
-      "target_stage": "draft、revision",
-      "target_scene": "期待、目的、态度、走向展示"
+      "preset_id": "skills/story-short-write/SKILL.md::38b48a2af8100bc4",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "38b48a2af8100bc40e7989c7c47655710cd661296ad17b5d2e4caf8ef50188eb"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "挂载短篇基础、追妻题材、高敏迁移、平台格式和主体来源专属规则包。",
+        "classification_notes": "挂载包决定规则集合。"
+      }
     },
     {
-      "canonical_id": "SKILL-54e9f22898ea",
-      "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
-      "source_sha256": "9179e020ec92959216e1d1c5ea88a9cda0ebb1404db11a68cb07bde5e997f72f",
-      "canonical_rule_text": "心理描写要尽量贴着动作、停顿和身体反应渗出来，避免括号式内心标注、大段独白解释动机和“她感到”“她意识到”式直接告知。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这组专门控制心理描写的露面方式，反对括号标注和动机说明书，要求情绪从动作与现场细节里渗出。",
-      "applicability": "applicable",
-      "decision_reason": "主体原文声线的内心活动本就偏贴身、少盖章，追妻题又需要读者自己接到破绽，这组规则应直接用于首稿与回修。",
-      "target_stage": "draft、revision",
-      "target_scene": "心理描写、内心活动、动作渗透"
+      "preset_id": "skills/story-short-write/SKILL.md::e9488f82af9ed870",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "e9488f82af9ed8702709bda30d104fb805bc0d8ad577c7f670eee3a6d919090e"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "起盘阶段锁定题面、人物欲望、误判、六桥、旧伤物与终局证据来源。",
+        "classification_notes": "Phase 1直接约束设定。"
+      }
     },
     {
-      "canonical_id": "ASSET-8b8b63d4bc07",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/仿写约束_禁写清单.md",
-      "canonical_rule_text": "`仿写约束_禁写清单.md` 负责把主体拆书里不能直搬、不能偷换、不能模板化复现的高风险壳层和句法禁区落成文件级约束，是仿写换壳前的止损清单。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是固定命名的约束资产职责预填：公共层只定义它负责禁写边界，不替任何单书预判是否必须消费。",
-      "target_stage": "prewrite、draft、revision",
-      "target_scene": "仿写边界、禁写壳、换壳止损"
+      "preset_id": "skills/story-short-write/SKILL.md::9217c42610ec51b3",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "9217c42610ec51b3c84eeb816cca880f3a20eb3e4ed2e293a6daa5cc0a3db4dd"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "细纲逐节写明任务、主桥、承重物、情绪升级、伏笔和连续表演场面。",
+        "classification_notes": "细纲职责明确。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-38feab05f828",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/作者DNA指纹.md",
-      "canonical_rule_text": "`作者DNA指纹.md` 负责沉淀主体作者在叙述站位、语气偏手、句法习惯、情绪转折和人物判断上的高辨识度写法，是声线迁移前的指纹层来源资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只能预填这类文件的职责边界，不能公共化任何具体作者或单书的真实指纹内容。",
-      "target_stage": "prewrite、draft、revision",
-      "target_scene": "主体声线指纹、站位偏手、句法习性"
+      "preset_id": "skills/story-short-write/SKILL.md::fc4429bfb7538ed7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "fc4429bfb7538ed7f740707220b952bcc2f40d88eefdc8358fc703a414c89667"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文逐场先写动作、物件和秩序变化，再以主体口气写判断、对白和身体情绪。",
+        "classification_notes": "正文阶段规则与主体声线直接一致。"
+      }
     },
     {
-      "canonical_id": "ASSET-605639cf308f",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/全文情绪颗粒总账.json",
-      "canonical_rule_text": "`全文情绪颗粒总账.json` 负责把主体原文的情绪锯齿、峰值节点、旧伤触发和每段情绪落点按顺序结构化，是强情绪正文前合同的真源底稿。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是情绪总账类资产的公共职责，不含任何单书具体情绪内容；项目级是否必须消费仍由当前题型人工判断。",
-      "target_stage": "prewrite、outline、draft",
-      "target_scene": "情绪锯齿、峰值分配、旧伤触发"
+      "preset_id": "skills/story-short-write/SKILL.md::fff837029cfd44e9",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "fff837029cfd44e92f98f317dd8d527f767b75185a68cd5ab65e6a880575fce1"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "只有初稿停靠后获用户授权，才启动正式审计、去味或深度回炉并重绑台账证据。",
+        "classification_notes": "当前运行止于初稿停靠。"
+      }
     },
     {
-      "canonical_id": "ASSET-8d7beb71c80e",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/全文情节微拍总账.json",
-      "canonical_rule_text": "`全文情节微拍总账.json` 负责把主体故事推进拆到微拍顺序、后果递进和桥间承重件级别，是细纲换链和正文顺序契约的重要来源资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义“微拍总账”的职责，不公共化任何单书的桥序和拍序内容。",
-      "target_stage": "prewrite、outline、draft",
-      "target_scene": "微拍顺序、节拍承重、后果递进"
+      "preset_id": "skills/story-short-write/SKILL.md::dd40b4a3de638edf",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "dd40b4a3de638edfa99dff2443e77c5fa1816d6ef81e65c8995c67c9d28577ba"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "拆书、市场扫描、长篇迁移和成稿去味只在相应显式需求下切换 skill。",
+        "classification_notes": "流程衔接是路由边界。"
+      }
     },
     {
-      "canonical_id": "ASSET-a0a2fe704bf0",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/公开场_关键硬牌_后果.md",
-      "canonical_rule_text": "`公开场_关键硬牌_后果.md` 负责固定公开场里哪些硬牌必须亮出、由谁承压、秩序怎么变化以及后果如何落地，避免公开场只剩吵架外壳。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是公开场承重资产的职责预填，不含具体单书的牌面和场次内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "公开场承压、硬牌亮出、后果落地"
+      "preset_id": "skills/story-short-write/SKILL.md::663e7d00d0b8c215",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/SKILL.md",
+        "rule_text_sha256": "663e7d00d0b8c215705c1113ca3e37a041272b148d60714129b87dda92c2344c"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "按阶段调用 workflow、craft、governance 与 integration 参考，不把参考索引当成可跳过的背景说明。",
+        "classification_notes": "参考资料族决定各阶段应读取的正式规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-74f90f8ef76a",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/关系重组方式.md",
-      "canonical_rule_text": "`关系重组方式.md` 负责总结主体关系如何从失衡、误判、失去到重新分配位置，是追妻题里位置变化和关系后效应的来源资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层定义的是“关系重组”这类资产的职责，不是单书关系桥段的公共模板。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "关系反转、位置变化、追妻后效应"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::6f5b9e6097b188ce",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "6f5b9e6097b188ce6f018607d093f64ddc70899912f28aac61bc867e21d91fc6"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "script"
+        },
+        "canonical_rule_text": "黑岩/点众正文统一使用 `###数字.` 小节标记。",
+        "classification_notes": "平台已锁定，可由格式脚本核验。"
+      }
     },
     {
-      "canonical_id": "ASSET-4ba89437dbcf",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/冲突载体清单.md",
-      "canonical_rule_text": "`冲突载体清单.md` 负责沉淀主体如何借物件、空间、身份、规则和第三方视线承载冲突，防止冲突只停在抽象情绪和空对白里。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是冲突载体类资产的职责预填，具体载体选择仍属于单书真源内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "冲突载体、物件秩序、施压媒介"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::a695a3fef39b1bfb",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "a695a3fef39b1bfb654290479433c9a8c68f020dccb631480f454448c8b4b2f1"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "知乎/盐言纯数字小节格式只在目标平台为知乎/盐言时启用。",
+        "classification_notes": "平台专属规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-73e4b790b2b1",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/原文资产候选池.md",
-      "canonical_rule_text": "`原文资产候选池.md` 负责把主体原文中可迁移、可替换、可复写的资产先做候选分层，供后续换壳、选材和高敏筛查使用。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义候选池的筛选职责，不替项目决定哪些候选最终必须落笔。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "可学资产筛选、迁移候选、替换前选材"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::00c3f1eb7dd89fd3",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "00c3f1eb7dd89fd3527d2d88541b825e267000f4ee0c3db188dd2cf0f2b0ef8a"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文紧密排段且无缩进、无段间空行；按动作与信息变化自然断段，避免机械等长。",
+        "classification_notes": "人工判断断段自然度。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-5171fffe44be",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/同桥段过检规则.md",
-      "canonical_rule_text": "`同桥段过检规则.md` 负责约束在保留同桥承重时，哪些桥级差异必须成立、哪些复现形态会直接撞高敏，是同桥换壳和相似桥复核的过检规则来源。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是高敏同桥规则资产的公共职责预填，不含任何单书具体桥段判断结果。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "同桥换壳、高敏过检、桥级差异"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::688644e85dfdf428",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "688644e85dfdf4288be1e3db72733aacc70add5a5f09e9fc89277b80fc1b1ef2"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "黑岩/点众正文统一使用半角双引号标记对白。",
+        "classification_notes": "平台格式明确且可混合检查。"
+      }
     },
     {
-      "canonical_id": "ASSET-861a45d98e1f",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/子流程施工卡.md",
-      "canonical_rule_text": "`子流程施工卡.md` 负责把单书常用的局部施工流程拆成可调用步骤、前置输入和检查口径，帮助写前与回修阶段按资产职责接入，不把步骤混成口头经验。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是流程辅助资产职责，不是正文规则本体；公共层可预填职责，项目级是否采用仍人工判断。",
-      "target_stage": "prewrite、outline、draft、revision",
-      "target_scene": "流程拆步、阶段挂载、检查口径"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::3b827bb0b7df8a41",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "3b827bb0b7df8a419ec69e9cfb69991309968a48bbdd8a56ebb85f21373421bf"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "draft_constraint",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "对白独立成行，优先用动作与上下文辨认说话人，避免机械标签。",
+        "classification_notes": "不仅是格式，也影响现场表演。"
+      }
     },
     {
-      "canonical_id": "ASSET-9955ad38fc35",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/平台适配提醒.md",
-      "canonical_rule_text": "`平台适配提醒.md` 负责沉淀主体在目标平台下的篇幅、节奏、留钩和付费预期口径，防止题材承重对了却写成错平台的出稿手感。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义平台适配提醒的职责，不公共化任何平台专属桥段和具体口径。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "平台口径、篇幅节奏、付费点密度"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::45c54b2249452aa6",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "45c54b2249452aa62340d5f32e529fb18626da9866aaf2476513d8960ac700ac"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "全文按目标字数切为8至15个主小节，每节推进一个明确情节点并按实际承重调节字数。",
+        "classification_notes": "节数与字数先在细纲确定。"
+      }
     },
     {
-      "canonical_id": "ASSET-6ab997146d99",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/异物清单.md",
-      "canonical_rule_text": "`异物清单.md` 负责标出主体体系里容易混入的题外壳、错题材手势和污染性桥段，是写前排异与回修去杂的来源清单。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是排异类资产职责预填，不替项目决定哪些异物在当前题里一定会出现。",
-      "target_stage": "prewrite、outline、draft",
-      "target_scene": "异物排查、禁混桥段、题外污染"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::13ae88aa07fecf4f",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "13ae88aa07fecf4fa8dcccf8f95bbdca3b9d13e00e7837ad74d3e5e38d063613"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "每节包含一个主事件、足够子事件、明确情绪变化、新信息和必要对白交锋，并把发生、感知、反应织入连续场面。",
+        "classification_notes": "先由细纲表演合同规划，再由正文检查。"
+      }
     },
     {
-      "canonical_id": "ASSET-29eeef08a6ec",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/情绪母线.md",
-      "canonical_rule_text": "`情绪母线.md` 负责概括主体全篇最核心的情绪主轴和各段峰谷承接，是把单点情绪总账串成整篇情绪走向的中层资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义情绪母线的职责，不公共化任何单书的具体情绪路径。",
-      "target_stage": "prewrite、outline、draft",
-      "target_scene": "情绪主轴、段落承接、峰谷转折"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::315a13e32e646016",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "315a13e32e6460168e8a8b92b79dad4bcc50a417ac1859f5a0a4f5353bf9351c"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "小节尾落不可逆后果或新问题，下一节直接承接；情绪按主体母线递进并允许峰后受控换气。",
+        "classification_notes": "跨节衔接先锁在细纲。"
+      }
     },
     {
-      "canonical_id": "ASSET-53dd06c566f2",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/新状态清单.md",
-      "canonical_rule_text": "`新状态清单.md` 负责记录主体每个关键节点后人物、关系、秩序和外部环境进入了什么新状态，确保后果不是喊出来而是真的留在后文。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是状态变更类资产职责预填，不含单书具体状态内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "人物状态变更、关系新秩序、后果留痕"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::549173bcffb6a3c5",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "549173bcffb6a3c5df9af39717e8fedfe4547535748834fd957b61b157d6de87"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "按黑岩/点众平台组合执行 `###数字.`、双引号和无特殊导语标记。",
+        "classification_notes": "平台覆盖需脚本和人工双检。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-cb758fcd534f",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/本书动态信号字典.json",
-      "canonical_rule_text": "`本书动态信号字典.json` 负责沉淀主体在动作、物件、反应、语气和场面切换上的动态信号词及其触发含义，是判断声线细部活性与动作偏手的字典层资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只能定义动态信号字典的职责，不能公共化任何单书的信号词和语义映射。",
-      "target_stage": "prewrite、draft、revision",
-      "target_scene": "动态信号、动作偏手、反应触发"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::93728294201c6bc0",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "93728294201c6bc02d8259eba9e32a70abad97860d84431e16add611551dc9ae"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "正文禁止超长段、段间空行、缩进、正文Markdown和机械对话标签。",
+        "classification_notes": "部分可脚本检查，标签机械化需人工判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-3fc9294250f6",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/样本分级与可学层.md",
-      "canonical_rule_text": "`样本分级与可学层.md` 负责区分主体样本中哪些层可学、哪些只可观察、哪些属于高敏禁搬区，是读取门禁后的选材分层资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是样本分级类资产的职责预填，不替任何项目自动决定具体可学片段。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "样本筛选、可学层边界、禁直接搬运"
+      "preset_id": "skills/story-short-write/references/workflow/format-and-structure.md::86700f6bac5a9124",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/format-and-structure.md",
+        "rule_text_sha256": "86700f6bac5a91242f4c75b7c587661fc05052169ccac2e8c1f9a8c6bebb8ae6"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "逐节检查段长、断段变化、无空行、对白格式、标签自然度、无缩进以及事件情绪信息完整性。",
+        "classification_notes": "快速检查为逐节提交前混合验收。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-69290d157f38",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/桥段施工卡.md",
-      "canonical_rule_text": "`桥段施工卡.md` 负责把主体关键桥段拆成可执行的拍序、转折点和承重件检查项，是桥级换链、扩细纲和回修时的施工卡真源。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层预填的是桥段施工卡这类资产的职责，不包含任何单书桥段的真实拍序。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "桥段拆拍、动作顺序、承重校验"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::c67578873419c53b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "c67578873419c53baec2e09e834816cdf2d184e55a209540b63047e819263e06"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "去AI三遍法、禁词清洗和系统性去味只在初稿停靠后经用户授权启用。",
+        "classification_notes": "当前阶段边界排除完整去味路由。"
+      }
     },
     {
-      "canonical_id": "ASSET-f66567f64699",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/母结构_故事走法.md",
-      "canonical_rule_text": "`母结构_故事走法.md` 负责概括主体故事的大结构走法、推进方式和关键回环，是从局部桥段回看整篇故事骨架的结构资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义母结构资产的职责，不公共化单书的真实故事结构。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "母结构、故事走法、整篇骨架"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::bf65fbdd95d43a6f",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "bf65fbdd95d43a6f958b81ffdd4df67a3a01c6a5059205f67c09b451416bd87d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "首稿只拦截施工稿、万能总结、解释盖章和答题对白，保留主体原文允许的直接判断、粗粝插嘴与情绪回跳。",
+        "classification_notes": "阶段边界直接约束本轮首稿。"
+      }
     },
     {
-      "canonical_id": "ASSET-f0b426914b92",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/第二层冲突清单.md",
-      "canonical_rule_text": "`第二层冲突清单.md` 负责沉淀主冲突之外持续加压的第二层矛盾、阻滞和代价来源，避免故事只有主冲突单线硬推。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是第二层冲突资产的职责预填，不含单书具体副冲突内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "副冲突、持续加压、代价来源"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::4cd3087f17bd3693",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "4cd3087f17bd36937f199fa28b250e99eafedd37e44a43f450ef288c7e4edac1"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "避免脱离主体声线的抽象升华词和万能比喻，优先落到具体事件与生活化表达。",
+        "classification_notes": "只作首稿预防，不做词频清洗。"
+      }
     },
     {
-      "canonical_id": "ASSET-559c4335ffac",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/虐点对照细节.md",
-      "canonical_rule_text": "`虐点对照细节.md` 负责总结主体如何用细节兑现痛点、失衡和追悔，让虐点不是标签而是可复核的现场后果。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义虐点细节对照的职责，不公共化具体伤害细节。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "虐点兑现、失衡细节、追悔后果"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::fb4c9d28cb2573cd",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "fb4c9d28cb2573cdd1a40746883089215f4c172709a88553c09bbdfcecbaca04"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "章尾不写总结、哲理升华或万能风暴预告，只停在动作、状态和未完后果。",
+        "classification_notes": "与主体断场原则一致。"
+      }
     },
     {
-      "canonical_id": "ASSET-4696befe288f",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/角色口气模板.md",
-      "canonical_rule_text": "`角色口气模板.md` 负责沉淀主体人物在不同关系压力下的口气差、失手方式和语气边界，防止人物台词被写成同一张脸。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "这是口气模板类资产的职责预填，不等于公共对白模板。",
-      "target_stage": "draft、revision",
-      "target_scene": "角色口气、人物不同脸、对白偏手"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::1e5185614af3e335",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "1e5185614af3e335726882e318caabf2e8b92ee7122df5bdae579343d95daed1"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "对白和叙述使用角色会说的常用口语，不为追求劲道生造陌生搭配。",
+        "classification_notes": "人物声线人工判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-995a6117e5d7",
-      "match_strategy": "path_only",
-      "source_path_suffix": "写作资产/高敏桥段识别.md",
-      "canonical_rule_text": "`高敏桥段识别.md` 负责标出主体里最容易因同桥、同因果或同表演路径撞高敏的桥段，是高敏流程判型前的桥级识别资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层预填的是高敏桥识别职责，不是具体单书桥段风险结论。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "高敏桥识别、风险判型、桥级预警"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::11d2ea24ff5e121c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "11d2ea24ff5e121ca811ae53b9331925f14858c33de05300ab5d1c6befa54879"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "不替人物或读者宣布反应与输赢，让沉默、脸色、站位和动作呈现结果。",
+        "classification_notes": "作者代判需人工审阅。"
+      }
     },
     {
-      "canonical_id": "ASSET-8c7b21775ad2",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/关系细节库.md",
-      "canonical_rule_text": "`关系细节库.md` 负责沉淀主体里关系变化通过哪些动作、视线、称呼和位置差被写出来，是关系层表演细节的来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义关系细节库职责，不公共化任何单书关系细节。",
-      "target_stage": "draft、revision",
-      "target_scene": "关系表演、称呼变化、位置差"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::e2234ae70f141d9a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "e2234ae70f141d9aced8753bbdaa871b738235825e48faad109307aff7c52975"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "情绪与抽象判断必须明确对象和触发来源，不为求短省掉承重信息。",
+        "classification_notes": "与主体省略对象但不省略因果的边界区分。"
+      }
     },
     {
-      "canonical_id": "ASSET-e99cd5c78e4f",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/动作细节库.md",
-      "canonical_rule_text": "`动作细节库.md` 负责沉淀主体里能带出人物状态、秩序变化和情绪落点的动作写法，是动作层表演资产来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义动作细节库职责，不公共化任何单书动作细节。",
-      "target_stage": "draft、revision",
-      "target_scene": "动作表演、状态落点、秩序变化"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::c2f41f4b5c54843c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "c2f41f4b5c54843c37c8f1c8443a3486f66b2c9b7692493af307dd108465c624"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "伤害风险和后果按真实等级写实，不用“乱来”“出事”等虚词降轻。",
+        "classification_notes": "后果具体度人工判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-13d90bf5bbac",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/场景细节库.md",
-      "canonical_rule_text": "`场景细节库.md` 负责沉淀主体如何用空间、陈设、光线和环境阻力让场景自己参与叙事，是场景层表演资产来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义场景细节库职责，不公共化任何单书场景细节。",
-      "target_stage": "draft、revision",
-      "target_scene": "场景表演、空间阻力、环境参与"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::7cf6cc3e06d24486",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "7cf6cc3e06d244864adefe888373a0bf4bae76f30bd91e1b802c4b9f000cdd9a"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "发生、感知和反应织入同一连续动作链，不把同一动作拆成三轮同义描写。",
+        "classification_notes": "与全文颗粒度合同协同。"
+      }
     },
     {
-      "canonical_id": "ASSET-d0f006221fdf",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/场面细节库.md",
-      "canonical_rule_text": "`场面细节库.md` 负责沉淀主体在多人场、公开场和秩序混乱场里的场面调度、位置变化和压力扩散方式，是场面层表演资产来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义场面细节库职责，不公共化任何单书场面细节。",
-      "target_stage": "draft、revision",
-      "target_scene": "场面调度、多人位置、压力扩散"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::603d8efef9c8161a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "603d8efef9c8161a0d8408a8e8c2c09b9d4ab388faa2ba0561194fe46adf52f8"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "段落按动作或信息变化拆合，既不塞入多个完整动作，也不把同一镜头碎成提纲。",
+        "classification_notes": "段落密度由人工判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-5dbabda28fda",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/对白细节库.md",
-      "canonical_rule_text": "`对白细节库.md` 负责沉淀主体对白里常见的话轮推进、假礼貌、反切、失手和权力边界改写方式，是对白层表演资产来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义对白细节库职责，不公共化任何单书对白内容。",
-      "target_stage": "draft、revision",
-      "target_scene": "对白推进、话轮反切、权力边界"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::6a2c1998b91f0936",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "6a2c1998b91f0936ad3b3d98d863c17b0f9a1647c5510e70ce62d3d9c0e1205b"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "情绪优先通过动作、对白和身体反应显形，但保留主体原文自然的直接判断。",
+        "classification_notes": "混合执行且受主体声线例外约束。"
+      }
     },
     {
-      "canonical_id": "ASSET-997a4636f42d",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/情绪细节库.md",
-      "canonical_rule_text": "`情绪细节库.md` 负责沉淀主体如何让情绪通过动作、感官、停顿和场面变化落到细节层，而不是直接喊出结论，是情绪层表演资产来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义情绪细节库职责，不公共化任何单书情绪细节。",
-      "target_stage": "draft、revision",
-      "target_scene": "情绪显影、感官细节、停顿落点"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::ac0e33595852dd0e",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "ac0e33595852dd0e337de75b668c1e4968ca5f491ee2ae077a3dedc59d7d3112"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "句长随紧张、对白、日常与描写变化，避免整页等长短句和固定动作心理台词模板。",
+        "classification_notes": "句法节奏由主体样本人工对照。"
+      }
     },
     {
-      "canonical_id": "ASSET-82fa24990bb6",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/旧伤细节库.md",
-      "canonical_rule_text": "`旧伤细节库.md` 负责沉淀主体旧伤如何被物件、场景、称呼和相似处境触发，是旧伤回响与情绪倒灌的来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义旧伤细节库职责，不公共化任何单书旧伤内容。",
-      "target_stage": "draft、revision",
-      "target_scene": "旧伤触发、回响倒灌、情绪返潮"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::ea0f1909fcc94ae4",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "ea0f1909fcc94ae45cc69e4cbcd3bf04580224555f073f4252f5dafed7ae43ba"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "叙述与对白保持人物身份下的自然口语，可粗粝但不书面、不滥用成语也不乱造句。",
+        "classification_notes": "口语化需服从角色口气合同。"
+      }
     },
     {
-      "canonical_id": "ASSET-1337a848efca",
-      "match_strategy": "path_only",
-      "source_path_suffix": "原文细节库/翻车细节库.md",
-      "canonical_rule_text": "`翻车细节库.md` 负责沉淀主体里关系失控、公开露馅、站位坍塌和自证失败时的翻车细节，是高压失控场的来源库。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义翻车细节库职责，不公共化任何单书翻车内容。",
-      "target_stage": "draft、revision",
-      "target_scene": "翻车瞬间、公开露馅、站位坍塌"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::baab10b5f5971f49",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "baab10b5f5971f49e9e7208b80bfcb301d84454f2379f1e5d35e774627692a68"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "用具体行为、物件、对白和反应承担人物与关系判断，避免抽象形容替代场面。",
+        "classification_notes": "不绝对禁止主体直接心理。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-7e6c69dbbda9",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_人物偏手表.md",
-      "canonical_rule_text": "`可直接仿写_人物偏手表.md` 负责提炼主体人物最有辨识度的偏手动作、护短方式和改站位习惯，是人物不同脸和人物偏手迁移的专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义人物偏手表的职责，不公共化单书人物的具体偏手内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "人物偏手、护短方式、改站位习惯"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::887da8a7b681bf79",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "887da8a7b681bf79031e9b565e198feba4db4a3746c83527fd7cc176151ee4b5"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "初稿停靠后才做系统性AI指纹表面改写；首稿阶段仅按阶段边界预防明显偏移。",
+        "classification_notes": "该族属于成稿表面审计。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-c6317cbc9e46",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_公开炸场表.md",
-      "canonical_rule_text": "`可直接仿写_公开炸场表.md` 负责提炼主体如何在公开场制造位置坍塌、当众改站位和舆情风险，是公开炸场桥的专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义公开炸场表的职责，不公共化任何单书的具体炸场桥段。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "公开炸场、位置坍塌、舆情风险"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::f85fce734782cf11",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "f85fce734782cf11becb8145bbec264e98696d4bd518cbd0158412847d55cb13"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "全文对白符号统一、场景切换可辨、时间线可追踪。",
+        "classification_notes": "格式和时间线需脚本加人工检查。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-381efc6399d8",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_动作表.md",
-      "canonical_rule_text": "`可直接仿写_动作表.md` 负责提炼主体高承重动作的切换逻辑、动作前后站位变化和动作触发条件，是动作桥专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义动作表职责，不公共化任何单书具体动作桥。",
-      "target_stage": "draft、revision",
-      "target_scene": "高承重动作、动作切换、站位变化"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::6a9a32dbb8d9837b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "6a9a32dbb8d9837ba773998114e79a8c26922e06f95d2f2d0eb69b4dc06d6f2e"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文长短句、对话口语与快慢节奏须随场景变化，避免卡顿和机械匀速。",
+        "classification_notes": "可读性需人工朗读判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-7413c1b38dfe",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_后果链表.md",
-      "canonical_rule_text": "`可直接仿写_后果链表.md` 负责提炼主体如何让一个事件连续推高住所、知情、法律、关系和外部处境的后果链，是后果递进专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义后果链表职责，不公共化任何单书的具体后果链内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "后果递进、处置权变化、连续加压"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::a1b568aee88ce7f1",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "a1b568aee88ce7f142a72e49f6672cd98a19dd3c9278867069473197e016db3c"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "明显抽象情绪和机械说话标签优先改为人物动作，但不得删除主体允许的直接心理。",
+        "classification_notes": "范例提供替换方向，不是绝对禁令。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-252467a396e4",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_外部秩序表.md",
-      "canonical_rule_text": "`可直接仿写_外部秩序表.md` 负责提炼主体如何让公司、平台、舆情、契约和第三方流程共同施压人物，是外部秩序加压专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义外部秩序表职责，不公共化任何单书的具体施压链。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "外部秩序、流程施压、违心劳动"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::8557601cdca43f14",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "8557601cdca43f14009e9e112b770374fd359b4c40e01f24685ce71d53515eb0"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "避免不属于主体声线的套语、万能动作和文绉绉标签，以具体现场表达替代。",
+        "classification_notes": "只作首稿预防，不执行禁词清零。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-df9597ed7c97",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_失控说话表.md",
-      "canonical_rule_text": "`可直接仿写_失控说话表.md` 负责提炼主体人物在不可替代物被毁、底线被击穿时的失控说话方式和烈度条件，是失控对白专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义失控说话表职责，不公共化任何单书的具体崩溃台词。",
-      "target_stage": "draft、revision",
-      "target_scene": "失控说话、击穿底线、烈度触发"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::6cbdc0a3cfe9eb8d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "6cbdc0a3cfe9eb8d8b65b203878994eb3604ef4f4339c2212e37c129a77103aa"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "不写无参照的意义膨胀，改写为具体损失、收益或可见后果。",
+        "classification_notes": "具体后果规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-6738dfcb058d",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_安静压迫场表.md",
-      "canonical_rule_text": "`可直接仿写_安静压迫场表.md` 负责提炼主体如何用安静场、反差场和环境噪声做压迫，而不是靠吼叫提烈度，是安静压迫场专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义安静压迫场表职责，不公共化任何单书的具体压迫场。",
-      "target_stage": "draft、revision",
-      "target_scene": "安静压迫、场域反差、环境噪声"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::c923094197860fc6",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "c923094197860fc60425d8cda8a30623da7c94c651b95ffca861d4fa160dac38"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "不用万能希望或前途结论收口，结尾落在下一步动作或未解后果。",
+        "classification_notes": "与主体尾声动作化一致。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-e518daa42aa9",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_对白功能表.md",
-      "canonical_rule_text": "`可直接仿写_对白功能表.md` 负责提炼一句话如何改写权限、撤销边界和切断关系功能，是高功能对白专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义对白功能表职责，不公共化任何单书具体功能句。",
-      "target_stage": "draft、revision",
-      "target_scene": "高功能对白、权限撤销、边界切断"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::2d09abe32277d527",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "2d09abe32277d5270798e0fbc03c7280e6d4709b4b374ff7918e5c45e3c1e64d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "小说正文禁用论文式论证连词和总结框架。",
+        "classification_notes": "可脚本扫描。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-a9f85f4a932d",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_对话衔接表.md",
-      "canonical_rule_text": "`可直接仿写_对话衔接表.md` 负责提炼主体如何接住对方话头再反切称谓、边界或站位，是对话承接和反切专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义对话衔接表职责，不公共化任何单书具体话轮内容。",
-      "target_stage": "draft、revision",
-      "target_scene": "对话承接、反切称谓、边界改写"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::7bdd01a4c693117a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "7bdd01a4c693117a52e15151e699d1e8a23507ec5b05117bf7759e4ae7123a19"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "事件后不立即追加主题解释或替读者顿悟，让后果自行成立。",
+        "classification_notes": "篇章级作者代判。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-5f1d732e7d93",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_导语拆解表.md",
-      "canonical_rule_text": "`可直接仿写_导语拆解表.md` 负责提炼主体导语前几拍如何先定异常关系、既成选择和误读合同，是导语承重专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义导语拆解表职责，不公共化任何单书导语句面。",
-      "target_stage": "outline、draft",
-      "target_scene": "导语承重、异常关系、误读合同"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::f81b859c45ec3d51",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "f81b859c45ec3d51ca15af3c36d71e4bdba423d943f4956b455eb6e19ec7190e"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "冷硬点题短句只能偶发，禁止连续多节用同类盖章尾句。",
+        "classification_notes": "篇章长窗检查。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-1ed5d32b5414",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_微动作表.md",
-      "canonical_rule_text": "`可直接仿写_微动作表.md` 负责提炼主体微动作如何被目标人物看到并进入关系权力链，是微动作显影专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义微动作表职责，不公共化任何单书微动作内容。",
-      "target_stage": "draft、revision",
-      "target_scene": "微动作显影、被看见、权力链触发"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::66d3bfaf2666fdea",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "66d3bfaf2666fdea758d1a2f8367b27d8559f48f0a4d04b70a00c94a75bad6cf"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "主角情绪必须有失控门槛、破绽和回跳，不能全程成熟冷静。",
+        "classification_notes": "情绪活性人工判断。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-cf7702bbb13e",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_烂关系漏出表.md",
-      "canonical_rule_text": "`可直接仿写_烂关系漏出表.md` 负责提炼主体烂关系如何在同场动作、称谓和站位中漏出来，而不是靠解释宣布，是烂关系显影专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义烂关系漏出表职责，不公共化任何单书具体烂关系桥。",
-      "target_stage": "draft、revision",
-      "target_scene": "烂关系显影、同场漏出、称谓错位"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::06be866eaa685570",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "06be866eaa6855700d90af1e27c2e0cc68af177ffea5ae3d35ad527ac98e4c81"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "配角具备自身偏手和非功能性枝节，对话允许错答、回避、留白和跑题。",
+        "classification_notes": "混合检查配角与对白长窗。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-5b5a9b56f3c2",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_物件表.md",
-      "canonical_rule_text": "`可直接仿写_物件表.md` 负责提炼主体关键物件如何经历持有、争夺、废弃、替换和意义改写，是物件承重专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义物件表职责，不公共化任何单书具体物件链。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "关键物件、争夺替换、意义改写"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::1794708b4ddfbd0c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "1794708b4ddfbd0c769f859708086b8e549a60319262277efd85496c02a2d1e0"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "停靠后授权去味时才系统执行去泛化 Pass 1；首稿只预防明显泛化总结。",
+        "classification_notes": "完整Pass属于停靠后动作。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-3812eaab71a3",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_误判表.md",
-      "canonical_rule_text": "`可直接仿写_误判表.md` 负责提炼主体如何先建立稳定误读，再在后段翻刀改写人物真相和关系真相，是误判翻刀专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义误判表职责，不公共化任何单书具体误判内容。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "误读建立、翻刀反转、真相改写"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::89a4724b8152299c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "89a4724b8152299c91ed296dc70d7bd69e2e10cefae7ca79bdf6db1f7215f5c8"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "停靠后授权去味时才系统执行去书面化 Pass 2。",
+        "classification_notes": "成稿回修规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-00ad426e648d",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_钩子表.md",
-      "canonical_rule_text": "`可直接仿写_钩子表.md` 负责提炼主体如何用最短信息量先抛出身份关系、异常因果和未解释真相，是钩子设计专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义钩子表职责，不公共化任何单书具体钩子句。",
-      "target_stage": "outline、draft",
-      "target_scene": "钩子设计、身份关系、未解释真相"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::1ef13d5916cf9629",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "1ef13d5916cf96293b19741a34f16b3ce0cd8782caf1baf8a98911b3536ecb80"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "停靠后授权去味时才系统执行自然感恢复 Pass 3。",
+        "classification_notes": "成稿回修规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-RULE-32ac574c5ac9",
-      "match_strategy": "path_only",
-      "source_path_suffix": "可直接仿写_顺序事件表.md",
-      "canonical_rule_text": "`可直接仿写_顺序事件表.md` 负责提炼主体关键事件和导语四拍的出场顺序、情绪排序与反刀节奏，是顺序事件专项表。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义顺序事件表职责，不公共化任何单书具体事件顺序。",
-      "target_stage": "outline、draft、revision",
-      "target_scene": "事件顺序、导语四拍、反刀节奏"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::1ce11bec1d85fc9b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "1ce11bec1d85fc9bf1d01c95531d0f80c760d82b0b5dc30ce9330784a67f3702"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "去味升级强度只能在初稿停靠后按用户授权和实际风险选择。",
+        "classification_notes": "后续路由规则。"
+      }
     },
     {
-      "canonical_id": "ASSET-2dbd84a74a5c",
-      "match_strategy": "path_only",
-      "source_path_suffix": "情节节点.md",
-      "canonical_rule_text": "`情节节点.md` 负责把主体故事的核心情节节点、前后因果和转折位置按全篇顺序固定下来，是总览剧情链的文件级资产。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义情节节点文件的职责，不公共化任何单书节点内容。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "总览节点、因果链、转折位置"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::e7dd1e00648cb0fc",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "e7dd1e00648cb0fca87082907ffe5494f692aed5342ef351f11e4c84dfc9142d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "首稿逐节检查对白自然、角色可辨、场景特有细节、生造句和作者代判。",
+        "classification_notes": "清单中可作为首稿预防的部分适用。"
+      }
     },
     {
-      "canonical_id": "ASSET-6e7c0cd8fcab",
-      "match_strategy": "path_only",
-      "source_path_suffix": "拆文报告.md",
-      "canonical_rule_text": "`拆文报告.md` 负责汇总主体拆文的结构结论、重点观察项和跨资产导航，是读取门禁后的总览索引资产，但不能替代原始细节库和真源资产本身。",
-      "taxonomy_decision": "accept_suggestions",
-      "taxonomy": {},
-      "classification_notes": "公共层只定义拆文报告的导航职责，不把它误当成可替代所有原始资产的一份总摘要。",
-      "target_stage": "prewrite、outline、revision",
-      "target_scene": "拆文总览、结构导航、跨资产索引"
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::594621ba8361502a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "594621ba8361502a996bedf03e23a4be661e33e4fa6bdae6b81bfe4935f2d20e"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "期待、目的、态度和走向优先由动作链与现场反应展示，不写成作者播报。",
+        "classification_notes": "展示规则受主体直接心理例外约束。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::0f79a95e07e8e562",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "0f79a95e07e8e562e871f6e5e73310e071a5ea57746a44b8b028b91711311d8c"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "心理描写跟随新刺激并保留人物口气，禁止大段解释动机或括号式内心标注。",
+        "classification_notes": "不执行直接心理清零。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::3d3ccbaf37d93f6c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "3d3ccbaf37d93f6c5a4285e004916e1e066ab54e21840350c3be2f54d207df45"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "主角行为须可理解，反方有真实阻力，人设统一且信息差有效操控读者情绪。",
+        "classification_notes": "代入感综合人工检查。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::fc68c6a99b2987bf",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "fc68c6a99b2987bfd033717890486073146ac27f421a5e7e5248589e64a942f3"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "情绪外化优先选择当前人物会做的具体动作和物件反应，避免套用通用身体模板。",
+        "classification_notes": "范例只提供功能。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::3c7b4c53beac2861",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "3c7b4c53beac2861111f8b536f9cefc2a4ae7f115d23ca817f9388a9fa5fb201"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "场景描写使用当场可感的具体声音、气味、光线和物件，不堆氛围套话。",
+        "classification_notes": "场景范例为白描方向。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::091987f91b21cb2d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "091987f91b21cb2d14cb3b69ce347cc9973f669c0d930659cb9e467057f392aa"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "按冲突与日常需要调节句子长度，删去拖沓套语但不把全文压成短句清单。",
+        "classification_notes": "节奏范例需主体化。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::f3370ba721f2b0ba",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "f3370ba721f2b0ba04c848826a0cad71db58ebad046fd9757f29f6f434f30065"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "冲突对白不得礼貌、完整、咨询化，应符合角色关系和当场压力。",
+        "classification_notes": "AI式温和对白反例。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::e331cc90dd05de2a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "e331cc90dd05de2a8490f636dee3205a3fd41a8f9d94f08d3a75f541b8ecee32"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "人物不在冲突中完整解释所有原因，应以回避、动作、错重点或不体面反应保留潜台词。",
+        "classification_notes": "完美解释反例。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::2b50f71ec70b7ec2",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "2b50f71ec70b7ec25814e9d59241b55f58db9effca631b1884e3608cf63722fc"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "对白烈度随关系和场面升级，不能无门槛跳到最高级羞辱或PUA。",
+        "classification_notes": "五级范例用于烈度校准。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::15584797e11a544f",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "15584797e11a544f438e1f3533540afc723ba5769b88969b8cd036bb394f64d4"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "强冲突同时调动对白、身体、物件、空间、身份或节奏中的可见越界，不能只提高音量。",
+        "classification_notes": "冲突载体规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::16d8463ebe32e3a3",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "16d8463ebe32e3a30cf93c296acd83c7dc204bbf0499e9c54517e2e103143851"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "交流成立以双方互相改变动作、站位、物件、回答范围或秩序为准，不以动作词数量代判。",
+        "classification_notes": "交流承压人工验收。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::5cef8fda1f301671",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "5cef8fda1f301671ee343fd3e67dd5c456c0dbef7926b53fe154797ca56da74a"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "公开震惊按核心人物、近旁人群和现场秩序分层反应，避免全场同步瞪眼。",
+        "classification_notes": "公开场反应分层。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/anti-ai-writing.md::bba433177a12bab8",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/anti-ai-writing.md",
+        "rule_text_sha256": "bba433177a12bab841264c848c4818564c0dd8eafc89b35e3808ef4a00131830"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "audit_check",
+          "remediation_target": "audit",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "完整质量检查清单只在初稿停靠后授权审计时执行；首稿阶段由独立合同和逐节硬闸替代。",
+        "classification_notes": "清单混合了停靠后去味、全文审计和首稿规则，不宜提前整体执行。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::7c408785cfebdb09",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "7c408785cfebdb097da6c7637d182d571bd8a13983823ae9b4203d2233f874f6"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "主体声线核心规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::ae4ac575411e6eca",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "ae4ac575411e6ecaa6c1168f17478372a89fb235ec3976d738901a609b70e14b"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "区分有害的作者总结与有益的叙述者现场插嘴，保留人物实时评价、自嘲和冷眼。",
+        "classification_notes": "声线需人工逐段判断。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::396cca640c273144",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "396cca640c2731440e723d9f8ef5e36908b19acdcb62e1d4058af412f61a25a7"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "在关键动作或信息后加入符合主角偏手的短评价、反讽或核实，不写事后意义总结。",
+        "classification_notes": "实时评价按主体密度施工。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::96027eef86c39622",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "96027eef86c396228324153a73e484688888af40a353b221dd93c0724d83aa6c"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "骤断短句仅在状态已改变或情绪突然收回时使用，不能节节机械盖章。",
+        "classification_notes": "与冷硬尾句高密度禁令共同执行。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::0204101224879c8c",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "0204101224879c8c2fc1875923319e856b38109e4ff124e55bab415a86d593f0"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "高压叙述中保留少量符合人物的苦笑、自嘲或粗粝幽默，避免全程优雅克制。",
+        "classification_notes": "幽默必须来自人物处境。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::9b6d0733b1ba56d7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "9b6d0733b1ba56d7bb71e280940957b9f0142793d55e1b7b0bc73334bea8fdf4"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "重要信息后允许主角以反问、自问自答或短推断回响，但不替读者解释答案。",
+        "classification_notes": "叙述者气口规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::ae26187667554c83",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "ae26187667554c83d301d5c793f67b6871580a7ff8576a33f633239cfd2a7ba8"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "逐节检查叙述者是否现场插嘴、是否重复解释、是否越成作者总结，并保留主体原有代判边界。",
+        "classification_notes": "快速人工声线检查。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/craft/narrator-voice.md::ecd874410727d3ca",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/craft/narrator-voice.md",
+        "rule_text_sha256": "ecd874410727d3ca97b607bd59601dd48280b24bf5f6347bcbf38283a35f27cb"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "audit_check",
+          "remediation_target": "audit",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "完整 AI 审计的长窗分布检查只在初稿停靠后经授权运行。",
+        "classification_notes": "规则明确依赖 run_full_ai_audit.py。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::e44c12cca66fb98d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "e44c12cca66fb98d141e36de8a7184e7b5b1bb0b0fb34bd421a75da6c0611869"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "按正式读取、配置、逐拍、文字、情绪和逐节状态链推进；每次人工字段落盘后只运行一次对应校验。",
+        "classification_notes": "该族是设计前和正文前的详细工具链纪律。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::c1eee6eb88b6bd37",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "c1eee6eb88b6bd37c8d4a1e33b5265513c88dafa448bb4fc88054999a459460f"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "写结构、反派、反转和伏笔前加载对应规则，并在台账即时记录执行，不事后补记。",
+        "classification_notes": "阶段读取与台账同步规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::76ac187d43e8a499",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "76ac187d43e8a499f9bbcdba788ddfcf1049377be5c5c82c1ed91814f3982920"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "设定和细纲须完整设计结构物件、反方、揭露、子事件、动静、对白密度、反转位置与伏笔回查。",
+        "classification_notes": "设计步骤主要约束细纲，部分源于设定。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::b9203acf24626623",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "b9203acf24626623bcb6f1825a862f8db1d08212a892b2b73606e9ce9d71de74"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "起盘必须锁付费期待、主冲突、副升级器、异物、第二层冲突、关系重组、公开后果、新状态与爽点，回修先结构后句面。",
+        "classification_notes": "起盘字段决定后续设计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::a3b3b5302d9b76f2",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "a3b3b5302d9b76f2bdeeb580c6aea145c4b72ba796c25deade05bff95040305c"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "开头先压清关系、偏心与倒霉位置，付费点前用连续更难受的瞬间累积离开必然。",
+        "classification_notes": "情绪推进母规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::3347434f4e151879",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "3347434f4e1518794ab25eb4665c0045722a2411d74486c9f6506d8c947d93dd"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "题面三秒内可读出赛道、狠冲突、硬卖点与代价，删去修饰词后核心仍成立。",
+        "classification_notes": "题面包装先在设定锁定。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::965a3231d07e2d5a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "965a3231d07e2d5a874c199ae81e65563df7d2e73681bc42bf39a2efd4639166"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "script"
+        },
+        "classification_notes": "profile生成与SHA可脚本验证。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::14d424abf3b6b1a1",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "14d424abf3b6b1a126636b40b52ae88cff3d3ebbc9399b1600d6a0db56f28071"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "融合只保留一个大骨架、一个副升级器轴和一条主情绪母线，公开后果、关系重组和角色口气均具体落人。",
+        "classification_notes": "融合落地卡约束设定。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::3e357582fbd3a951",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "3e357582fbd3a951fd2de4c2c6455a2f14401a1625b325562f77482ed58b5cb2"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "爽点以整局位置、名分、身份和后果回收为主，结局坚持追不回而非一次嘴炮或复合。",
+        "classification_notes": "价值爽点规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::ff552f178b334ab8",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "ff552f178b334ab85ec6d3fce9cff68b4929002ccbfc185817d6a98368f4184b"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "高潮由对手主动扩大公开场，主体异常平静等待迟到硬证；真相翻面后必须产生多层现实后效。",
+        "classification_notes": "二次翻刀与终局卡点。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::96a7498bf8d7c050",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "96a7498bf8d7c05038610c78e18fc4dbb9db68f6a99af9fc76aaa84086659854"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "只选一个母结构、一个副升级器和一条主情绪线，所有事件、变量、题面和口气为其服务。",
+        "classification_notes": "融合抽卡分工防止拼盘。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::fd002d2a3214c0e9",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "fd002d2a3214c0e96160b9292c7d6711af5b674b8497813a5f313284d1da1835"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "反直觉只通过有铺垫且能回收的主角反应、矛盾、受害位置或结局预期实现。",
+        "classification_notes": "反转创新需前后闭合。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::c0579186145e050b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "c0579186145e050bdab0ed0060d3ed58abcee515121477232ee158089b55cc2f"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "职业、制度和题材物件必须参与权限、代价或输赢，不作装饰性名词。",
+        "classification_notes": "题材局部件功能检查。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::0f80f5ef331b0afb",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "0f80f5ef331b0afb0b4709737347bf294d1c74c05c713321b89913637a2501a2"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "outline_constraint",
+          "remediation_target": "outline",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "转场以未完话、压住的冲突、物件或称呼接续；伏笔至少三次改变含义并在高潮回收。",
+        "classification_notes": "转场与伏笔先由细纲锁定。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::9ed5fa66cfafde8d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "9ed5fa66cfafde8d23bb62d9c8396e03e279d6bfa2b3aef715f76946e589726f"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "长期题材扩展方法不作为本次单篇写作规则。",
+        "classification_notes": "该族服务素材库长期建设。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::d15d305948d36370",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "d15d305948d36370390e8af7e23945b776483469ec76f194ef60532ccf05c24e"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "通用素材只补一个导火索、关系场、切割动作、第二层冲突、公开场、硬牌和结尾，不得多项乱拼。",
+        "classification_notes": "素材库调用受单一骨架限制。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::2a83a2e5acecd76a",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "2a83a2e5acecd76a7a34f90e2b1c0c4bd5d5e1947eca032617e3b8d988ee9037"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "audit_check",
+          "remediation_target": "audit",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "完整写后脚本预扫与人工语义复核在初稿停靠后经用户授权执行。",
+        "classification_notes": "写后自查属于停靠后链。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::244ffe2f3c022cf7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "244ffe2f3c022cf758b9a14e68070fde64671f88fd5cfd205773d19ead6f339a"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "audit_check",
+          "remediation_target": "audit",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "短篇完整回炉自检单在停靠后审计阶段使用。",
+        "classification_notes": "综合回炉清单。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::26ce5074df33371f",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "26ce5074df33371fc61b717c69d60daaa4b3f5d91ffc60244a9eee1910578122"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "人物同腔、事件不升级、空情绪、无炸场和无结尾落点属于首稿高风险信号。",
+        "classification_notes": "可作为逐节与全文合同的人工判断。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::7a3cbfd7ad7d4453",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "7a3cbfd7ad7d4453477eda52ee2bd268febda3be0f1cab707e4d840c6ac6400d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "正文禁写纯背景解释、无当前作用回忆、无现实动作感受、复述对白、无升级羞辱和被动到底。",
+        "classification_notes": "正文段落功能禁区。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::52fd7cc5e1973d3f",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "52fd7cc5e1973d3f1ec3d1c2628fa5b61ce06d3482ec3898fd18a39514d9826d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "情绪以视线、身体、说话失真和动作选择显形，并服从人物偏手。",
+        "classification_notes": "情绪外化工具。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::b05e984d16c26945",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "b05e984d16c2694537d84946f2cb0b7a64c20cc44760b5d7132c17e9c3eb8149"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "素材池只选一个主矛盾、一个新问题、一个关系场、主事件链、高潮场、致命证据和结尾。",
+        "classification_notes": "防止素材乱拼。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::4de017adbe1ac5e3",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "4de017adbe1ac5e3f95ffaa5c886a1eba9a73dcc899834b1504c79f9fd8c73c8"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "setting_constraint",
+          "remediation_target": "setting",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "先确定起因、关系、中段新层、切割、高潮、证据和结尾，之后才补口气与微动作。",
+        "classification_notes": "骨架先于表演层。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::2ac9657d7c2c8fc5",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "2ac9657d7c2c8fc52c506a30d7c6357b370f610ecace5ddf4eb133c05258c9f8"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "写前只补必要参考：格式、首稿阶段边界、叙述者声音及主体主导的颗粒度规则，并完成规则族分类。",
+        "classification_notes": "正式写前参考与分类硬闸。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::4b82ef0b9ff1e824",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "4b82ef0b9ff1e824779517e51f9e318b31fd6e264127138fdbed230ccc5b2f56"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "human"
+        },
+        "canonical_rule_text": "设定、大纲和正文直接写入项目真源；结构物追踪与角色口气在设定中明确，问题先回结构再修句面。",
+        "classification_notes": "产物真源与回修原则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::2b88453a571c9a63",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "2b88453a571c9a6307d71e99d5ab3b89d0f60285fa42d3a660770204e88c9141"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "format_check",
+          "remediation_target": "draft",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "黑岩/点众首稿执行段长、紧密排段、独立对白和双引号格式，不检查知乎投稿版。",
+        "classification_notes": "平台专属格式需排除知乎分支。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::aabd36acb04c2832",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "aabd36acb04c28328fd9d98f2ba47dec2fe5f8f2324fd7c68917650c34b75977"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "audit_check",
+          "remediation_target": "audit",
+          "execution_mode": "hybrid"
+        },
+        "canonical_rule_text": "完整AI腔与台账终审在停靠后执行；首稿只按主体声线和阶段边界预防明显模板。",
+        "classification_notes": "该族包含最终台账、SHA和人工AI审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::5360c73ff56d611b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "5360c73ff56d611b9365c47a32529113cd4eb040821a0e9c69056651b998f29b"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "删减只移除不推动情节、不铺反转、不推情绪或重复表达的内容，不删桥段承重件与人味。",
+        "classification_notes": "删减原则用于字数控制。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/workflow/writing-workflow.md::57b211eccfc6dba7",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/workflow/writing-workflow.md",
+        "rule_text_sha256": "57b211eccfc6dba7efbf74daf12689d6a4df8297a061ceb3b28a14f62ef04ba7"
+      },
+      "common": {
+        "taxonomy_decision": "override",
+        "taxonomy": {
+          "rule_role": "workflow_gate",
+          "remediation_target": "workflow",
+          "execution_mode": "script"
+        },
+        "canonical_rule_text": "正文前按固定顺序准备并验证细纲、文字、情绪合同及 draft 写入放行。",
+        "classification_notes": "官方总放行入口。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::ef36f479449c8475",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "ef36f479449c8475516fd892330a6b00445d68fc212ab05c16e04430c57718a2"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计开头是否先讲道理、卖点串烧、抽象定性或漂亮收刀，失败时回到现场事故。",
+        "classification_notes": "正式审计规则，分类适用但停靠后执行。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::c1311e765c8cd51d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "c1311e765c8cd51d1f013ea68f2b0a4f715ce395992a21fca946d5f98e250a04"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计信息是否按事故、关系、含义分刀漏出，物证不立刻定性且旧史不压过当前动作。",
+        "classification_notes": "正式审计规则。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::2fd00b3a9975d49d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "2fd00b3a9975d49d3ab063763e20dc75abd46e849e335ec2e917c98183fb3789"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计后半是否被手续、新生活安顿或女主完整回击稀释，后果应继续压在人物身上。",
+        "classification_notes": "正式后果链审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::e466a756d3be91b3",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "e466a756d3be91b3a0470fe4b563a1ce65b0b22a313e0699e8158ce98271d953"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计丈夫是否过早标准解释、女主是否受伤即完整宣言，优先恢复动作偏手和短结果句。",
+        "classification_notes": "人物偏手审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::6891aa1b47d100be",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "6891aa1b47d100bebb6f82baeb54b584c0db7cab0cdbeab0e1b63321ed5b04a2"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计冲突对白是否句句正答或追妻期突然成熟忏悔，保留回避、错重点和笨拙行动。",
+        "classification_notes": "失控对白审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::69a66d934faac3be",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "69a66d934faac3bee151fd6c9e5e3202647220878620fbe3e9981647d6d06aaa"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计烂关系是否由空间、站位和物件自然漏出，而非台词解释或证据桌。",
+        "classification_notes": "关系漏出审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::b85d2c029cf31468",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "b85d2c029cf314682683938fc7176636a94d986504e503072544be5b2f9be458"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计单段是否同时完成事件、旧伤、判断和决定，或跨过多时间层；一刀只保留一个主任务。",
+        "classification_notes": "段级任务过载审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::8642b6da74feaba4",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "8642b6da74feaba452d0336b5b4614e3b7963116999d5a575487c35bd33d4a1d"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计单场是否包办异常、旧事、翻刀、定性和决定，必要时拆场并加入阻力。",
+        "classification_notes": "场级任务过载审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::3d30b12a4079a856",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "3d30b12a4079a85696291e4e7ecb879333dde1d9734bc06a7424f60c2385d779"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计对白是否机械问答和重要问题总被正面回应，补抢话、岔题、动作与沉默。",
+        "classification_notes": "对白回合结构审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::4f0e698d69f6e5e9",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "4f0e698d69f6e5e9026dcb780552cd32505c0571e166e16faeb7d271ff480ba5"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计翻刀链是否按最优顺序直落且缺少误判、卡顿、打断与未完成动作。",
+        "classification_notes": "高敏桥模板审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::6a17dd1cd540e155",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "6a17dd1cd540e1555a828e7e9f7b7578069574c4e57a10c913d79f5f738ce2b2"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计插叙是否由有现实阻力的物件、动作或声音触发，并且每次只补一刀旧事。",
+        "classification_notes": "回忆触发审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::3fb5ac3d6178f5f1",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "3fb5ac3d6178f5f1f0c85b39f2ce7ee3332a89f752877ad35e76f890b06194c2"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计是否场场高效推进主冲突，必要时保留不直接翻刀的生活阻力和关系别扭。",
+        "classification_notes": "生活摩擦审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::6fc70a96cbbb7d2b",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "6fc70a96cbbb7d2bb86b6f843527d0e5531c323d9aad5618688e2782797c1aa6"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计新开头是否只换皮后迅速并回旧链，换轨必须产生新的现场压力。",
+        "classification_notes": "开头换轨审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::91d1a16818c7d1da",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "91d1a16818c7d1da24d80f02896ed4a49fc32d05c3adfd280a6db4172076ef63"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计公开场是否多人排队喂刀、主角标准反击，优先写混乱、沉默、抢话和秩序变化。",
+        "classification_notes": "公开压力模板审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::2a4f210c49029d91",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "2a4f210c49029d9183a0471637d6015d36d0679e0630abc1a77c684d44cf9735"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计优先处理作者结论、角色不可能的清醒、写给读者的台词、主题化细节和段尾点题。",
+        "classification_notes": "外部分块审计优先项。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::5bc42c21e540de93",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "5bc42c21e540de930615ea9459cf3f738c6a60ceeec618975382991b254fecc7"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计高敏桥是否使用过熟载体或最优成品顺序，拆开刺激、围观、补证、定性和后果。",
+        "classification_notes": "高敏承载审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::e1affe68b387c3f8",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "e1affe68b387c3f80309af7bcc2444cedfbd313fb372b169f88e13cc52b08381"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计重大证据前是否只有时间空档而无现实后果，尾声入口必须归还真正主核。",
+        "classification_notes": "后果缓冲与尾声入口审计。"
+      }
+    },
+    {
+      "preset_id": "skills/story-short-write/references/governance/audit-rulebook.json::d76b5c3d1d0c199d",
+      "selector": {
+        "match_strategy": "rule_fingerprint",
+        "source_path_suffix": "skills/story-short-write/references/governance/audit-rulebook.json",
+        "rule_text_sha256": "d76b5c3d1d0c199d25dabac2cb78aa161430652a7addb930aa1b9e334e5492c7"
+      },
+      "common": {
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "canonical_rule_text": "审计人物是否共用成熟解释壳或只剩立场差，必须拉开权限、第一动作和说话方式。",
+        "classification_notes": "人物脸谱拆分审计。"
+      }
+    },
+    {
+      "preset_id": "preset-073",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/仿写约束_禁写清单.md"
+      },
+      "common": {
+        "canonical_rule_text": "`仿写约束_禁写清单.md` 负责把主体拆书里不能直搬、不能偷换、不能模板化复现的高风险壳层和句法禁区落成文件级约束，是仿写换壳前的止损清单。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是固定命名的约束资产职责预填：公共层只定义它负责禁写边界，不替任何单书预判是否必须消费。"
+      }
+    },
+    {
+      "preset_id": "preset-074",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/作者DNA指纹.md"
+      },
+      "common": {
+        "canonical_rule_text": "`作者DNA指纹.md` 负责沉淀主体作者在叙述站位、语气偏手、句法习惯、情绪转折和人物判断上的高辨识度写法，是声线迁移前的指纹层来源资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只能预填这类文件的职责边界，不能公共化任何具体作者或单书的真实指纹内容。"
+      }
+    },
+    {
+      "preset_id": "preset-075",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/全文情绪颗粒总账.json"
+      },
+      "common": {
+        "canonical_rule_text": "`全文情绪颗粒总账.json` 负责把主体原文的情绪锯齿、峰值节点、旧伤触发和每段情绪落点按顺序结构化，是强情绪正文前合同的真源底稿。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是情绪总账类资产的公共职责，不含任何单书具体情绪内容；是否必须消费仍由具体写作任务人工判断。"
+      }
+    },
+    {
+      "preset_id": "preset-076",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/全文情节微拍总账.json"
+      },
+      "common": {
+        "canonical_rule_text": "`全文情节微拍总账.json` 负责把主体故事推进拆到微拍顺序、后果递进和桥间承重件级别，是细纲换链和正文顺序契约的重要来源资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义“微拍总账”的职责，不公共化任何单书的桥序和拍序内容。"
+      }
+    },
+    {
+      "preset_id": "preset-077",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/公开场_关键硬牌_后果.md"
+      },
+      "common": {
+        "canonical_rule_text": "`公开场_关键硬牌_后果.md` 负责固定公开场里哪些硬牌必须亮出、由谁承压、秩序怎么变化以及后果如何落地，避免公开场只剩吵架外壳。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是公开场承重资产的职责预填，不含具体单书的牌面和场次内容。"
+      }
+    },
+    {
+      "preset_id": "preset-078",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/关系重组方式.md"
+      },
+      "common": {
+        "canonical_rule_text": "`关系重组方式.md` 负责总结主体关系如何从失衡、误判、失去到重新分配位置，是追妻题里位置变化和关系后效应的来源资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层定义的是“关系重组”这类资产的职责，不是单书关系桥段的公共模板。"
+      }
+    },
+    {
+      "preset_id": "preset-079",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/冲突载体清单.md"
+      },
+      "common": {
+        "canonical_rule_text": "`冲突载体清单.md` 负责沉淀主体如何借物件、空间、身份、规则和第三方视线承载冲突，防止冲突只停在抽象情绪和空对白里。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是冲突载体类资产的职责预填，具体载体选择仍属于单书真源内容。"
+      }
+    },
+    {
+      "preset_id": "preset-080",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/原文资产候选池.md"
+      },
+      "common": {
+        "canonical_rule_text": "`原文资产候选池.md` 负责把主体原文中可迁移、可替换、可复写的资产先做候选分层，供后续换壳、选材和高敏筛查使用。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义候选池的筛选职责，不替项目决定哪些候选最终必须落笔。"
+      }
+    },
+    {
+      "preset_id": "preset-081",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/同桥段过检规则.md"
+      },
+      "common": {
+        "canonical_rule_text": "`同桥段过检规则.md` 负责约束在保留同桥承重时，哪些桥级差异必须成立、哪些复现形态会直接撞高敏，是同桥换壳和相似桥复核的过检规则来源。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是高敏同桥规则资产的公共职责预填，不含任何单书具体桥段判断结果。"
+      }
+    },
+    {
+      "preset_id": "preset-082",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/子流程施工卡.md"
+      },
+      "common": {
+        "canonical_rule_text": "`子流程施工卡.md` 负责把单书常用的局部施工流程拆成可调用步骤、前置输入和检查口径，帮助写前与回修阶段按资产职责接入，不把步骤混成口头经验。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是流程辅助资产职责，不是正文规则本体；公共层可预填职责，项目级是否采用仍人工判断。"
+      }
+    },
+    {
+      "preset_id": "preset-083",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/平台适配提醒.md"
+      },
+      "common": {
+        "canonical_rule_text": "`平台适配提醒.md` 负责沉淀主体在目标平台下的篇幅、节奏、留钩和付费预期口径，防止题材承重对了却写成错平台的出稿手感。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义平台适配提醒的职责，不公共化任何平台专属桥段和具体口径。"
+      }
+    },
+    {
+      "preset_id": "preset-084",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/异物清单.md"
+      },
+      "common": {
+        "canonical_rule_text": "`异物清单.md` 负责标出主体体系里容易混入的题外壳、错题材手势和污染性桥段，是写前排异与回修去杂的来源清单。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是排异类资产职责预填，不替项目决定哪些异物在当前题里一定会出现。"
+      }
+    },
+    {
+      "preset_id": "preset-085",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/情绪母线.md"
+      },
+      "common": {
+        "canonical_rule_text": "`情绪母线.md` 负责概括主体全篇最核心的情绪主轴和各段峰谷承接，是把单点情绪总账串成整篇情绪走向的中层资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义情绪母线的职责，不公共化任何单书的具体情绪路径。"
+      }
+    },
+    {
+      "preset_id": "preset-086",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/新状态清单.md"
+      },
+      "common": {
+        "canonical_rule_text": "`新状态清单.md` 负责记录主体每个关键节点后人物、关系、秩序和外部环境进入了什么新状态，确保后果不是喊出来而是真的留在后文。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是状态变更类资产职责预填，不含单书具体状态内容。"
+      }
+    },
+    {
+      "preset_id": "preset-087",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/本书动态信号字典.json"
+      },
+      "common": {
+        "canonical_rule_text": "`本书动态信号字典.json` 负责沉淀主体在动作、物件、反应、语气和场面切换上的动态信号词及其触发含义，是判断声线细部活性与动作偏手的字典层资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只能定义动态信号字典的职责，不能公共化任何单书的信号词和语义映射。"
+      }
+    },
+    {
+      "preset_id": "preset-088",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/样本分级与可学层.md"
+      },
+      "common": {
+        "canonical_rule_text": "`样本分级与可学层.md` 负责区分主体样本中哪些层可学、哪些只可观察、哪些属于高敏禁搬区，是读取门禁后的选材分层资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是样本分级类资产的职责预填，不替任何项目自动决定具体可学片段。"
+      }
+    },
+    {
+      "preset_id": "preset-089",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/桥段施工卡.md"
+      },
+      "common": {
+        "canonical_rule_text": "`桥段施工卡.md` 负责把主体关键桥段拆成可执行的拍序、转折点和承重件检查项，是桥级换链、扩细纲和回修时的施工卡真源。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层预填的是桥段施工卡这类资产的职责，不包含任何单书桥段的真实拍序。"
+      }
+    },
+    {
+      "preset_id": "preset-090",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/母结构_故事走法.md"
+      },
+      "common": {
+        "canonical_rule_text": "`母结构_故事走法.md` 负责概括主体故事的大结构走法、推进方式和关键回环，是从局部桥段回看整篇故事骨架的结构资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义母结构资产的职责，不公共化单书的真实故事结构。"
+      }
+    },
+    {
+      "preset_id": "preset-091",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/第二层冲突清单.md"
+      },
+      "common": {
+        "canonical_rule_text": "`第二层冲突清单.md` 负责沉淀主冲突之外持续加压的第二层矛盾、阻滞和代价来源，避免故事只有主冲突单线硬推。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是第二层冲突资产的职责预填，不含单书具体副冲突内容。"
+      }
+    },
+    {
+      "preset_id": "preset-092",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/虐点对照细节.md"
+      },
+      "common": {
+        "canonical_rule_text": "`虐点对照细节.md` 负责总结主体如何用细节兑现痛点、失衡和追悔，让虐点不是标签而是可复核的现场后果。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义虐点细节对照的职责，不公共化具体伤害细节。"
+      }
+    },
+    {
+      "preset_id": "preset-093",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/角色口气模板.md"
+      },
+      "common": {
+        "canonical_rule_text": "`角色口气模板.md` 负责沉淀主体人物在不同关系压力下的口气差、失手方式和语气边界，防止人物台词被写成同一张脸。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "这是口气模板类资产的职责预填，不等于公共对白模板。"
+      }
+    },
+    {
+      "preset_id": "preset-094",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "写作资产/高敏桥段识别.md"
+      },
+      "common": {
+        "canonical_rule_text": "`高敏桥段识别.md` 负责标出主体里最容易因同桥、同因果或同表演路径撞高敏的桥段，是高敏流程判型前的桥级识别资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层预填的是高敏桥识别职责，不是具体单书桥段风险结论。"
+      }
+    },
+    {
+      "preset_id": "preset-095",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/关系细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`关系细节库.md` 负责沉淀主体里关系变化通过哪些动作、视线、称呼和位置差被写出来，是关系层表演细节的来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义关系细节库职责，不公共化任何单书关系细节。"
+      }
+    },
+    {
+      "preset_id": "preset-096",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/动作细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`动作细节库.md` 负责沉淀主体里能带出人物状态、秩序变化和情绪落点的动作写法，是动作层表演资产来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义动作细节库职责，不公共化任何单书动作细节。"
+      }
+    },
+    {
+      "preset_id": "preset-097",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/场景细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`场景细节库.md` 负责沉淀主体如何用空间、陈设、光线和环境阻力让场景自己参与叙事，是场景层表演资产来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义场景细节库职责，不公共化任何单书场景细节。"
+      }
+    },
+    {
+      "preset_id": "preset-098",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/场面细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`场面细节库.md` 负责沉淀主体在多人场、公开场和秩序混乱场里的场面调度、位置变化和压力扩散方式，是场面层表演资产来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义场面细节库职责，不公共化任何单书场面细节。"
+      }
+    },
+    {
+      "preset_id": "preset-099",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/对白细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`对白细节库.md` 负责沉淀主体对白里常见的话轮推进、假礼貌、反切、失手和权力边界改写方式，是对白层表演资产来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义对白细节库职责，不公共化任何单书对白内容。"
+      }
+    },
+    {
+      "preset_id": "preset-100",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/情绪细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`情绪细节库.md` 负责沉淀主体如何让情绪通过动作、感官、停顿和场面变化落到细节层，而不是直接喊出结论，是情绪层表演资产来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义情绪细节库职责，不公共化任何单书情绪细节。"
+      }
+    },
+    {
+      "preset_id": "preset-101",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/旧伤细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`旧伤细节库.md` 负责沉淀主体旧伤如何被物件、场景、称呼和相似处境触发，是旧伤回响与情绪倒灌的来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义旧伤细节库职责，不公共化任何单书旧伤内容。"
+      }
+    },
+    {
+      "preset_id": "preset-102",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "原文细节库/翻车细节库.md"
+      },
+      "common": {
+        "canonical_rule_text": "`翻车细节库.md` 负责沉淀主体里关系失控、公开露馅、站位坍塌和自证失败时的翻车细节，是高压失控场的来源库。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义翻车细节库职责，不公共化任何单书翻车内容。"
+      }
+    },
+    {
+      "preset_id": "preset-103",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_人物偏手表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_人物偏手表.md` 负责提炼主体人物最有辨识度的偏手动作、护短方式和改站位习惯，是人物不同脸和人物偏手迁移的专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义人物偏手表的职责，不公共化单书人物的具体偏手内容。"
+      }
+    },
+    {
+      "preset_id": "preset-104",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_公开炸场表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_公开炸场表.md` 负责提炼主体如何在公开场制造位置坍塌、当众改站位和舆情风险，是公开炸场桥的专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义公开炸场表的职责，不公共化任何单书的具体炸场桥段。"
+      }
+    },
+    {
+      "preset_id": "preset-105",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_动作表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_动作表.md` 负责提炼主体高承重动作的切换逻辑、动作前后站位变化和动作触发条件，是动作桥专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义动作表职责，不公共化任何单书具体动作桥。"
+      }
+    },
+    {
+      "preset_id": "preset-106",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_后果链表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_后果链表.md` 负责提炼主体如何让一个事件连续推高住所、知情、法律、关系和外部处境的后果链，是后果递进专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义后果链表职责，不公共化任何单书的具体后果链内容。"
+      }
+    },
+    {
+      "preset_id": "preset-107",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_外部秩序表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_外部秩序表.md` 负责提炼主体如何让公司、平台、舆情、契约和第三方流程共同施压人物，是外部秩序加压专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义外部秩序表职责，不公共化任何单书的具体施压链。"
+      }
+    },
+    {
+      "preset_id": "preset-108",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_失控说话表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_失控说话表.md` 负责提炼主体人物在不可替代物被毁、底线被击穿时的失控说话方式和烈度条件，是失控对白专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义失控说话表职责，不公共化任何单书的具体崩溃台词。"
+      }
+    },
+    {
+      "preset_id": "preset-109",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_安静压迫场表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_安静压迫场表.md` 负责提炼主体如何用安静场、反差场和环境噪声做压迫，而不是靠吼叫提烈度，是安静压迫场专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义安静压迫场表职责，不公共化任何单书的具体压迫场。"
+      }
+    },
+    {
+      "preset_id": "preset-110",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_对白功能表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_对白功能表.md` 负责提炼一句话如何改写权限、撤销边界和切断关系功能，是高功能对白专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义对白功能表职责，不公共化任何单书具体功能句。"
+      }
+    },
+    {
+      "preset_id": "preset-111",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_对话衔接表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_对话衔接表.md` 负责提炼主体如何接住对方话头再反切称谓、边界或站位，是对话承接和反切专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义对话衔接表职责，不公共化任何单书具体话轮内容。"
+      }
+    },
+    {
+      "preset_id": "preset-112",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_导语拆解表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_导语拆解表.md` 负责提炼主体导语前几拍如何先定异常关系、既成选择和误读合同，是导语承重专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义导语拆解表职责，不公共化任何单书导语句面。"
+      }
+    },
+    {
+      "preset_id": "preset-113",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_微动作表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_微动作表.md` 负责提炼主体微动作如何被目标人物看到并进入关系权力链，是微动作显影专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义微动作表职责，不公共化任何单书微动作内容。"
+      }
+    },
+    {
+      "preset_id": "preset-114",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_烂关系漏出表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_烂关系漏出表.md` 负责提炼主体烂关系如何在同场动作、称谓和站位中漏出来，而不是靠解释宣布，是烂关系显影专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义烂关系漏出表职责，不公共化任何单书具体烂关系桥。"
+      }
+    },
+    {
+      "preset_id": "preset-115",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_物件表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_物件表.md` 负责提炼主体关键物件如何经历持有、争夺、废弃、替换和意义改写，是物件承重专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义物件表职责，不公共化任何单书具体物件链。"
+      }
+    },
+    {
+      "preset_id": "preset-116",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_误判表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_误判表.md` 负责提炼主体如何先建立稳定误读，再在后段翻刀改写人物真相和关系真相，是误判翻刀专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义误判表职责，不公共化任何单书具体误判内容。"
+      }
+    },
+    {
+      "preset_id": "preset-117",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_钩子表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_钩子表.md` 负责提炼主体如何用最短信息量先抛出身份关系、异常因果和未解释真相，是钩子设计专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义钩子表职责，不公共化任何单书具体钩子句。"
+      }
+    },
+    {
+      "preset_id": "preset-118",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "可直接仿写_顺序事件表.md"
+      },
+      "common": {
+        "canonical_rule_text": "`可直接仿写_顺序事件表.md` 负责提炼主体关键事件和导语四拍的出场顺序、情绪排序与反刀节奏，是顺序事件专项表。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义顺序事件表职责，不公共化任何单书具体事件顺序。"
+      }
+    },
+    {
+      "preset_id": "preset-119",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "情节节点.md"
+      },
+      "common": {
+        "canonical_rule_text": "`情节节点.md` 负责把主体故事的核心情节节点、前后因果和转折位置按全篇顺序固定下来，是总览剧情链的文件级资产。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义情节节点文件的职责，不公共化任何单书节点内容。"
+      }
+    },
+    {
+      "preset_id": "preset-120",
+      "selector": {
+        "match_strategy": "asset_family",
+        "source_path_suffix": "拆文报告.md"
+      },
+      "common": {
+        "canonical_rule_text": "`拆文报告.md` 负责汇总主体拆文的结构结论、重点观察项和跨资产导航，是读取门禁后的总览索引资产，但不能替代原始细节库和真源资产本身。",
+        "taxonomy_decision": "accept_suggestions",
+        "taxonomy": {},
+        "classification_notes": "公共层只定义拆文报告的导航职责，不把它误当成可替代所有原始资产的一份总摘要。"
+      }
     }
   ]
 }

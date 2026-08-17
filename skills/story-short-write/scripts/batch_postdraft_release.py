@@ -518,22 +518,22 @@ def suggest_next_step(**kwargs) -> dict[str, Any]:
     project_dir = kwargs["project_dir"]
     status = inspect_postdraft_release_status(**kwargs)
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}'
     )
     prepare_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" prepare-postdraft-release '
+        'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" prepare-postdraft-release '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}'
     )
     run_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" run-postdraft-release-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" run-postdraft-release-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}'
     )
     audit_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run-audit-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" run-audit-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(project_dir.expanduser().resolve()))} '
         '--with-calibration'
@@ -730,19 +730,19 @@ def emit_shell_template(*, project: str, project_dir: Path) -> str:
     resolved_dir = project_dir.expanduser().resolve()
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" prepare-postdraft-release \\',
+            'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" prepare-postdraft-release \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" status \\',
+            'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" status \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" run-postdraft-release-cycle \\',
+            'python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" run-postdraft-release-cycle \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_dir))}",
         ]

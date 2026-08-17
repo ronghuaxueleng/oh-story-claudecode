@@ -397,24 +397,24 @@ def suggest_next_step(
         zhihu_mode=zhihu_mode,
     )
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
         + (" --zhihu-mode" if zhihu_mode else "")
     )
     run_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" run-full-draft-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" run-full-draft-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
         + (" --zhihu-mode" if zhihu_mode else "")
     )
     bind_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" bind-full-draft-contracts '
+        'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" bind-full-draft-contracts '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
     )
     validate_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" validate-full-draft '
+        'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" validate-full-draft '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
         + (" --zhihu-mode" if zhihu_mode else "")
@@ -576,23 +576,23 @@ def emit_shell_template(
     suffix = " \\\n  --zhihu-mode" if zhihu_mode else ""
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" status \\',
+            'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" status \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}{suffix}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}{suffix}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" bind-full-draft-contracts \\',
+            'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" bind-full-draft-contracts \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" validate-full-draft \\',
+            'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" validate-full-draft \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}{suffix}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" run-full-draft-cycle \\',
+            'python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" run-full-draft-cycle \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(project_dir.expanduser().resolve()))}{suffix}",
         ]

@@ -41,7 +41,7 @@
 完成上面的 `validate -> mkdir -> validate` 之后，再进入 `batch_read_gates.py` 新项目入口。`bootstrap-project` 与 `start-new-project-read-gates` 现在允许接管这个“刚通过目录硬闸、但尚未初始化任何文件”的空目录；如果目录里已经出现正式文件或其他历史内容，仍按占用阻断，不得冒充全新项目继续。
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" bootstrap-project \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" bootstrap-project \
   --project "{小说书名}" \
   --project-dir "{工作区}/{小说书名}" \
   --source-dir "拆文库/{主体书}" \
@@ -53,7 +53,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" boots
 如果希望全新项目直接起步到“读取批次续跑判断”这一步，用最高层入口：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" start-new-project-read-gates \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" start-new-project-read-gates \
   --project "{小说书名}" \
   --project-dir "{工作区}/{小说书名}" \
   --source-dir "拆文库/{主体书}" \
@@ -100,7 +100,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" start
 正式流程里，两道读取门禁的人工中段默认不再使用零散 `cat`、`sed` 或 `/tmp` 文件承载。全新项目优先走 `bootstrap-project`；已有项目再走 `prepare-batches`。高层命令优先；只有排查单批失败时才回落到底层命令。已有项目的推荐顺序如下：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" prepare-batches \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
@@ -110,7 +110,41 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepa
   --batch-size 20
 ```
 
-当前模型逐批填写 `读取批次/batch-*.json` 中的：
+默认不要直接编辑包含完整文件正文的 `读取批次/batch-*.json`。先导出不含 `content` 的紧凑人工计划：
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" export-review-plan \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --output "{项目目录}/写作资产/读取批次/人工读取计划.json"
+```
+
+当前模型在紧凑计划中逐项填写 `evidence_terms / takeaways / used_for`，多来源项目同时填写顶层 `cross_source_decisions`，再严格串行执行：
+
+```bash
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" preflight-review-plan \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --input "{项目目录}/写作资产/读取批次/人工读取计划.json"
+
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" apply-review-plan \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
+  --input "{项目目录}/写作资产/读取批次/人工读取计划.json" \
+  --consume
+
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" preflight-manifest \
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --manifest "{项目目录}/写作资产/读取批次/manifest.json"
+```
+
+`preflight-review-plan` 和 `preflight-manifest` 都会一次列出全部错误，不在首错处停止，也不修改正式回执。只有两次预检都通过，才运行 `finalize-batches --consume`；最终门禁失败时正式回执和全部批次保持原样。
+
+底层排障时才直接逐批填写 `读取批次/batch-*.json` 中的：
 
 - `status`：刚开始处理时改成 `in_progress`；全部人工字段填完后改成 `reviewed`
 - `review_started_at`：进入 `in_progress` 时写当前 UTC 时间
@@ -123,7 +157,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepa
 不确定还有哪些批次没做完时，先看整份清单状态：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" status \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json"
@@ -134,7 +168,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" statu
 如果当前只是想确认某一批里到底有哪些条目、相对路径和文件开头，不要再临时写 Python 或手搓 `jq`。直接用官方只读入口：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" show-batch \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" show-batch \
   --input "{项目目录}/写作资产/读取批次/batch-001.json"
 ```
 
@@ -145,7 +179,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" show-
 如果不想自己判断下一步该跑什么，可以直接让脚本给出建议：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" next-step \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
@@ -161,7 +195,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" next-
 如果希望脚本直接按当前状态继续执行，而不是只给建议，用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" run-read-gates-cycle \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" run-read-gates-cycle \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
@@ -177,7 +211,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" run-r
 如果外层调用方连内部命令名都不想记，直接让脚本吐整段模板：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{工作区}/{项目名}" \
   --source-dir "拆文库/{主体书}" \
@@ -195,7 +229,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" emit-
 全部批次填写完后，优先直接按清单顺序一次合并：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" finalize-batches \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
@@ -212,15 +246,15 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" final
 读取门禁通过、`设定.md` 与 `小节大纲.md` 都已落盘后，进入 `6-16` 这段优先走 `batch_outline_release.py` 的高层总入口，不再默认手拼五条 `init`。它会按项目目录自动推导 `规则执行台账.json / 设定顺序契约回执.json / 顺序契约回执.json / 开头承重契约回执_大纲.json / 细纲表演验收回执.json / 规则模型分类批次.json / 规则模型归并计划.json`，主体导语资产和各本 `原文/{书名}.txt` 默认从已通过的 `拆文读取回执.json` 中反推：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" status \
+python3 "$SKILL_ROOT/scripts/batch_outline_release.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_outline_release.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" start-outline-release \
+python3 "$SKILL_ROOT/scripts/batch_outline_release.py" start-outline-release \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
@@ -231,7 +265,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" 
 外层调用方如果只想拿整段模板，不想自己记命令名，用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_outline_release.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -239,29 +273,42 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_release.py" 
 规则执行台账初始化后，规则模型复核中段也不再默认手拼 `export-model-review / read-model-review-batch / export-model-group-plan / apply-model-groups / validate-prewrite`。现已提供高层总入口 `batch_rule_model_review.py`，按项目目录自动推导 `规则执行台账.json / 规则模型分类批次.json / 规则模型归并计划.json`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" prepare-model-review \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" prepare-model-review \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" status \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --review-manifest "{项目目录}/写作资产/规则模型分类批次.json" \
   --group-plan "{项目目录}/写作资产/规则模型归并计划.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" inspect-all-model-review-batches \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" run-model-review-cycle \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" export-pending-groups \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" inspect-model-review-batch \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --batch N
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" run-model-review-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
 
-它会自动分三种情况处理：还没导出人工载体时先要求 `prepare-model-review`；归并计划还没被当前模型补完时停在人工阶段；计划已补完时自动 `apply-model-groups --consume` 并补跑 `validate-prewrite`。想直接拿整段模板则用：
+它会自动分三种情况处理：还没导出人工载体时先要求 `prepare-model-review`；归并计划还没被当前模型补完时停在人工阶段；计划已补完时自动 `apply-model-groups --consume` 并补跑 `validate-prewrite`。`prepare-model-review` 会先应用 v2 公共 preset，但只复制公共 canonical 与 taxonomy 字段，项目适用性、理由和目标场景仍保持待人工裁决。首次阅读运行 `inspect-all-model-review-batches`；计划已有部分内容后优先运行 `export-pending-groups` 查看紧凑缺口，只在指定批次返查时运行 `inspect-model-review-batch --batch N`。正式展开文件统一落在项目 `写作资产/规则模型复核展开/`，不得再用临时 `jq`、TSV 或 `/tmp` 拼接替代。想直接拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -269,22 +316,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py
 如果当前批次主要卡在细纲表演验收人工回填，不想自己串 `sync-source-emotions / export-template / export-beat-template / apply-template / apply-beat-template / rebind-outline / seal-review`，也已有高层总入口 `batch_outline_review_cycle.py`。它按项目目录自动推导 `细纲表演验收回执.json / 小节大纲.md / 桥级回填侧车.json / 桥级逐拍回填侧车.json / 节级回填侧车.json`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" prepare-outline-review \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --bridge-review "{项目目录}/写作资产/桥级回填侧车.json" \
   --bridge-beat-review "{项目目录}/写作资产/桥级逐拍回填侧车.json" \
   --section-review "{项目目录}/写作资产/节级回填侧车.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -292,7 +339,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle
 它会自动分四种情况处理：还没导出三份侧车时先做 `prepare-outline-review`；桥级/逐拍/节级仍有未补完字段时停在人工阶段；三份侧车都已补完时统一 `apply+consume`；侧车已消费但顶层还没封口时补做 `rebind-outline + seal-review`。想直接拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -335,22 +382,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle
 正文阶段默认不再执行逐节写后人工侧车。高层总入口 `batch_section_review_cycle.py` 会按项目目录自动推导 `逐节正文进度.json / 当前节暂存/第N节.md / 逐节验收/第N节.json / 当前节写作包/第N节.json`，生成 `deferred_full_contract_review` 确定性回执并完成预检、提交：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" prepare-section-review \
+python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" prepare-section-review \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --section N
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" status \
+python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --section N
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --section N
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" run-section-review-cycle \
+python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" run-section-review-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --section N
@@ -359,7 +406,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle
 默认链只有三步：正式逐节回执不存在时执行 `prepare-section-review`；回执存在后执行 `preflight-section-review` 校验暂存稿、写前合同和场面领取绑定；预检通过后由 `run-section-review-cycle` 代跑不带 `--sidecar` 的 `commit-section`。当前模型仍须在提交前完整通读并重写偏差，但不落盘重复人工字段。只有主动启用差量/全量偏差模式时才创建并消费人工侧车。只想拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --section N
@@ -368,26 +415,26 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle
 如果逐节都已通过，当前阶段主要卡在全文收口，不想再手拼 `finalize -> 两份 bind-draft -> 两份 validate-draft -> count_words.py -> validate_zhihu_section_format.py`，也已有高层总入口 `batch_full_draft_review.py`。它按项目目录自动推导 `逐节正文进度.json / 正文.md / 全文文字颗粒度契约回执.json / 全文情绪颗粒度契约回执.json`，并优先从两份全文合同自动反推 `主体原文 / 全文情绪颗粒总账`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" status \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --zhihu-mode
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --zhihu-mode
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" bind-full-draft-contracts \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" bind-full-draft-contracts \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" validate-full-draft \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" validate-full-draft \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --zhihu-mode
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" run-full-draft-cycle \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" run-full-draft-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --zhihu-mode
@@ -396,7 +443,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py
 它会自动分四种情况处理：逐节进度还停在 `sections_passed` 时先代跑底层 `finalize`；两份全文合同还没绑定最终正文 SHA 时先统一 `bind-draft`；全文合同已绑定但人工字段还没补到 `passed` 时停在人工阶段；两份全文合同都处于可校验态后，再统一代跑 `validate-draft`、字数统计和可选平台格式校验。只想拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_full_draft_review.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --zhihu-mode
@@ -405,17 +452,17 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_full_draft_review.py
 如果用户在初稿停靠后明确要求继续深审，而你不想再手拼 `run_full_ai_audit.py` 的输出目录、正式审计 JSON 路径和题材首次校准摘要路径，也已有高层总入口 `batch_formal_audit.py`。它按项目目录自动推导 `正文.md / 写作资产/正式审计 / 外部分块审计对齐摘要.json / 内部审计标准.json / 外部分块审计对齐.csv`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" status \
+python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --with-calibration
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --with-calibration
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run-audit-cycle \
+python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" run-audit-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --with-calibration
@@ -424,7 +471,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" run
 它会自动分三种情况处理：正式审计 JSON 缺失、过期或绑定正文异常时先跑默认全量审计；若显式要求 `--with-calibration` 且 `外部分块审计对齐摘要.json / 内部审计标准.json` 缺失或过期，再继续跑题材首次校准；两段产物都齐后停在 `formal_audit_ready`，再进入后面的正文开头契约、规则台账最终绑定和写后人工复核。只想拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_formal_audit.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --with-calibration
@@ -433,19 +480,19 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_formal_audit.py" emi
 如果用户在正文初稿停靠后明确要求继续完整流程，不想再手拼 `validate_opening_contract.py init/validate -> validate_rule_execution_ledger.py preflight-final-rebind/bind-artifacts/validate -> validate_post_write_human_review_gate.py init/validate -> validate_short_write_completion.py mark-complete`，也已有高层总入口 `batch_postdraft_release.py`。它按项目目录自动推导 `规则执行台账.json / 顺序契约回执.json / 开头承重契约回执_正文.json / 写后人工语义复核回执.json / 短篇全流程状态.json`，并优先从 `拆文读取回执.json` 反推主体 `可直接仿写_导语拆解表.md`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" prepare-postdraft-release \
+python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" prepare-postdraft-release \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" status \
+python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" run-postdraft-release-cycle \
+python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" run-postdraft-release-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -453,7 +500,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py
 它会自动分六种情况处理：还没创建正文开头契约、写后人工复核回执或 completion 状态文件时先统一初始化；正文开头承重契约还没补到 `passed` 时停在人工阶段；若正式审计 JSON、题材首次校准摘要或内部审计标准缺失/过期，会先自动接管 `batch_formal_audit.py` 的正式审计链；随后再自动执行规则执行台账 `preflight-final-rebind -> bind-artifacts -> validate`；写后人工复核回执还没补到 `passed` 时继续停在人工阶段；等 completion 状态所需检查都齐了，才执行 `mark-complete`。只想拿整段模板则用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_postdraft_release.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -725,7 +772,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_postdraft_release.py
 默认命令：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --merge-profile-dir '拆文库' \
   --name '{项目名}' \
   --output 'profiles/{项目名}.project.profile.json'
@@ -1607,7 +1654,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 如果要把这一轮跑成标准化产物，默认直接用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" \
+python3 "$SKILL_ROOT/scripts/run_revision_cycle.py" \
   当前短篇目录 \
   --internal-standard profiles/internal_audit_standard.json
 ```
@@ -1654,7 +1701,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/run_revision_cycle.py" \
 如果这个题材还没有做过校准，先补这一步，再进入日常回炉：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_block_audit.py" \
+python3 "$SKILL_ROOT/scripts/compare_with_external_block_audit.py" \
   block_audit_test/题材目录 \
   --audit-dir block_audit_test/题材目录/_score_align \
   --output profiles/external_block_audit_alignment.csv \
@@ -1987,7 +2034,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/compare_with_external_bloc
 当 `细纲表演验收回执.json` 已完成当前模型人工回填，且两份正文前合同只差准备/校验与最终放行时，优先直接走总入口，不再手工串 `prepare -> validate -> draft gate`。逐节计划由同一真源按 `scene_unit_refs` 回解，不要另行复制场面字段：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py" prepare-validate \
+python3 "$SKILL_ROOT/scripts/batch_prewrite_release.py" prepare-validate \
   --project "{项目名}" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
@@ -1998,7 +2045,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_prewrite_release.py"
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
-  --opening-contract "{项目目录}/写作资产/开头承重契约回执_正文.json" \
+  --opening-contract "{项目目录}/写作资产/开头承重契约回执_大纲.json" \
   --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
   --profile "profiles/{项目名}.project.profile.json"
 ```

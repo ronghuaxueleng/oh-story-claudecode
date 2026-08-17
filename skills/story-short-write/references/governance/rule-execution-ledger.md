@@ -148,7 +148,7 @@
 必须先通过 `writing_rule_gate` 和 `source_read_gate`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" init \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" init \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
@@ -164,7 +164,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 初始化完成后，先逐项确认规则角色、修复目标、适用性、执行方式、目标阶段和目标场景，再写设定、大纲或正文。可合并项先归一，避免同义规则重复执行；不得写完后统一伪造执行记录。分类完成后必须先运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate-prewrite \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate-prewrite \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -175,21 +175,34 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 如果不想自己手拼这段中段命令，现已提供规则模型复核中段的高层总入口。它按项目目录自动推导 `规则执行台账.json / 规则模型分类批次.json / 规则模型归并计划.json`，并把“准备人工载体、查看当前状态、判断下一步、apply 后补跑写前校验”收成正式脚本链：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" prepare-model-review \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" prepare-model-review \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" status \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --review-manifest "{项目目录}/写作资产/规则模型分类批次.json" \
   --group-plan "{项目目录}/写作资产/规则模型归并计划.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" inspect-all-model-review-batches \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" run-model-review-cycle \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" export-pending-groups \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" inspect-model-review-batch \
+  --project "{项目名}" \
+  --project-dir "{项目目录}" \
+  --batch N
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" next-step \
+  --project "{项目名}" \
+  --project-dir "{项目目录}"
+
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" run-model-review-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -197,15 +210,38 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py
 外层调用方如果想直接拿整段模板，用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_rule_model_review.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_rule_model_review.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
 
-高层总入口只做路径推导、状态判断、确定性导出、`apply-model-groups --consume` 和 `validate-prewrite` 串联；不会替当前模型填写 `canonical_rule_text / classification_notes / decision_reason / target_stage / target_scene` 等语义裁决。
+人工计划已部分填写后，默认先运行 `export-pending-groups`，只导出尚缺字段或 taxonomy 非法的 canonical 组；它不会复制完整 `cases/source_refs`，适合定位 `taxonomy_decision=pending` 等机械缺口。首次全面阅读仍运行 `inspect-all-model-review-batches`：它一次读取正式清单中的全部批次，逐批调用同一展开逻辑，生成全部 `batch-NNN.json` 和一份 `全部批次索引.json`。`inspect-model-review-batch --batch N` 只保留给指定批次返查。三者都不替当前模型填写任何语义裁决。
+
+公共 preset 使用 v2 分层结构。`common` 只允许 `canonical_rule_text / taxonomy_decision / taxonomy / classification_notes`；`applicability / decision_reason / target_stage / target_scene` 永远属于当前项目人工裁决。普通规则按 `source_path_suffix + rule_text_sha256` 匹配，固定命名职责资产按 `asset_family` 匹配，不再绑定整份源文件 SHA。
+
+从已人工裁决计划提炼公共候选时，必须走正式命令：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" export-model-review \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" export-model-group-preset-candidates \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --plan "{项目目录}/写作资产/规则模型归并计划.json" \
+  --output "{项目目录}/写作资产/规则模型公共预设候选.json"
+```
+
+该命令会拒绝无效 taxonomy，并自动排除四个项目裁决字段。候选审阅后，只允许显式晋级公共 skill 来源：
+
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" merge-model-group-preset-candidates \
+  --candidates "{项目目录}/写作资产/规则模型公共预设候选.json" \
+  --base-preset "$SKILL_ROOT/references/integration/rule-model-group-presets.json" \
+  --output "$SKILL_ROOT/references/integration/rule-model-group-presets.json" \
+  --source-prefix "skills/story-short-write/"
+```
+
+禁止把整批项目裁决 JSON 直接复制进公共库，禁止使用临时 `jq` 拼接 preset。
+
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" export-model-review \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --output "{项目目录}/写作资产/规则模型分类批次.json" \
   --batch-size 30
@@ -214,7 +250,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 默认输出是紧凑清单，只保存台账路径/SHA、批次号、规则 ID、规则标题、案例数和来源数，不再复制整份 `cases/source_refs`。当前写作模型按清单批次逐批读取：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" read-model-review-batch \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" read-model-review-batch \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --manifest "{项目目录}/写作资产/规则模型分类批次.json" \
   --batch N
@@ -225,7 +261,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 先生成紧凑归并计划骨架：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" export-model-group-plan \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" export-model-group-plan \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --manifest "{项目目录}/写作资产/规则模型分类批次.json" \
   --output "{项目目录}/写作资产/规则模型归并计划.json"
@@ -260,7 +296,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 应用后，canonical 规则卡保留全部 `cases/source_refs`，其他成员自动标记 `merged`：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" apply-model-groups \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" apply-model-groups \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --plan "{项目目录}/写作资产/规则模型归并计划.json" \
   --source-review "{项目目录}/写作资产/规则模型分类批次.json" \
@@ -294,7 +330,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 `preflight-final-rebind` 是只读诊断，不修改台账，也不替代人工重绑。它必须执行两次：第一次在全文重写前，用于估算旧证据债务并决定是否先整理台账；第二次在正文最后一次修改后、正式 `bind-artifacts` 前，用于确认准备绑定的最终产物没有遗留旧引句、空/错 `human_scope_reviews.artifact`、重复拼接项目目录的脚本路径、缺失来源契约或旧来源 SHA。
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" preflight-final-rebind \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" preflight-final-rebind \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --artifact "设定={项目目录}/设定.md" \
   --artifact "大纲={项目目录}/小节大纲.md" \
@@ -307,7 +343,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 逐项状态更新后刷新汇总：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" refresh-summary \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" refresh-summary \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -318,7 +354,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 不要在 skill 规则、专项规则或拆书资产更新后继续使用旧 SHA，也不要为了一个无关小节变动重做整本台账。先运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" sync-sources \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" sync-sources \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 
@@ -327,7 +363,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 ## 绑定最终产物
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" bind-artifacts \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" bind-artifacts \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
   --artifact "设定={项目目录}/设定.md" \
   --artifact "大纲={项目目录}/小节大纲.md" \
@@ -337,7 +373,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_le
 ## 最终校验
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_rule_execution_ledger.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
 

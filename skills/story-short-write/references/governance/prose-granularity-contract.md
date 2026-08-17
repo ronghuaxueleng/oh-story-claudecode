@@ -189,7 +189,7 @@
 初始化：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" init \
   --project "{项目名}" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json"
@@ -198,7 +198,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 当前模型完成写前基线与校准样本后：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-outline \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" bind-outline \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --outline "{项目目录}/小节大纲.md"
 ```
@@ -206,21 +206,21 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 当前模型逐节完成落笔包后，默认先导出“下一对待补小节侧车”，再在正式消费前跑批内预检：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" export-next-section-plan-pair \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" export-next-section-plan-pair \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --output "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
   --compact-authoring
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-section-plan \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" preflight-section-plan \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" apply-section-plan \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" apply-section-plan \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --plan "{项目目录}/写作资产/文字颗粒逐节写前侧车.json" \
   --consume
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-prewrite \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" validate-prewrite \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --outline "{项目目录}/小节大纲.md"
@@ -255,7 +255,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 全部小节逐节通过且进度闸输出 `final_ready` 后，才绑定最终 SHA 并自动生成全部小节复核骨架：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" bind-draft \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --draft "{项目目录}/正文.md" \
   --section-progress "{项目目录}/写作资产/逐节正文进度.json"
@@ -264,12 +264,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity
 当前模型基于最终正文逐节填写全文骨架。允许使用全文人工侧车分批编辑，但侧车只承载当前模型已明确写出的裁决，不能从延后逐节回执自动生成语义字段。完成后运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" preflight-manual-sidecar \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" preflight-manual-sidecar \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --sidecar "{项目目录}/写作资产/文字颗粒度人工侧车.json" \
   --draft "{项目目录}/正文.md"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_prose_granularity_contract.py" validate-draft \
+python3 "$SKILL_ROOT/scripts/validate_prose_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --draft "{项目目录}/正文.md" \

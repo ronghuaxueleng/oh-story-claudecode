@@ -51,7 +51,7 @@
 局部回炉、叙述者声音专项、去 AI 定点修改必须传入母稿：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" init \
+python3 "$SKILL_ROOT/scripts/validate_post_write_human_review_gate.py" init \
   --project "{项目名}" \
   --text "{项目目录}/正文.md" \
   --base-text "{母稿目录}/正文.md" \
@@ -76,7 +76,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_
 ## 最终校验
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_post_write_human_review_gate.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_post_write_human_review_gate.py" validate \
   --receipt "{项目目录}/写作资产/写后人工语义复核回执.json" \
   --text "{项目目录}/正文.md" \
   --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"

@@ -8,8 +8,24 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class SkillDocumentedCommandsTest(unittest.TestCase):
-    def test_section_progress_commands_are_complete_in_main_skill(self) -> None:
+    def _main_and_split_docs(self) -> str:
+        paths = (
+            ROOT / "SKILL.md",
+            ROOT / "references" / "governance" / "execution-rules.md",
+            ROOT / "references" / "workflow" / "profile-and-gates.md",
+            ROOT / "references" / "workflow" / "writing-method.md",
+        )
+        return "\n".join(path.read_text(encoding="utf-8") for path in paths)
+
+    def test_main_skill_stays_compact_and_links_split_rules(self) -> None:
         text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertLessEqual(len(text.splitlines()), 500)
+        self.assertIn("references/governance/execution-rules.md", text)
+        self.assertIn("references/workflow/profile-and-gates.md", text)
+        self.assertIn("references/workflow/writing-method.md", text)
+
+    def test_section_progress_commands_are_complete_in_main_skill(self) -> None:
+        text = self._main_and_split_docs()
         required_fragments = (
             'validate_section_progress.py" status',
             'validate_section_progress.py" start-section',
@@ -35,7 +51,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 self.assertIn(fragment, text)
 
     def test_read_batch_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -45,6 +61,10 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
             '--project-dir "{工作区}/{小说书名}"',
             '--print-paths-json',
             'batch_read_gates.py" prepare-batches',
+            'batch_read_gates.py" export-review-plan',
+            'batch_read_gates.py" preflight-review-plan',
+            'batch_read_gates.py" apply-review-plan',
+            'batch_read_gates.py" preflight-manifest',
             '--output-dir "{项目目录}/写作资产/读取批次"',
             'batch_read_gates.py" finalize-batches',
             'batch_read_gates.py" status',
@@ -65,7 +85,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_outline_release_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -92,7 +112,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_rule_model_review_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -102,9 +122,14 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         required_fragments = (
             'batch_rule_model_review.py" prepare-model-review',
             'batch_rule_model_review.py" status',
+            'batch_rule_model_review.py" inspect-model-review-batch',
+            'batch_rule_model_review.py" inspect-all-model-review-batches',
+            'batch_rule_model_review.py" export-pending-groups',
             'batch_rule_model_review.py" next-step',
             'batch_rule_model_review.py" run-model-review-cycle',
             'batch_rule_model_review.py" emit-shell-template',
+            'validate_rule_execution_ledger.py" export-model-group-preset-candidates',
+            'validate_rule_execution_ledger.py" merge-model-group-preset-candidates',
             '--review-manifest "{项目目录}/写作资产/规则模型分类批次.json"',
             '--group-plan "{项目目录}/写作资产/规则模型归并计划.json"',
             "规则模型复核中段",
@@ -117,8 +142,43 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                     msg=f"missing documented fragment: {fragment}",
                 )
 
+    def test_documented_commands_use_skill_root_not_flat_codex_home(self) -> None:
+        paths = [ROOT / "SKILL.md", *sorted((ROOT / "references").rglob("*.md"))]
+        combined = "\n".join(path.read_text(encoding="utf-8") for path in paths)
+        self.assertNotIn("$CODEX_HOME/skills/story-short-write", combined)
+        self.assertIn("$SKILL_ROOT/scripts/", combined)
+
+    def test_write_release_gate_fixed_stage_commands_are_documented(self) -> None:
+        skill_text = self._main_and_split_docs()
+        required_fragments = (
+            'validate_write_release_gate.py" setting',
+            'validate_write_release_gate.py" outline',
+            'validate_write_release_gate.py" draft',
+            '--setting-sequence-receipt "{项目目录}/写作资产/设定顺序契约回执.json"',
+            '--sequence-receipt "{项目目录}/写作资产/顺序契约回执.json"',
+            '--opening-contract "{项目目录}/写作资产/开头承重契约回执_大纲.json"',
+            '--prose-contract "{项目目录}/写作资产/全文文字颗粒度契约回执.json"',
+            '--emotional-contract "{项目目录}/写作资产/全文情绪颗粒度契约回执.json"',
+            "不接收 `--output`",
+        )
+        for fragment in required_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, skill_text)
+
+    def test_read_gate_status_documents_all_required_paths(self) -> None:
+        skill_text = self._main_and_split_docs()
+        required_fragments = (
+            'batch_read_gates.py" status',
+            '--writing-receipt "{项目目录}/写作资产/写作规则读取回执.json"',
+            '--source-receipt "{项目目录}/写作资产/拆文读取回执.json"',
+            '--manifest "{项目目录}/写作资产/读取批次/manifest.json"',
+        )
+        for fragment in required_fragments:
+            with self.subTest(fragment=fragment):
+                self.assertIn(fragment, skill_text)
+
     def test_outline_review_cycle_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -145,7 +205,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_section_review_cycle_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         governance_text = (
             ROOT / "references" / "governance" / "section-progress-gate.md"
         ).read_text(encoding="utf-8")
@@ -168,7 +228,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_full_draft_review_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -192,7 +252,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_postdraft_release_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )
@@ -215,7 +275,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
                 )
 
     def test_formal_audit_high_level_commands_are_documented(self) -> None:
-        skill_text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        skill_text = self._main_and_split_docs()
         workflow_text = (ROOT / "references" / "workflow" / "writing-workflow.md").read_text(
             encoding="utf-8"
         )

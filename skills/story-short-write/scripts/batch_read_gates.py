@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import argparse
+import copy
 from datetime import datetime, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
+import tempfile
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -18,6 +21,7 @@ from sidecar_lifecycle import consume_sidecar, sha256_file
 ROOT = Path(__file__).resolve().parent
 READ_BATCH_INDEX_SCHEMA = "story-short-write.read-batch-index.v1"
 READ_BATCH_SCHEMA = "story-short-write.read-batch.v1"
+READ_REVIEW_PLAN_SCHEMA = "story-short-write.read-review-plan.v1"
 BATCH_STATUSES = {"pending", "in_progress", "reviewed"}
 
 
@@ -73,6 +77,22 @@ def write_json(path: Path, data: dict[str, Any]) -> None:
     )
 
 
+def write_json_atomic(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        delete=False,
+    ) as handle:
+        temp_path = Path(handle.name)
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    os.replace(temp_path, path)
+
+
 def load_json(path: Path, label: str) -> dict[str, Any]:
     if not path.is_file():
         raise FileNotFoundError(f"{label}不存在: {path}")
@@ -106,6 +126,10 @@ def _utc_now_iso() -> str:
 
 def _quote_shell(value: str) -> str:
     return '"' + value.replace('"', '\\"') + '"'
+
+
+def _self_command() -> str:
+    return f"python3 {_quote_shell(str((ROOT / 'batch_read_gates.py').resolve()))}"
 
 
 def _join_shell_flags(flag: str, values: list[Path]) -> str:
@@ -369,6 +393,266 @@ def export_batches(
     return manifest
 
 
+def _resolve_manifest_batches(manifest_path: Path) -> tuple[dict[str, Any], list[tuple[Path, dict[str, Any]]]]:
+    manifest = load_json(manifest_path, "读取批次清单")
+    if manifest.get("schema_version") != READ_BATCH_INDEX_SCHEMA:
+        raise ValueError("读取批次清单 schema_version 不正确")
+    batches = manifest.get("batches")
+    if not isinstance(batches, list) or not batches:
+        raise ValueError("读取批次清单 batches 不能为空")
+    manifest_dir = manifest_path.resolve().parent
+    resolved: list[tuple[Path, dict[str, Any]]] = []
+    for index, item in enumerate(batches):
+        if not isinstance(item, dict):
+            raise ValueError(f"batches[{index}] 必须是对象")
+        raw_path = str(item.get("path") or "").strip()
+        if not raw_path:
+            raise ValueError(f"batches[{index}].path 不能为空")
+        batch_path = Path(raw_path)
+        if not batch_path.is_absolute():
+            batch_path = (manifest_dir / batch_path).resolve()
+        resolved.append((batch_path, load_json(batch_path, "读取批次侧车")))
+    return manifest, resolved
+
+
+def export_review_plan(
+    *,
+    writing_receipt: Path,
+    source_receipt: Path,
+    manifest_path: Path,
+    output: Path,
+) -> dict[str, Any]:
+    manifest, batches = _resolve_manifest_batches(manifest_path)
+    if str(manifest.get("writing_receipt_sha256") or "").strip() != sha256_file(writing_receipt):
+        raise ValueError("读取批次清单绑定的写作规则读取回执 SHA 已失效，请重新 export")
+    if str(manifest.get("source_receipt_sha256") or "").strip() != sha256_file(source_receipt):
+        raise ValueError("读取批次清单绑定的拆文读取回执 SHA 已失效，请重新 export")
+    source_data = load_json(source_receipt, "拆文读取回执")
+    entries: list[dict[str, Any]] = []
+    for batch_path, batch in batches:
+        if batch.get("schema_version") != READ_BATCH_SCHEMA:
+            raise ValueError(f"读取批次侧车 schema_version 不正确: {batch_path}")
+        if batch.get("status") == "consumed":
+            raise ValueError(f"已消费批次不能导出人工计划: {batch_path}")
+        for entry in batch.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            entries.append(
+                {
+                    "entry_id": str(entry.get("entry_id") or "").strip(),
+                    "batch_id": str(batch.get("batch_id") or "").strip(),
+                    "gate": str(entry.get("gate") or "").strip(),
+                    "group_label": str(entry.get("group_label") or "").strip(),
+                    "source_root": str(entry.get("source_root") or "").strip(),
+                    "relative_path": str(entry.get("relative_path") or "").strip(),
+                    "absolute_path": str(entry.get("absolute_path") or "").strip(),
+                    "file_sha256": str(entry.get("file_sha256") or "").strip(),
+                    "evidence_terms": _nonempty_strings(entry.get("evidence_terms")),
+                    "takeaways": _nonempty_strings(entry.get("takeaways")),
+                    "used_for": _nonempty_strings(entry.get("used_for")),
+                }
+            )
+    payload = {
+        "schema_version": READ_REVIEW_PLAN_SCHEMA,
+        "status": "pending",
+        "review_started_at": None,
+        "reviewed_at": None,
+        "reviewed_by_current_model": False,
+        "semantic_fields_generated_by_script": False,
+        "bindings": {
+            "writing_receipt_path": str(writing_receipt.resolve()),
+            "writing_receipt_sha256": sha256_file(writing_receipt),
+            "source_receipt_path": str(source_receipt.resolve()),
+            "source_receipt_sha256": sha256_file(source_receipt),
+            "manifest_path": str(manifest_path.resolve()),
+            "manifest_sha256": sha256_file(manifest_path),
+        },
+        "cross_source_decisions": _nonempty_strings(source_data.get("cross_source_decisions")),
+        "entries": entries,
+    }
+    write_json_atomic(output, payload)
+    return payload
+
+
+def _review_plan_errors(
+    *,
+    plan: dict[str, Any],
+    writing_receipt: Path,
+    source_receipt: Path,
+    manifest_path: Path,
+) -> list[str]:
+    errors: list[str] = []
+    if plan.get("schema_version") != READ_REVIEW_PLAN_SCHEMA:
+        errors.append("读取人工计划 schema_version 不正确")
+    if str(plan.get("status") or "").strip() != "reviewed":
+        errors.append("读取人工计划必须先标记 status=reviewed")
+    if plan.get("reviewed_by_current_model") is not True:
+        errors.append("读取人工计划必须由当前模型标记 reviewed_by_current_model=true")
+    if plan.get("semantic_fields_generated_by_script") is not False:
+        errors.append("读取人工计划必须声明 semantic_fields_generated_by_script=false")
+    bindings = plan.get("bindings")
+    if not isinstance(bindings, dict):
+        errors.append("读取人工计划缺少 bindings")
+        return errors
+    expected_bindings = {
+        "writing_receipt_sha256": sha256_file(writing_receipt),
+        "source_receipt_sha256": sha256_file(source_receipt),
+        "manifest_sha256": sha256_file(manifest_path),
+    }
+    for field, expected in expected_bindings.items():
+        if str(bindings.get(field) or "").strip() != expected:
+            errors.append(f"读取人工计划绑定的 {field} 已失效，请重新 export")
+
+    _manifest, batches = _resolve_manifest_batches(manifest_path)
+    expected_entries: dict[str, dict[str, Any]] = {}
+    for _batch_path, batch in batches:
+        if batch.get("schema_version") != READ_BATCH_SCHEMA:
+            errors.append(f"读取批次侧车 schema_version 不正确: {_batch_path}")
+            continue
+        for entry in batch.get("entries") or []:
+            if isinstance(entry, dict):
+                entry_id = str(entry.get("entry_id") or "").strip()
+                if entry_id:
+                    expected_entries[entry_id] = entry
+    entries = plan.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return errors + ["读取人工计划 entries 不能为空"]
+    seen: set[str] = set()
+    actual_ids: set[str] = set()
+    for index, item in enumerate(entries):
+        if not isinstance(item, dict):
+            errors.append(f"entries[{index}] 必须是对象")
+            continue
+        entry_id = str(item.get("entry_id") or "").strip()
+        if not entry_id:
+            errors.append(f"entries[{index}].entry_id 不能为空")
+            continue
+        if entry_id in seen:
+            errors.append(f"读取人工计划存在重复 entry_id: {entry_id}")
+            continue
+        seen.add(entry_id)
+        actual_ids.add(entry_id)
+        expected = expected_entries.get(entry_id)
+        if expected is None:
+            errors.append(f"读取人工计划含未知 entry_id: {entry_id}")
+            continue
+        if str(item.get("file_sha256") or "").strip() != str(expected.get("file_sha256") or "").strip():
+            errors.append(f"{entry_id} 的 file_sha256 与批次不一致")
+        evidence_terms = _nonempty_strings(item.get("evidence_terms"))
+        takeaways = _nonempty_strings(item.get("takeaways"))
+        used_for = _nonempty_strings(item.get("used_for"))
+        if not evidence_terms:
+            errors.append(f"{entry_id} 缺少 evidence_terms")
+        if not takeaways:
+            errors.append(f"{entry_id} 缺少 takeaways")
+        if not used_for:
+            errors.append(f"{entry_id} 缺少 used_for")
+        absolute = Path(str(expected.get("absolute_path") or "")).resolve()
+        if not absolute.is_file():
+            errors.append(f"{entry_id} 对应源文件不存在: {absolute}")
+        else:
+            source_text = _read_file_text(absolute)
+            missing_terms = [term for term in evidence_terms if term not in source_text]
+            if missing_terms:
+                errors.append(
+                    f"{entry_id} 的 evidence_terms 不在源文件中: {' / '.join(missing_terms)}"
+                )
+    for entry_id in sorted(set(expected_entries) - actual_ids):
+        errors.append(f"读取人工计划缺少 entry_id: {entry_id}")
+    source_data = load_json(source_receipt, "拆文读取回执")
+    if len(source_data.get("sources") or []) > 1 and not _nonempty_strings(
+        plan.get("cross_source_decisions")
+    ):
+        errors.append("融合写作必须在读取人工计划填写 cross_source_decisions")
+    return errors
+
+
+def preflight_review_plan(
+    *,
+    plan_path: Path,
+    writing_receipt: Path,
+    source_receipt: Path,
+    manifest_path: Path,
+) -> dict[str, Any]:
+    plan = load_json(plan_path, "读取人工计划")
+    errors = _review_plan_errors(
+        plan=plan,
+        writing_receipt=writing_receipt,
+        source_receipt=source_receipt,
+        manifest_path=manifest_path,
+    )
+    return {
+        "errors": errors,
+        "entry_count": len(plan.get("entries") or []),
+        "cross_source_decisions": len(_nonempty_strings(plan.get("cross_source_decisions"))),
+    }
+
+
+def apply_review_plan(
+    *,
+    plan_path: Path,
+    writing_receipt: Path,
+    source_receipt: Path,
+    manifest_path: Path,
+    consume: bool,
+) -> dict[str, Any]:
+    plan = load_json(plan_path, "读取人工计划")
+    errors = _review_plan_errors(
+        plan=plan,
+        writing_receipt=writing_receipt,
+        source_receipt=source_receipt,
+        manifest_path=manifest_path,
+    )
+    if errors:
+        raise ValueError("\n".join(errors))
+    plan_entries = {
+        str(item.get("entry_id") or "").strip(): item
+        for item in plan.get("entries") or []
+        if isinstance(item, dict)
+    }
+    _manifest, batches = _resolve_manifest_batches(manifest_path)
+    reviewed_at = str(plan.get("reviewed_at") or "").strip() or _utc_now_iso()
+    started_at = str(plan.get("review_started_at") or "").strip() or reviewed_at
+    updated_batches = 0
+    for batch_path, batch in batches:
+        for entry in batch.get("entries") or []:
+            if not isinstance(entry, dict):
+                continue
+            source = plan_entries[str(entry.get("entry_id") or "").strip()]
+            entry["evidence_terms"] = _nonempty_strings(source.get("evidence_terms"))
+            entry["takeaways"] = _nonempty_strings(source.get("takeaways"))
+            entry["used_for"] = _nonempty_strings(source.get("used_for"))
+        batch["status"] = "reviewed"
+        batch["review_started_at"] = started_at
+        batch["reviewed_at"] = reviewed_at
+        batch["reviewed_by_current_model"] = True
+        batch["semantic_fields_generated_by_script"] = False
+        batch["cross_source_decisions"] = _nonempty_strings(
+            plan.get("cross_source_decisions")
+        )
+        write_json_atomic(batch_path, batch)
+        updated_batches += 1
+    if consume:
+        consume_sidecar(
+            plan_path,
+            input_sha256=sha256_file(plan_path),
+            receipt_path=source_receipt,
+            receipt_sha256=sha256_file(source_receipt),
+            operation="batch-read-gates.apply-review-plan",
+            counts={
+                "entries": len(plan_entries),
+                "batches": updated_batches,
+            },
+        )
+    return {
+        "entries": len(plan_entries),
+        "batches": updated_batches,
+        "cross_source_decisions": len(
+            _nonempty_strings(plan.get("cross_source_decisions"))
+        ),
+    }
+
+
 def prepare_batches(
     *,
     project: str,
@@ -542,13 +826,13 @@ def suggest_next_step(
         manifest_path=manifest_path,
     )
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status '
+        f"{_self_command()} status "
         f'--writing-receipt {_quote_shell(str(writing_receipt.resolve()))} '
         f'--source-receipt {_quote_shell(str(source_receipt.resolve()))} '
         f'--manifest {_quote_shell(str(manifest_path.resolve()))}'
     )
     finalize_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches '
+        f"{_self_command()} finalize-batches "
         f'--writing-receipt {_quote_shell(str(writing_receipt.resolve()))} '
         f'--source-receipt {_quote_shell(str(source_receipt.resolve()))} '
         f'--manifest {_quote_shell(str(manifest_path.resolve()))} '
@@ -560,7 +844,7 @@ def suggest_next_step(
         )
     )
     validate_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" validate '
+        f"{_self_command()} validate "
         f'--writing-receipt {_quote_shell(str(writing_receipt.resolve()))} '
         f'--source-receipt {_quote_shell(str(source_receipt.resolve()))} '
         f'--stage {stage} '
@@ -690,19 +974,19 @@ def emit_shell_template(
     output_flags = _join_shell_flags("--output", [path.resolve() for path in source_outputs])
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" bootstrap-project \\',
+            f"{_self_command()} bootstrap-project \\",
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(resolved_project_dir))} \\",
             f"  {source_flags} \\",
             f"  --batch-size {batch_size} \\",
             '  --print-paths-json',
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \\',
+            f"{_self_command()} status \\",
             f"  --writing-receipt {_quote_shell(str(writing_receipt))} \\",
             f"  --source-receipt {_quote_shell(str(source_receipt))} \\",
             f"  --manifest {_quote_shell(str(manifest))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" next-step \\',
+            f"{_self_command()} next-step \\",
             f"  --writing-receipt {_quote_shell(str(writing_receipt))} \\",
             f"  --source-receipt {_quote_shell(str(source_receipt))} \\",
             f"  --manifest {_quote_shell(str(manifest))} \\",
@@ -710,7 +994,7 @@ def emit_shell_template(
             f"  --stage-output {_quote_shell(str(stage_output.resolve()))} \\",
             f"  {output_flags}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" run-read-gates-cycle \\',
+            f"{_self_command()} run-read-gates-cycle \\",
             f"  --writing-receipt {_quote_shell(str(writing_receipt))} \\",
             f"  --source-receipt {_quote_shell(str(source_receipt))} \\",
             f"  --manifest {_quote_shell(str(manifest))} \\",
@@ -884,6 +1168,136 @@ def _seal_gate_receipt(receipt_path: Path, source_label: str) -> None:
     write_json(receipt_path, data)
 
 
+def _batch_payload_errors(
+    *,
+    batch: dict[str, Any],
+    writing_data: dict[str, Any],
+    source_data: dict[str, Any],
+    writing_receipt_sha256: str,
+    source_receipt_sha256: str,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    if batch.get("schema_version") != READ_BATCH_SCHEMA:
+        return [f"{label} schema_version 不正确"]
+    try:
+        status = _validate_batch_status(batch, label=label)
+    except ValueError as exc:
+        errors.append(str(exc))
+        status = ""
+    if status != "reviewed":
+        errors.append(f"{label} 必须先标记 status=reviewed")
+    if batch.get("reviewed_by_current_model") is not True:
+        errors.append(f"{label} 必须由当前模型标记 reviewed_by_current_model=true")
+    if batch.get("semantic_fields_generated_by_script") is not False:
+        errors.append(f"{label} 必须声明 semantic_fields_generated_by_script=false")
+    bindings = batch.get("bindings")
+    if not isinstance(bindings, dict):
+        errors.append(f"{label} 缺少 bindings")
+    else:
+        if str(bindings.get("writing_receipt_sha256") or "").strip() != writing_receipt_sha256:
+            errors.append(f"{label} 绑定的写作规则读取回执 SHA 已失效，请重新 export")
+        if str(bindings.get("source_receipt_sha256") or "").strip() != source_receipt_sha256:
+            errors.append(f"{label} 绑定的拆文读取回执 SHA 已失效，请重新 export")
+
+    entries = batch.get("entries")
+    if not isinstance(entries, list) or not entries:
+        return errors + [f"{label} entries 不能为空"]
+    writing_index = _index_writing_entries(writing_data)
+    source_index = _index_source_entries(source_data)
+    seen_ids: set[str] = set()
+    for offset, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            errors.append(f"{label}.entries[{offset}] 必须是对象")
+            continue
+        entry_id = str(entry.get("entry_id") or "").strip()
+        if not entry_id:
+            errors.append(f"{label}.entries[{offset}].entry_id 不能为空")
+            continue
+        if entry_id in seen_ids:
+            errors.append(f"{label} 存在重复 entry_id: {entry_id}")
+            continue
+        seen_ids.add(entry_id)
+        gate = str(entry.get("gate") or "").strip()
+        source_root = str(entry.get("source_root") or "").strip()
+        relative = str(entry.get("relative_path") or "").strip()
+        absolute = Path(str(entry.get("absolute_path") or "")).resolve()
+        file_sha = str(entry.get("file_sha256") or "").strip()
+        if not gate or not source_root or not relative:
+            errors.append(f"{entry_id} 缺少 gate/source_root/relative_path")
+            continue
+        if not absolute.is_file():
+            errors.append(f"{entry_id} 对应源文件不存在: {absolute}")
+        elif file_sha != sha256_file(absolute):
+            errors.append(f"{entry_id} 绑定的源文件 SHA 已失效，请重新 export: {absolute}")
+        evidence_terms = _nonempty_strings(entry.get("evidence_terms"))
+        takeaways = _nonempty_strings(entry.get("takeaways"))
+        used_for = _nonempty_strings(entry.get("used_for"))
+        if not evidence_terms:
+            errors.append(f"{entry_id} 缺少 evidence_terms")
+        if not takeaways:
+            errors.append(f"{entry_id} 缺少 takeaways")
+        if not used_for:
+            errors.append(f"{entry_id} 缺少 used_for")
+        if absolute.is_file() and evidence_terms:
+            source_text = _read_file_text(absolute)
+            missing_terms = [term for term in evidence_terms if term not in source_text]
+            if missing_terms:
+                errors.append(
+                    f"{entry_id} 的 evidence_terms 不在源文件中: {' / '.join(missing_terms)}"
+                )
+        if gate == "writing":
+            if relative not in writing_index:
+                errors.append(f"{entry_id} 找不到对应的写作规则读取回执条目: {relative}")
+        elif gate == "source":
+            if (source_root, relative) not in source_index:
+                errors.append(
+                    f"{entry_id} 找不到对应的拆文读取回执条目: {source_root} -> {relative}"
+                )
+        else:
+            errors.append(f"{entry_id} 的 gate 非法: {gate}")
+    return errors
+
+
+def _apply_batch_payload_to_data(
+    *,
+    batch: dict[str, Any],
+    writing_data: dict[str, Any],
+    source_data: dict[str, Any],
+) -> dict[str, int]:
+    writing_index = _index_writing_entries(writing_data)
+    source_index = _index_source_entries(source_data)
+    updated_writing = 0
+    updated_source = 0
+    for entry in batch.get("entries") or []:
+        gate = str(entry.get("gate") or "").strip()
+        source_root = str(entry.get("source_root") or "").strip()
+        relative = str(entry.get("relative_path") or "").strip()
+        target = (
+            writing_index.get(relative)
+            if gate == "writing"
+            else source_index.get((source_root, relative))
+        )
+        if target is None:
+            raise ValueError(f"{entry.get('entry_id')} 在预检后仍找不到正式回执目标")
+        target["status"] = "read"
+        target["evidence_terms"] = _nonempty_strings(entry.get("evidence_terms"))
+        target["takeaways"] = _nonempty_strings(entry.get("takeaways"))
+        target["used_for"] = _nonempty_strings(entry.get("used_for"))
+        if gate == "writing":
+            updated_writing += 1
+        else:
+            updated_source += 1
+    decisions = _nonempty_strings(batch.get("cross_source_decisions"))
+    if decisions:
+        source_data["cross_source_decisions"] = decisions
+    return {
+        "updated_writing": updated_writing,
+        "updated_source": updated_source,
+        "cross_source_decisions": len(decisions),
+    }
+
+
 def apply_batch(
     *,
     writing_receipt: Path,
@@ -891,105 +1305,86 @@ def apply_batch(
     batch_path: Path,
 ) -> dict[str, Any]:
     batch = load_json(batch_path, "读取批次侧车")
-    if batch.get("schema_version") != READ_BATCH_SCHEMA:
-        raise ValueError("读取批次侧车 schema_version 不正确")
-    status = _validate_batch_status(batch, label="读取批次侧车")
-    if status != "reviewed":
-        raise ValueError("读取批次侧车必须先标记 status=reviewed 才能 apply")
-    if batch.get("reviewed_by_current_model") is not True:
-        raise ValueError("读取批次侧车必须由当前模型标记 reviewed_by_current_model=true")
-    if batch.get("semantic_fields_generated_by_script") is not False:
-        raise ValueError("读取批次侧车必须声明 semantic_fields_generated_by_script=false")
-    bindings = batch.get("bindings")
-    if not isinstance(bindings, dict):
-        raise ValueError("读取批次侧车缺少 bindings")
-    if str(bindings.get("writing_receipt_sha256") or "").strip() != sha256_file(writing_receipt):
-        raise ValueError("读取批次侧车绑定的写作规则读取回执 SHA 已失效，请重新 export")
-    if str(bindings.get("source_receipt_sha256") or "").strip() != sha256_file(source_receipt):
-        raise ValueError("读取批次侧车绑定的拆文读取回执 SHA 已失效，请重新 export")
-
-    entries = batch.get("entries")
-    if not isinstance(entries, list) or not entries:
-        raise ValueError("读取批次侧车 entries 不能为空")
-
     writing_data = load_json(writing_receipt, "写作规则读取回执")
     source_data = load_json(source_receipt, "拆文读取回执")
-    writing_index = _index_writing_entries(writing_data)
-    source_index = _index_source_entries(source_data)
+    errors = _batch_payload_errors(
+        batch=batch,
+        writing_data=writing_data,
+        source_data=source_data,
+        writing_receipt_sha256=sha256_file(writing_receipt),
+        source_receipt_sha256=sha256_file(source_receipt),
+        label="读取批次侧车",
+    )
+    if errors:
+        raise ValueError("\n".join(errors))
+    summary = _apply_batch_payload_to_data(
+        batch=batch,
+        writing_data=writing_data,
+        source_data=source_data,
+    )
+    write_json_atomic(writing_receipt, writing_data)
+    write_json_atomic(source_receipt, source_data)
+    return summary
 
+
+def preflight_manifest(
+    *,
+    writing_receipt: Path,
+    source_receipt: Path,
+    manifest_path: Path,
+) -> dict[str, Any]:
+    manifest, batches = _resolve_manifest_batches(manifest_path)
+    writing_sha = sha256_file(writing_receipt)
+    source_sha = sha256_file(source_receipt)
+    errors: list[str] = []
+    if str(manifest.get("writing_receipt_sha256") or "").strip() != writing_sha:
+        errors.append("读取批次清单绑定的写作规则读取回执 SHA 已失效，请重新 export")
+    if str(manifest.get("source_receipt_sha256") or "").strip() != source_sha:
+        errors.append("读取批次清单绑定的拆文读取回执 SHA 已失效，请重新 export")
+    base_writing = load_json(writing_receipt, "写作规则读取回执")
+    base_source = load_json(source_receipt, "拆文读取回执")
+    staged_writing = copy.deepcopy(base_writing)
+    staged_source = copy.deepcopy(base_source)
+    records: list[dict[str, Any]] = []
     updated_writing = 0
     updated_source = 0
-    seen_ids: set[str] = set()
-    for offset, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(f"entries[{offset}] 必须是对象")
-        entry_id = str(entry.get("entry_id") or "").strip()
-        if not entry_id:
-            raise ValueError(f"entries[{offset}].entry_id 不能为空")
-        if entry_id in seen_ids:
-            raise ValueError(f"读取批次侧车存在重复 entry_id: {entry_id}")
-        seen_ids.add(entry_id)
-
-        gate = str(entry.get("gate") or "").strip()
-        source_root = str(entry.get("source_root") or "").strip()
-        relative = str(entry.get("relative_path") or "").strip()
-        absolute = Path(str(entry.get("absolute_path") or "")).resolve()
-        file_sha = str(entry.get("file_sha256") or "").strip()
-        if not gate or not source_root or not relative:
-            raise ValueError(f"{entry_id} 缺少 gate/source_root/relative_path")
-        if not absolute.is_file():
-            raise ValueError(f"{entry_id} 对应源文件不存在: {absolute}")
-        if file_sha != sha256_file(absolute):
-            raise ValueError(f"{entry_id} 绑定的源文件 SHA 已失效，请重新 export: {absolute}")
-
-        evidence_terms = _nonempty_strings(entry.get("evidence_terms"))
-        takeaways = _nonempty_strings(entry.get("takeaways"))
-        used_for = _nonempty_strings(entry.get("used_for"))
-        if not evidence_terms:
-            raise ValueError(f"{entry_id} 缺少 evidence_terms")
-        if not takeaways:
-            raise ValueError(f"{entry_id} 缺少 takeaways")
-        if not used_for:
-            raise ValueError(f"{entry_id} 缺少 used_for")
-        source_text = _read_file_text(absolute)
-        missing_terms = [term for term in evidence_terms if term not in source_text]
-        if missing_terms:
-            raise ValueError(
-                f"{entry_id} 的 evidence_terms 不在源文件中: {' / '.join(missing_terms)}"
+    decisions = _nonempty_strings(staged_source.get("cross_source_decisions"))
+    for batch_path, batch in batches:
+        batch_errors = _batch_payload_errors(
+            batch=batch,
+            writing_data=base_writing,
+            source_data=base_source,
+            writing_receipt_sha256=writing_sha,
+            source_receipt_sha256=source_sha,
+            label=f"读取批次侧车 {batch_path}",
+        )
+        errors.extend(batch_errors)
+        if not batch_errors:
+            summary = _apply_batch_payload_to_data(
+                batch=batch,
+                writing_data=staged_writing,
+                source_data=staged_source,
             )
-
-        if gate == "writing":
-            target = writing_index.get(relative)
-            if target is None:
-                raise ValueError(f"{entry_id} 找不到对应的写作规则回执条目: {relative}")
-            target["status"] = "read"
-            target["evidence_terms"] = evidence_terms
-            target["takeaways"] = takeaways
-            target["used_for"] = used_for
-            updated_writing += 1
-            continue
-
-        if gate != "source":
-            raise ValueError(f"{entry_id} 的 gate 非法: {gate}")
-        target = source_index.get((source_root, relative))
-        if target is None:
-            raise ValueError(f"{entry_id} 找不到对应的拆文读取回执条目: {source_root} -> {relative}")
-        target["status"] = "read"
-        target["evidence_terms"] = evidence_terms
-        target["takeaways"] = takeaways
-        target["used_for"] = used_for
-        updated_source += 1
-
-    cross_source_decisions = _nonempty_strings(batch.get("cross_source_decisions"))
-    if cross_source_decisions:
-        source_data["cross_source_decisions"] = cross_source_decisions
-
-    write_json(writing_receipt, writing_data)
-    write_json(source_receipt, source_data)
+            updated_writing += summary["updated_writing"]
+            updated_source += summary["updated_source"]
+            if summary["cross_source_decisions"]:
+                decisions = _nonempty_strings(batch.get("cross_source_decisions"))
+        records.append(
+            {"path": batch_path, "sha256": sha256_file(batch_path), "batch": batch}
+        )
+    if len(staged_source.get("sources") or []) > 1 and not decisions:
+        errors.append("融合写作必须在读取批次或紧凑人工计划填写 cross_source_decisions")
+    if decisions:
+        staged_source["cross_source_decisions"] = decisions
     return {
+        "errors": errors,
+        "manifest": manifest,
+        "batches": records,
+        "writing_data": staged_writing,
+        "source_data": staged_source,
         "updated_writing": updated_writing,
         "updated_source": updated_source,
-        "cross_source_decisions": len(cross_source_decisions),
+        "cross_source_decisions": len(decisions),
     }
 
 
@@ -1015,27 +1410,93 @@ def finalize_batches(
             "读取批次存在未完成项，必须先由当前模型完成全部批次再 finalize: "
             f"{pending}"
         )
-    manifest_summary = apply_manifest(
+    preflight = preflight_manifest(
         writing_receipt=writing_receipt,
         source_receipt=source_receipt,
         manifest_path=manifest_path,
-        consume=consume,
     )
-    _seal_gate_receipt(writing_receipt, "写作规则读取回执")
-    _seal_gate_receipt(source_receipt, "拆文读取回执")
-    errors, validate_summary = validate_batch(
-        writing_receipt=writing_receipt,
-        source_receipt=source_receipt,
-        stage=stage,
-        stage_output=stage_output,
-        source_outputs=source_outputs,
-        skill_root=skill_root,
-    )
+    empty_summary = {
+        "applied_batches": 0,
+        "consumed_batches": 0,
+        "updated_writing": 0,
+        "updated_source": 0,
+        "writing_file_count": 0,
+        "writing_read_count": 0,
+        "source_count": len(preflight["source_data"].get("sources") or []),
+        "source_file_count": 0,
+        "source_read_count": 0,
+    }
+    if preflight["errors"]:
+        return list(preflight["errors"]), empty_summary
+
+    staged_writing = preflight["writing_data"]
+    staged_source = preflight["source_data"]
+    for data in (staged_writing, staged_source):
+        data["gate_status"] = "passed"
+        data["confirmed_before_outline"] = True
+        data["confirmed_before_draft"] = True
+    with tempfile.TemporaryDirectory(
+        dir=writing_receipt.parent,
+        prefix=".read-gates-finalize-",
+    ) as temp_dir:
+        temp_root = Path(temp_dir)
+        temp_writing = temp_root / writing_receipt.name
+        temp_source = temp_root / source_receipt.name
+        write_json(temp_writing, staged_writing)
+        write_json(temp_source, staged_source)
+        errors, validate_summary = validate_batch(
+            writing_receipt=temp_writing,
+            source_receipt=temp_source,
+            stage=stage,
+            stage_output=stage_output,
+            source_outputs=source_outputs,
+            skill_root=skill_root,
+        )
+    if errors:
+        return errors, {
+            **empty_summary,
+            "writing_file_count": validate_summary["writing_file_count"],
+            "writing_read_count": validate_summary["writing_read_count"],
+            "source_count": validate_summary["source_count"],
+            "source_file_count": validate_summary["source_file_count"],
+            "source_read_count": validate_summary["source_read_count"],
+        }
+
+    write_json_atomic(writing_receipt, staged_writing)
+    write_json_atomic(source_receipt, staged_source)
+    consumed_batches = 0
+    if consume:
+        for record in preflight["batches"]:
+            batch = record["batch"]
+            consume_sidecar(
+                record["path"],
+                input_sha256=record["sha256"],
+                receipt_path=source_receipt,
+                receipt_sha256=sha256_file(source_receipt),
+                operation="batch-read-gates.finalize-batches",
+                counts={
+                    "updated_writing": sum(
+                        1
+                        for item in batch.get("entries") or []
+                        if isinstance(item, dict) and item.get("gate") == "writing"
+                    ),
+                    "updated_source": sum(
+                        1
+                        for item in batch.get("entries") or []
+                        if isinstance(item, dict) and item.get("gate") == "source"
+                    ),
+                },
+            )
+            consumed_batches += 1
+    manifest = preflight["manifest"]
+    manifest["writing_receipt_sha256"] = sha256_file(writing_receipt)
+    manifest["source_receipt_sha256"] = sha256_file(source_receipt)
+    write_json_atomic(manifest_path, manifest)
     summary = {
-        "applied_batches": manifest_summary["applied_batches"],
-        "consumed_batches": manifest_summary["consumed_batches"],
-        "updated_writing": manifest_summary["updated_writing"],
-        "updated_source": manifest_summary["updated_source"],
+        "applied_batches": len(preflight["batches"]),
+        "consumed_batches": consumed_batches,
+        "updated_writing": preflight["updated_writing"],
+        "updated_source": preflight["updated_source"],
         "writing_file_count": validate_summary["writing_file_count"],
         "writing_read_count": validate_summary["writing_read_count"],
         "source_count": validate_summary["source_count"],
@@ -1150,6 +1611,30 @@ def main() -> int:
     export_batches_cmd.add_argument("--source-receipt", required=True)
     export_batches_cmd.add_argument("--output-dir", required=True)
     export_batches_cmd.add_argument("--batch-size", type=int, default=20)
+
+    export_review_plan_cmd = sub.add_parser("export-review-plan")
+    export_review_plan_cmd.add_argument("--writing-receipt", required=True)
+    export_review_plan_cmd.add_argument("--source-receipt", required=True)
+    export_review_plan_cmd.add_argument("--manifest", required=True)
+    export_review_plan_cmd.add_argument("--output", required=True)
+
+    preflight_review_plan_cmd = sub.add_parser("preflight-review-plan")
+    preflight_review_plan_cmd.add_argument("--writing-receipt", required=True)
+    preflight_review_plan_cmd.add_argument("--source-receipt", required=True)
+    preflight_review_plan_cmd.add_argument("--manifest", required=True)
+    preflight_review_plan_cmd.add_argument("--input", required=True)
+
+    apply_review_plan_cmd = sub.add_parser("apply-review-plan")
+    apply_review_plan_cmd.add_argument("--writing-receipt", required=True)
+    apply_review_plan_cmd.add_argument("--source-receipt", required=True)
+    apply_review_plan_cmd.add_argument("--manifest", required=True)
+    apply_review_plan_cmd.add_argument("--input", required=True)
+    apply_review_plan_cmd.add_argument("--consume", action="store_true")
+
+    preflight_manifest_cmd = sub.add_parser("preflight-manifest")
+    preflight_manifest_cmd.add_argument("--writing-receipt", required=True)
+    preflight_manifest_cmd.add_argument("--source-receipt", required=True)
+    preflight_manifest_cmd.add_argument("--manifest", required=True)
 
     apply_batch_cmd = sub.add_parser("apply-batch")
     apply_batch_cmd.add_argument("--writing-receipt", required=True)
@@ -1277,6 +1762,87 @@ def main() -> int:
         print(f"batch_size: {manifest['batch_size']}")
         print(f"total_entries: {manifest['total_entries']}")
         print(f"batch_count: {len(manifest['batches'])}")
+        return 0
+
+    if args.command == "export-review-plan":
+        try:
+            payload = export_review_plan(
+                writing_receipt=Path(args.writing_receipt).resolve(),
+                source_receipt=Path(args.source_receipt).resolve(),
+                manifest_path=Path(args.manifest).resolve(),
+                output=Path(args.output).resolve(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print("batch_read_gates: blocked")
+            print(f"- {exc}")
+            return 2
+        print("batch_read_gates: review_plan_exported")
+        print(f"output: {Path(args.output).resolve()}")
+        print(f"entries: {len(payload['entries'])}")
+        return 0
+
+    if args.command == "preflight-review-plan":
+        try:
+            summary = preflight_review_plan(
+                plan_path=Path(args.input).resolve(),
+                writing_receipt=Path(args.writing_receipt).resolve(),
+                source_receipt=Path(args.source_receipt).resolve(),
+                manifest_path=Path(args.manifest).resolve(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print("batch_read_gates: blocked")
+            print(f"- {exc}")
+            return 2
+        print(f"entries: {summary['entry_count']}")
+        print(f"cross_source_decisions: {summary['cross_source_decisions']}")
+        if summary["errors"]:
+            print("batch_read_gates: blocked")
+            for item in summary["errors"]:
+                print(f"- {item}")
+            return 2
+        print("batch_read_gates: review_plan_preflight_passed")
+        return 0
+
+    if args.command == "apply-review-plan":
+        try:
+            summary = apply_review_plan(
+                plan_path=Path(args.input).resolve(),
+                writing_receipt=Path(args.writing_receipt).resolve(),
+                source_receipt=Path(args.source_receipt).resolve(),
+                manifest_path=Path(args.manifest).resolve(),
+                consume=bool(args.consume),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print("batch_read_gates: blocked")
+            print(f"- {exc}")
+            return 2
+        print("batch_read_gates: review_plan_applied")
+        print(f"entries: {summary['entries']}")
+        print(f"batches: {summary['batches']}")
+        print(f"cross_source_decisions: {summary['cross_source_decisions']}")
+        return 0
+
+    if args.command == "preflight-manifest":
+        try:
+            summary = preflight_manifest(
+                writing_receipt=Path(args.writing_receipt).resolve(),
+                source_receipt=Path(args.source_receipt).resolve(),
+                manifest_path=Path(args.manifest).resolve(),
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print("batch_read_gates: blocked")
+            print(f"- {exc}")
+            return 2
+        print(f"batches: {len(summary['batches'])}")
+        print(f"updated_writing: {summary['updated_writing']}")
+        print(f"updated_source: {summary['updated_source']}")
+        print(f"cross_source_decisions: {summary['cross_source_decisions']}")
+        if summary["errors"]:
+            print("batch_read_gates: blocked")
+            for item in summary["errors"]:
+                print(f"- {item}")
+            return 2
+        print("batch_read_gates: manifest_preflight_passed")
         return 0
 
     if args.command == "prepare-batches":

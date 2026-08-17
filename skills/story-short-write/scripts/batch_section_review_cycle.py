@@ -340,19 +340,19 @@ def suggest_next_step(
         context_output=paths["context_output"],
     )
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))} '
         f'--section {section}'
     )
     prepare_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" prepare-section-review '
+        'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" prepare-section-review '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))} '
         f'--section {section}'
     )
     run_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" run-section-review-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" run-section-review-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))} '
         f'--section {section}'
@@ -575,27 +575,27 @@ def emit_shell_template(
     )
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" prepare-section-review \\',
+            'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" prepare-section-review \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --section {section}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" status \\',
+            'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" status \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --section {section}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" preflight-section-review \\',
+            'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" preflight-section-review \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --section {section}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --section {section}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_section_review_cycle.py" run-section-review-cycle \\',
+            'python3 "$SKILL_ROOT/scripts/batch_section_review_cycle.py" run-section-review-cycle \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))} \\",
             f"  --section {section}",

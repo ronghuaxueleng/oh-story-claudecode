@@ -441,7 +441,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 收口脚本只自动生成 `book.profile.json` 并执行校验，不得修改任何 Markdown。需要单独排查时，才手动调用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --source "拆文库/{书名}" \
   --name "{书名}" \
   --output "拆文库/{书名}/book.profile.json"
@@ -513,7 +513,7 @@ validator/finalize 输出的所有 `human_review_items` 必须写入 `_finalize_
 ls 拆文库/{书名}/   # 应有：原文/ 16张可直接仿写表 / 原文细节库/ / 写作资产/ / 拆文报告.md / 情节节点.md / 写作手法.md / book.profile.json / _meta.json
 test -f 拆文库/{书名}/写作资产/profile_source.md
 python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finalize.py" "拆文库/{书名}"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/audit_novel_ai_flavor.py" 新稿.md --profile 拆文库/{书名}/book.profile.json --json
+python3 "$SKILL_ROOT/scripts/audit_novel_ai_flavor.py" 新稿.md --profile 拆文库/{书名}/book.profile.json --json
 /story-short-write 拆文库/{书名}/
 # 通过：16张表 + 原文细节库 + 写作资产全包 + `profile_source.md` + `book.profile.json` 齐全，且输出 8000+ 字同题材新短篇，prose 带着源文的对话节奏和画面感
 # 失败：写得像填空，或 short-write 读不到关键 markdown / 写作资产

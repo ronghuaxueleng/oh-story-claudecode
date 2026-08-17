@@ -957,6 +957,260 @@ class RuleExecutionLedgerTest(unittest.TestCase):
         self.assertEqual("pending", first["taxonomy_decision"])
         self.assertEqual("pending", first["applicability"])
 
+    def test_v2_preset_uses_rule_fingerprint_and_keeps_project_fields_pending(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        GATE.export_model_group_plan_template(self.ledger_path, manifest, plan)
+        preset = self.project / "preset-v2.json"
+        preset.write_text(
+            json.dumps(
+                {
+                    "version": "2.0",
+                    "presets": [
+                        {
+                            "preset_id": "skill-rule",
+                            "selector": {
+                                "match_strategy": "rule_fingerprint",
+                                "source_path_suffix": "SKILL.md",
+                                "rule_text_sha256": GATE.rule_text_fingerprint(
+                                    candidate["rule_text"]
+                                ),
+                            },
+                            "common": {
+                                "canonical_rule_text": "稳定公共规则。",
+                                "taxonomy_decision": "override",
+                                "taxonomy": {
+                                    "rule_role": "workflow_gate",
+                                    "remediation_target": "workflow",
+                                    "execution_mode": "human",
+                                },
+                                "classification_notes": "只复制公共分类。",
+                            },
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        errors, summary = GATE.apply_model_group_presets(
+            self.ledger_path,
+            plan,
+            preset,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, summary["applied_groups"])
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        first = payload["groups"][0]
+        self.assertEqual("稳定公共规则。", first["canonical_rule_text"])
+        self.assertEqual("override", first["taxonomy_decision"])
+        self.assertEqual("workflow_gate", first["taxonomy"]["rule_role"])
+        self.assertEqual("pending", first["applicability"])
+        self.assertEqual("", first["decision_reason"])
+        self.assertEqual("", first["target_stage"])
+
+    def test_v2_preset_does_not_depend_on_whole_file_sha(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        original_fingerprint = GATE.rule_text_fingerprint(candidate["rule_text"])
+        candidate["source_refs"][0]["source_sha256"] = "changed-file-sha"
+        candidate["source_sha256"] = "changed-file-sha"
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        GATE.export_model_group_plan_template(self.ledger_path, manifest, plan)
+        preset = self.project / "preset-v2.json"
+        preset.write_text(
+            json.dumps(
+                {
+                    "version": "2.0",
+                    "presets": [
+                        {
+                            "preset_id": "stable-rule",
+                            "selector": {
+                                "match_strategy": "rule_fingerprint",
+                                "source_path_suffix": "SKILL.md",
+                                "rule_text_sha256": original_fingerprint,
+                            },
+                            "common": {
+                                "taxonomy_decision": "accept_suggestions",
+                                "taxonomy": {},
+                            },
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        errors, summary = GATE.apply_model_group_presets(
+            self.ledger_path,
+            plan,
+            preset,
+        )
+        self.assertEqual([], errors)
+        self.assertEqual(1, summary["applied_groups"])
+
+    def test_v2_preset_rejects_project_decision_fields(self) -> None:
+        preset = self.project / "bad-preset-v2.json"
+        preset.write_text(
+            json.dumps(
+                {
+                    "version": "2.0",
+                    "presets": [
+                        {
+                            "preset_id": "bad",
+                            "selector": {
+                                "match_strategy": "asset_family",
+                                "source_path_suffix": "作者DNA指纹.md",
+                            },
+                            "common": {
+                                "taxonomy_decision": "accept_suggestions",
+                                "taxonomy": {},
+                            },
+                            "applicability": "applicable",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(ValueError, "不得包含项目裁决字段"):
+            GATE.load_model_group_presets(preset)
+
+    def test_export_preset_candidates_omits_project_decisions(self) -> None:
+        ledger = self._create_ledger()
+        candidate = ledger["skill_rules"][0]
+        self.ledger_path.write_text(
+            json.dumps(ledger, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        manifest = self.project / "写作资产" / "模型分类批次.json"
+        plan = self.project / "写作资产" / "模型归并计划.json"
+        output = self.project / "写作资产" / "preset-candidates.json"
+        GATE.export_model_review(self.ledger_path, manifest, batch_size=30)
+        GATE.export_model_group_plan_template(self.ledger_path, manifest, plan)
+        payload = json.loads(plan.read_text(encoding="utf-8"))
+        group = payload["groups"][0]
+        group["canonical_rule_text"] = "稳定公共规则。"
+        group["taxonomy_decision"] = "accept_suggestions"
+        group["classification_notes"] = "稳定分类说明。"
+        group["applicability"] = "applicable"
+        group["decision_reason"] = "当前项目需要执行。"
+        group["target_stage"] = "draft"
+        group["target_scene"] = "正文"
+        plan.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        summary = GATE.export_model_group_preset_candidates(
+            self.ledger_path,
+            plan,
+            output,
+        )
+        self.assertGreater(summary["presets"], 0)
+        exported = json.loads(output.read_text(encoding="utf-8"))
+        common = exported["presets"][0]["common"]
+        self.assertNotIn("applicability", common)
+        self.assertNotIn("decision_reason", common)
+        self.assertNotIn("target_stage", common)
+        self.assertNotIn("target_scene", common)
+
+    def test_merge_preset_candidates_keeps_selected_rules_and_asset_families(self) -> None:
+        candidates = self.project / "candidates.json"
+        base = self.project / "base.json"
+        output = self.project / "merged.json"
+        candidates.write_text(
+            json.dumps(
+                {
+                    "version": "2.0",
+                    "presets": [
+                        {
+                            "preset_id": "skill",
+                            "selector": {
+                                "match_strategy": "rule_fingerprint",
+                                "source_path_suffix": "skills/story-short-write/SKILL.md",
+                                "rule_text_sha256": "a" * 64,
+                            },
+                            "common": {
+                                "taxonomy_decision": "accept_suggestions",
+                                "taxonomy": {},
+                            },
+                        },
+                        {
+                            "preset_id": "book-specific",
+                            "selector": {
+                                "match_strategy": "rule_fingerprint",
+                                "source_path_suffix": "写作资产/作者DNA指纹.md",
+                                "rule_text_sha256": "b" * 64,
+                            },
+                            "common": {
+                                "taxonomy_decision": "override",
+                                "taxonomy": {
+                                    "rule_role": "source_prohibition",
+                                    "remediation_target": "audit",
+                                    "execution_mode": "human",
+                                },
+                            },
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        base.write_text(
+            json.dumps(
+                {
+                    "version": "1.0",
+                    "presets": [
+                        {
+                            "canonical_id": "legacy-asset",
+                            "match_strategy": "path_only",
+                            "source_path_suffix": "写作资产/作者DNA指纹.md",
+                            "canonical_rule_text": "作者 DNA 资产职责。",
+                            "taxonomy_decision": "accept_suggestions",
+                            "taxonomy": {},
+                            "classification_notes": "只定义公共职责。",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        summary = GATE.merge_model_group_preset_candidates(
+            candidates,
+            base,
+            output,
+            ["skills/story-short-write/"],
+        )
+        self.assertEqual(1, summary["candidate_presets"])
+        self.assertEqual(1, summary["preserved_asset_families"])
+        merged = json.loads(output.read_text(encoding="utf-8"))
+        self.assertEqual(2, len(merged["presets"]))
+        self.assertTrue(
+            all(
+                not (set(item) & set(GATE.PROJECT_DECISION_FIELDS))
+                for item in merged["presets"]
+            )
+        )
+
     def test_empty_ledger_is_not_prewrite_ready(self) -> None:
         ledger = self._create_ledger()
         self.ledger_path.write_text(

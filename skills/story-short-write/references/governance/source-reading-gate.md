@@ -21,7 +21,7 @@
 先生成逐文件清单：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" init \
+python3 "$SKILL_ROOT/scripts/validate_source_read_gate.py" init \
   --project "项目名" \
   --source-dir "拆文库/主体书" \
   --source-dir "拆文库/辅助书" \
@@ -36,7 +36,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 模型逐文件读取并回填后，在写大纲前校验：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_source_read_gate.py" validate \
   --receipt "项目目录/写作资产/拆文读取回执.json" \
   --output "项目目录/设定.md" \
   --output "项目目录/小节大纲.md" \
@@ -46,7 +46,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 正文完成后使用同一命令再次做时序复核：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_source_read_gate.py" validate \
   --receipt "项目目录/写作资产/拆文读取回执.json" \
   --output "项目目录/设定.md" \
   --output "项目目录/小节大纲.md" \
@@ -62,7 +62,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_source_read_gate.
 正式流程不再推荐用零散 `cat`、`sed` 或 `/tmp` 文件承载 56 个拆文资产的人工读取。高层命令优先：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" prepare-batches \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
@@ -78,7 +78,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepa
 需要查看整份读取批次的完成度时，先运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" status \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json"
@@ -90,7 +90,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" statu
 每完成一个批次后执行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply-batch \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" apply-batch \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --input "{项目目录}/写作资产/读取批次/batch-001.json" \
@@ -106,10 +106,12 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply
 
 校验通过后，脚本才会把本批次条目标记为正式回执中的 `status=read` 并回填人工字段；`--consume` 成功后会把已合并的大侧车压缩成消费回执。所有批次应用完成后，再运行正式 `validate` 过门禁。
 
-当 `读取批次/` 下的全部 `batch-*.json` 都已由当前模型填写完毕时，推荐直接执行：
+默认使用不含源文件全文的 `人工读取计划.json` 回填全部人工字段，并先执行 `preflight-review-plan` 与 `preflight-manifest`。两次预检会汇总全部错误，不修改正式回执。底层直接编辑 `batch-*.json` 只用于排障。
+
+当全部批次已由紧凑计划回填为 `reviewed` 时，执行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" finalize-batches \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json" \
@@ -121,4 +123,4 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" final
   --output "{项目目录}/正文.md"
 ```
 
-该入口会先检查清单下是否还有未完成批次；只要任一 `batch-*.json` 尚未切到 `status=reviewed` 并由当前模型完整确认，就直接阻断，不做部分写回。全部完成后，它才按清单顺序逐批应用、逐批消费并在末尾接正式 `validate`，不再需要手动逐个点名 `batch-001.json`、`batch-002.json`。底层 `export-batches / apply-batch / apply-manifest` 只留给单批排障。
+该入口会先检查清单下是否还有未完成批次，再在内存中合并全部人工字段并运行两道正式读取门禁。只有最终校验通过，才原子写回正式回执并消费所有批次；证据词、跨来源裁决、SHA 或时序任一失败时，正式回执和批次文件都保持原样。底层 `export-batches / apply-batch / apply-manifest` 只留给单批排障。

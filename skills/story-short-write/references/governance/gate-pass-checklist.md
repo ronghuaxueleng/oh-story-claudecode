@@ -76,12 +76,12 @@
 这两条都要过：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" \
+python3 "$SKILL_ROOT/scripts/validate_gate_receipts.py" \
   当前轮次/gate/正文文件名.rewrite_gate_receipt.json \
   --require-executed \
   --require-complete
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_gate_receipts.py" \
+python3 "$SKILL_ROOT/scripts/validate_gate_receipts.py" \
   当前轮次/gate/正文文件名.failure_gate_receipt.json \
   --require-executed \
   --require-complete

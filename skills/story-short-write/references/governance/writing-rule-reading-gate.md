@@ -31,11 +31,11 @@
 ## 标准命令
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" init \
+python3 "$SKILL_ROOT/scripts/validate_writing_rule_gate.py" init \
   --project "{项目名}" \
   --receipt "{项目目录}/写作资产/写作规则读取回执.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_writing_rule_gate.py" validate \
   --receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --stage draft \
   --output "{项目目录}/正文.md"
@@ -48,7 +48,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_writing_rule_gate
 为了避免执行时用零散 `cat` 或临时文件直接读取规则正文，读取中段统一走 `batch_read_gates.py`。高层命令优先：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepare-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" prepare-batches \
   --project "{项目名}" \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
@@ -65,7 +65,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" prepa
 需要先看哪些批次还没做完时，运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" status \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" status \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json"
@@ -76,7 +76,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" statu
 填写完单个批次后执行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply-batch \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" apply-batch \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --input "{项目目录}/写作资产/读取批次/batch-001.json" \
@@ -88,7 +88,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" apply
 若当前批次已全部填写完，推荐直接按清单顺序一次合并并校验：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_read_gates.py" finalize-batches \
+python3 "$SKILL_ROOT/scripts/batch_read_gates.py" finalize-batches \
   --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
   --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
   --manifest "{项目目录}/写作资产/读取批次/manifest.json" \

@@ -26,12 +26,12 @@
 ### 设定内部顺序
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" init-setting \
+python3 "$SKILL_ROOT/scripts/validate_sequence_contract.py" init-setting \
   --project "{项目名}" \
   --setting "{项目目录}/设定.md" \
   --receipt "{项目目录}/写作资产/设定顺序契约回执.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" validate-setting \
+python3 "$SKILL_ROOT/scripts/validate_sequence_contract.py" validate-setting \
   --receipt "{项目目录}/写作资产/设定顺序契约回执.json" \
   --setting "{项目目录}/设定.md"
 ```
@@ -41,13 +41,13 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract
 ### 设定—大纲—正文完整顺序
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_sequence_contract.py" init \
   --project "{项目名}" \
   --setting "{项目目录}/设定.md" \
   --outline "{项目目录}/小节大纲.md" \
   --receipt "{项目目录}/写作资产/顺序契约回执.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_sequence_contract.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_sequence_contract.py" validate \
   --receipt "{项目目录}/写作资产/顺序契约回执.json" \
   --setting "{项目目录}/设定.md" \
   --outline "{项目目录}/小节大纲.md" \

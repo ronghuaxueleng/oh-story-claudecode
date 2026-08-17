@@ -97,7 +97,7 @@
 设定与细纲完成后，且在任何正文首写、全文重写或正文大回炉前，必须先初始化并人工回填：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_outline_performance_contract.py" init \
   --project "{项目名}" \
   --outline "{项目目录}/小节大纲.md" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
@@ -109,7 +109,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 当前模型完整读取选中原文及细纲后，逐节回填，再运行：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performance_contract.py" validate \
+python3 "$SKILL_ROOT/scripts/validate_outline_performance_contract.py" validate \
   --outline "{项目目录}/小节大纲.md" \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json"
 ```
@@ -119,7 +119,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_outline_performan
 若当前主要卡在桥级非逐拍人工字段，不想直接手改大 JSON，可先导出侧车骨架：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" export-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" export-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --output "{项目目录}/写作资产/桥级回填侧车.json"
 ```
@@ -127,7 +127,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 当前模型在侧车里只补 `target_outline_sections / target_outline_evidence / plot_granularity_parity_judgment / emotion_parity_judgment / reader_experience_parity / parity_status / adaptation_reason / missing_or_weakened_risk / manual_judgment` 后，再确定性合并回正式回执：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" apply-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --input "{项目目录}/写作资产/桥级回填侧车.json" \
   --consume
@@ -138,7 +138,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 若当前主要卡在桥级逐拍字段，不想直接手改大 JSON，可先导出逐拍侧车骨架：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" export-beat-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" export-beat-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --output "{项目目录}/写作资产/桥级逐拍侧车.json"
 ```
@@ -154,7 +154,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 再确定性合并回正式回执：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" apply-beat-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" apply-beat-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --input "{项目目录}/写作资产/桥级逐拍侧车.json" \
   --consume
@@ -172,7 +172,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 若当前主要卡在节级场面验收字段，不想直接手改大 JSON，可先导出节级侧车骨架：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_review.py" export-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_section_review.py" export-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --output "{项目目录}/写作资产/节级回填侧车.json"
 ```
@@ -180,7 +180,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_rev
 当前模型在侧车里按节补 `irreversible_action / controlling_object / source_function_mechanism / original_scene_granularity / source_mechanism / information_delay / character_missteps / interaction_exchange / conflict_carrier / relationship_legibility / emotion_intensity / professional_shell_translation / source_emotion_parity / forbidden_items / outline_evidence / scene_units / manual_judgment` 后，再确定性合并回正式回执：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_review.py" apply-template \
+python3 "$SKILL_ROOT/scripts/manage_outline_section_review.py" apply-template \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --input "{项目目录}/写作资产/节级回填侧车.json" \
   --consume
@@ -191,22 +191,22 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_section_rev
 如果不想自己手拼这条细纲表演验收人工回填链，现已提供高层总入口。它按项目目录自动推导 `细纲表演验收回执.json / 小节大纲.md / 桥级回填侧车.json / 桥级逐拍回填侧车.json / 节级回填侧车.json`，并把 `sync-source-emotions -> 导出桥级/逐拍/节级侧车 -> 判断人工阶段是否补完 -> apply+consume 三份侧车 -> rebind-outline -> seal-review` 收成正式脚本链：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" prepare-outline-review \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" status \
   --project "{项目名}" \
   --project-dir "{项目目录}" \
   --bridge-review "{项目目录}/写作资产/桥级回填侧车.json" \
   --bridge-beat-review "{项目目录}/写作资产/桥级逐拍回填侧车.json" \
   --section-review "{项目目录}/写作资产/节级回填侧车.json"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" next-step \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" next-step \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -214,7 +214,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle
 外层调用方如果只想拿整段模板，用：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" emit-shell-template \
+python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" emit-shell-template \
   --project "{项目名}" \
   --project-dir "{项目目录}"
 ```
@@ -391,7 +391,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle
 当 `小节大纲.md` 在桥级或节级回填过程中发生变化时，先不要继续手工改顶层状态；使用官方重绑入口把旧 SHA 和旧通过态一次清干净：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" rebind-outline \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" rebind-outline \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --outline "{项目目录}/小节大纲.md"
 ```
@@ -401,7 +401,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 全部人工字段补齐、正式校验应通过时，再执行官方封口入口：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_review.py" seal-review \
+python3 "$SKILL_ROOT/scripts/manage_outline_bridge_review.py" seal-review \
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --outline "{项目目录}/小节大纲.md"
 ```
@@ -458,15 +458,19 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/manage_outline_bridge_revi
 正文放行命令必须同时携带本回执：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_write_release_gate.py" \
+python3 "$SKILL_ROOT/scripts/validate_write_release_gate.py" \
   draft \
-  --writing-receipt 写作资产/写作规则读取回执.json \
-  --source-receipt 写作资产/拆文读取回执.json \
-  --ledger 写作资产/规则执行台账.json \
-  --sequence-receipt 写作资产/顺序契约回执.json \
-  --opening-contract 写作资产/开头承重契约回执_大纲.json \
-  --outline-contract 写作资产/细纲表演验收回执.json \
-  --profile profiles/{项目名}.project.profile.json
+  --writing-receipt "{项目目录}/写作资产/写作规则读取回执.json" \
+  --source-receipt "{项目目录}/写作资产/拆文读取回执.json" \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --sequence-receipt "{项目目录}/写作资产/顺序契约回执.json" \
+  --opening-contract "{项目目录}/写作资产/开头承重契约回执_大纲.json" \
+  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
+  --profile "profiles/{项目名}.project.profile.json" \
+  --prose-contract "{项目目录}/写作资产/全文文字颗粒度契约回执.json" \
+  --emotional-contract "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
+  --primary-source-original "拆文库/{主体书}/原文/{主体书}.txt" \
+  --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json"
 ```
 
 开头契约只验前屏功能顺序；顺序契约只验设定、细纲和正文的桥段先后；规则台账只验规则执行记录。三者均不能替代本闸门。本闸门专门验证“细纲能否写出活场面”。

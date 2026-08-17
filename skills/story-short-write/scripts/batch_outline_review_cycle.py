@@ -541,17 +541,17 @@ def suggest_next_step(
         section_review=paths["section_review"],
     )
     status_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status '
+        'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" status '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
     )
     prepare_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review '
+        'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" prepare-outline-review '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
     )
     run_command = (
-        'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle '
+        'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" run-outline-review-cycle '
         f'--project {_quote_shell(project)} '
         f'--project-dir {_quote_shell(str(paths["project_dir"]))}'
     )
@@ -747,19 +747,19 @@ def emit_shell_template(
     )
     return "\n".join(
         [
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" prepare-outline-review \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" prepare-outline-review \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" status \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" status \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" next-step \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" next-step \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))}",
             "",
-            'python3 "$CODEX_HOME/skills/story-short-write/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \\',
+            'python3 "$SKILL_ROOT/scripts/batch_outline_review_cycle.py" run-outline-review-cycle \\',
             f"  --project {_quote_shell(project)} \\",
             f"  --project-dir {_quote_shell(str(paths['project_dir']))}",
         ]

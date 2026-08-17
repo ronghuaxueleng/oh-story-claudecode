@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -162,6 +163,103 @@ class BatchReadGatesTest(unittest.TestCase):
         self.assertIsNone(first_batch["review_started_at"])
         self.assertIsNone(first_batch["reviewed_at"])
         self.assertFalse(first_batch["reviewed_by_current_model"])
+
+    def test_compact_review_plan_updates_batches_without_embedding_content(self) -> None:
+        GATE.prepare_batches(
+            project="测试项目",
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            source_dirs=[self.source],
+            skill_root=self.skill_root,
+            force_writing_receipt=False,
+            output_dir=self.batch_dir,
+            batch_size=7,
+        )
+        manifest_path = self.batch_dir / "manifest.json"
+        plan_path = self.batch_dir / "人工读取计划.json"
+        payload = GATE.export_review_plan(
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            manifest_path=manifest_path,
+            output=plan_path,
+        )
+        self.assertGreater(len(payload["entries"]), 10)
+        self.assertTrue(all("content" not in item for item in payload["entries"]))
+
+        payload["status"] = "reviewed"
+        payload["review_started_at"] = datetime.now(timezone.utc).isoformat()
+        payload["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        payload["reviewed_by_current_model"] = True
+        for entry in payload["entries"]:
+            entry["evidence_terms"] = [
+                "规则证据" if entry["gate"] == "writing" else "资产证据"
+            ]
+            entry["takeaways"] = ["当前模型已读取并提取约束"]
+            entry["used_for"] = ["设定、大纲与正文"]
+        plan_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        summary = GATE.apply_review_plan(
+            plan_path=plan_path,
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            manifest_path=manifest_path,
+            consume=True,
+        )
+        self.assertEqual(len(payload["entries"]), summary["entries"])
+        consumed_plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertEqual("consumed", consumed_plan["status"])
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for item in manifest["batches"]:
+            batch = json.loads(Path(item["path"]).read_text(encoding="utf-8"))
+            self.assertEqual("reviewed", batch["status"])
+            self.assertTrue(batch["reviewed_by_current_model"])
+
+    def test_review_plan_preflight_reports_all_bad_evidence_terms(self) -> None:
+        GATE.prepare_batches(
+            project="测试项目",
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            source_dirs=[self.source],
+            skill_root=self.skill_root,
+            force_writing_receipt=False,
+            output_dir=self.batch_dir,
+            batch_size=200,
+        )
+        manifest_path = self.batch_dir / "manifest.json"
+        plan_path = self.batch_dir / "人工读取计划.json"
+        payload = GATE.export_review_plan(
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            manifest_path=manifest_path,
+            output=plan_path,
+        )
+        payload["status"] = "reviewed"
+        payload["review_started_at"] = datetime.now(timezone.utc).isoformat()
+        payload["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+        payload["reviewed_by_current_model"] = True
+        for entry in payload["entries"]:
+            entry["evidence_terms"] = [
+                "规则证据" if entry["gate"] == "writing" else "资产证据"
+            ]
+            entry["takeaways"] = ["读取结论"]
+            entry["used_for"] = ["写作"]
+        payload["entries"][0]["evidence_terms"] = ["不存在证据一"]
+        payload["entries"][1]["evidence_terms"] = ["不存在证据二"]
+        plan_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        summary = GATE.preflight_review_plan(
+            plan_path=plan_path,
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            manifest_path=manifest_path,
+        )
+        joined = "\n".join(summary["errors"])
+        self.assertIn(payload["entries"][0]["entry_id"], joined)
+        self.assertIn(payload["entries"][1]["entry_id"], joined)
 
     def test_prepare_batches_runs_init_and_export_in_one_step(self) -> None:
         errors, summary = GATE.prepare_batches(
@@ -907,6 +1005,63 @@ class BatchReadGatesTest(unittest.TestCase):
         self.assertEqual(len(manifest["batches"]), summary["consumed_batches"])
         self.assertEqual(3, summary["writing_read_count"])
         self.assertGreater(summary["source_read_count"], 10)
+
+    def test_finalize_batches_is_transactional_when_cross_source_decisions_missing(self) -> None:
+        auxiliary = self.root / "拆文库" / "辅助样本"
+        shutil.copytree(self.source, auxiliary)
+        GATE.prepare_batches(
+            project="测试项目",
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            source_dirs=[self.source, auxiliary],
+            skill_root=self.skill_root,
+            force_writing_receipt=False,
+            output_dir=self.batch_dir,
+            batch_size=8,
+        )
+        manifest_path = self.batch_dir / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        batch_snapshots: dict[Path, bytes] = {}
+        for item in manifest["batches"]:
+            batch_path = Path(item["path"])
+            batch = json.loads(batch_path.read_text(encoding="utf-8"))
+            batch["status"] = "reviewed"
+            batch["review_started_at"] = datetime.now(timezone.utc).isoformat()
+            batch["reviewed_at"] = datetime.now(timezone.utc).isoformat()
+            batch["reviewed_by_current_model"] = True
+            batch["semantic_fields_generated_by_script"] = False
+            batch["cross_source_decisions"] = []
+            for entry in batch["entries"]:
+                entry["evidence_terms"] = [
+                    "规则证据" if entry["gate"] == "writing" else "资产证据"
+                ]
+                entry["takeaways"] = ["读取结论"]
+                entry["used_for"] = ["设定、大纲与正文"]
+            batch_path.write_text(
+                json.dumps(batch, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            batch_snapshots[batch_path] = batch_path.read_bytes()
+        writing_before = self.writing_receipt.read_bytes()
+        source_before = self.source_receipt.read_bytes()
+
+        errors, summary = GATE.finalize_batches(
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            manifest_path=manifest_path,
+            consume=True,
+            stage="outline",
+            stage_output=self.outline,
+            source_outputs=[self.setting, self.outline, self.draft],
+            skill_root=self.skill_root,
+        )
+
+        self.assertTrue(any("cross_source_decisions" in item for item in errors))
+        self.assertEqual(0, summary["applied_batches"])
+        self.assertEqual(writing_before, self.writing_receipt.read_bytes())
+        self.assertEqual(source_before, self.source_receipt.read_bytes())
+        for batch_path, before in batch_snapshots.items():
+            self.assertEqual(before, batch_path.read_bytes())
 
     def test_finalize_batches_blocks_when_any_batch_is_not_reviewed(self) -> None:
         GATE.prepare_batches(

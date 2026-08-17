@@ -98,25 +98,25 @@ E/P 拍是场面内的运动颗粒，不是可以逐句打勾的事件标签。�
 ## 命令
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" init \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" init \
   --project "{项目名}" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" bind-outline \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" bind-outline \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --outline "{项目目录}/小节大纲.md"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" export-plan-template \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" export-plan-template \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --output "{项目目录}/写作资产/情绪颗粒逐节人工计划.json" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
   --beat-mapping "{项目目录}/写作资产/逐拍语义映射.json" \
   --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" apply-section-plan \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" apply-section-plan \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --plan "{项目目录}/写作资产/情绪颗粒逐节写前侧车.json" \
   --consume
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" assemble-section-plan \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" assemble-section-plan \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --plan "{项目目录}/写作资产/情绪颗粒逐节人工计划.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
@@ -124,16 +124,16 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granula
   --beat-mapping "{项目目录}/写作资产/逐拍语义映射.json" \
   --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
   --consume
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" validate-prewrite \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" validate-prewrite \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
   --outline "{项目目录}/小节大纲.md"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" bind-draft \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" bind-draft \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --draft "{项目目录}/正文.md" \
   --section-progress "{项目目录}/写作资产/逐节正文进度.json"
-python3 "$CODEX_HOME/skills/story-short-write/scripts/validate_emotional_granularity_contract.py" validate-draft \
+python3 "$SKILL_ROOT/scripts/validate_emotional_granularity_contract.py" validate-draft \
   --receipt "{项目目录}/写作资产/全文情绪颗粒度契约回执.json" \
   --source-original "拆文库/{主体书}/原文/{主体书}.txt" \
   --source-emotion-ledger "拆文库/{主体书}/写作资产/全文情绪颗粒总账.json" \
