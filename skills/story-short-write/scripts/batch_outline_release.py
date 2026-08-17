@@ -174,6 +174,7 @@ def init_batch(
     export_model_review_output: Path | None,
     export_model_plan_output: Path | None,
     export_batch_size: int,
+    resume_existing: bool = False,
 ) -> tuple[list[str], dict[str, Any]]:
     errors: list[str] = []
     if export_batch_size < 1:
@@ -181,56 +182,66 @@ def init_batch(
     if export_model_plan_output is not None and export_model_review_output is None:
         errors.append("导出模型归并计划骨架时必须同时提供 export-model-review-output")
 
-    _ensure_writable(ledger, force_ledger, "规则执行台账", errors)
-    _ensure_writable(
-        setting_sequence_receipt,
-        force_setting_sequence,
-        "设定顺序契约回执",
-        errors,
-    )
-    _ensure_writable(
-        sequence_receipt,
-        force_sequence,
-        "完整顺序契约回执",
-        errors,
-    )
-    _ensure_writable(opening_receipt, force_opening, "开头契约回执", errors)
-    _ensure_writable(
-        outline_receipt,
-        force_outline_receipt,
-        "细纲表演验收回执",
-        errors,
-    )
-
-    ledger_payload, ledger_errors = RULE_LEDGER.create_ledger(
-        project,
-        writing_receipt,
-        source_receipt,
-        extra_skill_rule_files=[],
-    )
-    errors.extend(ledger_errors)
-
-    try:
-        opening_payload = OPENING.create_receipt(
-            project,
-            opening_source,
-            outline,
-            "outline",
+    if not resume_existing:
+        _ensure_writable(ledger, force_ledger, "规则执行台账", errors)
+        _ensure_writable(
+            setting_sequence_receipt,
+            force_setting_sequence,
+            "设定顺序契约回执",
+            errors,
         )
-    except FileNotFoundError as exc:
-        errors.append(str(exc))
-        opening_payload = None
-
-    try:
-        outline_payload = OUTLINE.create_receipt(
-            project,
-            outline,
-            source_originals,
-            source_mode="full_bridge",
+        _ensure_writable(
+            sequence_receipt,
+            force_sequence,
+            "完整顺序契约回执",
+            errors,
         )
-    except (FileNotFoundError, ValueError) as exc:
-        errors.append(str(exc))
-        outline_payload = None
+        _ensure_writable(opening_receipt, force_opening, "开头契约回执", errors)
+        _ensure_writable(
+            outline_receipt,
+            force_outline_receipt,
+            "细纲表演验收回执",
+            errors,
+        )
+
+    if ledger.is_file() and resume_existing and not force_ledger:
+        ledger_payload = load_json(ledger, "规则执行台账")
+    else:
+        ledger_payload, ledger_errors = RULE_LEDGER.create_ledger(
+            project,
+            writing_receipt,
+            source_receipt,
+            extra_skill_rule_files=[],
+        )
+        errors.extend(ledger_errors)
+
+    if opening_receipt.is_file() and resume_existing and not force_opening:
+        opening_payload = load_json(opening_receipt, "开头契约回执")
+    else:
+        try:
+            opening_payload = OPENING.create_receipt(
+                project,
+                opening_source,
+                outline,
+                "outline",
+            )
+        except FileNotFoundError as exc:
+            errors.append(str(exc))
+            opening_payload = None
+
+    if outline_receipt.is_file() and resume_existing and not force_outline_receipt:
+        outline_payload = load_json(outline_receipt, "细纲表演验收回执")
+    else:
+        try:
+            outline_payload = OUTLINE.create_receipt(
+                project,
+                outline,
+                source_originals,
+                source_mode="full_bridge",
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            errors.append(str(exc))
+            outline_payload = None
 
     if errors:
         return errors, {
@@ -239,22 +250,27 @@ def init_batch(
             "outline_ready": outline_payload is not None,
         }
 
-    if ledger.exists():
+    if ledger.exists() and force_ledger:
         ledger.unlink()
-    if setting_sequence_receipt.exists():
+    if setting_sequence_receipt.exists() and force_setting_sequence:
         setting_sequence_receipt.unlink()
-    if sequence_receipt.exists():
+    if sequence_receipt.exists() and force_sequence:
         sequence_receipt.unlink()
-    if opening_receipt.exists():
+    if opening_receipt.exists() and force_opening:
         opening_receipt.unlink()
-    if outline_receipt.exists():
+    if outline_receipt.exists() and force_outline_receipt:
         outline_receipt.unlink()
 
-    write_json(ledger, ledger_payload)
-    SEQUENCE.init_setting_receipt(project, setting, setting_sequence_receipt)
-    SEQUENCE.init_receipt(project, setting, outline, None, sequence_receipt)
-    write_json(opening_receipt, opening_payload)
-    write_json(outline_receipt, outline_payload)
+    if not ledger.exists():
+        write_json(ledger, ledger_payload)
+    if not setting_sequence_receipt.exists():
+        SEQUENCE.init_setting_receipt(project, setting, setting_sequence_receipt)
+    if not sequence_receipt.exists():
+        SEQUENCE.init_receipt(project, setting, outline, None, sequence_receipt)
+    if not opening_receipt.exists():
+        write_json(opening_receipt, opening_payload)
+    if not outline_receipt.exists():
+        write_json(outline_receipt, outline_payload)
 
     summary: dict[str, Any] = {
         "skill_rules": len(ledger_payload["skill_rules"]),
@@ -597,6 +613,7 @@ def start_outline_release(
         export_model_review_output=paths["model_review_output"],
         export_model_plan_output=paths["model_plan_output"],
         export_batch_size=export_batch_size,
+        resume_existing=True,
     )
 
 
@@ -702,6 +719,7 @@ def main() -> int:
                 else None
             ),
             export_batch_size=args.export_batch_size,
+            resume_existing=False,
         )
         if errors:
             print("batch_outline_release: blocked")

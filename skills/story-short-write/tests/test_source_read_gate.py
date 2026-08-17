@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -91,6 +92,61 @@ class SourceReadGateTest(unittest.TestCase):
         old_time = time.time() - 20
         os.utime(output, (old_time, old_time))
         self._write_completed_receipt()
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path, [output])
+        self.assertTrue(any("事后补填" in error for error in validation_errors))
+
+    def test_valid_refresh_lineage_allows_late_receipt(self) -> None:
+        original = self._write_completed_receipt()
+        old_time = time.time() - 30
+        os.utime(self.receipt_path, (old_time, old_time))
+        archive = (
+            self.receipt_path.parent
+            / "旧回执归档"
+            / "拆文读取回执-20260817-120000.json"
+        )
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(self.receipt_path, archive)
+
+        output = self.root / "项目" / "小节大纲.md"
+        output.write_text("大纲", encoding="utf-8")
+        middle_time = time.time() - 10
+        os.utime(output, (middle_time, middle_time))
+
+        refreshed = dict(original)
+        refreshed["refresh_history"] = [
+            {
+                "refreshed_at": "2026-08-17T12:01:00+08:00",
+                "reason": "来源 profile 更新后重新阅读",
+                "archived_receipt": str(archive),
+                "changed_files": ["样本/book.profile.json"],
+            }
+        ]
+        self.receipt_path.write_text(
+            json.dumps(refreshed, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        validation_errors, _ = GATE.validate_receipt(self.receipt_path, [output])
+        self.assertEqual([], validation_errors)
+
+    def test_refresh_lineage_with_untrusted_archive_is_blocked(self) -> None:
+        receipt = self._write_completed_receipt()
+        output = self.root / "项目" / "正文.md"
+        output.write_text("正文", encoding="utf-8")
+        old_time = time.time() - 20
+        os.utime(output, (old_time, old_time))
+        receipt["refresh_history"] = [
+            {
+                "reason": "伪造刷新",
+                "archived_receipt": str(self.root / "outside.json"),
+                "changed_files": ["样本/book.profile.json"],
+            }
+        ]
+        self.receipt_path.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
         validation_errors, _ = GATE.validate_receipt(self.receipt_path, [output])
         self.assertTrue(any("事后补填" in error for error in validation_errors))
 

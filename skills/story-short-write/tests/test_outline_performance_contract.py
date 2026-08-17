@@ -885,6 +885,64 @@ class OutlinePerformanceContractTest(unittest.TestCase):
         errors = GATE.validate_receipt(self.receipt, self.outline)
         self.assertTrue(any("主体来源桥段库存缺失" in error for error in errors))
 
+    def test_ledger_only_bridge_is_registered_as_dynamic_subbridge(self) -> None:
+        payload = json.loads(self.plot_ledger.read_text(encoding="utf-8"))
+        extra = dict(payload["beats"][-1])
+        extra.update(
+            {
+                "beat_id": "P-DYNAMIC-001",
+                "action": "动态子桥动作",
+                "actor": "动态施事者",
+                "object_or_receiver": "动态对象",
+                "pressure_or_trigger": "动态压力",
+                "control_change": "动态控制权变化",
+                "information_change": "动态信息变化",
+                "consequence": "动态现实后果",
+                "source_range": {"start_line": 1, "end_line": 1},
+                "source_evidence": "原文场面",
+                "bid_ids": ["BID-02"],
+            }
+        )
+        payload["beats"].append(extra)
+        payload["coverage_segments"].append(
+            {
+                "segment_id": "SEG-DYNAMIC",
+                "start_line": 1,
+                "end_line": 1,
+                "kind": "plot_bearing",
+                "candidate_ids": ["PC-DYNAMIC"],
+            }
+        )
+        payload["source_plot_candidate_audit"].append(
+            {
+                "candidate_id": "PC-DYNAMIC",
+                "candidate_type": "independent_action",
+                "actor": "动态施事者",
+                "source_range": {"start_line": 1, "end_line": 1},
+                "source_evidence": "原文场面",
+                "decision": "independent_beat",
+                "bound_beat_ids": ["P-DYNAMIC-001"],
+                "manual_judgment": "该动作形成独立控制权和现实后果变化。",
+            }
+        )
+        self.plot_ledger.write_text(
+            json.dumps(payload, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        receipt = GATE.create_receipt("测试", self.outline, [self.source])
+        source = receipt["selected_source_originals"][0]
+        self.assertEqual(["BID-01", "BID-02"], source["available_bridge_ids"])
+        dynamic = next(
+            item
+            for item in receipt["source_bridge_flow_inventory"]
+            if item["bridge_id"] == "BID-02"
+        )
+        self.assertIn("全文总账动态子桥", dynamic["bridge_name"])
+        self.assertEqual(["P-DYNAMIC-001"], [
+            item["beat_id"] for item in dynamic["source_plot_beats"]
+        ])
+
     def test_missing_selected_auxiliary_bridge_blocks(self) -> None:
         auxiliary_root = self.root / "拆文库" / "辅助书"
         auxiliary = auxiliary_root / "原文" / "辅助书.txt"

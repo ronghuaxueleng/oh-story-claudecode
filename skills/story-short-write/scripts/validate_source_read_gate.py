@@ -209,6 +209,62 @@ def nonempty_strings(value: Any) -> list[str]:
     return [str(item).strip() for item in value if str(item).strip()]
 
 
+def _source_roots(data: dict[str, Any]) -> list[str]:
+    roots: list[str] = []
+    for source in data.get("sources") or []:
+        if not isinstance(source, dict):
+            continue
+        root = str(source.get("root") or "").strip()
+        if root:
+            roots.append(str(Path(root).expanduser().resolve()))
+    return roots
+
+
+def _has_valid_refresh_lineage(
+    data: dict[str, Any],
+    receipt_path: Path,
+    output_path: Path,
+) -> bool:
+    history = data.get("refresh_history")
+    if not isinstance(history, list) or not history:
+        return False
+    latest = history[-1]
+    if not isinstance(latest, dict):
+        return False
+    if not str(latest.get("reason") or "").strip():
+        return False
+    changed_files = latest.get("changed_files")
+    if not isinstance(changed_files, list) or not all(
+        isinstance(item, str) and item.strip() for item in changed_files
+    ):
+        return False
+
+    archived_text = str(latest.get("archived_receipt") or "").strip()
+    if not archived_text:
+        return False
+    archived = Path(archived_text).expanduser().resolve()
+    expected_archive_root = (receipt_path.parent / "旧回执归档").resolve()
+    if archived.parent != expected_archive_root or not archived.is_file():
+        return False
+    try:
+        previous = json.loads(archived.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(previous, dict):
+        return False
+    if previous.get("project") != data.get("project"):
+        return False
+    if previous.get("gate_status") != "passed":
+        return False
+    if previous.get("confirmed_before_outline") is not True:
+        return False
+    if previous.get("confirmed_before_draft") is not True:
+        return False
+    if _source_roots(previous) != _source_roots(data):
+        return False
+    return archived.stat().st_mtime <= output_path.stat().st_mtime
+
+
 def validate_receipt(
     receipt_path: Path,
     output_paths: list[Path] | None = None,
@@ -281,7 +337,11 @@ def validate_receipt(
 
     for output in output_paths or []:
         resolved = output.resolve()
-        if resolved.exists() and receipt_path.stat().st_mtime > resolved.stat().st_mtime:
+        if (
+            resolved.exists()
+            and receipt_path.stat().st_mtime > resolved.stat().st_mtime
+            and not _has_valid_refresh_lineage(data, receipt_path, resolved)
+        ):
             errors.append(f"读取回执晚于写作产物，属于事后补填: {resolved}")
 
     return errors, {

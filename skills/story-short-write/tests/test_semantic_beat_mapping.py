@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -10,9 +11,23 @@ import unittest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "validate_semantic_beat_mapping.py"
+SPEC = importlib.util.spec_from_file_location("semantic_beat_mapping", SCRIPT)
+assert SPEC and SPEC.loader
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
 
 
 class SemanticBeatMappingTest(unittest.TestCase):
+    def test_section_heading_does_not_consume_first_bullet(self) -> None:
+        outline = "## 1.\n\n- 第一条细拍\n- 第二条细拍\n\n## 2.\n\n- 第三条细拍\n"
+        regions, _ = MODULE.outline_regions(outline)
+        first_start, first_end = regions["section:1"]
+        self.assertIn("第一条细拍", outline[first_start:first_end])
+        self.assertEqual(
+            ["第一条细拍", "第二条细拍"],
+            MODULE.region_bullets(outline, "section:1"),
+        )
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

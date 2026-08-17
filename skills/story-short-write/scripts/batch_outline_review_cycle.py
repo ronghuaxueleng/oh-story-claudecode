@@ -200,7 +200,14 @@ def _bridge_manual_complete(entry: dict[str, Any]) -> bool:
     ):
         if not str(entry.get(field) or "").strip():
             return False
-    if entry.get("reader_experience_parity") not in {True, False}:
+    plot_only = (
+        str(entry.get("emotion_transfer_policy") or "").strip()
+        == "plot_mechanism_only"
+    )
+    if plot_only:
+        if entry.get("reader_experience_parity") is not None:
+            return False
+    elif entry.get("reader_experience_parity") not in {True, False}:
         return False
     if str(entry.get("parity_status") or "").strip() not in {"matched", "adapted"}:
         return False
@@ -218,6 +225,22 @@ def _bridge_beat_complete(entry: dict[str, Any], *, outside: bool) -> bool:
         return True
     if not target_plot_beats or not plot_beat_mapping:
         return False
+    plot_only = (
+        str(entry.get("emotion_transfer_policy") or "").strip()
+        == "plot_mechanism_only"
+    )
+    if plot_only:
+        if entry.get("target_emotion_sequence") not in ([], None):
+            return False
+        return all(
+            entry.get(field) == 0
+            for field in (
+                "source_reversal_beat",
+                "target_reversal_beat",
+                "source_peak_beat",
+                "target_peak_beat",
+            )
+        )
     for field in (
         "target_emotion_sequence",
         "source_reversal_beat",

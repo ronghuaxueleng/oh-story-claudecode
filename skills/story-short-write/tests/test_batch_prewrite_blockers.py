@@ -18,6 +18,26 @@ SPEC.loader.exec_module(GATE)
 
 
 class BatchPrewriteBlockersTest(unittest.TestCase):
+    def test_compact_report_limits_messages_and_reports_omitted_count(self) -> None:
+        report = {
+            "blocked": True,
+            "work_order": [
+                {
+                    "category": "misc",
+                    "label": "其他阻断",
+                    "next_action": "修复",
+                    "stages": ["draft_prewrite"],
+                    "messages": ["a", "b", "c", "d", "e"],
+                }
+            ],
+            "focus_work_order": [],
+            "stage_summary": {},
+            "total_unique_blockers": 5,
+        }
+        compact = GATE.compact_report(report, max_messages=3)
+        self.assertEqual(["a", "b", "c"], compact["work_order"][0]["messages"])
+        self.assertEqual(2, compact["work_order"][0]["omitted_message_count"])
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

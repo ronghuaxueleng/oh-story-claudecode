@@ -57,7 +57,7 @@ ENTITY_CLAUSE_MARKERS = (
     "完成", "发生", "发现", "决定", "要求", "拿走", "交给", "离开", "回到", "走进",
 )
 OUTLINE_SECTION_HEADING = re.compile(
-    r"^##\s+(导语|尾声|\d+[.、．](?:\s+[^\n]+)?)\s*$",
+    r"^##[ \t]+(导语|尾声|\d+[.、．](?:[ \t]+[^\n]+)?)[ \t]*$",
     re.MULTILINE,
 )
 TOKEN_RE = re.compile(r"[\u4e00-\u9fff]{2,8}")

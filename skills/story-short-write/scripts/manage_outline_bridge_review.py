@@ -34,6 +34,7 @@ BRIDGE_FIELDS = (
 BRIDGE_CONTEXT_FIELDS = (
     "source_path",
     "source_sha256",
+    "emotion_transfer_policy",
     "source_required_sequence",
     "source_must_keep_actions",
     "source_scene_granularity",
@@ -197,6 +198,9 @@ def sync_source_emotions(receipt_path: Path) -> dict[str, Any]:
             raise ValueError(f"outline_bridge_flow_parity[{index}].source_bridge_id 不能为空")
         if not source_path_str:
             raise ValueError(f"outline_bridge_flow_parity[{index}].source_path 不能为空")
+        if str(entry.get("emotion_transfer_policy") or "").strip() == "plot_mechanism_only":
+            entry["source_emotion_sequence"] = []
+            continue
         entry["source_emotion_sequence"] = load_sequence(source_path_str, bridge_id)
 
     write_json(receipt_path, merged)
@@ -208,7 +212,8 @@ def sync_source_emotions(receipt_path: Path) -> dict[str, Any]:
         if isinstance(merged.get("outside_bridge_plot_parity"), dict)
         else 0,
         "bridge_counts": {
-            str(entry.get("source_bridge_id") or ""): len(entry.get("source_emotion_sequence") or [])
+            f"{_normalized_source_path(entry.get('source_path'))}::{str(entry.get('source_bridge_id') or '')}":
+            len(entry.get("source_emotion_sequence") or [])
             for entry in bridges
             if isinstance(entry, dict)
         },
@@ -249,6 +254,7 @@ def _bridge_sidecar_entry_compact(entry: dict[str, Any]) -> dict[str, Any]:
         "source_bridge_name": entry.get("source_bridge_name", ""),
         "source_path": deepcopy(entry.get("source_path")),
         "source_sha256": deepcopy(entry.get("source_sha256")),
+        "emotion_transfer_policy": deepcopy(entry.get("emotion_transfer_policy")),
         "source_scene_granularity": deepcopy(entry.get("source_scene_granularity")),
         "source_required_sequence": deepcopy(entry.get("source_required_sequence")),
         "source_must_keep_actions": deepcopy(entry.get("source_must_keep_actions")),
@@ -330,6 +336,7 @@ def _bridge_beat_sidecar_entry_compact(entry: dict[str, Any]) -> dict[str, Any]:
         "source_bridge_name": entry.get("source_bridge_name", ""),
         "source_path": deepcopy(entry.get("source_path")),
         "source_sha256": deepcopy(entry.get("source_sha256")),
+        "emotion_transfer_policy": deepcopy(entry.get("emotion_transfer_policy")),
         "source_scene_granularity": deepcopy(entry.get("source_scene_granularity")),
         "source_required_sequence": deepcopy(entry.get("source_required_sequence")),
         "source_must_keep_actions": deepcopy(entry.get("source_must_keep_actions")),
@@ -402,11 +409,72 @@ def _normalize_string_list(value: Any, field: str, label: str) -> list[str]:
     return normalized
 
 
+def _normalized_source_path(value: Any) -> str:
+    path_text = str(value or "").strip()
+    if not path_text:
+        return ""
+    return str(Path(path_text).expanduser().resolve())
+
+
+def _bridge_key(entry: dict[str, Any]) -> tuple[str, str]:
+    return (
+        _normalized_source_path(entry.get("source_path")),
+        str(entry.get("source_bridge_id") or "").strip(),
+    )
+
+
+def _build_bridge_indexes(
+    bridges: list[Any], label: str
+) -> tuple[dict[tuple[str, str], dict[str, Any]], dict[str, list[tuple[str, str]]]]:
+    by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    by_id: dict[str, list[tuple[str, str]]] = {}
+    for index, item in enumerate(bridges):
+        if not isinstance(item, dict):
+            continue
+        key = _bridge_key(item)
+        if not key[1]:
+            continue
+        if key in by_key:
+            raise ValueError(
+                f"{label}存在重复桥身份: source_path={key[0]!r}, bridge_id={key[1]}"
+            )
+        by_key[key] = item
+        by_id.setdefault(key[1], []).append(key)
+    return by_key, by_id
+
+
+def _resolve_bridge_key(
+    entry: dict[str, Any],
+    by_key: dict[tuple[str, str], dict[str, Any]],
+    by_id: dict[str, list[tuple[str, str]]],
+    label: str,
+) -> tuple[str, str]:
+    source_path, bridge_id = _bridge_key(entry)
+    if source_path:
+        key = (source_path, bridge_id)
+        if key not in by_key:
+            raise ValueError(
+                f"{label}不存在对应桥: source_path={source_path!r}, bridge_id={bridge_id}"
+            )
+        return key
+    matches = by_id.get(bridge_id, [])
+    if not matches:
+        raise ValueError(f"{label}不存在 bridge_id={bridge_id} 的桥")
+    if len(matches) > 1:
+        raise ValueError(
+            f"{label}的 bridge_id={bridge_id} 跨来源重名，侧车必须保留 source_path"
+        )
+    return matches[0]
+
+
 def _validate_entry(entry: dict[str, Any], label: str) -> dict[str, Any]:
     bridge_id = str(entry.get("source_bridge_id") or "").strip()
     if not bridge_id:
         raise ValueError(f"{label}.source_bridge_id 不能为空")
-    result = {"source_bridge_id": bridge_id}
+    result = {
+        "source_bridge_id": bridge_id,
+        "source_path": _normalized_source_path(entry.get("source_path")),
+    }
     if "source_bridge_name" in entry:
         result["source_bridge_name"] = str(entry.get("source_bridge_name") or "").strip()
     result["target_outline_sections"] = _normalize_string_list(
@@ -427,7 +495,16 @@ def _validate_entry(entry: dict[str, Any], label: str) -> dict[str, Any]:
             raise ValueError(f"{label}.{field} 不能为空")
         result[field] = value
     reader_experience_parity = entry.get("reader_experience_parity")
-    if not isinstance(reader_experience_parity, bool):
+    plot_only = (
+        str(entry.get("emotion_transfer_policy") or "").strip()
+        == "plot_mechanism_only"
+    )
+    if plot_only:
+        if reader_experience_parity is not None:
+            raise ValueError(
+                f"{label}.reader_experience_parity 在 plot_mechanism_only 模式下必须为 null"
+            )
+    elif not isinstance(reader_experience_parity, bool):
         raise ValueError(f"{label}.reader_experience_parity 必须为 true/false")
     result["reader_experience_parity"] = reader_experience_parity
     parity_status = str(entry.get("parity_status") or "").strip()
@@ -441,7 +518,10 @@ def _validate_beat_entry(entry: dict[str, Any], label: str) -> dict[str, Any]:
     bridge_id = str(entry.get("source_bridge_id") or "").strip()
     if not bridge_id:
         raise ValueError(f"{label}.source_bridge_id 不能为空")
-    result = {"source_bridge_id": bridge_id}
+    result = {
+        "source_bridge_id": bridge_id,
+        "source_path": _normalized_source_path(entry.get("source_path")),
+    }
     if "source_bridge_name" in entry:
         result["source_bridge_name"] = str(entry.get("source_bridge_name") or "").strip()
     for field in BRIDGE_BEAT_FIELDS:
@@ -472,34 +552,34 @@ def apply_template(receipt_path: Path, template_path: Path) -> dict[str, Any]:
     receipt_bridges = receipt.get("outline_bridge_flow_parity")
     if not isinstance(receipt_bridges, list):
         raise ValueError("回执缺少 outline_bridge_flow_parity 列表")
-    bridge_index = {
-        str(item.get("source_bridge_id") or ""): item
-        for item in receipt_bridges
-        if isinstance(item, dict)
-    }
+    bridge_index, bridge_id_index = _build_bridge_indexes(
+        receipt_bridges, "细纲表演验收回执"
+    )
     template_bridges = template.get("outline_bridge_flow_parity")
     if not isinstance(template_bridges, list):
         raise ValueError("桥级回填侧车缺少 outline_bridge_flow_parity 列表")
 
     merged = deepcopy(receipt)
     merged_bridges = merged["outline_bridge_flow_parity"]
-    merged_index = {
-        str(item.get("source_bridge_id") or ""): item
-        for item in merged_bridges
-        if isinstance(item, dict)
-    }
-    seen_ids: set[str] = set()
+    merged_index, _ = _build_bridge_indexes(merged_bridges, "合并后细纲表演验收回执")
+    seen_keys: set[tuple[str, str]] = set()
     for index, raw in enumerate(template_bridges):
         if not isinstance(raw, dict):
             raise ValueError(f"outline_bridge_flow_parity[{index}] 必须是对象")
         entry = _validate_entry(raw, f"outline_bridge_flow_parity[{index}]")
-        bridge_id = entry["source_bridge_id"]
-        if bridge_id in seen_ids:
-            raise ValueError(f"桥级回填侧车存在重复 bridge_id: {bridge_id}")
-        seen_ids.add(bridge_id)
-        if bridge_id not in bridge_index:
-            raise ValueError(f"回执不存在 bridge_id={bridge_id} 的桥")
-        target = merged_index[bridge_id]
+        key = _resolve_bridge_key(
+            entry,
+            bridge_index,
+            bridge_id_index,
+            f"outline_bridge_flow_parity[{index}]",
+        )
+        if key in seen_keys:
+            raise ValueError(
+                "桥级回填侧车存在重复桥身份: "
+                f"source_path={key[0]!r}, bridge_id={key[1]}"
+            )
+        seen_keys.add(key)
+        target = merged_index[key]
         for field in BRIDGE_FIELDS:
             target[field] = deepcopy(entry[field])
 
@@ -531,33 +611,36 @@ def apply_beat_template(receipt_path: Path, template_path: Path) -> dict[str, An
     receipt_bridges = receipt.get("outline_bridge_flow_parity")
     if not isinstance(receipt_bridges, list):
         raise ValueError("回执缺少 outline_bridge_flow_parity 列表")
-    bridge_index = {
-        str(item.get("source_bridge_id") or ""): item
-        for item in receipt_bridges
-        if isinstance(item, dict)
-    }
+    bridge_index, bridge_id_index = _build_bridge_indexes(
+        receipt_bridges, "细纲表演验收回执"
+    )
     template_bridges = template.get("outline_bridge_flow_parity")
     if not isinstance(template_bridges, list):
         raise ValueError("桥级逐拍回填侧车缺少 outline_bridge_flow_parity 列表")
 
     merged = deepcopy(receipt)
-    merged_index = {
-        str(item.get("source_bridge_id") or ""): item
-        for item in merged.get("outline_bridge_flow_parity", [])
-        if isinstance(item, dict)
-    }
-    seen_ids: set[str] = set()
+    merged_index, _ = _build_bridge_indexes(
+        merged.get("outline_bridge_flow_parity", []),
+        "合并后细纲表演验收回执",
+    )
+    seen_keys: set[tuple[str, str]] = set()
     for index, raw in enumerate(template_bridges):
         if not isinstance(raw, dict):
             raise ValueError(f"outline_bridge_flow_parity[{index}] 必须是对象")
         entry = _validate_beat_entry(raw, f"outline_bridge_flow_parity[{index}]")
-        bridge_id = entry["source_bridge_id"]
-        if bridge_id in seen_ids:
-            raise ValueError(f"桥级逐拍回填侧车存在重复 bridge_id: {bridge_id}")
-        seen_ids.add(bridge_id)
-        if bridge_id not in bridge_index:
-            raise ValueError(f"回执不存在 bridge_id={bridge_id} 的桥")
-        target = merged_index[bridge_id]
+        key = _resolve_bridge_key(
+            entry,
+            bridge_index,
+            bridge_id_index,
+            f"outline_bridge_flow_parity[{index}]",
+        )
+        if key in seen_keys:
+            raise ValueError(
+                "桥级逐拍回填侧车存在重复桥身份: "
+                f"source_path={key[0]!r}, bridge_id={key[1]}"
+            )
+        seen_keys.add(key)
+        target = merged_index[key]
         for field in BRIDGE_BEAT_FIELDS:
             target[field] = deepcopy(entry[field])
 

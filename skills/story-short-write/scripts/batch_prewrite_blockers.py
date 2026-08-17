@@ -339,7 +339,21 @@ def scan_blockers(
     }
 
 
-def _print_blocked_report(report: dict[str, Any]) -> None:
+def compact_report(report: dict[str, Any], max_messages: int = 3) -> dict[str, Any]:
+    compact = dict(report)
+    for key in ("work_order", "focus_work_order"):
+        items: list[dict[str, Any]] = []
+        for item in report.get(key) or []:
+            copy = dict(item)
+            messages = list(item.get("messages") or [])
+            copy["messages"] = messages[:max_messages]
+            copy["omitted_message_count"] = max(0, len(messages) - max_messages)
+            items.append(copy)
+        compact[key] = items
+    return compact
+
+
+def _print_blocked_report(report: dict[str, Any], max_messages: int = 3) -> None:
     print("batch_prewrite_blockers: blocked")
     if report["focus_work_order"]:
         print(
@@ -350,8 +364,11 @@ def _print_blocked_report(report: dict[str, Any]) -> None:
                 f"{{{item['label']}}} stages={','.join(item['stages'])} source_categories={','.join(item['source_categories'])}"
             )
             print(f"  next_action: {item['next_action']}")
-            for message in item["messages"]:
+            for message in item["messages"][:max_messages]:
                 print(f"  - {message}")
+            omitted = max(0, len(item["messages"]) - max_messages)
+            if omitted:
+                print(f"  ... 省略 {omitted} 条同类阻断")
     print(
         "优先顺序："
         + " -> ".join(item["label"] for item in report["work_order"])
@@ -359,8 +376,11 @@ def _print_blocked_report(report: dict[str, Any]) -> None:
     for item in report["work_order"]:
         print(f"[{item['label']}] stages={','.join(item['stages'])}")
         print(f"  next_action: {item['next_action']}")
-        for message in item["messages"]:
+        for message in item["messages"][:max_messages]:
             print(f"  - {message}")
+        omitted = max(0, len(item["messages"]) - max_messages)
+        if omitted:
+            print(f"  ... 省略 {omitted} 条同类阻断")
 
 
 def main() -> int:
@@ -380,6 +400,8 @@ def main() -> int:
     parser.add_argument("--opening-contract")
     parser.add_argument("--profile")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--full", action="store_true")
+    parser.add_argument("--max-messages", type=int, default=3)
     args = parser.parse_args()
 
     report = scan_blockers(
@@ -397,10 +419,15 @@ def main() -> int:
         profile=Path(args.profile).resolve() if args.profile else None,
     )
     if report["blocked"]:
+        rendered = (
+            report
+            if args.full
+            else compact_report(report, max(1, args.max_messages))
+        )
         if args.json:
-            print(json.dumps(report, ensure_ascii=False, indent=2))
+            print(json.dumps(rendered, ensure_ascii=False, indent=2))
         else:
-            _print_blocked_report(report)
+            _print_blocked_report(rendered, max(1, args.max_messages))
         return 2
     print("batch_prewrite_blockers: passed")
     print(json.dumps(report, ensure_ascii=False, indent=2))

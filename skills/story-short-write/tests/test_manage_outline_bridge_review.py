@@ -190,6 +190,100 @@ class ManageOutlineBridgeReviewTest(unittest.TestCase):
         self.assertEqual([], bridge["target_outline_sections"])
         self.assertEqual("", bridge["plot_granularity_parity_judgment"])
 
+    def test_plot_only_bridge_accepts_null_reader_parity_and_exports_policy(self) -> None:
+        receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        bridge = receipt["outline_bridge_flow_parity"][0]
+        bridge["emotion_transfer_policy"] = "plot_mechanism_only"
+        bridge["reader_experience_parity"] = None
+        bridge["source_reversal_beat"] = 0
+        bridge["target_reversal_beat"] = 0
+        bridge["source_peak_beat"] = 0
+        bridge["target_peak_beat"] = 0
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = TOOL.export_template(self.receipt, self.template)
+        exported = payload["outline_bridge_flow_parity"][0]
+        self.assertEqual("plot_mechanism_only", exported["emotion_transfer_policy"])
+        exported.update(
+            {
+                "target_outline_sections": ["1"],
+                "target_outline_evidence": ["目标动作一", "目标动作二"],
+                "plot_granularity_parity_judgment": "辅助情节拍完整",
+                "emotion_parity_judgment": "辅助桥不供应情绪拍",
+                "reader_experience_parity": None,
+                "parity_status": "adapted",
+                "adaptation_reason": "只迁移情节机制",
+                "missing_or_weakened_risk": "不得混入辅助声线",
+                "manual_judgment": "P 拍完整，情绪保持禁用",
+            }
+        )
+        payload["outside_bridge_plot_parity"] = None
+        self.template.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        merged = TOOL.apply_template(self.receipt, self.template)
+        self.assertIsNone(
+            merged["outline_bridge_flow_parity"][0]["reader_experience_parity"]
+        )
+
+        beat_payload = TOOL.export_beat_template(self.receipt, self.template)
+        self.assertEqual(
+            "plot_mechanism_only",
+            beat_payload["outline_bridge_flow_parity"][0][
+                "emotion_transfer_policy"
+            ],
+        )
+
+    def test_same_bridge_id_across_sources_merges_by_source_path(self) -> None:
+        receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        auxiliary = self.root / "拆文库" / "辅助书" / "原文" / "辅助书.txt"
+        auxiliary.parent.mkdir(parents=True, exist_ok=True)
+        auxiliary.write_text("辅助原文\n", encoding="utf-8")
+        second = dict(receipt["outline_bridge_flow_parity"][0])
+        second["source_path"] = str(auxiliary)
+        second["source_bridge_name"] = "辅助公开掉位"
+        receipt["outline_bridge_flow_parity"].append(second)
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        payload = TOOL.export_template(self.receipt, self.template)
+        self.assertEqual(2, len(payload["outline_bridge_flow_parity"]))
+        for index, entry in enumerate(payload["outline_bridge_flow_parity"], start=1):
+            entry.update(
+                {
+                    "target_outline_sections": [str(index)],
+                    "target_outline_evidence": [f"目标动作{index}"],
+                    "plot_granularity_parity_judgment": f"桥{index}颗粒一致",
+                    "emotion_parity_judgment": f"桥{index}情绪一致",
+                    "reader_experience_parity": True,
+                    "parity_status": "adapted",
+                    "adaptation_reason": f"桥{index}换壳",
+                    "missing_or_weakened_risk": "无",
+                    "manual_judgment": f"桥{index}已复核",
+                }
+            )
+        payload["outside_bridge_plot_parity"] = None
+        self.template.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        merged = TOOL.apply_template(self.receipt, self.template)
+        by_source = {
+            item["source_path"]: item for item in merged["outline_bridge_flow_parity"]
+        }
+        self.assertEqual(
+            ["1"], by_source[str(self.source_original)]["target_outline_sections"]
+        )
+        self.assertEqual(["2"], by_source[str(auxiliary)]["target_outline_sections"])
+
     def test_rebind_outline_resets_review_status_and_updates_sha(self) -> None:
         original = json.loads(self.receipt.read_text(encoding="utf-8"))
         original["reviewed_by_current_model"] = True
@@ -246,6 +340,31 @@ class ManageOutlineBridgeReviewTest(unittest.TestCase):
         self.assertEqual(["E-001"], [item["beat_id"] for item in outside["source_emotion_sequence"]])
         self.assertEqual("桥外证据", outside["source_emotion_sequence"][0]["evidence"])
         self.assertEqual([], bridge["target_emotion_sequence"])
+
+    def test_sync_source_emotions_skips_plot_only_and_keeps_duplicate_source_keys(self) -> None:
+        aux_original = self.root / "拆文库" / "辅助书" / "原文" / "辅助书.txt"
+        aux_original.parent.mkdir(parents=True, exist_ok=True)
+        aux_original.write_text(self.source_original.read_text(encoding="utf-8"), encoding="utf-8")
+        aux_ledger = self.root / "拆文库" / "辅助书" / "写作资产" / "全文情绪颗粒总账.json"
+        aux_ledger.parent.mkdir(parents=True, exist_ok=True)
+        aux_ledger.write_text(self.ledger.read_text(encoding="utf-8"), encoding="utf-8")
+        receipt = json.loads(self.receipt.read_text(encoding="utf-8"))
+        primary_bridge = receipt["outline_bridge_flow_parity"][0]
+        primary_bridge["source_path"] = str(self.source_original)
+        auxiliary_bridge = json.loads(json.dumps(primary_bridge, ensure_ascii=False))
+        auxiliary_bridge["source_path"] = str(aux_original)
+        auxiliary_bridge["emotion_transfer_policy"] = "plot_mechanism_only"
+        receipt["outline_bridge_flow_parity"].append(auxiliary_bridge)
+        self.receipt.write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        summary = TOOL.sync_source_emotions(self.receipt)
+        merged = json.loads(self.receipt.read_text(encoding="utf-8"))
+        self.assertEqual(2, len(summary["bridge_counts"]))
+        self.assertEqual(2, len(merged["outline_bridge_flow_parity"][0]["source_emotion_sequence"]))
+        self.assertEqual([], merged["outline_bridge_flow_parity"][1]["source_emotion_sequence"])
 
 
 if __name__ == "__main__":

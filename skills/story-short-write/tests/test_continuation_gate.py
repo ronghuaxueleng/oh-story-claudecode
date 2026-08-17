@@ -105,8 +105,10 @@ class ContinuationGateTest(unittest.TestCase):
                     "status": "blocked",
                     "recoverable": False,
                     "blocking_condition": "external service unavailable",
+                    "blocker_type": "third_party_service_unavailable",
+                    "external_dependency": "remote generation service",
                     "consecutive_attempts": 2,
-                    "evidence": ["attempt-1", "attempt-2"],
+                    "evidence": ["attempt-1", "attempt-2", "attempt-3"],
                 },
             )
             blocked = self.run_gate(
@@ -128,3 +130,29 @@ class ContinuationGateTest(unittest.TestCase):
             )
         self.assertEqual(blocked.returncode, 2)
         self.assertEqual(passed.returncode, 0)
+
+    def test_local_validator_errors_are_not_external_blockers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            receipt = project / "blocker.json"
+            write_json(
+                receipt,
+                {
+                    "status": "blocked",
+                    "recoverable": False,
+                    "blocking_condition": "local validator has missing fields",
+                    "blocker_type": "local_workflow_error",
+                    "external_dependency": "none",
+                    "consecutive_attempts": 3,
+                    "evidence": ["attempt-1", "attempt-2", "attempt-3"],
+                },
+            )
+            result = self.run_gate(
+                project,
+                "--reason",
+                "external_blocker",
+                "--blocker-receipt",
+                str(receipt),
+            )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("真实外部依赖类型", result.stdout)

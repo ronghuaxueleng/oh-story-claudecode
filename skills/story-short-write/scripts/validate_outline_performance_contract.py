@@ -284,6 +284,30 @@ def plot_keep_actions_from_beats(beats: list[dict[str, Any]]) -> list[str]:
     return actions
 
 
+def bridge_ids_from_plot_beats(beats: list[dict[str, Any]]) -> list[str]:
+    bridge_ids: list[str] = []
+    seen: set[str] = set()
+    for beat in beats:
+        for raw in beat.get("bid_ids") or []:
+            bridge_id = str(raw or "").strip()
+            if bridge_id and bridge_id not in seen:
+                seen.add(bridge_id)
+                bridge_ids.append(bridge_id)
+    return bridge_ids
+
+
+def merged_bridge_ids(
+    catalog_ids: list[str], plot_beats: list[dict[str, Any]]
+) -> list[str]:
+    merged = list(catalog_ids)
+    seen = set(merged)
+    for bridge_id in bridge_ids_from_plot_beats(plot_beats):
+        if bridge_id not in seen:
+            seen.add(bridge_id)
+            merged.append(bridge_id)
+    return merged
+
+
 def bridge_inventory_entry(
     first_source: dict[str, Any],
     bridge_id: str,
@@ -304,11 +328,26 @@ def bridge_inventory_entry(
         if part
     )
     bridge_name = str(card.get("bridge_name") or "").strip()
+    if not bridge_name:
+        first_action = str((beats[0] if beats else {}).get("action") or "").strip()
+        last_consequence = str(
+            (beats[-1] if beats else {}).get("consequence") or ""
+        ).strip()
+        bridge_name = (
+            f"{bridge_id} 全文总账动态子桥"
+            + (f"：{first_action}" if first_action else "")
+        )
     scene_granularity_parts = [
         str(card.get("source_scene_granularity") or "").strip(),
         str(card.get("sequence_reason") or "").strip(),
     ]
     scene_granularity = "\n".join(part for part in scene_granularity_parts if part)
+    if not scene_granularity and beats:
+        scene_granularity = (
+            f"该动态子桥由全文情节微拍总账登记，共 {len(beats)} 拍；"
+            f"从“{str(beats[0].get('action') or '').strip()}”推进到"
+            f"“{str(beats[-1].get('consequence') or '').strip()}”。"
+        )
     return {
         "source_path": first_source["path"],
         "source_sha256": first_source["sha256"],
@@ -427,8 +466,8 @@ def create_receipt(
         catalog = bridge_catalog_path(source)
         if not catalog.is_file():
             raise FileNotFoundError(f"桥段施工卡不存在: {catalog}")
-        available_bridge_ids = bridge_ids_from_catalog(catalog)
-        if not available_bridge_ids:
+        catalog_bridge_ids = bridge_ids_from_catalog(catalog)
+        if not catalog_bridge_ids:
             raise ValueError(f"桥段施工卡未识别到 BID: {catalog}")
         role = "primary" if index == 0 else "auxiliary"
         plot_ledger = source_plot_ledger_path(source)
@@ -447,6 +486,7 @@ def create_receipt(
                 emotion_ledger = source_emotion_ledger_path(source)
                 load_emotion_ledger_payload(emotion_ledger)
         plot_beats = normalized_plot_ledger_beats(plot_payload)
+        available_bridge_ids = merged_bridge_ids(catalog_bridge_ids, plot_beats)
         subflow_catalog = subflow_catalog_path(source)
         if role == "primary" and not subflow_catalog.is_file():
             raise FileNotFoundError(f"主体原文子流程索引不存在: {subflow_catalog}")
@@ -2178,10 +2218,30 @@ def validate_receipt(receipt_path: Path, outline_path: Path) -> list[str]:
                     errors,
                 )
                 if catalog_path is not None:
-                    actual_ids = bridge_ids_from_catalog(catalog_path)
+                    plot_binding = source.get("plot_beat_ledger")
+                    actual_plot_beats: list[dict[str, Any]] = []
+                    if isinstance(plot_binding, dict):
+                        plot_path = validate_binding(
+                            plot_binding,
+                            f"选中原文[{index}]全文情节微拍总账",
+                            errors,
+                        )
+                        if plot_path is not None:
+                            try:
+                                actual_plot_beats = normalized_plot_ledger_beats(
+                                    load_ledger_payload(
+                                        plot_path, "全文情节微拍总账"
+                                    )
+                                )
+                            except (FileNotFoundError, ValueError) as exc:
+                                errors.append(str(exc))
+                    actual_ids = merged_bridge_ids(
+                        bridge_ids_from_catalog(catalog_path),
+                        actual_plot_beats,
+                    )
                     if source.get("available_bridge_ids") != actual_ids:
                         errors.append(
-                            f"选中原文[{index}].available_bridge_ids 与桥段施工卡不一致"
+                            f"选中原文[{index}].available_bridge_ids 与桥段施工卡及情节总账不一致"
                         )
                 if expected_role == "primary":
                     subflow_path = validate_binding(

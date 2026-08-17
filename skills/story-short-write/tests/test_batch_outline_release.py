@@ -271,6 +271,56 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         )
         self.assertTrue(any("开头契约回执已存在" in item for item in errors))
 
+    def test_high_level_start_resumes_existing_receipts_without_overwrite(self) -> None:
+        errors, _summary = GATE.init_batch(
+            project="测试项目",
+            writing_receipt=self.writing_receipt,
+            source_receipt=self.source_receipt,
+            ledger=self.ledger,
+            setting=self.setting,
+            outline=self.outline,
+            setting_sequence_receipt=self.setting_sequence_receipt,
+            sequence_receipt=self.sequence_receipt,
+            opening_source=self.opening_source,
+            opening_receipt=self.opening_receipt,
+            outline_receipt=self.outline_receipt,
+            source_originals=[self.source_original],
+            force_ledger=False,
+            force_setting_sequence=False,
+            force_sequence=False,
+            force_opening=False,
+            force_outline_receipt=False,
+            export_model_review_output=self.model_review,
+            export_model_plan_output=self.model_plan,
+            export_batch_size=30,
+        )
+        self.assertEqual([], errors)
+        ledger = json.loads(self.ledger.read_text(encoding="utf-8"))
+        ledger["resume_marker"] = "preserve-me"
+        self.ledger.write_text(
+            json.dumps(ledger, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        errors, _summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+            source_receipt=None,
+            source_originals=None,
+            opening_source=None,
+            force_ledger=False,
+            force_setting_sequence=False,
+            force_sequence=False,
+            force_opening=False,
+            force_outline_receipt=False,
+            export_model_review_output=self.model_review,
+            export_model_plan_output=self.model_plan,
+            export_batch_size=30,
+        )
+        self.assertEqual([], errors)
+        preserved = json.loads(self.ledger.read_text(encoding="utf-8"))
+        self.assertEqual("preserve-me", preserved["resume_marker"])
+
     def test_status_inspects_default_project_layout(self) -> None:
         status = GATE.inspect_outline_release_status(
             project="测试项目",

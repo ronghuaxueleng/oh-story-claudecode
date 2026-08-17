@@ -305,6 +305,36 @@ class BatchOutlineReviewCycleTest(unittest.TestCase):
         self.assertIn('batch_outline_review_cycle.py" next-step', template)
         self.assertIn('batch_outline_review_cycle.py" run-outline-review-cycle', template)
 
+    def test_plot_only_bridge_is_complete_without_emotion_payload(self) -> None:
+        bridge = {
+            "emotion_transfer_policy": "plot_mechanism_only",
+            "target_outline_sections": ["1"],
+            "target_outline_evidence": ["目标动作一", "目标动作二"],
+            "plot_granularity_parity_judgment": "P 拍完整",
+            "emotion_parity_judgment": "辅助桥不供应情绪",
+            "reader_experience_parity": None,
+            "parity_status": "adapted",
+            "adaptation_reason": "只迁移情节机制",
+            "missing_or_weakened_risk": "不得混入辅助声线",
+            "manual_judgment": "人工确认辅助桥边界",
+        }
+        self.assertTrue(GATE._bridge_manual_complete(bridge))
+
+        bridge.update(
+            {
+                "target_plot_beats": [{"beat_id": "AUX-TP-001"}],
+                "plot_beat_mapping": [
+                    {"source_beat_id": "P-001", "target_beat_id": "AUX-TP-001"}
+                ],
+                "target_emotion_sequence": [],
+                "source_reversal_beat": 0,
+                "target_reversal_beat": 0,
+                "source_peak_beat": 0,
+                "target_peak_beat": 0,
+            }
+        )
+        self.assertTrue(GATE._bridge_beat_complete(bridge, outside=False))
+
 
 if __name__ == "__main__":
     unittest.main()

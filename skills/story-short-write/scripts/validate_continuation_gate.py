@@ -141,12 +141,30 @@ def validate_blocker(path: Path) -> list[str]:
         errors.append("外部阻断必须明确 recoverable=false")
     if not str(data.get("blocking_condition") or "").strip():
         errors.append("外部阻断缺少 blocking_condition")
+    blocker_type = str(data.get("blocker_type") or "").strip()
+    allowed_types = {
+        "network_unavailable",
+        "permission_denied",
+        "missing_user_supplied_input",
+        "third_party_service_unavailable",
+        "external_filesystem_state",
+    }
+    if blocker_type not in allowed_types:
+        errors.append(
+            "外部阻断 blocker_type 必须是真实外部依赖类型，"
+            "本地 validator 错误、字段缺失、旧资产升级或工作量过大不得使用 external_blocker"
+        )
+    if not str(data.get("external_dependency") or "").strip():
+        errors.append("外部阻断缺少 external_dependency")
     attempts = data.get("consecutive_attempts")
     if not isinstance(attempts, int) or attempts < 3:
         errors.append("同一外部阻断必须连续出现至少三轮")
     evidence = data.get("evidence")
-    if not isinstance(evidence, list) or not any(str(item).strip() for item in evidence):
-        errors.append("外部阻断缺少可核验证据")
+    if (
+        not isinstance(evidence, list)
+        or len([item for item in evidence if str(item).strip()]) < 3
+    ):
+        errors.append("外部阻断至少需要三条连续尝试的可核验证据")
     return errors
 
 
