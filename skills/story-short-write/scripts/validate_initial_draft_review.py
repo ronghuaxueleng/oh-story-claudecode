@@ -66,6 +66,10 @@ def nonspace_count(text: str) -> int:
     return len(re.sub(r"\s+", "", text))
 
 
+def text_sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def split_draft(text: str) -> tuple[str, dict[str, str], list[str]]:
     matches = list(SECTION_RE.finditer(text))
     if not matches:
@@ -184,6 +188,7 @@ def create_receipt(
         "region_reviews": [
             {
                 "region_id": region_id,
+                "content_sha256": text_sha256(regions[region_id]),
                 **required[region_id],
                 "plot_complete": None,
                 "emotion_complete": None,
@@ -232,6 +237,11 @@ def can_preserve_region_review(
         old_review.get(field) == refreshed_review.get(field)
         for field in reference_fields
     )
+    same_content = (
+        bool(old_review.get("content_sha256"))
+        and old_review.get("content_sha256") == refreshed_review.get("content_sha256")
+        and refreshed_review.get("content_sha256") == text_sha256(region_text)
+    )
     quotes = old_review.get("evidence_quotes")
     quotes_still_bound = (
         isinstance(quotes, list)
@@ -243,7 +253,7 @@ def can_preserve_region_review(
             for quote in quotes
         )
     )
-    return same_requirements and quotes_still_bound
+    return same_requirements and same_content and quotes_still_bound
 
 
 def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
@@ -283,7 +293,8 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
                 if field in old:
                     review[field] = old[field]
     old_global = current.get("global_review")
-    if isinstance(old_global, dict):
+    bindings_unchanged = current.get("bindings") == refreshed.get("bindings")
+    if bindings_unchanged and isinstance(old_global, dict):
         for field in refreshed["global_review"]:
             if field in old_global:
                 refreshed["global_review"][field] = old_global[field]
@@ -361,6 +372,8 @@ def validate_data(data: dict[str, Any]) -> list[str]:
     for region_id in expected_ids:
         review = review_by_id.get(region_id) or {}
         label = f"region_reviews.{region_id}"
+        if review.get("content_sha256") != text_sha256(regions.get(region_id, "")):
+            errors.append(f"{label}.content_sha256 与当前正文区域不一致")
         for field in (
             "plot_refs",
             "emotion_refs",

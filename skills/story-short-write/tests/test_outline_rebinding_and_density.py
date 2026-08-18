@@ -153,8 +153,12 @@ class SectionDensityTest(unittest.TestCase):
 
 
 class InitialReviewRefreshTest(unittest.TestCase):
-    def review(self, plot_refs: list[str]) -> dict:
+    region_text = "第一条证据。中间内容。第二条证据。"
+
+    def review(self, plot_refs: list[str], region_text: str | None = None) -> dict:
+        text = self.region_text if region_text is None else region_text
         return {
+            "content_sha256": INITIAL_REVIEW.text_sha256(text),
             "plot_refs": plot_refs,
             "emotion_refs": ["E-001"],
             "auxiliary_plot_refs": [],
@@ -169,7 +173,7 @@ class InitialReviewRefreshTest(unittest.TestCase):
             INITIAL_REVIEW.can_preserve_region_review(
                 old,
                 refreshed,
-                "第一条证据。中间内容。第二条证据。",
+                self.region_text,
             )
         )
 
@@ -180,7 +184,19 @@ class InitialReviewRefreshTest(unittest.TestCase):
             INITIAL_REVIEW.can_preserve_region_review(
                 old,
                 refreshed,
-                "第一条证据。中间内容。第二条证据。",
+                self.region_text,
+            )
+        )
+
+    def test_changed_region_cannot_inherit_even_when_quotes_survive(self) -> None:
+        old = self.review(["P-001"])
+        changed_text = "第一条证据。新增并改写的正文。第二条证据。"
+        refreshed = self.review(["P-001"], changed_text)
+        self.assertFalse(
+            INITIAL_REVIEW.can_preserve_region_review(
+                old,
+                refreshed,
+                changed_text,
             )
         )
 
