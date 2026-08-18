@@ -83,7 +83,7 @@ class StorySetupInstallTest(unittest.TestCase):
         for rel in BUNDLE.REQUIRED_HOOKS:
             self.assertTrue((self.root / ".codex" / "hooks" / rel).is_file(), rel)
         sentinel = (self.root / ".story-deployed").read_text(encoding="utf-8")
-        self.assertIn("agents_version: 19", sentinel)
+        self.assertIn("agents_version: 21", sentinel)
         merged = (self.root / "CLAUDE.md").read_text(encoding="utf-8")
         self.assertIn("必须保留", merged)
         self.assertIn("中文回答", merged)

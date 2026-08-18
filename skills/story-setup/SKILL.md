@@ -7,7 +7,7 @@ description: |
 
 # story-setup：网文写作工具集基础设施部署
 
-当前部署版本：`1.6.0`。
+当前部署版本：`1.7.1`。
 
 你是写作基础设施部署器。将网文写作工具集的全套基础设施（`.codex/agents`、hooks、rules、项目级 scripts、`CLAUDE.md`）部署到用户项目目录；若项目内已经存在真实书籍目录，再继续部署 `写作执行铁律.md`、`追踪/上下文.md` 等书内文件。
 
@@ -62,11 +62,10 @@ description: |
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 生成 `.codex/skills/story-setup/references/agent-references/`
 - `agent-references/` 必须包含新一轮参考边界卡：`reference-boundary-and-sources-split.md`、`chapter-prewrite-card-enforcement.md`、`reference-chapter-comparison-protocol.md`，避免部署后正文写作仍缺“可借层/禁借层/参考对比”口径
-- `agent-references/` 还必须包含短篇资料包副本：`material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，避免短篇写作和拆文部署后缺“情节融合 / 口气模板 / 人物功能位”材料库
-- `agent-references/` 还必须包含短篇治理与审计副本：`short-write-execution-core.md`、`no-external-block-audit-self-check.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`gate-pass-checklist.md`、`audit-rulebook-coverage.md`、`story-profile-schema.md`、`profile-source-template.md`、`internal-toolchain-map.md`，以及 `audit-rulebook.json`、`precheck_rewrite_gate.config.json`、`通用高风险词类词典.json`、`虚词模板词典.json`，避免部署后短篇高敏回修仍缺正式规则包
+- `agent-references/` 必须包含短篇现行资料：`material-packs-setting-plot.md`、`material-packs-character.md`、`opening-and-hook-library.md`、`emotion-and-outcome-library.md`、`character-voice-library.md`、`short-write-execution-core.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`story-profile-schema.md`、`profile-source-template.md`、`internal-toolchain-map.md`
 - 生成项目级 `scripts/`，复制 `references/templates/scripts/*` 全套模板脚本。部署包必须覆盖 `story-long-write/scripts/`、`story-short-write/scripts/`、`story-short-analyze/scripts/` 中全部正式 `.py/.js`，不得只维护一份容易过期的手写文件名枚举
 - 正式书名确定后，创建书内文件前必须运行 `validate_project_directory_name.py --project-dir <目录> --title <正式书名>`；结构探测只能找候选目录，不能替代正式书名确认
-- 修改任一上游脚本、治理文档、agent reference、hook、rule 或 agent 后，必须运行 `python3 skills/story-setup/scripts/validate_bundle.py`；出现缺文件、旧副本或死链接时不得发布
+- 修改任一上游脚本或参考资料后，先运行 `python3 skills/story-setup/scripts/validate_bundle.py --sync` 清除部署包旧副本，再运行不带参数的校验；出现缺文件、残留文件或死链接时不得发布
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 - 确保项目 `scripts/*.py` 也有执行权限（chmod +x）
 - 同时复制 `.codex/hooks/lib/` 公共脚本
@@ -93,21 +92,21 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 19
-  setup_skill_version: 1.6.0
+  agents_version: 21
+  setup_skill_version: 1.7.1
   target_cli: codex
   resolver_strategy: project-local-skill-reference
   references_dir: .codex/skills/story-setup/references/agent-references
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
 - 仅当目录通过正式书名校验时，才允许创建或更新 `.active-book`；只有一个有效书目录时写入项目内相对路径，多书时只采用已通过校验的用户选择
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 19，提示用户重新运行 `story-setup`。v19 增加正式书名目录硬闸、统一安装器与 hooks 的书目发现条件、补齐长篇写作/短篇写作/短篇拆文正式脚本与治理文档，并加入部署包完整性校验；更早版本沿用各自既有升级说明
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 21，重新运行 `story-setup`。v21 在精简短篇主链中恢复主体 SF 六维全集的确定性覆盖，不恢复已废弃流程。
 
 ## Phase 3：验证安装
 
 1. 验证宿主环境文件：
    - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
-   - 运行 `python3 skills/story-setup/scripts/validate_bundle.py`，检查全部正式 scripts、hooks、rules、agents、基础模板、治理资料、上游版本和 Markdown 内部链接
+   - 运行 `python3 skills/story-setup/scripts/validate_bundle.py --sync` 同步正式文件并清除残留，再运行 `python3 skills/story-setup/scripts/validate_bundle.py` 校验 scripts、hooks、rules、agents、基础模板、参考资料、上游版本和 Markdown 内部链接
    - 安装后逐项比较 `references/templates/scripts/` 与项目 `scripts/`、`references/agent-references/` 与项目 `.codex/skills/story-setup/references/agent-references/`，不得只抽查旧版最小清单
 2. 若为书籍模式，再额外验证书内文件：
    - 检查 `{书名}/写作执行铁律.md`
@@ -152,8 +151,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 19` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 19 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts/references，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 21` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 21 → 重新执行 Phase 2 覆盖子代理/hooks/rules/scripts/references，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -170,12 +169,9 @@ description: |
 | references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
 | references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
 | references/agent-references/material-packs-setting-plot.md | 短篇情节/设定/冲突/融合写法资料包副本，供起盘、补冲突、做融合写作时调用 |
-| references/agent-references/material-packs-expression.md | 短篇表达/口气/开头句/虐点表达资料包副本，供角色口气设计与正文修辞调用 |
 | references/agent-references/material-packs-character.md | 短篇人物功能位/关系重组/接住者与对照组资料包副本，供人物与关系设计调用 |
-| references/agent-references/short-write-execution-core.md | 短篇 profile 闭环、审计优先级、逐条引用正文句子的自检口径副本 |
-| references/agent-references/no-external-block-audit-self-check.md | 无外部分块审计时的块级自检副本，要求每个判断贴正文原句 |
+| references/agent-references/short-write-execution-core.md | 短篇现行主链和唯一正式产物口径副本 |
 | references/agent-references/high-sensitivity-block-audit-rewrite-playbook.md | 短篇高敏桥段第二闸门与回修停机口径副本 |
 | references/agent-references/story-profile-schema.md | `book.profile.json / project.profile.json / story_guardrails` 结构合同副本 |
-| references/agent-references/audit-rulebook.json | 短篇正式审计规则簿副本，供项目内审计脚本直接读取 |
 | references/templates/上下文.md.tmpl | 写作上下文模板（仅书籍模式部署） |
-| scripts/validate_bundle.py | 校验部署包文件齐全、上游版本同步和内部链接完整性 |
+| scripts/validate_bundle.py | `--sync` 同步并删除残留；无参数校验文件齐全、上游版本和内部链接 |

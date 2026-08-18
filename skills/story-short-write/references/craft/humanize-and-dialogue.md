@@ -641,4 +641,3 @@ description: |
 延伸参考：
 
 - 对话怎么接、怎么压、怎么停，优先看 [dialogue-blade-library.md](dialogue-blade-library.md)
-- 高频 AI 句式反例和稳妥改法，优先看 [../ai-sentence-anti-patterns.md](../ai-sentence-anti-patterns.md)

@@ -26,6 +26,7 @@
 额外硬目标：
 
 - `book.profile.json` 不能只做到“有键可过 schema”
+- `book.profile.json.prose_style_contract` 必须是 `primary_only`，且 `sentence_motion / narrator_voice / dialogue_and_character_voice / anti_patterns` 四个数组全部非空
 - 至少要让 `bridge_rules` 保住 4 类信息：起手、承重件、顺序/假点原因、对应全文总账的逐 BID 原序情绪拍子集；全文全集仍以 `全文情绪颗粒总账.json` 为准
 - 如果生成出的 `book.profile.json` 比同书 `bak` 明显更空，默认本批未完成；但 `bak` 只用于对比厚度和找漏项，不能参与回填或直接回灌正式产物
 

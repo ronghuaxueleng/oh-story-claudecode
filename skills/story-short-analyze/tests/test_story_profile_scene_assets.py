@@ -18,17 +18,6 @@ assert SPEC and SPEC.loader
 GENERATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GENERATOR)
 
-AUDIT_PATH = (
-    Path(__file__).resolve().parents[2]
-    / "story-short-write"
-    / "scripts"
-    / "run_full_ai_audit.py"
-)
-AUDIT_SPEC = importlib.util.spec_from_file_location("story_full_audit", AUDIT_PATH)
-assert AUDIT_SPEC and AUDIT_SPEC.loader
-AUDIT = importlib.util.module_from_spec(AUDIT_SPEC)
-AUDIT_SPEC.loader.exec_module(AUDIT)
-
 VALIDATOR_PATH = (
     Path(__file__).resolve().parents[1]
     / "scripts"
@@ -134,31 +123,6 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
         self.assertEqual("A", grading["structure_grade"])
         self.assertEqual("B", grading["sentence_grade"])
         self.assertEqual(["人物口气", "动作落点"], parsed["positive_dna_layers"])
-
-    def test_layer_grade_overrides_whole_book_negative_summary(self) -> None:
-        guidance = AUDIT.build_sample_grading_guidance(
-            {
-                "sample_grading": {
-                    "level": "C类负样本",
-                    "dna_usable": "不可",
-                    "structure_grade": "B",
-                    "performance_grade": "A",
-                    "sentence_grade": "A",
-                    "terminal_consequence_grade": "C",
-                    "positive_dna_layers": ["人物口气", "句法节拍"],
-                    "skeleton_only_layers": ["结构"],
-                    "negative_rule_layers": ["终局清算"],
-                    "final_verdict": {"allow_dna": "否", "negative_only": "是"},
-                }
-            }
-        )
-        self.assertEqual("A", guidance["sentence_grade"])
-        self.assertFalse(
-            any("不可并入正向融合" in item for item in guidance["hard_stops"])
-        )
-        self.assertTrue(
-            any("实际调用服从四层 grade" in item for item in guidance["audit_notes"])
-        )
 
     def test_clause_style_assets_preserve_complete_comma_phrases(self) -> None:
         parsed = GENERATOR.parse_profile_source(
@@ -638,78 +602,6 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
                 {"裂纹陶哨"},
             )
         )
-
-    def test_bridge_audit_ignores_single_generic_sequence_hit(self) -> None:
-        profile = {
-            "bridge_rules": [
-                {
-                    "bridge": "BID-04 垃圾站补救失效与独自手术",
-                    "opening_pattern": ["洁癖者陪人翻垃圾", "从天黑找到天亮"],
-                    "must_keep": ["脏场劳动", "找到碎玉", "手术短信"],
-                    "recommended_sequence": ["高成本补救", "电话响", "再次离场"],
-                    "why_original_passes": ["补救真实付出代价，但即时选择仍失败"],
-                }
-            ]
-        }
-
-        result = AUDIT.bridge_rule_audit("他口袋里的电话响了。", profile)
-
-        self.assertEqual([], result)
-        self.assertEqual([], AUDIT.build_bridge_recommendations(result))
-
-    def test_bridge_audit_ignores_single_generic_core_hit(self) -> None:
-        profile = {
-            "bridge_rules": [
-                {
-                    "bridge": "BID-04 垃圾站补救失效与独自手术",
-                    "opening_pattern": ["洁癖者陪人翻垃圾"],
-                    "must_keep": ["求救电话", "找到碎玉", "手术短信"],
-                    "recommended_sequence": ["电话响", "再次离场"],
-                }
-            ]
-        }
-
-        result = AUDIT.bridge_rule_audit("值班室接到一通求救电话。", profile)
-
-        self.assertEqual([], result)
-
-    def test_bridge_audit_accepts_cross_group_identity_evidence(self) -> None:
-        profile = {
-            "bridge_rules": [
-                {
-                    "bridge": "BID-301 共同账户被挪去买车",
-                    "opening_pattern": ["先让车写她名"],
-                    "must_keep": ["共同账户", "结婚基金归零"],
-                    "recommended_sequence": ["看到落名", "追问钱", "查余额"],
-                }
-            ]
-        }
-
-        result = AUDIT.bridge_rule_audit(
-            "合同先让车写她名。我追问钱从哪里来，才发现共同账户已经空了。",
-            profile,
-        )
-
-        self.assertEqual(1, len(result))
-        self.assertTrue(result[0]["bridge_identity_confirmed"])
-        self.assertGreaterEqual(result[0]["bridge_identity_evidence_groups"], 2)
-
-    def test_merged_profile_does_not_turn_unmatched_bridge_into_rewrite_task(self) -> None:
-        profile = {
-            "meta": {"mode": "merged_profiles", "source_count": 3},
-            "bridge_rules": [{"bridge": "BID-04 辅助书原桥", "must_keep": ["碎玉"]}],
-            "sample_source_buckets": {"entries": [{}, {}, {}]},
-        }
-
-        coverage = AUDIT.audit_profile_asset_coverage(profile, [], {}, {})
-        impacts = AUDIT.build_asset_coverage_impact_items(
-            coverage,
-            {"level": "B类骨架样本"},
-        )
-
-        self.assertTrue(coverage["is_merged_profile"])
-        self.assertTrue(any("禁止依据单个通用词回灌" in item for item in coverage["warnings"]))
-        self.assertFalse(any(item.get("asset_kind") == "bridge_rules" for item in impacts))
 
     def test_profile_source_bridge_rules_keep_bid_and_full_fields(self) -> None:
         rules = GENERATOR.build_profile_source_bridge_rules(

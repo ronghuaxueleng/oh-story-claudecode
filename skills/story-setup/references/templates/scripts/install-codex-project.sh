@@ -41,13 +41,16 @@ mkdir -p \
 
 cp -f "$TEMPLATES_DIR/hooks/"*.sh "$PROJECT_ROOT/.codex/hooks/"
 cp -f "$TEMPLATES_DIR/hooks/lib/"*.sh "$PROJECT_ROOT/.codex/hooks/lib/"
+rm -f "$PROJECT_ROOT/.codex/hooks/stop-short-write-if-incomplete.sh"
 cp -f "$TEMPLATES_DIR/rules/"*.md "$PROJECT_ROOT/.codex/rules/"
 cp -f "$TEMPLATES_DIR/subagents/"*.md "$PROJECT_ROOT/.codex/agents/"
 cp -f "$TEMPLATES_DIR/scripts/"*.py "$PROJECT_ROOT/scripts/"
 cp -f "$TEMPLATES_DIR/scripts/"*.js "$PROJECT_ROOT/scripts/"
 cp -f "$TEMPLATES_DIR/scripts/install-codex-project.sh" "$PROJECT_ROOT/scripts/"
 cp -f "$AGENT_REFERENCES_DIR/"*.md "$PROJECT_ROOT/.codex/skills/story-setup/references/agent-references/"
-cp -f "$AGENT_REFERENCES_DIR/"*.json "$PROJECT_ROOT/.codex/skills/story-setup/references/agent-references/"
+if compgen -G "$AGENT_REFERENCES_DIR/*.json" > /dev/null; then
+  cp -f "$AGENT_REFERENCES_DIR/"*.json "$PROJECT_ROOT/.codex/skills/story-setup/references/agent-references/"
+fi
 
 chmod +x "$PROJECT_ROOT/.codex/hooks/"*.sh "$PROJECT_ROOT/.codex/hooks/lib/"*.sh
 chmod +x "$PROJECT_ROOT/scripts/"*.py "$PROJECT_ROOT/scripts/install-codex-project.sh"
@@ -141,8 +144,8 @@ fi
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 cat > "$PROJECT_ROOT/.story-deployed" <<EOF
 deployed_at: $TIMESTAMP
-agents_version: 19
-setup_skill_version: 1.6.0
+agents_version: 21
+setup_skill_version: 1.7.1
 target_cli: codex
 resolver_strategy: project-local-skill-reference
 references_dir: .codex/skills/story-setup/references/agent-references

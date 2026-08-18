@@ -42,18 +42,53 @@ def build_prose_style_contract(root: Path) -> dict[str, object]:
         "source_root": str(root.resolve()),
         "author_dna_path": str(dna_path.resolve()),
         "sentence_motion": collect_heading_block_lines(
-            text, ("句长", "切句", "停顿"), max_items=12
+            text, ("句法", "句长", "切句", "停顿", "断场"), max_items=12
         ),
         "narrator_voice": collect_heading_block_lines(
-            text, ("视角", "情绪落点", "收口"), max_items=12
+            text,
+            (
+                "总指纹",
+                "DNA 总述",
+                "结构 DNA",
+                "情绪 DNA",
+                "视角",
+                "情绪落点",
+                "动作替代",
+                "旧伤触发",
+                "章法指纹",
+                "信息控制",
+                "作者站位",
+                "公开秩序",
+                "后果回灌",
+                "收口",
+                "尾声入口",
+                "迁移结论",
+                "迁移总提醒",
+                "DNA调用速记",
+            ),
+            max_items=12,
         ),
         "dialogue_and_character_voice": collect_heading_block_lines(
-            text, ("人物不同脸", "口气差", "全文对白"), max_items=12
+            text,
+            (
+                "人物口气",
+                "人物不同脸",
+                "口气差",
+                "反应先后",
+                "人物动作权限",
+                "全文对白",
+            ),
+            max_items=12,
         ),
-        "anti_patterns": collect_heading_block_lines(
-            text, ("反面句型", "禁写", "禁学"), max_items=12
-        ),
-        "contract_note": "该字段只提供主体声线依据；正式正文仍须建立全文文字颗粒度回执。",
+        "anti_patterns": normalize_items(
+            collect_heading_block_lines(
+                text,
+                ("反面 DNA", "反面句型", "反面仿写", "明显不像", "禁写", "禁学"),
+                max_items=12,
+            )
+            + collect_explicit_anti_pattern_lines(text, max_items=12)
+        )[:12],
+        "contract_note": "该字段提供主体声线依据；正文完成后在初稿终审中核对声线一致性。",
     }
 
 
@@ -227,8 +262,20 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
     capture = False
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
-            capture = any(keyword in stripped for keyword in heading_keywords)
+        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if level <= 2:
+                capture = level == 2 and any(
+                    keyword in title for keyword in heading_keywords
+                )
+            elif capture:
+                title = re.sub(r"^\d+[.、]\s*", "", title).strip()
+                if title:
+                    items.append(title)
+            if len(items) >= max_items:
+                break
             continue
         if not capture or not stripped:
             continue
@@ -236,9 +283,32 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
             items.append(stripped[2:].strip())
         elif re.match(r"^\d+\.\s+", stripped):
             items.append(re.sub(r"^\d+\.\s+", "", stripped).strip())
+        elif stripped.startswith("|") and not re.fullmatch(r"[|:\-\s]+", stripped):
+            items.append(stripped)
+        elif stripped.startswith(("功能：", "迁移规则：", "必须保：", "必须换：")):
+            items.append(stripped)
+        elif not stripped.startswith((">", "```")):
+            items.append(stripped)
         if len(items) >= max_items:
             break
-    return items
+    return normalize_items(items)[:max_items]
+
+
+def collect_explicit_anti_pattern_lines(text: str, max_items: int = 6) -> list[str]:
+    """Collect labeled negative rules that live inside otherwise positive DNA sections."""
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = re.sub(r"^[-*]\s*", "", line.strip())
+        stripped = re.sub(r"^\*\*([^*]+)\*\*\s*[：:]", r"\1：", stripped)
+        if re.match(r"^(?:反面句型(?:\s*\d+|[一二三四五六七八九十]+)?|禁学|禁写)[：:]", stripped):
+            items.append(stripped)
+        elif re.match(r"^风险边界[：:]", stripped) and re.search(
+            r"不纳入|不当作|不当|不能|不得|禁", stripped
+        ):
+            items.append(stripped)
+        if len(items) >= max_items:
+            break
+    return normalize_items(items)[:max_items]
 
 
 def collect_labeled_values(text: str, label_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
@@ -634,7 +704,7 @@ def collect_bridge_reason_terms(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
-BRIDGE_EMOTION_LABELS = (
+LEGACY_BRIDGE_EMOTION_LABELS = (
     "情绪进入点",
     "刺痛/受辱拍",
     "短暂希望或反抗",
@@ -645,14 +715,27 @@ BRIDGE_EMOTION_LABELS = (
 
 
 def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
-    text = clean_bridge_line(value)
+    # Emotion-beat evidence is a verbatim ledger key. Generic asset cleanup
+    # strips terminal Chinese punctuation and breaks exact reconciliation.
+    text = re.sub(r"\s+", " ", value).strip()
     if not text:
         return None
     intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
     evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
     content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
+    beat_id = ""
+    role = beat
+    if beat == "情绪拍":
+        beat_id_match = re.match(r"\s*([^|]+?)\s*\|", text)
+        role_match = re.search(r"(?:实际)?作用[：:]\s*([^|]+)", text)
+        content_match = re.search(r"内容[：:]\s*([^|]+)", text)
+        beat_id = beat_id_match.group(1).strip() if beat_id_match else ""
+        role = role_match.group(1).strip() if role_match else ""
+        content = content_match.group(1).strip() if content_match else ""
     result: dict[str, object] = {
-        "beat": beat,
+        "beat_id": beat_id or beat,
+        "beat": role or beat,
+        "role": role or beat,
         "content": content,
         "source_evidence": evidence_match.group(1).strip() if evidence_match else "",
     }
@@ -665,7 +748,14 @@ def collect_bridge_emotion_sequence(
     collect_aliases: Callable[..., list[str]],
 ) -> list[dict[str, object]]:
     sequence: list[dict[str, object]] = []
-    for label in BRIDGE_EMOTION_LABELS:
+    dynamic_values = collect_aliases("情绪拍")
+    if dynamic_values:
+        for value in dynamic_values:
+            item = parse_bridge_emotion_beat("情绪拍", value)
+            if item:
+                sequence.append(item)
+        return sequence
+    for label in LEGACY_BRIDGE_EMOTION_LABELS:
         values = collect_aliases(label)
         if not values:
             continue
@@ -2288,7 +2378,8 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 "emotion_sequence": [
                     beat
                     for beat in item.get("emotion_sequence", [])
-                    if isinstance(beat, dict) and str(beat.get("beat", "")).strip()
+                    if isinstance(beat, dict)
+                    and str(beat.get("beat_id") or beat.get("beat") or "").strip()
                 ],
             }
             existing_index = index_by_key.get(key)
@@ -2313,17 +2404,14 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 existing.get("why_original_passes", []) + normalized_item["why_original_passes"]
             )
             emotion_by_beat = {
-                str(beat.get("beat", "")).strip(): beat
+                str(beat.get("beat_id") or beat.get("beat") or "").strip(): beat
                 for beat in existing.get("emotion_sequence", [])
                 if isinstance(beat, dict)
             }
             for beat in normalized_item["emotion_sequence"]:
-                emotion_by_beat.setdefault(str(beat.get("beat", "")).strip(), beat)
-            existing["emotion_sequence"] = [
-                emotion_by_beat[label]
-                for label in BRIDGE_EMOTION_LABELS
-                if label in emotion_by_beat
-            ]
+                key = str(beat.get("beat_id") or beat.get("beat") or "").strip()
+                emotion_by_beat.setdefault(key, beat)
+            existing["emotion_sequence"] = list(emotion_by_beat.values())
     return merged
 
 
@@ -2387,7 +2475,7 @@ def build_bridge_rules(text: str) -> list[dict]:
                 if item.endswith(("：", ":")) and inline_key:
                     current = inline_key
                     continue
-                if inline_key in BRIDGE_EMOTION_LABELS:
+                if inline_key == "情绪拍" or inline_key in LEGACY_BRIDGE_EMOTION_LABELS:
                     beat = parse_bridge_emotion_beat(inline_key, inline_val)
                     if beat:
                         emotion_sequence.append(beat)

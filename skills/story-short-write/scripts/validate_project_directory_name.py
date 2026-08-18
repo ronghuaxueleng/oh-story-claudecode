@@ -14,6 +14,13 @@ WORKING_NAME_PATTERNS = (
     re.compile(r"(?:主骨架|参考骨架|暂定名|工作名|任务代号)"),
 )
 
+GENERIC_DELAYED_EMOTION_PATTERNS = (
+    re.compile(
+        r"(?:以后|之后|离开后|失去后|死后)[，,]?(?:他|她)才(?:说|承认|知道|发现|明白|开始).{0,8}(?:爱|后悔|珍惜|在乎)"
+    ),
+    re.compile(r"(?:他|她)失去我后[，,]?(?:才|终于).{0,8}(?:爱|后悔|珍惜|在乎)"),
+)
+
 
 def normalize_title(value: str) -> str:
     title = value.strip()
@@ -38,6 +45,10 @@ def validate(project_dir: Path, title: str, *, new_project: bool = False) -> lis
         errors.append(f"项目目录名必须与正式书名一致: expected={expected!r}, actual={actual!r}")
     if any(pattern.search(actual) for pattern in WORKING_NAME_PATTERNS):
         errors.append("项目目录仍像内部工作代号、骨架名或日期目录")
+    if any(pattern.search(expected) for pattern in GENERIC_DELAYED_EMOTION_PATTERNS):
+        errors.append(
+            "正式书名仍是泛化迟到情绪模板；必须改成具体载体、关系矛盾和未解释异常"
+        )
     return errors
 
 

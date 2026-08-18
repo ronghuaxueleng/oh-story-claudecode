@@ -346,14 +346,14 @@
 ## 调用方式
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --source '拆文库/从昨天的风景散场' \
   --name '从昨天的风景散场' \
   --output '拆文库/从昨天的风景散场/book.profile.json'
 ```
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --merge-profile '拆文库/从昨天的风景散场/book.profile.json' \
   --merge-profile '拆文库/你的爱扛不住柴米油盐/book.profile.json' \
   --name '追妻火葬场-组合包' \
@@ -363,7 +363,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 如果确实要从多本拆书目录直接试跑，也可以：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --source '拆文库/从昨天的风景散场' \
   --source '拆文库/你的爱扛不住柴米油盐' \
   --name '追妻火葬场-组合包' \

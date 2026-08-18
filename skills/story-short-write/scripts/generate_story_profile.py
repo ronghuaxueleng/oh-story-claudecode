@@ -42,18 +42,53 @@ def build_prose_style_contract(root: Path) -> dict[str, object]:
         "source_root": str(root.resolve()),
         "author_dna_path": str(dna_path.resolve()),
         "sentence_motion": collect_heading_block_lines(
-            text, ("句长", "切句", "停顿"), max_items=12
+            text, ("句法", "句长", "切句", "停顿", "断场"), max_items=12
         ),
         "narrator_voice": collect_heading_block_lines(
-            text, ("视角", "情绪落点", "收口"), max_items=12
+            text,
+            (
+                "总指纹",
+                "DNA 总述",
+                "结构 DNA",
+                "情绪 DNA",
+                "视角",
+                "情绪落点",
+                "动作替代",
+                "旧伤触发",
+                "章法指纹",
+                "信息控制",
+                "作者站位",
+                "公开秩序",
+                "后果回灌",
+                "收口",
+                "尾声入口",
+                "迁移结论",
+                "迁移总提醒",
+                "DNA调用速记",
+            ),
+            max_items=12,
         ),
         "dialogue_and_character_voice": collect_heading_block_lines(
-            text, ("人物不同脸", "口气差", "全文对白"), max_items=12
+            text,
+            (
+                "人物口气",
+                "人物不同脸",
+                "口气差",
+                "反应先后",
+                "人物动作权限",
+                "全文对白",
+            ),
+            max_items=12,
         ),
-        "anti_patterns": collect_heading_block_lines(
-            text, ("反面句型", "禁写", "禁学"), max_items=12
-        ),
-        "contract_note": "该字段只提供主体声线依据；正式正文仍须建立全文文字颗粒度回执。",
+        "anti_patterns": normalize_items(
+            collect_heading_block_lines(
+                text,
+                ("反面 DNA", "反面句型", "反面仿写", "明显不像", "禁写", "禁学"),
+                max_items=12,
+            )
+            + collect_explicit_anti_pattern_lines(text, max_items=12)
+        )[:12],
+        "contract_note": "该字段提供主体声线依据；正文完成后在初稿终审中核对声线一致性。",
     }
 
 
@@ -227,8 +262,20 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
     capture = False
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
-            capture = any(keyword in stripped for keyword in heading_keywords)
+        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if level <= 2:
+                capture = level == 2 and any(
+                    keyword in title for keyword in heading_keywords
+                )
+            elif capture:
+                title = re.sub(r"^\d+[.、]\s*", "", title).strip()
+                if title:
+                    items.append(title)
+            if len(items) >= max_items:
+                break
             continue
         if not capture or not stripped:
             continue
@@ -236,9 +283,32 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
             items.append(stripped[2:].strip())
         elif re.match(r"^\d+\.\s+", stripped):
             items.append(re.sub(r"^\d+\.\s+", "", stripped).strip())
+        elif stripped.startswith("|") and not re.fullmatch(r"[|:\-\s]+", stripped):
+            items.append(stripped)
+        elif stripped.startswith(("功能：", "迁移规则：", "必须保：", "必须换：")):
+            items.append(stripped)
+        elif not stripped.startswith((">", "```")):
+            items.append(stripped)
         if len(items) >= max_items:
             break
-    return items
+    return normalize_items(items)[:max_items]
+
+
+def collect_explicit_anti_pattern_lines(text: str, max_items: int = 6) -> list[str]:
+    """Collect labeled negative rules that live inside otherwise positive DNA sections."""
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = re.sub(r"^[-*]\s*", "", line.strip())
+        stripped = re.sub(r"^\*\*([^*]+)\*\*\s*[：:]", r"\1：", stripped)
+        if re.match(r"^(?:反面句型(?:\s*\d+|[一二三四五六七八九十]+)?|禁学|禁写)[：:]", stripped):
+            items.append(stripped)
+        elif re.match(r"^风险边界[：:]", stripped) and re.search(
+            r"不纳入|不当作|不当|不能|不得|禁", stripped
+        ):
+            items.append(stripped)
+        if len(items) >= max_items:
+            break
+    return normalize_items(items)[:max_items]
 
 
 def collect_labeled_values(text: str, label_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:

@@ -340,7 +340,15 @@ BOOK_PROFILE_KEYS = [
     "derived_patterns",
     "migration_assets",
     "story_guardrails",
+    "prose_style_contract",
 ]
+
+PROSE_STYLE_CONTRACT_FIELDS = (
+    "sentence_motion",
+    "narrator_voice",
+    "dialogue_and_character_voice",
+    "anti_patterns",
+)
 
 META_KEYS = [
     "version",
@@ -2679,6 +2687,19 @@ def check_book_profile_quality(
         errors.append(f"{path} banned_phrases 为空：说明禁句资产没有成功结构化")
     if not has_non_empty_list(data, "author_stance_patterns"):
         errors.append(f"{path} author_stance_patterns 为空：说明作者站位资产没有成功结构化")
+
+    prose_contract = data.get("prose_style_contract")
+    if not isinstance(prose_contract, dict):
+        errors.append(f"{path} prose_style_contract 缺失或不是对象")
+    else:
+        if prose_contract.get("source_role") != "primary_only":
+            errors.append(f"{path} prose_style_contract.source_role 必须为 primary_only")
+        for field in PROSE_STYLE_CONTRACT_FIELDS:
+            values = prose_contract.get(field)
+            if not isinstance(values, list) or not any(
+                isinstance(item, str) and item.strip() for item in values
+            ):
+                errors.append(f"{path} prose_style_contract.{field} 不能为空")
 
     style_assets = data.get("style_assets")
     if isinstance(style_assets, dict):

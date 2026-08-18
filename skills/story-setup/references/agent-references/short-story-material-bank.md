@@ -962,7 +962,9 @@
 
 补充大池见：
 
-- `material-packs-expression.md`
+- `opening-and-hook-library.md`
+- `emotion-and-outcome-library.md`
+- `character-voice-library.md`
 
 ### 说“浅笑”别只写浅笑
 

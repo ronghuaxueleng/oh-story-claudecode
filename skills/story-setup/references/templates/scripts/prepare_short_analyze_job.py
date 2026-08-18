@@ -57,6 +57,8 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "场面细节库.md",
     ],
     asset_files=[
+        "全文情绪颗粒总账.json",
+        "全文情节微拍总账.json",
         "母结构_故事走法.md",
         "主冲突_副升级器.md",
         "异物清单.md",
@@ -451,12 +453,8 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "高敏点",
             "可学层",
             "禁学层",
-            "情绪进入点",
-            "刺痛/受辱拍",
-            "短暂希望或反抗",
-            "反刀拍",
-            "峰值拍",
-            "场末余痛",
+            "情绪拍",
+            "情绪拍完整性复核",
         ],
     },
     "写作资产/桥段施工卡.md": {
@@ -474,24 +472,11 @@ SENSITIVE_ASSET_FIRST_WRITE_CONTRACT = {
             "不能丢的顺序",
             "为什么这个顺序不能乱",
             "后续调用方式",
-            "情绪进入点",
-            "刺痛/受辱拍",
-            "短暂希望或反抗",
-            "反刀拍",
-            "峰值拍",
-            "场末余痛",
+            "情绪拍",
+            "情绪拍完整性复核",
         ],
     },
 }
-
-BRIDGE_EMOTION_LABELS = (
-    "情绪进入点",
-    "刺痛/受辱拍",
-    "短暂希望或反抗",
-    "反刀拍",
-    "峰值拍",
-    "场末余痛",
-)
 
 UPGRADE_REVIEW_SCOPES = (
     "process_plan_refresh",
@@ -859,7 +844,12 @@ def write_upgrade_plan(
     missing_dirs: list[str],
     missing_files: list[str],
     refreshed_process_files: list[str],
+    upgrade_actions: dict[str, object],
 ) -> None:
+    safe_refresh = list(upgrade_actions.get("safe_refresh_process_files") or [])
+    manual_backfill = list(upgrade_actions.get("manual_backfill_missing_outputs") or [])
+    profile_regen = list(upgrade_actions.get("profile_regeneration_required") or [])
+    profile_dependency_review = list(upgrade_actions.get("profile_dependency_review") or [])
     lines = [
         f"# {book_name} 历史拆书目录增量升级计划",
         "",
@@ -885,16 +875,61 @@ def write_upgrade_plan(
     lines.extend(
         [
             "",
+            "## 升级动作分类",
+            "",
+            "### 只需安全刷新（过程文件）",
+            "",
+        ]
+    )
+    if safe_refresh:
+        lines.extend(f"- [x] `{name}`" for name in safe_refresh)
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "### 必须人工补回（缺失正式产物）",
+            "",
+        ]
+    )
+    if manual_backfill:
+        lines.extend(f"- [ ] `{name}`" for name in manual_backfill)
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "### 必须重生 profile / 桥段子序列",
+            "",
+        ]
+    )
+    if profile_regen:
+        lines.extend(f"- [ ] `{name}`" for name in profile_regen)
+    else:
+        lines.append("- 无")
+    if profile_dependency_review:
+        lines.extend(
+            [
+                "",
+                "### profile 重生前必须复核的依赖资产",
+                "",
+            ]
+        )
+        lines.extend(f"- [ ] `{name}`" for name in profile_dependency_review)
+    lines.extend(
+        [
+            "",
             "## 内容合同逐项复核",
             "",
-            "- [ ] 逐 BID 核对六拍情绪序列、烈度和原文证据是否贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
+            "- [ ] 先逐行分轨重建 `全文情绪颗粒总账.json` 与 `全文情节微拍总账.json`，确认导语、桥段、过场、回忆、后果与尾声全部覆盖，E/P 不共用 ID 且不互相代替。",
+            "- [ ] 核对稳定 beat_id、烈度和独占原文证据是否从全文总账贯通到顺序事件表、高敏桥、施工卡与 profile_source。",
             "- [ ] 逐文件核对当前 first-write contract 新字段，不能只检查文件是否存在。",
             "- [ ] 逐条处理 validator 输出的 `human_review_items`，并写入 `_finalize_human_review.json`。",
             "",
             "## profile 重新生成",
             "",
             "- [ ] 内容复核完成后重新生成 `book.profile.json`。",
-            "- [ ] 核对 `bridge_rules[*].emotion_sequence`、整句角色偏手和完整后果链没有碎裂。",
+            "- [ ] 核对全文情绪拍全集、`bridge_rules[*].emotion_sequence` 子集、整句角色偏手和完整后果链没有碎裂。",
             "",
             "## 缺失目录",
             "",
@@ -934,6 +969,33 @@ def write_upgrade_plan(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def build_upgrade_actions(
+    out_dir: Path,
+    missing_files: list[str],
+    refreshed_process_files: list[str],
+) -> dict[str, object]:
+    profile_dependency_review = [
+        rel
+        for rel in (
+            "写作资产/profile_source.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
+            "写作资产/桥段施工卡.md",
+        )
+        if (out_dir / rel).exists() or rel in missing_files
+    ]
+    return {
+        "safe_refresh_process_files": list(refreshed_process_files),
+        "manual_backfill_missing_outputs": list(missing_files),
+        "profile_regeneration_required": ["book.profile.json"],
+        "profile_dependency_review": profile_dependency_review,
+        "manual_rebuild_reason": (
+            "历史升级默认只安全刷新过程文件；缺失正式产物必须人工回填；"
+            "book.profile.json 必须在内容复核后重生，不能沿用旧版。"
+        ),
+    }
+
+
 def write_upgrade_review_receipt(path: Path) -> None:
     payload = {
         "version": 1,
@@ -970,7 +1032,7 @@ def reset_upgrade_progress(path: Path, book_name: str, layout: ContractLayout) -
                 "",
                 "## 增量升级复核",
                 "- [ ] 已按当前 `_parallel_plan.json` 复核全部 first-write contract",
-                "- [ ] 已完成逐 BID 情绪序列贯通",
+                "- [ ] 已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
                 "- [ ] 已重新生成 profile 并核对整句资产",
                 "- [ ] 已闭环 `_finalize_human_review.json`",
             ]
@@ -1101,6 +1163,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         str(source_copy),
         "_sample_comparison.md",
         "事实与推断台账.md",
+        "写作资产/全文情绪颗粒总账.json",
+        "写作资产/全文情节微拍总账.json",
         "_analysis_brief.md",
     ]
     asset_shared_reads: list[str] = []
@@ -1161,6 +1225,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         "foundation_start_gate": [
             "_sample_comparison.md",
             "事实与推断台账.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
             "_analysis_brief.md",
         ],
         "foundation_shared_reads": foundation_shared_reads,
@@ -1207,6 +1273,8 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
         "coordinator_only_writes": [
             "_sample_comparison.md",
             "事实与推断台账.md",
+            "写作资产/全文情绪颗粒总账.json",
+            "写作资产/全文情节微拍总账.json",
             "_analysis_brief.md",
             "_meta.json",
             "_progress.md",
@@ -1416,6 +1484,7 @@ def write_execution_prompt(
         "",
         "## 当前只记住这些硬约束",
         "- 读完原文后先写过程审计文件 `_sample_comparison.md`；第一个内容产物仍必须是 `事实与推断台账.md`",
+        "- 事实台账后先逐行分轨建立 `写作资产/全文情绪颗粒总账.json` 与 `写作资产/全文情节微拍总账.json`，E/P 不共用 ID、不等量配平、不互相反推；BID 只能在两份总账完成后归纳",
         "- 禁止任何兜底生成、自动补写、自动扩写、通用模板代填或跨书内容借位；信息不足就停在当前阶段并报错",
         "- 原文与样本只完整读取一次；后续使用 `_sample_comparison.md`、事实台账、节点、候选池和精确原文切片",
         "- 第一波仍有 3 条内容 lane、第二波仍有 5 条内容 lane，但 lane 不是 agent：严格按 executor 复用同一会话，禁止每条 lane 单独 spawn",
@@ -1458,7 +1527,7 @@ def write_execution_prompt(
         "- `原文资产候选池.md` 如果某类资产原文确实没有，必须显式写“已扫，原文未发现”，不能空着",
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
-        "- 每个 BID 必须在 `高敏桥段识别 / 桥段施工卡 / profile_source` 写齐六拍情绪序列，每拍带 `烈度 1-10 + 原文证据`，并结构化进入 `bridge_rules[*].emotion_sequence`",
+        "- 每个 BID 必须从 `全文情绪颗粒总账.json` 引用本桥实际情绪拍；全文总账先覆盖全部原文情绪拍，非 BID 的导语、过场、回忆、后果和尾声拍也必须保留，不能因桥段归纳而丢失",
         "- `写作手法.md` 不能只写结构概括，至少要补到 `活词 / 句法模板 / 段落节拍 / 反面仿写句` 这一级",
         "- 第一波必须完成全局成文形状审计：结构/章尾、主角不规则性、专业细节功能性、全文对白模式；每项必须有原文行号或可核验短句、风险判断、可学层、禁学层和迁移提醒",
         "- 收口前必须把 `_progress.md` 的模型人工复核项清掉；只要还挂着未完成复核，就视为没拆完",
@@ -1605,6 +1674,11 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
     refreshed_process_files.extend(
         ["_source_reading_plan.md", "_execution_prompt.md"]
     )
+    upgrade_actions = build_upgrade_actions(
+        out_dir,
+        missing_files,
+        refreshed_process_files,
+    )
     write_upgrade_review_receipt(out_dir / "_finalize_human_review.json")
     write_upgrade_plan(
         out_dir / "_upgrade_plan.md",
@@ -1613,6 +1687,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         missing_dirs,
         missing_files,
         refreshed_process_files,
+        upgrade_actions,
     )
     meta_refreshed = refresh_upgrade_meta(out_dir / "_meta.json", book_name, missing_files)
 
@@ -1624,6 +1699,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "created_dirs": created_dirs,
         "missing_dirs": missing_dirs,
         "missing_files": missing_files,
+        "upgrade_actions": upgrade_actions,
         "meta_refreshed": meta_refreshed,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
@@ -1667,20 +1743,37 @@ def main() -> int:
     else:
         print(f"book_name: {payload['book_name']}")
         print(f"root: {payload['root']}")
-        print(f"source_copy: {payload['source_copy']}")
-        print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
-        print(f"line_count: {payload['line_count']}")
-        print(f"chapter_count: {payload['chapter_count']}")
-        print(f"chunk_count: {payload['chunk_count']}")
-        print("created_files:")
-        for item in payload["created_files"]:
-            print(f"- {item}")
-        print("created_dirs:")
-        for item in payload["created_dirs"]:
-            print(f"- {item}")
+        if payload.get("mode") != "upgrade-existing":
+            print(f"source_copy: {payload['source_copy']}")
+            print(f"char_count_no_whitespace: {payload['char_count_no_whitespace']}")
+            print(f"line_count: {payload['line_count']}")
+            print(f"chapter_count: {payload['chapter_count']}")
+            print(f"chunk_count: {payload['chunk_count']}")
         if payload.get("mode") == "upgrade-existing":
             print("missing_files:")
             for item in payload["missing_files"]:
+                print(f"- {item}")
+            actions = payload.get("upgrade_actions") or {}
+            print("upgrade_actions:")
+            for key in (
+                "safe_refresh_process_files",
+                "manual_backfill_missing_outputs",
+                "profile_regeneration_required",
+                "profile_dependency_review",
+            ):
+                print(f"  {key}:")
+                values = actions.get(key) or []
+                if values:
+                    for item in values:
+                        print(f"  - {item}")
+                else:
+                    print("  - 无")
+        else:
+            print("created_files:")
+            for item in payload["created_files"]:
+                print(f"- {item}")
+            print("created_dirs:")
+            for item in payload["created_dirs"]:
                 print(f"- {item}")
         print("next_step:")
         if isinstance(payload["next_step"], dict):

@@ -56,7 +56,9 @@
 - `agents_version: 16` → 旧版，需重新部署以补齐托管模板落盘与受管文件保护
 - `agents_version: 17` → 旧版，需重新部署以补齐短篇 profile / 审计 / 回修脚本链与治理副本
 - `agents_version: 18` → 旧版，需重新部署以获取正式书名目录硬闸、完整脚本/参考资料同步与部署包自检
-- `agents_version: 19` → 当前版本
+- `agents_version: 19` → 旧版，需重新部署以清除短篇废弃提示、脚本和停止 hook
+- `agents_version: 20` → 旧版，需重新部署以补齐主体 SF 六维全集覆盖
+- `agents_version: 21` → 当前版本
 
 ## 版本变更
 
@@ -206,7 +208,7 @@
 - 部署后的 `narrative-writer` 和 `story-architect` 子代理已可直接读取短篇 profile 闭环、高敏桥护栏和“逐条引用正文句子”自检口径
 - 已部署项目需重新运行 `story-setup`，以补齐短篇脚本链与治理副本，并让版本标记升级到 `agents_version: 18`
 
-### v19 (当前)
+### v19
 
 - 新增正式书名目录硬闸：工作代号、骨架名、日期目录或与书内声明书名不一致的候选目录，不再进入书籍模式，也不会写入 `.active-book`
 - 安装器和所有 hooks 共用同一套书目发现与校验逻辑；无效或越出项目根的 `.active-book` 不再被采用
@@ -214,3 +216,16 @@
 - 新增 `scripts/validate_bundle.py` 和安装回归测试，自动检查缺失脚本、旧版副本、hooks/rules/agents/模板缺项及 Markdown 死链接
 - `CLAUDE.md` 冷启动保留 `{书名}` 占位符；已有用户文件按二级标题精确合并，模板拥有的同名 section 更新，用户独有 section 保留
 - 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 19`
+
+### v20
+
+- 删除短篇写作已退出主链的提示、脚本、测试和停止 hook
+- 部署包改由 `validate_bundle.py --sync` 从上游现行文件同步并清除残留
+- 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 20`
+
+### v21 (当前)
+
+- 精简短篇合同强制绑定主体 `子流程索引.jsonl`，校验每个 SF 的六维文字颗粒完整性
+- SF 到目标区域由原文行区间和现有 P 拍映射确定性派生，不增加独立回执或人工映射阶段
+- 初稿合并终审按区域绑定 SF 引用并一次确认全集覆盖，辅助来源仍不得供应正文声线
+- 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 21`

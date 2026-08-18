@@ -859,6 +859,42 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertFalse(any("资产过少" in error for error in errors))
         self.assertTrue(any("低于篇幅参考值" in note for note in notes))
 
+    def test_profile_requires_complete_primary_prose_contract(self) -> None:
+        data = {
+            "scene_assets": {},
+            "banned_phrases": ["禁句"],
+            "author_stance_patterns": ["站位"],
+            "style_assets": {
+                key: [] for key in VALIDATOR.REQUIRED_STYLE_ASSET_KEYS
+            },
+            "derived_patterns": [],
+            "migration_assets": {},
+            "story_guardrails": {},
+            "bridge_rules": [],
+            "prose_style_contract": {
+                "source_role": "primary_only",
+                "sentence_motion": ["短句落锤"],
+                "narrator_voice": [],
+                "dialogue_and_character_voice": ["人物口气分脸"],
+                "anti_patterns": ["禁用空泛总结"],
+            },
+        }
+        errors: list[str] = []
+        VALIDATOR.check_book_profile_quality(
+            self.root / "book.profile.json", data, 1000, "", errors
+        )
+        self.assertTrue(
+            any("prose_style_contract.narrator_voice 不能为空" in item for item in errors),
+            errors,
+        )
+
+        data["prose_style_contract"]["narrator_voice"] = ["贴脸叙述"]
+        errors = []
+        VALIDATOR.check_book_profile_quality(
+            self.root / "book.profile.json", data, 1000, "", errors
+        )
+        self.assertFalse(any("prose_style_contract" in item for item in errors), errors)
+
     def test_unverified_filename_requires_explicit_status_declaration(self) -> None:
         self._write("拆文报告.md", "墓前结尾完成标题归位。\n")
         errors: list[str] = []

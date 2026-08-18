@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 from pathlib import Path
 
 
@@ -28,9 +29,6 @@ REFERENCE_DIR_SOURCES = (
 )
 
 SHORT_WRITE_ROOT_REFERENCES = (
-    "anti-ai-writing.md",
-    "ai-sentence-anti-patterns.md",
-    "banned-words.md",
     "character-basics.md",
     "character-design-methods.md",
     "character-relations.md",
@@ -38,9 +36,9 @@ SHORT_WRITE_ROOT_REFERENCES = (
     "genre-core-mechanics.md",
     "genre-readers.md",
     "genre-writing-formulas.md",
-    "heavy-audit-breakdown.md",
-    "quality-checklist.md",
 )
+
+SHORT_WRITE_WORKFLOW_REFERENCES = ("format-and-structure.md",)
 
 LONG_WRITE_REFERENCES = (
     "chapter-prewrite-card-enforcement.md",
@@ -60,7 +58,6 @@ REQUIRED_HOOKS = (
     "pre-compact.sh",
     "session-end.sh",
     "session-start.sh",
-    "stop-short-write-if-incomplete.sh",
     "validate-story-commit.sh",
     "lib/common.sh",
     "lib/sentinel.sh",
@@ -107,6 +104,8 @@ def expected_references() -> dict[str, Path]:
     short_root = REPO_ROOT / "skills" / "story-short-write" / "references"
     for name in SHORT_WRITE_ROOT_REFERENCES:
         expected[name] = short_root / name
+    for name in SHORT_WRITE_WORKFLOW_REFERENCES:
+        expected[name] = short_root / "workflow" / name
 
     long_root = REPO_ROOT / "skills" / "story-long-write" / "references"
     for name in LONG_WRITE_REFERENCES:
@@ -114,8 +113,45 @@ def expected_references() -> dict[str, Path]:
     return expected
 
 
+def sync_bundle() -> None:
+    expected_script_map = expected_scripts()
+    allowed_scripts = set(expected_script_map) | set(SETUP_ONLY_SCRIPTS)
+    SCRIPT_BUNDLE.mkdir(parents=True, exist_ok=True)
+    for name, source in expected_script_map.items():
+        shutil.copyfile(source, SCRIPT_BUNDLE / name)
+    for path in SCRIPT_BUNDLE.iterdir():
+        if path.is_file() and path.suffix in {".py", ".js"} and path.name not in allowed_scripts:
+            path.unlink()
+
+    expected_reference_map = expected_references()
+    REFERENCE_BUNDLE.mkdir(parents=True, exist_ok=True)
+    for name, source in expected_reference_map.items():
+        if source.is_file():
+            shutil.copyfile(source, REFERENCE_BUNDLE / name)
+    for path in REFERENCE_BUNDLE.iterdir():
+        if path.is_file() and path.suffix in {".md", ".json"} and path.name not in expected_reference_map:
+            path.unlink()
+
+    hooks_root = TEMPLATE_ROOT / "hooks"
+    allowed_hooks = set(REQUIRED_HOOKS)
+    for path in hooks_root.rglob("*.sh"):
+        if path.relative_to(hooks_root).as_posix() not in allowed_hooks:
+            path.unlink()
+
+
 def validate_bundle() -> list[str]:
     errors: list[str] = []
+
+    expected_script_names = set(expected_scripts()) | set(SETUP_ONLY_SCRIPTS)
+    stale_scripts = sorted(
+        path.name
+        for path in SCRIPT_BUNDLE.iterdir()
+        if path.is_file()
+        and path.suffix in {".py", ".js"}
+        and path.name not in expected_script_names
+    )
+    for name in stale_scripts:
+        errors.append(f"部署包残留废弃脚本: {name}")
 
     for name, source in expected_scripts().items():
         deployed = SCRIPT_BUNDLE / name
@@ -126,6 +162,24 @@ def validate_bundle() -> list[str]:
     for name in SETUP_ONLY_SCRIPTS:
         if not (SCRIPT_BUNDLE / name).is_file():
             errors.append(f"缺少 story-setup 专用脚本: {name}")
+
+    expected_reference_names = set(expected_references())
+    stale_references = sorted(
+        path.name
+        for path in REFERENCE_BUNDLE.iterdir()
+        if path.is_file()
+        and path.suffix in {".md", ".json"}
+        and path.name not in expected_reference_names
+    )
+    for name in stale_references:
+        errors.append(f"部署包残留废弃参考资料: {name}")
+
+    hook_names = {
+        path.relative_to(TEMPLATE_ROOT / "hooks").as_posix()
+        for path in (TEMPLATE_ROOT / "hooks").rglob("*.sh")
+    }
+    for name in sorted(hook_names - set(REQUIRED_HOOKS)):
+        errors.append(f"部署包残留未登记 hook: {name}")
 
     for name, source in expected_references().items():
         deployed = REFERENCE_BUNDLE / name
@@ -159,6 +213,14 @@ def validate_bundle() -> list[str]:
             if not (path.parent / target).resolve().exists():
                 errors.append(f"参考资料死链接: {path.name} -> {target}")
 
+    reference_pattern = re.compile(
+        r"story-setup/references/agent-references/([^`\s)]+\.(?:md|json))"
+    )
+    for path in sorted((TEMPLATE_ROOT / "subagents").glob("*.md")):
+        for name in reference_pattern.findall(path.read_text(encoding="utf-8")):
+            if not (REFERENCE_BUNDLE / name).is_file():
+                errors.append(f"子代理引用缺失: {path.name} -> {name}")
+
     installer = (SCRIPT_BUNDLE / "install-codex-project.sh").read_text(encoding="utf-8")
     for required_copy in ('"$TEMPLATES_DIR/scripts/"*.py', '"$TEMPLATES_DIR/scripts/"*.js'):
         if required_copy not in installer:
@@ -169,7 +231,10 @@ def validate_bundle() -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--sync", action="store_true")
     args = parser.parse_args()
+    if args.sync:
+        sync_bundle()
     errors = validate_bundle()
     if args.json:
         import json

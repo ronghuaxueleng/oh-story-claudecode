@@ -35,6 +35,19 @@ class ProjectDirectoryNameTest(unittest.TestCase):
         project.mkdir()
         self.assertEqual([], GATE.validate(project, "《旧录像》"))
 
+    def test_generic_delayed_love_title_is_blocked(self) -> None:
+        title = "我听不见以后，他才说爱我"
+        project = self.root / title
+        project.mkdir()
+        errors = GATE.validate(project, title)
+        self.assertTrue(any("泛化迟到情绪模板" in error for error in errors), errors)
+
+    def test_concrete_anomaly_title_passes(self) -> None:
+        title = "我成了自己作品里的冒名者"
+        project = self.root / title
+        project.mkdir()
+        self.assertEqual([], GATE.validate(project, title))
+
     def test_working_code_directory_is_blocked(self) -> None:
         project = self.root / "新书-主体骨架-强情绪追妻-20260807"
         project.mkdir()

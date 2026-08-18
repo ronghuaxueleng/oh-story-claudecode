@@ -30,7 +30,8 @@ maxTurns: 25
 | `story-setup/references/agent-references/character-design-methods.md` | 设计角色反差、深化人设、九维人设框架时 |
 | `story-setup/references/agent-references/character-relations.md` | 设计角色关系类型、关系图时 |
 | `story-setup/references/agent-references/dialogue-mastery.md` | 创作对话、设计潜台词、审查对话质量时 |
-| `story-setup/references/agent-references/material-packs-expression.md` | 设计原文口气模板、虐点表达、开头口气、结果句时 |
+| `story-setup/references/agent-references/character-voice-library.md` | 设计角色嘴型、关系反差和对白口气时 |
+| `story-setup/references/agent-references/emotion-and-outcome-library.md` | 设计虐点表达、结果句和后效应时 |
 | `story-setup/references/agent-references/material-packs-character.md` | 设计人物功能位、接住者、托底位、关系重组位时 |
 
 
@@ -91,7 +92,7 @@ maxTurns: 25
 - 对手：怎么装体面、怎么顺手伤人、被揭穿后是嘴硬还是甩锅
 - 接住者：怎么托底、怎么兜情绪、怎么一句话把主角从烂局里接出来
 
-做这一步时，优先读取 `story-setup/references/agent-references/material-packs-expression.md` 和 `story-setup/references/agent-references/material-packs-character.md`，把口气模板、功能位和关系位置一起定完。
+做这一步时，按需读取 `story-setup/references/agent-references/character-voice-library.md`、`story-setup/references/agent-references/emotion-and-outcome-library.md` 和 `story-setup/references/agent-references/material-packs-character.md`，把口气、功能位和关系位置一起定完。
 
 ### 动机链
 

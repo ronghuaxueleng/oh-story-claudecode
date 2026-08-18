@@ -20,103 +20,35 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.source = self.root / "拆文库" / "样本"
-        self.project_root = self.root / "项目"
-        self.writing_receipt = self.project_root / "写作资产" / "写作规则读取回执.json"
-        self.source_receipt = self.project_root / "写作资产" / "拆文读取回执.json"
-        self.ledger = self.project_root / "写作资产" / "规则执行台账.json"
+        self.project_root = self.root / "测试项目"
+        self.config = self.project_root / "写作资产" / "项目写作配置.json"
         self.setting = self.project_root / "设定.md"
         self.outline = self.project_root / "小节大纲.md"
-        self.setting_sequence_receipt = self.project_root / "写作资产" / "设定顺序契约回执.json"
-        self.sequence_receipt = self.project_root / "写作资产" / "顺序契约回执.json"
-        self.opening_source = self.source / "可直接仿写_导语拆解表.md"
-        self.opening_receipt = self.project_root / "写作资产" / "开头承重契约回执_大纲.json"
         self.outline_receipt = self.project_root / "写作资产" / "细纲表演验收回执.json"
-        self.model_review = self.project_root / "写作资产" / "规则模型分类批次.json"
-        self.model_plan = self.project_root / "写作资产" / "规则模型归并计划.json"
         self.source_original = self.source / "原文" / "样本.txt"
 
-        self._build_source_inventory()
         self._build_outline_support_assets()
-        self._build_passed_read_receipts()
         self.setting.parent.mkdir(parents=True, exist_ok=True)
         self.setting.write_text("设定内容", encoding="utf-8")
         self.outline.write_text("# 标题\n\n## 1. 起事\n\n大纲动作一\n", encoding="utf-8")
+        self.config.parent.mkdir(parents=True, exist_ok=True)
+        self.config.write_text(
+            json.dumps(
+                {
+                    "project_name": "测试项目",
+                    "primary": {
+                        "name": "样本",
+                        "original_path": str(self.source_original),
+                    },
+                    "auxiliaries": [],
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
 
     def tearDown(self) -> None:
         self.temp.cleanup()
-
-    def _build_source_inventory(self) -> None:
-        required_files = GATE.OUTLINE.source_plot_ledger_path  # type: ignore[attr-defined]
-        _ = required_files
-        for relative in GATE.RULE_LEDGER.load_json(  # type: ignore[attr-defined]
-            # dummy; not executed because replaced below
-            ROOT / "tests" / "fixtures" / "nonexistent.json"  # pragma: no cover
-        ) if False else []:
-            pass
-
-        source_gate_spec = importlib.util.spec_from_file_location(
-            "source_read_gate_for_outline_batch",
-            ROOT / "scripts" / "validate_source_read_gate.py",
-        )
-        assert source_gate_spec and source_gate_spec.loader
-        source_gate = importlib.util.module_from_spec(source_gate_spec)
-        source_gate_spec.loader.exec_module(source_gate)
-        for relative in source_gate.REQUIRED_FILES:
-            path = self.source / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if path.suffix == ".json":
-                path.write_text('{"证据词": "资产证据"}', encoding="utf-8")
-            else:
-                path.write_text(f"# {path.stem}\n\n资产证据\n", encoding="utf-8")
-
-    def _build_passed_read_receipts(self) -> None:
-        writing_gate_spec = importlib.util.spec_from_file_location(
-            "writing_rule_gate_for_outline_batch",
-            ROOT / "scripts" / "validate_writing_rule_gate.py",
-        )
-        assert writing_gate_spec and writing_gate_spec.loader
-        writing_gate = importlib.util.module_from_spec(writing_gate_spec)
-        writing_gate_spec.loader.exec_module(writing_gate)
-        source_gate_spec = importlib.util.spec_from_file_location(
-            "source_read_gate_for_outline_batch",
-            ROOT / "scripts" / "validate_source_read_gate.py",
-        )
-        assert source_gate_spec and source_gate_spec.loader
-        source_gate = importlib.util.module_from_spec(source_gate_spec)
-        source_gate_spec.loader.exec_module(source_gate)
-
-        skill_root = ROOT
-        writing_receipt, writing_errors = writing_gate.create_receipt("测试项目", skill_root)
-        self.assertEqual([], writing_errors)
-        writing_receipt["gate_status"] = "passed"
-        writing_receipt["confirmed_before_outline"] = True
-        writing_receipt["confirmed_before_draft"] = True
-        for item in writing_receipt["files"]:
-            item["status"] = "read"
-            item["evidence_terms"] = [writing_gate.read_text(skill_root / item["path"]).splitlines()[0].lstrip("# ").strip()]
-            item["takeaways"] = ["已读取当前规则并提取写前约束"]
-            item["used_for"] = ["设定、大纲与正文"]
-        self.writing_receipt.parent.mkdir(parents=True, exist_ok=True)
-        self.writing_receipt.write_text(
-            json.dumps(writing_receipt, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        source_receipt, source_errors = source_gate.create_receipt("测试项目", [self.source])
-        self.assertEqual([], source_errors)
-        source_receipt["gate_status"] = "passed"
-        source_receipt["confirmed_before_outline"] = True
-        source_receipt["confirmed_before_draft"] = True
-        for source_item in source_receipt["sources"]:
-            for item in source_item["files"]:
-                item["status"] = "read"
-                item["evidence_terms"] = ["资产证据"]
-                item["takeaways"] = ["已提取该文件的可迁移资产"]
-                item["used_for"] = ["细纲与正文"]
-        self.source_receipt.write_text(
-            json.dumps(source_receipt, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
 
     def _build_outline_support_assets(self) -> None:
         plot_ledger = self.source / "写作资产" / "全文情节微拍总账.json"
@@ -124,6 +56,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         bridge_catalog = self.source / "写作资产" / "桥段施工卡.md"
         subflow_catalog = self.source / "写作资产" / "子流程索引.jsonl"
         self.source_original.parent.mkdir(parents=True, exist_ok=True)
+        plot_ledger.parent.mkdir(parents=True, exist_ok=True)
         self.source_original.write_text(
             "原文场面里，他先伸手拦我，我把他的手推开。"
             "我没想到他还会替别人解释。"
@@ -163,7 +96,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         emotion_ledger.write_text(
             json.dumps(
                 {
-                    "schema_version": "story-short-analyze.full-text-emotion-ledger.v1",
+                    "schema_version": "story-short-analyze.full-text-emotion-ledger.v2",
                     "beats": [
                         {
                             "beat_id": "E-001",
@@ -209,187 +142,101 @@ class BatchOutlineReleaseTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def test_init_creates_all_outline_release_receipts(self) -> None:
-        errors, summary = GATE.init_batch(
-            project="测试项目",
-            writing_receipt=self.writing_receipt,
-            source_receipt=self.source_receipt,
-            ledger=self.ledger,
-            setting=self.setting,
-            outline=self.outline,
-            setting_sequence_receipt=self.setting_sequence_receipt,
-            sequence_receipt=self.sequence_receipt,
-            opening_source=self.opening_source,
-            opening_receipt=self.opening_receipt,
-            outline_receipt=self.outline_receipt,
-            source_originals=[self.source_original],
-            force_ledger=False,
-            force_setting_sequence=False,
-            force_sequence=False,
-            force_opening=False,
-            force_outline_receipt=False,
-            export_model_review_output=self.model_review,
-            export_model_plan_output=self.model_plan,
-            export_batch_size=30,
-        )
-        self.assertEqual([], errors)
-        self.assertTrue(self.ledger.is_file())
-        self.assertTrue(self.setting_sequence_receipt.is_file())
-        self.assertTrue(self.sequence_receipt.is_file())
-        self.assertTrue(self.opening_receipt.is_file())
-        self.assertTrue(self.outline_receipt.is_file())
-        self.assertTrue(self.model_review.is_file())
-        self.assertTrue(self.model_plan.is_file())
-        self.assertGreater(summary["skill_rules"], 0)
-        self.assertGreater(summary["model_review_entries"], 0)
-        self.assertGreater(summary["model_plan_groups"], 0)
-
-    def test_existing_receipt_blocks_without_force(self) -> None:
-        self.opening_receipt.parent.mkdir(parents=True, exist_ok=True)
-        self.opening_receipt.write_text("{}", encoding="utf-8")
-        errors, _summary = GATE.init_batch(
-            project="测试项目",
-            writing_receipt=self.writing_receipt,
-            source_receipt=self.source_receipt,
-            ledger=self.ledger,
-            setting=self.setting,
-            outline=self.outline,
-            setting_sequence_receipt=self.setting_sequence_receipt,
-            sequence_receipt=self.sequence_receipt,
-            opening_source=self.opening_source,
-            opening_receipt=self.opening_receipt,
-            outline_receipt=self.outline_receipt,
-            source_originals=[self.source_original],
-            force_ledger=False,
-            force_setting_sequence=False,
-            force_sequence=False,
-            force_opening=False,
-            force_outline_receipt=False,
-            export_model_review_output=None,
-            export_model_plan_output=None,
-            export_batch_size=30,
-        )
-        self.assertTrue(any("开头契约回执已存在" in item for item in errors))
-
-    def test_high_level_start_resumes_existing_receipts_without_overwrite(self) -> None:
-        errors, _summary = GATE.init_batch(
-            project="测试项目",
-            writing_receipt=self.writing_receipt,
-            source_receipt=self.source_receipt,
-            ledger=self.ledger,
-            setting=self.setting,
-            outline=self.outline,
-            setting_sequence_receipt=self.setting_sequence_receipt,
-            sequence_receipt=self.sequence_receipt,
-            opening_source=self.opening_source,
-            opening_receipt=self.opening_receipt,
-            outline_receipt=self.outline_receipt,
-            source_originals=[self.source_original],
-            force_ledger=False,
-            force_setting_sequence=False,
-            force_sequence=False,
-            force_opening=False,
-            force_outline_receipt=False,
-            export_model_review_output=self.model_review,
-            export_model_plan_output=self.model_plan,
-            export_batch_size=30,
-        )
-        self.assertEqual([], errors)
-        ledger = json.loads(self.ledger.read_text(encoding="utf-8"))
-        ledger["resume_marker"] = "preserve-me"
-        self.ledger.write_text(
-            json.dumps(ledger, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        errors, _summary = GATE.start_outline_release(
-            project="测试项目",
-            project_dir=self.project_root,
-            source_receipt=None,
-            source_originals=None,
-            opening_source=None,
-            force_ledger=False,
-            force_setting_sequence=False,
-            force_sequence=False,
-            force_opening=False,
-            force_outline_receipt=False,
-            export_model_review_output=self.model_review,
-            export_model_plan_output=self.model_plan,
-            export_batch_size=30,
-        )
-        self.assertEqual([], errors)
-        preserved = json.loads(self.ledger.read_text(encoding="utf-8"))
-        self.assertEqual("preserve-me", preserved["resume_marker"])
-
-    def test_status_inspects_default_project_layout(self) -> None:
-        status = GATE.inspect_outline_release_status(
-            project="测试项目",
-            project_dir=self.project_root,
-        )
-        self.assertEqual("passed", status["writing_gate_status"])
-        self.assertEqual("passed", status["source_gate_status"])
-        self.assertTrue(status["required_inputs"]["setting_exists"])
-        self.assertTrue(status["required_inputs"]["outline_exists"])
-        self.assertEqual(str(self.opening_source), status["opening_source"])
-        self.assertEqual([str(self.source_original)], status["source_originals"])
-        self.assertFalse(status["initialized"])
-
-    def test_next_step_recommends_high_level_start_command(self) -> None:
-        suggestion = GATE.suggest_next_step(
-            project="测试项目",
-            project_dir=self.project_root,
-            source_receipt=None,
-            source_originals=None,
-            opening_source=None,
-            export_batch_size=18,
-        )
-        self.assertEqual("start_outline_release", suggestion["action"])
-        self.assertIn('batch_outline_release.py" start-outline-release', suggestion["next_command"])
-        self.assertIn("--project-dir", suggestion["next_command"])
-        self.assertIn("--export-batch-size 18", suggestion["next_command"])
-
-    def test_start_outline_release_uses_default_paths(self) -> None:
+    def test_start_outline_release_creates_only_outline_contract(self) -> None:
         errors, summary = GATE.start_outline_release(
             project="测试项目",
             project_dir=self.project_root,
-            source_receipt=None,
-            source_originals=None,
-            opening_source=None,
-            force_ledger=False,
-            force_setting_sequence=False,
-            force_sequence=False,
-            force_opening=False,
-            force_outline_receipt=False,
-            export_model_review_output=None,
-            export_model_plan_output=None,
-            export_batch_size=12,
+            force=False,
         )
         self.assertEqual([], errors)
-        self.assertTrue(self.ledger.is_file())
-        self.assertTrue(self.setting_sequence_receipt.is_file())
-        self.assertTrue(self.sequence_receipt.is_file())
-        self.assertTrue(self.opening_receipt.is_file())
         self.assertTrue(self.outline_receipt.is_file())
-        self.assertTrue(self.model_review.is_file())
-        self.assertTrue(self.model_plan.is_file())
-        self.assertEqual(str(self.model_review), summary["model_review_output"])
-        self.assertEqual(str(self.model_plan), summary["model_plan_output"])
+        self.assertEqual(str(self.outline_receipt), summary["outline_receipt"])
+        payload = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
+        self.assertEqual(
+            list(GATE.OUTLINE.SOURCE_STYLE_GRANULARITY_FIELDS),
+            payload["granularity_coverage"][0]["style_dimensions"],
+        )
+        self.assertEqual([], payload["granularity_coverage"][0]["target_regions"])
+        self.assertTrue(payload["sources"][0]["subflow_catalog"]["sha256"])
+        assets = self.project_root / "写作资产"
+        self.assertEqual(
+            {"项目写作配置.json", "细纲表演验收回执.json"},
+            {path.name for path in assets.iterdir()},
+        )
 
-    def test_emit_shell_template_contains_high_level_commands(self) -> None:
-        template = GATE.emit_shell_template(
+    def test_noncurrent_outline_contract_blocks_without_overwrite(self) -> None:
+        self.outline_receipt.parent.mkdir(parents=True, exist_ok=True)
+        self.outline_receipt.write_text('{"marker": "preserve"}', encoding="utf-8")
+        errors, summary = GATE.start_outline_release(
             project="测试项目",
             project_dir=self.project_root,
-            source_receipt=None,
-            source_originals=None,
-            opening_source=None,
-            export_batch_size=16,
+            force=False,
         )
-        self.assertIn('batch_outline_release.py" status', template)
-        self.assertIn('batch_outline_release.py" next-step', template)
-        self.assertIn('batch_outline_release.py" start-outline-release', template)
-        self.assertIn("--export-model-review-output", template)
-        self.assertIn("--export-model-plan-output", template)
-        self.assertIn("--source-original", template)
+        self.assertTrue(errors)
+        self.assertFalse(summary["outline_ready"])
+        self.assertEqual(
+            {"marker": "preserve"},
+            json.loads(self.outline_receipt.read_text(encoding="utf-8")),
+        )
+
+    def test_current_outline_contract_is_resumed_without_overwrite(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+        self.assertEqual([], errors)
+        payload = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
+        payload["marker"] = "preserve"
+        self.outline_receipt.write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+        )
+
+        errors, summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+        self.assertEqual([], errors)
+        self.assertTrue(summary["resumed_existing"])
+        self.assertEqual(
+            "preserve",
+            json.loads(self.outline_receipt.read_text(encoding="utf-8"))["marker"],
+        )
+
+    def test_force_rebuilds_outline_contract(self) -> None:
+        self.outline_receipt.parent.mkdir(parents=True, exist_ok=True)
+        self.outline_receipt.write_text('{"marker": "old"}', encoding="utf-8")
+        errors, summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+            force=True,
+        )
+        self.assertEqual([], errors)
+        self.assertFalse(summary["resumed_existing"])
+        payload = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
+        self.assertEqual("测试项目", payload["project"])
+
+    def test_project_name_mismatch_blocks(self) -> None:
+        errors, summary = GATE.start_outline_release(
+            project="另一项目",
+            project_dir=self.project_root,
+        )
+        self.assertTrue(errors)
+        self.assertFalse(summary["outline_ready"])
+
+    def test_missing_primary_style_dimension_blocks(self) -> None:
+        subflow_catalog = self.source / "写作资产" / "子流程索引.jsonl"
+        payload = json.loads(subflow_catalog.read_text(encoding="utf-8"))
+        del payload["source_style_granularity"]["narrator_interjection_and_roughness"]
+        subflow_catalog.write_text(
+            json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        errors, summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+        self.assertTrue(errors)
+        self.assertFalse(summary["outline_ready"])
+        self.assertIn("narrator_interjection_and_roughness", errors[0])
 
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -29,10 +28,9 @@ class ContinuationGateTest(unittest.TestCase):
     def test_skill_documents_no_goal_and_no_yield_contract(self) -> None:
         text = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("validate_continuation_gate.py", text)
-        self.assertIn("终止型回复一律禁止", text)
-        self.assertIn("禁止调用 `create_goal / get_goal / update_goal`", text)
-        self.assertIn("禁止发送空白 `final`", text)
-        self.assertIn("commentary-only", text)
+        self.assertIn("禁止调用 goal 机制暂停或续跑", text)
+        self.assertIn("发送空白 final", text)
+        self.assertIn("中间更新后必须立即继续", text)
 
     def test_progress_report_is_never_a_legal_terminal_reason(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -59,41 +57,23 @@ class ContinuationGateTest(unittest.TestCase):
         self.assertEqual(blocked.returncode, 2)
         self.assertEqual(passed.returncode, 0)
 
-    def test_initial_draft_stop_requires_final_ready_contracts_and_format(self) -> None:
+    def test_initial_draft_stop_rejects_noncurrent_receipts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             assets = project / "写作资产"
             draft = project / "正文.md"
             draft.write_text("# 书名\n1.\n正文。\n", encoding="utf-8")
-            digest = hashlib.sha256(draft.read_bytes()).hexdigest()
-            char_count = 5
             write_json(
-                assets / "逐节正文进度.json",
-                {
-                    "status": "final_ready",
-                    "final_draft_sha256": digest,
-                    "final_char_count": char_count,
-                    "sections": [{"section_id": "1", "status": "passed"}],
-                },
-            )
-            write_json(
-                assets / "全文文字颗粒度契约回执.json",
+                assets / "非当前进度.json",
                 {
                     "gate_status": "passed",
-                    "draft": {"path": str(draft), "sha256": digest},
-                },
-            )
-            write_json(
-                assets / "全文情绪颗粒度契约回执.json",
-                {
-                    "draft_status": "passed",
-                    "bindings": {"draft": {"path": str(draft), "sha256": digest}},
                 },
             )
             result = self.run_gate(
                 project, "--reason", "initial_draft_stop", "--platform", "zhihu"
             )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("初稿终审回执", result.stdout)
 
     def test_external_blocker_requires_three_consecutive_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

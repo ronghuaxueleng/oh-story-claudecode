@@ -90,9 +90,34 @@ WRITING_ASSET_FILES = [
     "同桥段过检规则.md",
     "原文资产候选池.md",
     "本书动态信号字典.json",
+    "全文情绪颗粒总账.json",
+    "全文情节微拍总账.json",
     "profile_source.md",
     "桥段施工卡.md",
 ]
+
+FULL_TEXT_EMOTION_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v2"
+FULL_TEXT_PLOT_LEDGER_SCHEMA = "story-short-analyze.full-text-plot-ledger.v2"
+FULL_TEXT_PLOT_SEGMENT_KINDS = {
+    "plot_bearing",
+    "non_plot_support",
+    "structural_marker",
+}
+FULL_TEXT_PLOT_CANDIDATE_DECISIONS = {
+    "independent_beat",
+    "merged_same_atomic_chain",
+    "non_plot",
+}
+FULL_TEXT_EMOTION_SEGMENT_KINDS = {
+    "emotion_bearing",
+    "non_emotional_support",
+    "structural_marker",
+}
+FULL_TEXT_EMOTION_CANDIDATE_DECISIONS = {
+    "independent_beat",
+    "merged_same_atomic_chain",
+    "non_emotional",
+}
 
 ASSET_CANDIDATE_CATEGORY_TARGETS = {
     "导语": "可直接仿写_导语拆解表.md",
@@ -315,7 +340,15 @@ BOOK_PROFILE_KEYS = [
     "derived_patterns",
     "migration_assets",
     "story_guardrails",
+    "prose_style_contract",
 ]
+
+PROSE_STYLE_CONTRACT_FIELDS = (
+    "sentence_motion",
+    "narrator_voice",
+    "dialogue_and_character_voice",
+    "anti_patterns",
+)
 
 META_KEYS = [
     "version",
@@ -518,14 +551,8 @@ REQUIRED_CONSEQUENCE_GUARDRAIL_KEYS = (
     "tail_entry_exclusion_reason",
 )
 
-BRIDGE_EMOTION_LABELS = (
-    "情绪进入点",
-    "刺痛/受辱拍",
-    "短暂希望或反抗",
-    "反刀拍",
-    "峰值拍",
-    "场末余痛",
-)
+BRIDGE_EMOTION_LABEL = "情绪拍"
+BRIDGE_EMOTION_COMPLETION_LABEL = "情绪拍完整性复核"
 
 UPGRADE_REVIEW_SCOPES = (
     "process_plan_refresh",
@@ -2661,6 +2688,19 @@ def check_book_profile_quality(
     if not has_non_empty_list(data, "author_stance_patterns"):
         errors.append(f"{path} author_stance_patterns 为空：说明作者站位资产没有成功结构化")
 
+    prose_contract = data.get("prose_style_contract")
+    if not isinstance(prose_contract, dict):
+        errors.append(f"{path} prose_style_contract 缺失或不是对象")
+    else:
+        if prose_contract.get("source_role") != "primary_only":
+            errors.append(f"{path} prose_style_contract.source_role 必须为 primary_only")
+        for field in PROSE_STYLE_CONTRACT_FIELDS:
+            values = prose_contract.get(field)
+            if not isinstance(values, list) or not any(
+                isinstance(item, str) and item.strip() for item in values
+            ):
+                errors.append(f"{path} prose_style_contract.{field} 不能为空")
+
     style_assets = data.get("style_assets")
     if isinstance(style_assets, dict):
         for key in REQUIRED_STYLE_ASSET_KEYS:
@@ -2805,31 +2845,43 @@ def check_book_profile_quality(
             if not isinstance(emotion_sequence, list):
                 errors.append(f"{path} bridge_rules[{idx}].emotion_sequence 缺失或不是数组")
                 continue
-            beats = {
-                str(beat.get("beat", "")).strip(): beat
-                for beat in emotion_sequence
-                if isinstance(beat, dict)
-            }
-            for label in BRIDGE_EMOTION_LABELS:
-                beat = beats.get(label)
-                if not beat:
-                    errors.append(
-                        f"{path} bridge_rules[{idx}].emotion_sequence 缺少 `{label}`"
-                    )
+            if not emotion_sequence:
+                errors.append(f"{path} bridge_rules[{idx}].emotion_sequence 为空，未盘点原文实际情绪拍")
+                continue
+            beat_ids: set[str] = set()
+            evidence_seen: set[str] = set()
+            for beat_index, beat in enumerate(emotion_sequence, start=1):
+                if not isinstance(beat, dict):
+                    errors.append(f"{path} bridge_rules[{idx}].emotion_sequence[{beat_index}] 不是对象")
                     continue
+                beat_id = str(beat.get("beat_id") or "").strip()
+                role = str(beat.get("role") or beat.get("beat") or "").strip()
+                if not beat_id:
+                    errors.append(f"{path} bridge_rules[{idx}].emotion_sequence[{beat_index}] 缺少 beat_id")
+                elif beat_id in beat_ids:
+                    errors.append(f"{path} bridge_rules[{idx}].emotion_sequence beat_id 重复: {beat_id}")
+                else:
+                    beat_ids.add(beat_id)
+                if not role:
+                    errors.append(f"{path} bridge_rules[{idx}] `{beat_id or beat_index}` 缺少实际作用")
                 if not str(beat.get("content", "")).strip():
                     errors.append(
-                        f"{path} bridge_rules[{idx}] `{label}` 缺少情绪动作/处境内容"
+                        f"{path} bridge_rules[{idx}] `{beat_id or beat_index}` 缺少情绪动作/处境内容"
                     )
                 intensity = beat.get("intensity")
                 if not isinstance(intensity, int) or not 1 <= intensity <= 10:
                     errors.append(
-                        f"{path} bridge_rules[{idx}] `{label}` 烈度必须是 1-10 的整数"
+                        f"{path} bridge_rules[{idx}] `{beat_id or beat_index}` 烈度必须是 1-10 的整数"
                     )
-                if not str(beat.get("source_evidence", "")).strip():
+                evidence = str(beat.get("source_evidence", "")).strip()
+                if not evidence:
                     errors.append(
-                        f"{path} bridge_rules[{idx}] `{label}` 缺少原文证据"
+                        f"{path} bridge_rules[{idx}] `{beat_id or beat_index}` 缺少原文证据"
                     )
+                elif evidence in evidence_seen:
+                    errors.append(f"{path} bridge_rules[{idx}] `{beat_id or beat_index}` 与前拍复用原文证据")
+                else:
+                    evidence_seen.add(evidence)
 
 
 def check_profile_source_quality(
@@ -2889,7 +2941,8 @@ def check_profile_source_quality(
             "为什么这个顺序不能乱",
             "最容易写假的点",
             "原文为什么能过",
-            *BRIDGE_EMOTION_LABELS,
+            BRIDGE_EMOTION_LABEL,
+            BRIDGE_EMOTION_COMPLETION_LABEL,
         ):
             if f"- {label}：" not in block and f"  - {label}：" not in block:
                 missing.append(label)
@@ -2930,7 +2983,8 @@ def check_bridge_workcards_quality(
         "不能丢的顺序",
         "为什么这个顺序不能乱",
         "后续调用方式",
-        *BRIDGE_EMOTION_LABELS,
+        BRIDGE_EMOTION_LABEL,
+        BRIDGE_EMOTION_COMPLETION_LABEL,
     )
     for title, block in cards:
         missing = [label for label in required_labels if f"- {label}：" not in block]
@@ -2983,7 +3037,8 @@ def check_high_risk_asset_quality(path: Path, word_count: int, errors: list[str]
             "高敏点": ("高敏点", "高敏原因", "高敏原因1", "主要高敏层"),
             "可学层": ("可学层", "可学层1"),
             "禁学层": ("禁学层", "禁学层1"),
-            **{label: (label,) for label in BRIDGE_EMOTION_LABELS},
+            "实际情绪拍全集": (BRIDGE_EMOTION_LABEL,),
+            "情绪拍完整性复核": (BRIDGE_EMOTION_COMPLETION_LABEL,),
         }
         missing = [
             name for name, labels in required_groups.items()
@@ -3074,6 +3129,509 @@ def check_cross_asset_semantics(
                     f"{path} 当前 {fake_reason_count} 条“为什么假”；"
                     "仿写约束至少要解释 2 条禁写法为什么会写假"
                 )
+
+
+def check_full_text_emotion_ledger(
+    root: Path,
+    source_lines: list[str],
+    errors: list[str],
+) -> dict:
+    path = root / "写作资产" / "全文情绪颗粒总账.json"
+    data = check_json_keys(
+        path,
+        [
+            "schema_version",
+            "source",
+            "coverage_segments",
+            "source_emotion_candidate_audit",
+            "beats",
+            "completeness_review",
+        ],
+        errors,
+    )
+    if not data:
+        return {}
+    if data.get("schema_version") != FULL_TEXT_EMOTION_LEDGER_SCHEMA:
+        errors.append(f"{path} schema_version 不正确")
+
+    source = data.get("source")
+    manifest = check_json_keys(root / "_source_manifest.json", [], errors)
+    if not isinstance(source, dict):
+        errors.append(f"{path} source 不是对象")
+    else:
+        expected_sha1 = str(
+            manifest.get("copied_sha1") or manifest.get("sha1") or ""
+        ).strip()
+        if source.get("sha1") != expected_sha1:
+            errors.append(f"{path} source.sha1 未绑定当前原文")
+        if source.get("line_count") != len(source_lines):
+            errors.append(f"{path} source.line_count 与当前原文行数不一致")
+
+    segments = data.get("coverage_segments")
+    if not isinstance(segments, list) or not segments:
+        errors.append(f"{path} coverage_segments 必须逐行覆盖原文")
+        segments = []
+    expected_line = 1
+    segment_ids: set[str] = set()
+    segment_beat_ids: list[str] = []
+    segment_by_id: dict[str, dict] = {}
+    for index, segment in enumerate(segments, start=1):
+        label = f"{path} coverage_segments[{index}]"
+        if not isinstance(segment, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        segment_id = str(segment.get("segment_id") or "").strip()
+        start_line = segment.get("start_line")
+        end_line = segment.get("end_line")
+        kind = str(segment.get("kind") or "").strip()
+        beat_ids = segment.get("beat_ids")
+        if not segment_id or segment_id in segment_ids:
+            errors.append(f"{label} segment_id 缺失或重复")
+        else:
+            segment_ids.add(segment_id)
+            segment_by_id[segment_id] = segment
+        if not isinstance(start_line, int) or not isinstance(end_line, int):
+            errors.append(f"{label} start_line/end_line 必须是整数")
+            continue
+        if start_line != expected_line:
+            errors.append(
+                f"{label} 行覆盖不连续：应从 L{expected_line} 开始，实际从 L{start_line} 开始"
+            )
+        if end_line < start_line or end_line > len(source_lines):
+            errors.append(f"{label} 行范围非法")
+        expected_line = end_line + 1
+        if kind not in FULL_TEXT_EMOTION_SEGMENT_KINDS:
+            errors.append(f"{label} kind 非法: {kind}")
+        if not isinstance(beat_ids, list):
+            errors.append(f"{label} beat_ids 必须是列表")
+            beat_ids = []
+        normalized_ids = [str(item).strip() for item in beat_ids if str(item).strip()]
+        if kind == "emotion_bearing" and not normalized_ids:
+            errors.append(f"{label} 情绪承载段必须引用至少一个 beat_id")
+        if kind != "emotion_bearing" and normalized_ids:
+            errors.append(f"{label} 非情绪段不得挂情绪 beat_id")
+        if kind != "emotion_bearing" and len(str(segment.get("reason") or "").strip()) < 8:
+            errors.append(f"{label} 非情绪段必须说明人工判定理由")
+        segment_beat_ids.extend(normalized_ids)
+    if expected_line != len(source_lines) + 1:
+        errors.append(
+            f"{path} coverage_segments 未覆盖到原文末行 L{len(source_lines)}"
+        )
+
+    beats = data.get("beats")
+    if not isinstance(beats, list) or not beats:
+        errors.append(f"{path} beats 必须包含全文实际情绪拍全集")
+        beats = []
+    beat_ids: list[str] = []
+    used_evidence: set[str] = set()
+    for index, beat in enumerate(beats, start=1):
+        label = f"{path} beats[{index}]"
+        if not isinstance(beat, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        beat_id = str(beat.get("beat_id") or "").strip()
+        segment_id = str(beat.get("segment_id") or "").strip()
+        start_line = beat.get("start_line")
+        end_line = beat.get("end_line")
+        if not beat_id or beat_id in beat_ids:
+            errors.append(f"{label} beat_id 缺失或重复")
+        beat_ids.append(beat_id)
+        segment = segment_by_id.get(segment_id)
+        if not segment or beat_id not in [str(x).strip() for x in segment.get("beat_ids", [])]:
+            errors.append(f"{label} 未唯一绑定到 coverage_segments 中的情绪承载段")
+        if not isinstance(start_line, int) or not isinstance(end_line, int):
+            errors.append(f"{label} start_line/end_line 必须是整数")
+            continue
+        if not 1 <= start_line <= end_line <= len(source_lines):
+            errors.append(f"{label} 行范围非法")
+            continue
+        if segment and not (
+            segment.get("start_line") <= start_line <= end_line <= segment.get("end_line")
+        ):
+            errors.append(f"{label} 行范围越出绑定 coverage segment")
+        for field in (
+            "role",
+            "content",
+            "trigger",
+            "relationship_position_change",
+            "reader_effect",
+            "narrative_function",
+        ):
+            if not str(beat.get(field) or "").strip():
+                errors.append(f"{label} 缺少 {field}")
+        intensity = beat.get("intensity")
+        if not isinstance(intensity, int) or isinstance(intensity, bool) or not 1 <= intensity <= 10:
+            errors.append(f"{label} intensity 必须是 1-10 的整数")
+        bid_ids = beat.get("bid_ids")
+        if not isinstance(bid_ids, list):
+            errors.append(f"{label} bid_ids 必须是列表；非 BID 拍用空列表，不能删除")
+        evidence = beat.get("source_evidence")
+        if not isinstance(evidence, list) or not evidence:
+            errors.append(f"{label} 缺少独占 source_evidence")
+            evidence = []
+        source_slice = "\n".join(source_lines[start_line - 1 : end_line])
+        for quote in evidence:
+            quote = str(quote).strip()
+            if not quote or quote not in source_slice:
+                errors.append(f"{label} source_evidence 不在绑定行范围内")
+            if quote in used_evidence:
+                errors.append(f"{label} 与其他情绪拍复用 source_evidence")
+            used_evidence.add(quote)
+    if segment_beat_ids != beat_ids:
+        errors.append(
+            f"{path} coverage_segments 引用的 beat_id 必须与 beats 全集同序相等；"
+            "禁止漏拍、重复归属或由 BID 反向筛拍"
+        )
+
+    candidates = data.get("source_emotion_candidate_audit")
+    if not isinstance(candidates, list) or not candidates:
+        errors.append(f"{path} source_emotion_candidate_audit 必须包含源文情绪候选反查")
+        candidates = []
+    candidate_ids: list[str] = []
+    covered_beat_ids: set[str] = set()
+    beat_id_set = set(beat_ids)
+    for index, candidate in enumerate(candidates, start=1):
+        label = f"{path} source_emotion_candidate_audit[{index}]"
+        if not isinstance(candidate, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        decision = str(candidate.get("decision") or "").strip()
+        bound_beat_ids = candidate.get("bound_beat_ids")
+        if not re.fullmatch(r"EC-[A-Za-z0-9_-]+", candidate_id):
+            errors.append(f"{label} candidate_id 必须使用 EC-* ID")
+        candidate_ids.append(candidate_id)
+        for field in (
+            "change_axis",
+            "before_state",
+            "after_state",
+            "source_evidence",
+            "manual_judgment",
+        ):
+            if not str(candidate.get(field) or "").strip():
+                errors.append(f"{label} 缺少非空 {field}")
+        source_range = candidate.get("source_range")
+        if not isinstance(source_range, dict):
+            errors.append(f"{label} source_range 必须是对象")
+        else:
+            start_line = source_range.get("start_line")
+            end_line = source_range.get("end_line")
+            if not isinstance(start_line, int) or not isinstance(end_line, int):
+                errors.append(f"{label} source_range 必须含整数 start_line/end_line")
+            elif start_line < 1 or end_line < start_line or end_line > len(source_lines):
+                errors.append(f"{label} source_range 越出原文")
+            else:
+                evidence = str(candidate.get("source_evidence") or "").strip()
+                source_window = "\n".join(source_lines[start_line - 1 : end_line])
+                if evidence and evidence not in source_window:
+                    errors.append(f"{label} source_evidence 不在绑定行范围")
+        if decision not in FULL_TEXT_EMOTION_CANDIDATE_DECISIONS:
+            errors.append(f"{label} decision 非法: {decision}")
+        if not isinstance(bound_beat_ids, list):
+            errors.append(f"{label} bound_beat_ids 必须是列表")
+            bound_beat_ids = []
+        normalized_ids = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
+        missing_ids = [beat_id for beat_id in normalized_ids if beat_id not in beat_id_set]
+        if missing_ids:
+            errors.append(f"{label} 绑定了不存在的 E 拍: {', '.join(missing_ids)}")
+        covered_beat_ids.update(normalized_ids)
+        if decision == "independent_beat" and len(normalized_ids) != 1:
+            errors.append(f"{label} independent_beat 必须唯一绑定一个 E 拍")
+        if decision == "merged_same_atomic_chain":
+            if len(normalized_ids) != 1:
+                errors.append(f"{label} merged_same_atomic_chain 必须绑定被并入的一个 E 拍")
+            if len(str(candidate.get("merge_reason") or "").strip()) < 12:
+                errors.append(f"{label} merged_same_atomic_chain 必须具体说明不可拆理由")
+        if decision == "non_emotional" and normalized_ids:
+            errors.append(f"{label} non_emotional 不得绑定 E 拍")
+    if len(candidate_ids) != len(set(candidate_ids)):
+        errors.append(f"{path} source_emotion_candidate_audit candidate_id 存在重复")
+    unbound_beat_ids = [beat_id for beat_id in beat_ids if beat_id not in covered_beat_ids]
+    if unbound_beat_ids:
+        errors.append(f"{path} E 拍未被源文情绪候选反查绑定: {', '.join(unbound_beat_ids)}")
+
+    review = data.get("completeness_review")
+    if not isinstance(review, dict):
+        errors.append(f"{path} completeness_review 不是对象")
+    else:
+        if review.get("read_start_line") != 1 or review.get("read_end_line") != len(source_lines):
+            errors.append(f"{path} completeness_review 未确认全文读取范围")
+        for field in (
+            "all_source_lines_classified",
+            "non_bid_beats_preserved",
+            "bid_derived_after_full_inventory",
+            "reviewed_by_current_model",
+            "forward_expectation_scan_completed",
+            "reverse_afterpain_scan_completed",
+            "all_source_emotion_candidates_adjudicated",
+        ):
+            if review.get(field) is not True:
+                errors.append(f"{path} completeness_review 要求 {field}=true")
+        if review.get("automation_used_for_semantic_judgment") is not False:
+            errors.append(
+                f"{path} completeness_review 要求 automation_used_for_semantic_judgment=false"
+            )
+        if len(str(review.get("split_basis") or "").strip()) < 20:
+            errors.append(f"{path} completeness_review.split_basis 过短")
+    return data
+
+
+def check_full_text_plot_ledger(
+    root: Path,
+    source_lines: list[str],
+    errors: list[str],
+    emotion_ledger: dict | None = None,
+) -> dict:
+    path = root / "写作资产" / "全文情节微拍总账.json"
+    data = check_json_keys(
+        path,
+        [
+            "schema_version",
+            "source",
+            "coverage_segments",
+            "source_plot_candidate_audit",
+            "beats",
+            "completeness_review",
+        ],
+        errors,
+    )
+    if not data:
+        return {}
+    if data.get("schema_version") != FULL_TEXT_PLOT_LEDGER_SCHEMA:
+        errors.append(f"{path} schema_version 不正确")
+
+    source = data.get("source")
+    manifest = check_json_keys(root / "_source_manifest.json", [], errors)
+    if not isinstance(source, dict):
+        errors.append(f"{path} source 不是对象")
+    else:
+        expected_sha1 = str(
+            manifest.get("copied_sha1") or manifest.get("sha1") or ""
+        ).strip()
+        if source.get("sha1") != expected_sha1:
+            errors.append(f"{path} source.sha1 未绑定当前原文")
+        if source.get("line_count") != len(source_lines):
+            errors.append(f"{path} source.line_count 与当前原文行数不一致")
+        source_path = Path(str(source.get("path") or "")).expanduser().resolve()
+        if not source_path.is_file():
+            errors.append(f"{path} source.path 未绑定可读的当前原文")
+        else:
+            if source.get("sha256") != hashlib.sha256(source_path.read_bytes()).hexdigest():
+                errors.append(f"{path} source.sha256 未绑定当前原文")
+
+    segments = data.get("coverage_segments")
+    if not isinstance(segments, list) or not segments:
+        errors.append(f"{path} coverage_segments 必须逐行覆盖原文")
+        segments = []
+    expected_line = 1
+    segment_ids: set[str] = set()
+    segment_candidate_ids: list[str] = []
+    for index, segment in enumerate(segments, start=1):
+        label = f"{path} coverage_segments[{index}]"
+        if not isinstance(segment, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        segment_id = str(segment.get("segment_id") or "").strip()
+        start_line = segment.get("start_line")
+        end_line = segment.get("end_line")
+        kind = str(segment.get("kind") or "").strip()
+        candidate_ids = segment.get("candidate_ids")
+        if not segment_id or segment_id in segment_ids:
+            errors.append(f"{label} segment_id 缺失或重复")
+        else:
+            segment_ids.add(segment_id)
+        if not isinstance(start_line, int) or not isinstance(end_line, int):
+            errors.append(f"{label} start_line/end_line 必须是整数")
+            continue
+        if start_line != expected_line:
+            errors.append(
+                f"{label} 行覆盖不连续：应从 L{expected_line} 开始，实际从 L{start_line} 开始"
+            )
+        if end_line < start_line or end_line > len(source_lines):
+            errors.append(f"{label} 行范围非法")
+        expected_line = end_line + 1
+        if kind not in FULL_TEXT_PLOT_SEGMENT_KINDS:
+            errors.append(f"{label} kind 非法: {kind}")
+        if not isinstance(candidate_ids, list):
+            errors.append(f"{label} candidate_ids 必须是列表")
+            candidate_ids = []
+        normalized_ids = [str(item).strip() for item in candidate_ids if str(item).strip()]
+        if kind == "plot_bearing" and not normalized_ids:
+            errors.append(f"{label} 情节承载段必须引用至少一个 candidate_id")
+        if kind != "plot_bearing" and normalized_ids:
+            errors.append(f"{label} 非情节段不得挂 candidate_id")
+        if kind != "plot_bearing" and len(str(segment.get("reason") or "").strip()) < 8:
+            errors.append(f"{label} 非情节段必须说明人工判定理由")
+        segment_candidate_ids.extend(normalized_ids)
+    if expected_line != len(source_lines) + 1:
+        errors.append(f"{path} coverage_segments 未覆盖到原文末行 L{len(source_lines)}")
+
+    candidates = data.get("source_plot_candidate_audit")
+    if not isinstance(candidates, list) or not candidates:
+        errors.append(f"{path} source_plot_candidate_audit 必须包含源文候选反查")
+        candidates = []
+    candidate_ids: list[str] = []
+    candidate_bound_beats: dict[str, list[str]] = {}
+    for index, candidate in enumerate(candidates, start=1):
+        label = f"{path} source_plot_candidate_audit[{index}]"
+        if not isinstance(candidate, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        decision = str(candidate.get("decision") or "").strip()
+        bound_beat_ids = candidate.get("bound_beat_ids")
+        if not re.fullmatch(r"PC-[A-Za-z0-9_-]+", candidate_id):
+            errors.append(f"{label} candidate_id 必须使用 PC-* ID")
+        candidate_ids.append(candidate_id)
+        for field in ("candidate_type", "actor", "source_evidence", "manual_judgment"):
+            if not str(candidate.get(field) or "").strip():
+                errors.append(f"{label} 缺少非空 {field}")
+        source_range = candidate.get("source_range")
+        if not isinstance(source_range, dict):
+            errors.append(f"{label} source_range 必须是对象")
+        else:
+            start_line = source_range.get("start_line")
+            end_line = source_range.get("end_line")
+            if not isinstance(start_line, int) or not isinstance(end_line, int):
+                errors.append(f"{label} source_range 必须含整数 start_line/end_line")
+            elif start_line < 1 or end_line < start_line or end_line > len(source_lines):
+                errors.append(f"{label} source_range 越出原文")
+            else:
+                evidence = str(candidate.get("source_evidence") or "").strip()
+                source_window = "\n".join(source_lines[start_line - 1 : end_line])
+                if evidence and evidence not in source_window:
+                    errors.append(f"{label} source_evidence 不在绑定行范围")
+        if decision not in FULL_TEXT_PLOT_CANDIDATE_DECISIONS:
+            errors.append(f"{label} decision 非法: {decision}")
+        if not isinstance(bound_beat_ids, list):
+            errors.append(f"{label} bound_beat_ids 必须是列表")
+            bound_beat_ids = []
+        normalized_beats = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
+        candidate_bound_beats[candidate_id] = normalized_beats
+        if decision == "independent_beat" and len(normalized_beats) != 1:
+            errors.append(f"{label} independent_beat 必须唯一绑定一个 P 拍")
+        if decision == "merged_same_atomic_chain":
+            if len(normalized_beats) != 1:
+                errors.append(f"{label} merged_same_atomic_chain 必须绑定被并入的一个 P 拍")
+            if len(str(candidate.get("merge_reason") or "").strip()) < 12:
+                errors.append(f"{label} merged_same_atomic_chain 必须具体说明不可拆理由")
+        if decision == "non_plot" and normalized_beats:
+            errors.append(f"{label} non_plot 不得绑定 P 拍")
+    if len(candidate_ids) != len(set(candidate_ids)):
+        errors.append(f"{path} source_plot_candidate_audit candidate_id 存在重复")
+    if segment_candidate_ids != candidate_ids:
+        errors.append(f"{path} coverage_segments 引用的 candidate_id 必须与源文候选全集同序相等")
+
+    review = data.get("completeness_review")
+    if not isinstance(review, dict):
+        errors.append(f"{path} completeness_review 不是对象")
+    else:
+        for field in (
+            "full_text_scanned_l1_to_eof",
+            "independent_from_emotion_ledger",
+            "no_emotion_beat_substitution",
+            "all_effective_plot_beats_preserved",
+            "forward_action_scan_completed",
+            "reverse_consequence_scan_completed",
+            "all_source_candidates_adjudicated",
+            "reviewed_by_current_model",
+        ):
+            if review.get(field) is not True:
+                errors.append(f"{path} completeness_review.{field} 必须为 true")
+        if review.get("automation_used_for_semantic_judgment") is not False:
+            errors.append(f"{path} completeness_review.automation_used_for_semantic_judgment 必须为 false")
+        if len(str(review.get("manual_judgment") or "").strip()) < 8:
+            errors.append(f"{path} completeness_review.manual_judgment 必须说明独立切拍方法")
+
+    beats = data.get("beats")
+    if not isinstance(beats, list) or not beats:
+        errors.append(f"{path} beats 必须是非空全文情节微拍列表")
+        return data
+    required_text_fields = (
+        "beat_id",
+        "actor",
+        "action",
+        "object_or_receiver",
+        "pressure_or_trigger",
+        "control_change",
+        "information_change",
+        "consequence",
+        "source_evidence",
+    )
+    plot_ids: list[str] = []
+    for index, beat in enumerate(beats, start=1):
+        label = f"{path} beats[{index}]"
+        if not isinstance(beat, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        for field in required_text_fields:
+            if not str(beat.get(field) or "").strip():
+                errors.append(f"{label} 缺少非空 {field}")
+        beat_id = str(beat.get("beat_id") or "").strip()
+        plot_ids.append(beat_id)
+        if not re.fullmatch(r"P-[A-Za-z0-9_-]+", beat_id):
+            errors.append(f"{label} beat_id 必须使用独立 P-* ID")
+        source_range = beat.get("source_range")
+        if not isinstance(source_range, dict):
+            errors.append(f"{label} source_range 必须是对象")
+        else:
+            start_line = source_range.get("start_line")
+            end_line = source_range.get("end_line")
+            if not isinstance(start_line, int) or not isinstance(end_line, int):
+                errors.append(f"{label} source_range 必须含整数 start_line/end_line")
+            elif start_line < 1 or end_line < start_line or end_line > len(source_lines):
+                errors.append(f"{label} source_range 越出原文")
+            else:
+                evidence = str(beat.get("source_evidence") or "").strip()
+                source_window = "\n".join(source_lines[start_line - 1 : end_line])
+                if evidence and evidence not in source_window:
+                    errors.append(f"{label} source_evidence 不在绑定行范围")
+        if not isinstance(beat.get("bid_ids"), list):
+            errors.append(f"{label} bid_ids 必须是列表，桥外拍使用 []")
+        elif len(beat.get("bid_ids")) > 1:
+            errors.append(f"{label} bid_ids 不得让同一情节拍重复归属多个 BID")
+    if len(plot_ids) != len(set(plot_ids)):
+        errors.append(f"{path} beat_id 存在重复")
+    plot_id_set = set(plot_ids)
+    for candidate_id, bound_ids in candidate_bound_beats.items():
+        missing_ids = [beat_id for beat_id in bound_ids if beat_id not in plot_id_set]
+        if missing_ids:
+            errors.append(
+                f"{path} 候选 {candidate_id} 绑定了不存在的 P 拍: {', '.join(missing_ids)}"
+            )
+    covered_plot_ids = {
+        beat_id for bound_ids in candidate_bound_beats.values() for beat_id in bound_ids
+    }
+    unbound_plot_ids = [beat_id for beat_id in plot_ids if beat_id not in covered_plot_ids]
+    if unbound_plot_ids:
+        errors.append(f"{path} P 拍未被源文候选反查绑定: {', '.join(unbound_plot_ids)}")
+
+    emotion_beats = [
+        beat
+        for beat in (emotion_ledger or {}).get("beats", [])
+        if isinstance(beat, dict)
+    ]
+    emotion_ids = [str(beat.get("beat_id") or "").strip() for beat in emotion_beats]
+    overlap = sorted(set(plot_ids) & set(emotion_ids))
+    if overlap:
+        errors.append(f"{path} 与全文情绪总账共用 beat_id，已混轨: {', '.join(overlap)}")
+    if plot_ids and plot_ids == emotion_ids:
+        errors.append(f"{path} 与情绪总账整套 ID 同序等量，不得用 E 拍冒充 P 拍")
+    emotion_surfaces = {
+        normalize_text(beat.get(field))
+        for beat in emotion_beats
+        for field in ("content", "role", "trigger", "relationship_position_change")
+        if len(normalize_text(beat.get(field))) >= 8
+    }
+    for index, beat in enumerate(beats, start=1):
+        if not isinstance(beat, dict):
+            continue
+        action = normalize_text(beat.get("action"))
+        if len(action) >= 8 and action in emotion_surfaces:
+            errors.append(
+                f"{path} beats[{index}].action 复制了情绪总账内容，未独立提取外部动作"
+            )
+    return data
 
 
 def check_json_keys(path: Path, required_keys: list[str], errors: list[str]) -> dict:
@@ -3179,6 +3737,75 @@ def check_sample_comparison(path: Path, errors: list[str]) -> None:
         errors.append(f"{path} 对照裁决仍为“需要回炉”，不得进入 finalize")
 
 
+def check_book_profile_emotion_ledger_alignment(
+    root: Path,
+    book_profile: dict,
+    full_emotion_ledger: dict,
+    errors: list[str],
+) -> None:
+    if not full_emotion_ledger:
+        return
+    ledger_beats = {
+        str(item.get("beat_id") or "").strip(): item
+        for item in full_emotion_ledger.get("beats", [])
+        if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
+    }
+    bridge_sequences: dict[str, list[str]] = {}
+    for bridge in book_profile.get("bridge_rules", []):
+        if not isinstance(bridge, dict):
+            continue
+        bridge_id = str(bridge.get("id") or "").strip()
+        sequence_ids: list[str] = []
+        for beat in bridge.get("emotion_sequence", []):
+            if not isinstance(beat, dict):
+                continue
+            beat_id = str(beat.get("beat_id") or "").strip()
+            sequence_ids.append(beat_id)
+            source_beat = ledger_beats.get(beat_id)
+            if source_beat is None:
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id} 引用了全文情绪总账不存在的 beat_id: {beat_id}"
+                )
+                continue
+            if beat.get("role") != source_beat.get("role"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} role 与全文情绪总账不一致"
+                )
+            if beat.get("intensity") != source_beat.get("intensity"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} intensity 与全文情绪总账不一致"
+                )
+            profile_evidence = str(beat.get("source_evidence") or "").strip()
+            ledger_evidence = [
+                str(item).strip() for item in source_beat.get("source_evidence", [])
+            ]
+            if profile_evidence not in ledger_evidence:
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} 原文证据未取自全文情绪总账"
+                )
+        bridge_sequences[bridge_id] = sequence_ids
+    for beat_id, beat in ledger_beats.items():
+        for bridge_id in beat.get("bid_ids", []):
+            bridge_id = str(bridge_id).strip()
+            if beat_id not in bridge_sequences.get(bridge_id, []):
+                errors.append(
+                    f"全文情绪总账 {beat_id} 声明归属 {bridge_id}，但 book.profile 未在该桥原序保留；"
+                    "总账变更后必须回到升级流程重生 book.profile.json 与桥段子序列"
+                )
+    for bridge_id, actual_ids in bridge_sequences.items():
+        expected_ids = [
+            beat_id
+            for beat_id, beat in ledger_beats.items()
+            if bridge_id in [str(item).strip() for item in beat.get("bid_ids", [])]
+        ]
+        if actual_ids != expected_ids:
+            errors.append(
+                f"{root / 'book.profile.json'} {bridge_id} emotion_sequence "
+                "必须与全文情绪总账中归属该 BID 的拍完全同序相等；"
+                "全文情绪总账一旦重切、补尾或改 BID 边界，必须重生 book.profile.json"
+            )
+
+
 def validate(root: Path) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     notes: list[str] = []
@@ -3193,10 +3820,16 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     check_title_claim_boundary(root, meta_preview, errors)
     check_gendered_humiliation_layer(root, original_text, notes)
     source_lines = check_source_coverage_gate(root, errors, notes)
+    full_emotion_ledger: dict = {}
+    full_plot_ledger: dict = {}
     if source_lines:
         check_fact_integrity_gate(root, source_lines, errors, notes)
         check_opening_public_naming_coverage(root, source_lines, notes)
         check_terminal_evidence_object_coverage(root, source_lines, notes)
+        full_emotion_ledger = check_full_text_emotion_ledger(root, source_lines, errors)
+        full_plot_ledger = check_full_text_plot_ledger(
+            root, source_lines, errors, full_emotion_ledger
+        )
 
     original_dir = root / "原文"
     if not original_dir.exists() or not original_dir.is_dir():
@@ -3303,6 +3936,9 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         load_dynamic_object_terms(root, original_text),
     )
     check_bridge_reconciliation(root, book_profile, errors, notes)
+    check_book_profile_emotion_ledger_alignment(
+        root, book_profile, full_emotion_ledger, errors
+    )
 
     generic_hit_counter = Counter(direct_generic_hits)
     for snippet, count in generic_hit_counter.items():
