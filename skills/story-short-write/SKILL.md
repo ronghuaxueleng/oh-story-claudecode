@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.74.0
+  version: 1.74.1
 ---
 
 # story-short-write：短篇网文写作
@@ -168,6 +168,9 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 全文完成后只建立 `初稿终审回执.json`。每个正文区域一次确认 P 拍完整、E 拍完整、场面成形、对应 `SF-*` 六维颗粒完整和主体声线匹配，并引用真实正文句；全局一次检查全部主体 SF 覆盖、题面、实际开头、结尾后果、长句换气、对白效率和声线边界。区域级合并确认替代旧版逐证据重复映射，但不得把“全局声线像”冒充 SF 全集已消费。
 
 ```bash
+python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
+  --text "{项目目录}/正文.md"
+
 python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" init \
   --project "{项目名}" \
   --draft "{项目目录}/正文.md" \

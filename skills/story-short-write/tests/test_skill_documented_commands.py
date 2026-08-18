@@ -66,6 +66,18 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         self.assertNotIn("$CODEX_HOME/skills/story-short-write", combined)
         self.assertIn("$SKILL_ROOT/scripts/", combined)
 
+    def test_formal_zhihu_format_commands_include_required_text_argument(self) -> None:
+        pattern = re.compile(
+            r'validate_zhihu_section_format\.py"\s*\\\s*\n\s*--text\s+"\{项目目录\}/正文\.md"'
+        )
+        paths = (
+            ROOT / "SKILL.md",
+            ROOT / "references" / "governance" / "short-write-execution-core.md",
+        )
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertRegex(path.read_text(encoding="utf-8"), pattern)
+
 
 if __name__ == "__main__":
     unittest.main()

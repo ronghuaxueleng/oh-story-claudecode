@@ -51,6 +51,9 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 ## 终审命令
 
 ```bash
+python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
+  --text "{项目目录}/正文.md"
+
 python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" init \
   --project "{项目名}" \
   --draft "{项目目录}/正文.md" \
