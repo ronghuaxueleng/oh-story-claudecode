@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "story-short-write.initial-draft-review.v2"
+SCHEMA_VERSION = "story-short-write.initial-draft-review.v3"
+PREVIOUS_SCHEMA_VERSION = "story-short-write.initial-draft-review.v2"
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 H1_RE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 
@@ -28,6 +29,7 @@ def _load_outline_module():
 
 
 OUTLINE = _load_outline_module()
+GRANULARITY_DIMENSIONS = tuple(OUTLINE.SOURCE_STYLE_GRANULARITY_FIELDS)
 
 
 def _load_release_module():
@@ -187,6 +189,46 @@ def required_refs_by_review_region(contract: dict[str, Any]) -> dict[str, dict[s
     return result
 
 
+def required_granularity_reviews_by_region(
+    contract: dict[str, Any],
+) -> dict[str, list[dict[str, Any]]]:
+    """Expand contract SF coverage into ordered, empty review slots."""
+    result = {region_id: [] for region_id in required_refs_by_review_region(contract)}
+    numeric_regions = [
+        region_id for region_id in result if region_id.startswith("section:")
+    ]
+    for item in contract.get("granularity_coverage") or []:
+        source_ref = str(item.get("source_ref") or "").strip()
+        dimensions = item.get("style_dimensions")
+        if not source_ref or dimensions != list(GRANULARITY_DIMENSIONS):
+            raise ValueError(f"主体 SF {source_ref or '<missing>'} 的六维合同不完整")
+        for target_region in item.get("target_regions") or []:
+            region_id = str(target_region)
+            if region_id == "epilogue":
+                region_id = numeric_regions[-1] if numeric_regions else region_id
+            if region_id not in result:
+                continue
+            if any(
+                existing.get("source_ref") == source_ref
+                for existing in result[region_id]
+            ):
+                continue
+            result[region_id].append(
+                {
+                    "source_ref": source_ref,
+                    "dimensions": {
+                        dimension: {
+                            "status": None,
+                            "evidence_quote": "",
+                            "adaptation_note": "",
+                        }
+                        for dimension in GRANULARITY_DIMENSIONS
+                    },
+                }
+            )
+    return result
+
+
 def create_receipt(
     project: str,
     draft_path: Path,
@@ -209,6 +251,7 @@ def create_receipt(
         raise ValueError("；".join(length_errors))
     regions = review_regions(draft_text)
     required = required_refs_by_review_region(contract)
+    required_granularity = required_granularity_reviews_by_region(contract)
     if list(regions) != list(required):
         raise ValueError(f"正文分节与细纲不一致: draft={list(regions)}, expected={list(required)}")
     return {
@@ -227,6 +270,7 @@ def create_receipt(
                 "region_id": region_id,
                 "content_sha256": text_sha256(regions[region_id]),
                 **required[region_id],
+                "granularity_dimension_reviews": required_granularity[region_id],
                 "plot_complete": None,
                 "emotion_complete": None,
                 "scene_complete": None,
@@ -262,6 +306,7 @@ def create_receipt(
         "summary": {
             "draft_nonspace_chars": nonspace_count(draft_text),
             "reviewed_regions": 0,
+            "reviewed_granularity_dimensions": 0,
         },
         "blocking_failures": [],
     }
@@ -284,6 +329,21 @@ def can_preserve_region_review(
         old_review.get(field) == refreshed_review.get(field)
         for field in reference_fields
     )
+    old_granularity_refs = [
+        str(item.get("source_ref") or "")
+        for item in old_review.get("granularity_dimension_reviews") or []
+        if isinstance(item, dict)
+    ]
+    refreshed_granularity_refs = [
+        str(item.get("source_ref") or "")
+        for item in refreshed_review.get("granularity_dimension_reviews") or []
+        if isinstance(item, dict)
+    ]
+    same_requirements = (
+        same_requirements
+        and old_granularity_refs == refreshed_granularity_refs
+        and granularity_reviews_complete(old_review)
+    )
     same_content = (
         bool(old_review.get("content_sha256"))
         and old_review.get("content_sha256") == refreshed_review.get("content_sha256")
@@ -300,12 +360,91 @@ def can_preserve_region_review(
             for quote in quotes
         )
     )
-    return same_requirements and same_content and quotes_still_bound
+    granularity_quotes_still_bound = all(
+        str(dimension_item.get("evidence_quote") or "").strip() in region_text
+        for item in old_review.get("granularity_dimension_reviews") or []
+        if isinstance(item, dict)
+        for dimension_item in (item.get("dimensions") or {}).values()
+        if isinstance(dimension_item, dict)
+    )
+    return (
+        same_requirements
+        and same_content
+        and quotes_still_bound
+        and granularity_quotes_still_bound
+    )
+
+
+def granularity_reviews_complete(review: dict[str, Any]) -> bool:
+    entries = review.get("granularity_dimension_reviews")
+    if not isinstance(entries, list):
+        return False
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return False
+        dimensions = entry.get("dimensions")
+        if not isinstance(dimensions, dict) or set(dimensions) != set(GRANULARITY_DIMENSIONS):
+            return False
+        for dimension in GRANULARITY_DIMENSIONS:
+            item = dimensions.get(dimension)
+            if not isinstance(item, dict):
+                return False
+            if item.get("status") != "realized":
+                return False
+            if not str(item.get("evidence_quote") or "").strip():
+                return False
+            if len(str(item.get("adaptation_note") or "").strip()) < 20:
+                return False
+    return True
+
+
+def validate_granularity_dimension_reviews(
+    actual_entries: Any,
+    expected_entries: list[dict[str, Any]],
+    region_text: str,
+    label: str,
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(actual_entries, list):
+        return [f"{label} 必须是列表"]
+    expected_refs = [str(item.get("source_ref") or "") for item in expected_entries]
+    actual_refs = [
+        str(item.get("source_ref") or "")
+        for item in actual_entries
+        if isinstance(item, dict)
+    ]
+    if actual_refs != expected_refs:
+        errors.append(f"{label} 的 SF 必须与合同完整同序")
+    for expected_entry, actual_entry in zip(expected_entries, actual_entries):
+        if not isinstance(actual_entry, dict):
+            errors.append(f"{label} 每个 SF 必须是对象")
+            continue
+        source_ref = str(expected_entry.get("source_ref") or "")
+        dimensions = actual_entry.get("dimensions")
+        if not isinstance(dimensions, dict) or set(dimensions) != set(GRANULARITY_DIMENSIONS):
+            errors.append(f"{label}[{source_ref}] 必须完整包含六维且不得增删 key")
+            continue
+        for dimension in GRANULARITY_DIMENSIONS:
+            dimension_item = dimensions.get(dimension)
+            dimension_label = f"{label}[{source_ref}].{dimension}"
+            if not isinstance(dimension_item, dict):
+                errors.append(f"{dimension_label} 必须是对象")
+                continue
+            if dimension_item.get("status") != "realized":
+                errors.append(f"{dimension_label}.status 必须为 realized")
+            evidence_quote = str(dimension_item.get("evidence_quote") or "").strip()
+            if not evidence_quote or evidence_quote not in region_text:
+                errors.append(f"{dimension_label}.evidence_quote 必须逐字来自当前正文区域")
+            if len(str(dimension_item.get("adaptation_note") or "").strip()) < 20:
+                errors.append(f"{dimension_label}.adaptation_note 至少 20 字")
+    return errors
 
 
 def region_review_complete(review: dict[str, Any]) -> bool:
     base_fields = ("plot_complete", "emotion_complete", "scene_complete", "voice_match")
     if not all(review.get(field) is True for field in base_fields):
+        return False
+    if not granularity_reviews_complete(review):
         return False
     if review.get("p_replacement_refs"):
         if review.get("p_replacements_realized") is not True:
@@ -320,8 +459,9 @@ def region_review_complete(review: dict[str, Any]) -> bool:
 
 def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
     current = read_json(receipt_path, "初稿终审回执")
-    if current.get("schema_version") != SCHEMA_VERSION:
-        raise ValueError("只能刷新当前版本初稿终审回执")
+    current_schema = current.get("schema_version")
+    if current_schema not in {SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION}:
+        raise ValueError("只能刷新当前或上一版本初稿终审回执")
     bindings = current.get("bindings") or {}
     refreshed = create_receipt(
         str(current.get("project") or "").strip(),
@@ -334,12 +474,13 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
         str(item.get("region_id") or ""): item
         for item in current.get("region_reviews") or []
         if isinstance(item, dict)
-    }
+    } if current_schema == SCHEMA_VERSION else {}
     preserved_fields = (
         "plot_complete",
         "emotion_complete",
         "scene_complete",
         "voice_match",
+        "granularity_dimension_reviews",
         "p_replacements_realized",
         "source_event_shell_rejected",
         "hot_news_mechanisms_realized",
@@ -359,12 +500,26 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
                     review[field] = old[field]
     old_global = current.get("global_review")
     bindings_unchanged = current.get("bindings") == refreshed.get("bindings")
-    if bindings_unchanged and isinstance(old_global, dict):
+    if (
+        current_schema == SCHEMA_VERSION
+        and bindings_unchanged
+        and isinstance(old_global, dict)
+    ):
         for field in refreshed["global_review"]:
             if field in old_global:
                 refreshed["global_review"][field] = old_global[field]
     refreshed["summary"]["reviewed_regions"] = sum(
         1 for review in refreshed["region_reviews"] if region_review_complete(review)
+    )
+    refreshed["summary"]["reviewed_granularity_dimensions"] = sum(
+        1
+        for review in refreshed["region_reviews"]
+        for entry in review.get("granularity_dimension_reviews") or []
+        if isinstance(entry, dict)
+        for dimension in GRANULARITY_DIMENSIONS
+        if isinstance(entry.get("dimensions"), dict)
+        and isinstance(entry["dimensions"].get(dimension), dict)
+        and entry["dimensions"][dimension].get("status") == "realized"
     )
     refreshed["refreshed_at"] = now_iso()
     write_json(receipt_path, refreshed)
@@ -386,6 +541,8 @@ def _validate_binding(item: Any, label: str, errors: list[str]) -> Path | None:
 
 def validate_data(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
+    if data.get("schema_version") == PREVIOUS_SCHEMA_VERSION:
+        return ["旧 v2 回执缺少逐 SF 六维正文证据；请运行 refresh-derived 升级后重新回填"]
     if data.get("schema_version") != SCHEMA_VERSION:
         return [f"schema_version 必须为 {SCHEMA_VERSION}"]
     bindings = data.get("bindings") or {}
@@ -410,6 +567,7 @@ def validate_data(data: dict[str, Any]) -> list[str]:
     )
     regions = review_regions(draft_text)
     expected_refs = required_refs_by_review_region(contract)
+    expected_granularity = required_granularity_reviews_by_region(contract)
     expected_ids = list(expected_refs)
     actual_ids = [str(item.get("region_id") or "") for item in data.get("region_reviews") or [] if isinstance(item, dict)]
     if actual_ids != expected_ids:
@@ -429,10 +587,26 @@ def validate_data(data: dict[str, Any]) -> list[str]:
             "emotion_refs",
             "auxiliary_plot_refs",
             "prose_subflow_refs",
+            "granularity_dimension_reviews",
             "p_replacement_refs",
             "hot_news_refs",
         ):
-            if review.get(field) != expected_refs[region_id][field]:
+            expected_value = (
+                expected_granularity[region_id]
+                if field == "granularity_dimension_reviews"
+                else expected_refs[region_id][field]
+            )
+            if field == "granularity_dimension_reviews":
+                errors.extend(
+                    validate_granularity_dimension_reviews(
+                        review.get(field),
+                        expected_value,
+                        regions.get(region_id, ""),
+                        f"{label}.{field}",
+                    )
+                )
+                continue
+            if review.get(field) != expected_value:
                 errors.append(f"{label}.{field} 不得改写或漏拍")
         for field in ("plot_complete", "emotion_complete", "scene_complete", "voice_match"):
             if review.get(field) is not True:
@@ -494,6 +668,22 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         }
         if reviewed_subflows != set(expected_subflows):
             errors.append("region_reviews 必须覆盖主体全部文字子流程")
+        expected_dimension_count = sum(
+            len(entries) for entries in expected_granularity.values()
+        ) * len(GRANULARITY_DIMENSIONS)
+        reviewed_dimension_count = 0
+        for review in review_by_id.values():
+            for entry in review.get("granularity_dimension_reviews") or []:
+                dimensions = entry.get("dimensions") if isinstance(entry, dict) else None
+                if isinstance(dimensions, dict):
+                    reviewed_dimension_count += sum(
+                        1
+                        for dimension in GRANULARITY_DIMENSIONS
+                        if isinstance(dimensions.get(dimension), dict)
+                        and dimensions[dimension].get("status") == "realized"
+                    )
+        if reviewed_dimension_count != expected_dimension_count:
+            errors.append("region_reviews 必须逐项完成主体全部 SF 六维颗粒")
         expected_replacements = {
             str(item.get("source_ref") or "").strip()
             for item in contract.get("p_beat_replacements") or []
@@ -555,6 +745,11 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         errors.append("summary.draft_nonspace_chars 与最终正文不一致")
     if summary.get("reviewed_regions") != len(expected_ids):
         errors.append("summary.reviewed_regions 必须等于全部区域数")
+    expected_dimension_count = sum(
+        len(entries) for entries in expected_granularity.values()
+    ) * len(GRANULARITY_DIMENSIONS)
+    if summary.get("reviewed_granularity_dimensions") != expected_dimension_count:
+        errors.append("summary.reviewed_granularity_dimensions 必须等于全部 SF 区域落点数乘六")
     return errors
 
 

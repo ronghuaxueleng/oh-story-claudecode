@@ -19,8 +19,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-SCHEMA_VERSION = "story-short-write.outline-migration-contract.v3"
-TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v2"
+SCHEMA_VERSION = "story-short-write.outline-migration-contract.v5"
+PREVIOUS_SCHEMA_VERSION = "story-short-write.outline-migration-contract.v4"
+TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v3"
 FULL_BRIDGE_PLOT_LEDGER_SCHEMA = "story-short-analyze.full-text-plot-ledger.v2"
 FULL_EMOTION_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v2"
 SOURCE_STYLE_GRANULARITY_FIELDS = (
@@ -51,6 +52,50 @@ P_REPLACEMENT_CORE_DIMENSIONS = {
     "consequence",
 }
 HOT_NEWS_MAX_AGE_DAYS = 90
+HOT_MATERIAL_TYPES = {"social_news", "internet_meme"}
+GOVERNMENT_PUBLISHER_MARKERS = (
+    "政府",
+    "国务院",
+    "网信办",
+    "政务",
+    "公安部",
+    "公安厅",
+    "公安局",
+    "人民法院",
+    "人民检察院",
+    "应急管理部",
+    "应急管理厅",
+    "应急管理局",
+    "市场监管",
+    "市场监督管理",
+    "行政审批",
+    "税务局",
+    "执法局",
+    "管理委员会",
+    "监督管理局",
+)
+SEARCH_ENGINE_HOST_SUFFIXES = (
+    "google.com",
+    "google.cn",
+    "bing.com",
+    "sogou.com",
+    "duckduckgo.com",
+    "yandex.com",
+)
+SEARCH_ENGINE_EXACT_HOSTS = {
+    "baidu.com",
+    "www.baidu.com",
+    "m.baidu.com",
+    "wap.baidu.com",
+    "news.baidu.com",
+    "so.com",
+    "www.so.com",
+    "m.so.com",
+    "sm.cn",
+    "m.sm.cn",
+    "search.yahoo.com",
+    "search.brave.com",
+}
 HEADING_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
 FIELD_RE = re.compile(r"(?m)^- ([^：\n]+)：(.*)$")
 SECTION_HEADING_RE = re.compile(r"^(\d+)[.、．](?:\s+.*)?$")
@@ -463,19 +508,108 @@ def build_source_hierarchy(specs: list[dict[str, Any]]) -> dict[str, Any]:
             )
         rule_by_id[bridge_id] = rule
         profile_bridge_order.append(bridge_id)
-    if profile_bridge_order != bridge_order:
+    # Older source profiles can predate a later ledger split. Preserve strict
+    # validation for the existing prefix, then derive only newly appended BID
+    # shells from the P/E ledgers instead of mutating the source profile.
+    if profile_bridge_order != bridge_order[: len(profile_bridge_order)]:
         raise ValueError(
-            "主体 profile.bridge_rules 必须与 P/E/SF 总账中的 BID 完全同序: "
+            "主体 profile.bridge_rules 必须与 P/E/SF 总账中的 BID 完全同序，或为其有序前缀: "
             f"profile={profile_bridge_order}, ledgers={bridge_order}"
         )
 
-    bridges: list[dict[str, Any]] = []
-    for bridge_id in bridge_order:
-        emotion_beats = [
+    emotion_by_bridge: dict[str, list[dict[str, Any]]] = {
+        bridge_id: [
             beat
             for beat in primary["emotion_beats"]
             if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
         ]
+        for bridge_id in bridge_order
+    }
+    plot_by_bridge: dict[str, list[dict[str, Any]]] = {
+        bridge_id: [
+            beat
+            for beat in primary["plot_beats"]
+            if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
+        ]
+        for bridge_id in bridge_order
+    }
+
+    def ledger_emotion_sequence(bridge_id: str) -> list[dict[str, Any]]:
+        sequence: list[dict[str, Any]] = []
+        for beat in emotion_by_bridge.get(bridge_id) or []:
+            evidence = beat.get("source_evidence")
+            if isinstance(evidence, list):
+                evidence_value = next(
+                    (
+                        str(item or "").strip()
+                        for item in evidence
+                        if str(item or "").strip()
+                    ),
+                    "",
+                )
+            else:
+                evidence_value = str(evidence or "").strip()
+            sequence.append(
+                {
+                    "beat_id": str(beat.get("beat_id") or "").strip(),
+                    "role": beat.get("role"),
+                    "content": beat.get("content"),
+                    "intensity": beat.get("intensity"),
+                    "source_evidence": evidence_value,
+                }
+            )
+        return sequence
+
+    # Legacy profiles used six named emotion slots per bridge rather than the
+    # later E-* ledger IDs. Keep that summary for traceability, but make the
+    # ledger the canonical sequence used by the contract.
+    for bridge_id in profile_bridge_order:
+        rule = rule_by_id[bridge_id]
+        sequence = rule.get("emotion_sequence")
+        expected_ids = [
+            str(beat.get("beat_id") or "").strip()
+            for beat in emotion_by_bridge.get(bridge_id) or []
+        ]
+        actual_ids = [
+            str(item.get("beat_id") or "").strip()
+            for item in sequence
+            if isinstance(item, dict)
+        ] if isinstance(sequence, list) else []
+        if expected_ids and actual_ids != expected_ids and all(
+            not value.startswith("E-") for value in actual_ids
+        ):
+            normalized = deepcopy(rule)
+            normalized["profile_summary"] = deepcopy(rule.get("emotion_sequence"))
+            normalized["emotion_sequence"] = ledger_emotion_sequence(bridge_id)
+            normalized["derived_from_ledgers"] = True
+            rule_by_id[bridge_id] = normalized
+
+    for bridge_id in bridge_order[len(profile_bridge_order) :]:
+        ledger_emotions = emotion_by_bridge.get(bridge_id) or []
+        derived_sequence = ledger_emotion_sequence(bridge_id)
+        must_keep = [
+            str(beat.get("content") or "").strip()
+            for beat in ledger_emotions
+            if str(beat.get("content") or "").strip()
+        ]
+        if not must_keep:
+            must_keep = [
+                str(beat.get("action") or "").strip()
+                for beat in plot_by_bridge.get(bridge_id) or []
+                if str(beat.get("action") or "").strip()
+            ]
+        if not must_keep:
+            must_keep = [f"{bridge_id} 总账承重"]
+        rule_by_id[bridge_id] = {
+            "id": bridge_id,
+            "must_keep": must_keep,
+            "emotion_sequence": derived_sequence,
+            "derived_from_ledgers": True,
+        }
+
+    bridges: list[dict[str, Any]] = []
+    for bridge_id in bridge_order:
+        emotion_beats = emotion_by_bridge.get(bridge_id) or []
         expected_emotion_ids = [
             str(beat.get("beat_id") or "").strip() for beat in emotion_beats
         ]
@@ -707,7 +841,7 @@ def validate_hot_news_materials(
         return []
     required_count = min(2, len(replacements))
     if len(materials) < required_count:
-        errors.append(f"hot_news_materials 至少需要 {required_count} 条不同热点新闻")
+        errors.append(f"hot_news_materials 至少需要 {required_count} 条不同社会热点材料")
     normalized: list[dict[str, str]] = []
     for index, item in enumerate(materials, start=1):
         label = f"hot_news_materials[{index}]"
@@ -718,11 +852,13 @@ def validate_hot_news_materials(
             key: str(item.get(key) or "").strip()
             for key in (
                 "news_id",
+                "material_type",
                 "title",
                 "publisher",
                 "published_at",
                 "retrieved_at",
                 "url",
+                "social_heat_signal",
                 "transferable_mechanism",
                 "fact_boundary",
             )
@@ -733,9 +869,28 @@ def validate_hot_news_materials(
                 errors.append(f"{label}.{key} 不能为空")
         if not re.fullmatch(r"HN-\d{3,}", values["news_id"]):
             errors.append(f"{label}.news_id 必须使用 HN-001 形态")
+        if values["material_type"] not in HOT_MATERIAL_TYPES:
+            errors.append(
+                f"{label}.material_type 必须为 social_news 或 internet_meme"
+            )
         parsed_url = urlparse(values["url"])
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-            errors.append(f"{label}.url 必须是可追溯的 http/https 新闻链接")
+            errors.append(f"{label}.url 必须是可追溯的 http/https 材料链接")
+        host = (parsed_url.hostname or "").rstrip(".").lower()
+        host_labels = set(host.split("."))
+        if "gov" in host_labels or host.endswith(".gov.cn") or host == "gov.cn":
+            errors.append(f"{label}.url 禁止使用政府/政务网站")
+        if (
+            host in SEARCH_ENGINE_EXACT_HOSTS
+            or host.startswith("search.")
+            or any(
+                host == suffix or host.endswith(f".{suffix}")
+                for suffix in SEARCH_ENGINE_HOST_SUFFIXES
+            )
+        ):
+            errors.append(f"{label}.url 禁止使用搜索引擎或聚合搜索结果")
+        if any(marker in values["publisher"] for marker in GOVERNMENT_PUBLISHER_MARKERS):
+            errors.append(f"{label}.publisher 禁止使用政府部门或监管机构")
         try:
             published = date.fromisoformat(values["published_at"])
             retrieved = date.fromisoformat(values["retrieved_at"])
@@ -744,10 +899,14 @@ def validate_hot_news_materials(
                 errors.append(f"{label} 检索日期不得早于发布日期")
             elif age > HOT_NEWS_MAX_AGE_DAYS:
                 errors.append(
-                    f"{label} 发布至检索已 {age} 天，超过热点新闻 {HOT_NEWS_MAX_AGE_DAYS} 天上限"
+                    f"{label} 发布/走热至检索已 {age} 天，超过社会热点材料 {HOT_NEWS_MAX_AGE_DAYS} 天上限"
                 )
         except ValueError:
             errors.append(f"{label}.published_at/retrieved_at 必须是 YYYY-MM-DD")
+        if len(values["social_heat_signal"]) < 15:
+            errors.append(
+                f"{label}.social_heat_signal 至少 15 字，说明热榜、跨媒体跟进、平台讨论或当事方回应"
+            )
         if len(values["transferable_mechanism"]) < 15:
             errors.append(f"{label}.transferable_mechanism 至少 15 字")
         if len(values["fact_boundary"]) < 20:
@@ -757,13 +916,17 @@ def validate_hot_news_materials(
     if len(ids) != len(set(ids)):
         errors.append("hot_news_materials.news_id 不得重复")
     publishers = {item["publisher"] for item in normalized if item["publisher"]}
-    hosts = {urlparse(item["url"]).netloc.lower() for item in normalized if item["url"]}
+    hosts = {
+        (urlparse(item["url"]).hostname or "").rstrip(".").lower()
+        for item in normalized
+        if item["url"]
+    }
     distinct_required = min(required_count, len(normalized))
     if len(publishers) < distinct_required or len(hosts) < distinct_required:
-        errors.append("热点新闻必须来自至少两个不同发布机构和站点")
+        errors.append("社会热点材料必须来自至少两个不同发布者和站点")
     mechanisms = [item["transferable_mechanism"] for item in normalized if item["transferable_mechanism"]]
     if len(mechanisms) != len(set(mechanisms)):
-        errors.append("热点新闻不得用不同链接重复登记同一迁移机制")
+        errors.append("社会热点材料不得用不同链接重复登记同一迁移机制")
 
     known_ids = set(ids)
     used_ids = {
@@ -775,10 +938,10 @@ def validate_hot_news_materials(
     }
     unknown = sorted(used_ids - known_ids)
     if unknown:
-        errors.append(f"P 拍替换引用了未知热点新闻: {unknown}")
+        errors.append(f"P 拍替换引用了未知社会热点材料: {unknown}")
     unused = sorted(known_ids - used_ids)
     if unused:
-        errors.append(f"热点新闻未落到任何目标 P 拍: {unused}")
+        errors.append(f"社会热点材料未落到任何目标 P 拍: {unused}")
     news_by_beat = [
         {
             str(news_id or "").strip()
@@ -801,7 +964,7 @@ def validate_hot_news_materials(
         )
     if not distinct_assignment_exists:
         errors.append(
-            f"至少 {required_count} 条不同热点新闻必须分别落到 "
+            f"至少 {required_count} 条不同社会热点材料必须分别落到 "
             f"{required_count} 个不同目标 P 拍"
         )
     return errors
@@ -814,6 +977,31 @@ def ensure_source_assets_unchanged(
         raise ValueError("来源资产已变更，旧纲层判断失效，请重新初始化并导出侧车")
     if receipt.get("source_hierarchy") != build_source_hierarchy(specs):
         raise ValueError("主体上层层级已变更，旧纲层判断失效，请重新初始化并导出侧车")
+
+
+def _granularity_evidence(value: Any) -> list[str]:
+    """Extract only explicitly labelled evidence from a style dimension."""
+    evidence: list[str] = []
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            for key in ("evidence", "source_evidence", "quote", "excerpt"):
+                candidate = item.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    evidence.append(candidate.strip())
+                elif isinstance(candidate, list):
+                    for nested in candidate:
+                        if isinstance(nested, str) and nested.strip():
+                            evidence.append(nested.strip())
+            for nested in item.values():
+                if isinstance(nested, (dict, list)):
+                    visit(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                visit(nested)
+
+    visit(value)
+    return list(dict.fromkeys(evidence))
 
 
 def build_granularity_coverage(
@@ -848,12 +1036,20 @@ def build_granularity_coverage(
             region = target_regions.get(target)
             if region and region not in regions:
                 regions.append(region)
+        granularity = subflow["source_style_granularity"]
         result.append(
             {
                 "source_ref": f"{primary['source_id']}:{subflow_id}",
                 "parent_bridge_id": str(subflow.get("parent_bridge_id") or "").strip(),
                 "source_range": str(subflow.get("source_range") or "").strip(),
                 "style_dimensions": list(SOURCE_STYLE_GRANULARITY_FIELDS),
+                "dimension_requirements": {
+                    field: {
+                        "analysis": deepcopy(granularity[field]),
+                        "source_evidence": _granularity_evidence(granularity[field]),
+                    }
+                    for field in SOURCE_STYLE_GRANULARITY_FIELDS
+                },
                 "target_regions": regions,
             }
         )
@@ -1020,7 +1216,7 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         "instructions": (
             "三个 targets 数组分别与对应 source 序列等长同序；每项只填一个 target_id。"
             "完整保留上层关系/BID/E/SF 层级，只逐拍替换主体 P 拍事件壳；"
-            "只有用户明确要求热点时才填写热点字段，新闻只供应目标 P 拍的现实机制。"
+            "只有用户明确要求热点时才填写热点字段，且只允许有热度证据的非政府社会新闻或网络热梗供应目标 P 拍的现实机制。"
         ),
         "target_catalog": [
             {
@@ -1372,8 +1568,11 @@ def rebind_outline(
     preserve_by_evidence: bool = False,
 ) -> dict[str, Any]:
     receipt = read_json(receipt_path, "细纲迁移合同")
-    if receipt.get("schema_version") != SCHEMA_VERSION:
+    receipt_schema = receipt.get("schema_version")
+    if receipt_schema not in {SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION}:
         raise ValueError("只能重绑紧凑纲层迁移合同")
+    if receipt_schema == PREVIOUS_SCHEMA_VERSION and not preserve_by_evidence:
+        raise ValueError("旧 v4 合同升级必须使用 --preserve-by-evidence，避免丢失既有映射")
     config_path = Path(receipt["project_config"]["path"]).resolve()
     specs = source_specs(config_path)
     if preserve_by_evidence:
@@ -1419,6 +1618,7 @@ def rebind_outline(
         replacements = []
     coverage = build_granularity_coverage(specs, catalog, mapping)
     receipt["outline"] = binding(outline_path)
+    receipt["schema_version"] = SCHEMA_VERSION
     receipt["project_config"] = binding(config_path)
     receipt["sources"] = [_public_source(spec) for spec in specs]
     receipt["source_hierarchy"] = build_source_hierarchy(specs)

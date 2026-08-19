@@ -163,6 +163,21 @@ def start_outline_release(
                 "outline_ready": True,
                 "resumed_existing": True,
             }
+        if existing.get("schema_version") == OUTLINE.PREVIOUS_SCHEMA_VERSION:
+            try:
+                OUTLINE.rebind_outline(
+                    receipt,
+                    paths["outline"],
+                    preserve_by_evidence=True,
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                return [f"旧 v4 纲层合同升级失败: {exc}"], {"outline_ready": False}
+            return [], {
+                "outline_receipt": str(receipt),
+                "outline_ready": True,
+                "resumed_existing": True,
+                "upgraded_from_v4": True,
+            }
         return ["现有细纲回执不是当前合同；请移出该文件后重新初始化"], {
             "outline_ready": False
         }

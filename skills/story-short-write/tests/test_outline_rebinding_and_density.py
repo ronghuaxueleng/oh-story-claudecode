@@ -122,7 +122,7 @@ class EvidenceRebindingTest(unittest.TestCase):
             }
             receipt_path.write_text(
                 json.dumps({
-                    "schema_version": OUTLINE.SCHEMA_VERSION,
+                    "schema_version": OUTLINE.PREVIOUS_SCHEMA_VERSION,
                     "project_config": OUTLINE.binding(config),
                     "outline_catalog": old_catalog,
                     "mapping": mapping,
@@ -188,6 +188,7 @@ class EvidenceRebindingTest(unittest.TestCase):
 
         self.assertEqual(expected_config_sha, rebound["project_config"]["sha256"])
         self.assertEqual([OUTLINE._public_source(spec)], rebound["sources"])
+        self.assertEqual(OUTLINE.SCHEMA_VERSION, rebound["schema_version"])
 
 
 class SectionDensityTest(unittest.TestCase):
@@ -306,6 +307,21 @@ class SectionDensityTest(unittest.TestCase):
 class InitialReviewRefreshTest(unittest.TestCase):
     region_text = "第一条证据。中间内容。第二条证据。"
 
+    def granularity_reviews(self, quote: str = "第一条证据。") -> list[dict]:
+        return [
+            {
+                "source_ref": "SF-001",
+                "dimensions": {
+                    dimension: {
+                        "status": "realized",
+                        "evidence_quote": quote,
+                        "adaptation_note": "该维度已通过当前场面的动作、感知和句间关系完成换芯落地。",
+                    }
+                    for dimension in INITIAL_REVIEW.GRANULARITY_DIMENSIONS
+                },
+            }
+        ]
+
     def review(self, plot_refs: list[str], region_text: str | None = None) -> dict:
         text = self.region_text if region_text is None else region_text
         return {
@@ -314,6 +330,7 @@ class InitialReviewRefreshTest(unittest.TestCase):
             "emotion_refs": ["E-001"],
             "auxiliary_plot_refs": [],
             "prose_subflow_refs": ["SF-001"],
+            "granularity_dimension_reviews": self.granularity_reviews(),
             "evidence_quotes": ["第一条证据。"],
         }
 
@@ -351,8 +368,69 @@ class InitialReviewRefreshTest(unittest.TestCase):
             )
         )
 
+    def test_stale_granularity_quote_cannot_be_preserved(self) -> None:
+        old = self.review(["P-001"])
+        old["granularity_dimension_reviews"] = self.granularity_reviews("已删除的证据。")
+        refreshed = self.review(["P-001"])
+        self.assertFalse(
+            INITIAL_REVIEW.can_preserve_region_review(
+                old,
+                refreshed,
+                self.region_text,
+            )
+        )
+
+    def test_all_six_realized_dimensions_with_current_quotes_pass(self) -> None:
+        entries = self.granularity_reviews()
+        errors = INITIAL_REVIEW.validate_granularity_dimension_reviews(
+            entries,
+            [{"source_ref": "SF-001"}],
+            self.region_text,
+            "region",
+        )
+        self.assertEqual([], errors)
+
+    def test_partial_or_missing_dimension_blocks(self) -> None:
+        partial = self.granularity_reviews()
+        partial[0]["dimensions"][INITIAL_REVIEW.GRANULARITY_DIMENSIONS[0]][
+            "status"
+        ] = "partial"
+        partial_errors = INITIAL_REVIEW.validate_granularity_dimension_reviews(
+            partial,
+            [{"source_ref": "SF-001"}],
+            self.region_text,
+            "region",
+        )
+        missing = self.granularity_reviews()
+        del missing[0]["dimensions"][INITIAL_REVIEW.GRANULARITY_DIMENSIONS[-1]]
+        missing_errors = INITIAL_REVIEW.validate_granularity_dimension_reviews(
+            missing,
+            [{"source_ref": "SF-001"}],
+            self.region_text,
+            "region",
+        )
+        self.assertTrue(any("status 必须为 realized" in item for item in partial_errors))
+        self.assertTrue(any("完整包含六维" in item for item in missing_errors))
+
+    def test_dimension_quote_must_exist_in_current_region(self) -> None:
+        entries = self.granularity_reviews("不存在的正文引句。")
+        errors = INITIAL_REVIEW.validate_granularity_dimension_reviews(
+            entries,
+            [{"source_ref": "SF-001"}],
+            self.region_text,
+            "region",
+        )
+        self.assertTrue(any("逐字来自当前正文区域" in item for item in errors))
+
 
 class InitialReviewLengthPolicyTest(unittest.TestCase):
+    def test_v2_receipt_requires_refresh_upgrade(self) -> None:
+        errors = INITIAL_REVIEW.validate_data(
+            {"schema_version": INITIAL_REVIEW.PREVIOUS_SCHEMA_VERSION}
+        )
+        self.assertEqual(1, len(errors))
+        self.assertIn("refresh-derived", errors[0])
+
     def test_target_char_range_is_not_a_draft_gate(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -408,6 +486,7 @@ class InitialReviewLengthPolicyTest(unittest.TestCase):
                     "emotion_complete": True,
                     "scene_complete": True,
                     "voice_match": True,
+                    "granularity_dimension_reviews": [],
                     "p_replacements_realized": None,
                     "source_event_shell_rejected": None,
                     "hot_news_mechanisms_realized": None,
@@ -451,6 +530,7 @@ class InitialReviewLengthPolicyTest(unittest.TestCase):
                         draft.read_text(encoding="utf-8")
                     ),
                     "reviewed_regions": len(regions),
+                    "reviewed_granularity_dimensions": 0,
                 },
             }
             with mock.patch.object(
@@ -474,6 +554,7 @@ class InitialReviewLengthPolicyTest(unittest.TestCase):
             "emotion_complete": True,
             "scene_complete": True,
             "voice_match": True,
+            "granularity_dimension_reviews": [],
             "p_replacements_realized": True,
             "source_event_shell_rejected": True,
             "hot_news_mechanisms_realized": False,
@@ -559,6 +640,29 @@ class SourceHierarchyValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "BID 完全同序"):
             OUTLINE.build_source_hierarchy(specs)
 
+    def test_appended_ledger_bridge_is_derived_from_source_ledgers(self) -> None:
+        specs = self.specs()
+        specs[0]["plot_beats"].append(
+            {"beat_id": "P-003", "action": "公开收回权限", "bid_ids": ["BID-03"]}
+        )
+        specs[0]["emotion_beats"].append(
+            {
+                "beat_id": "E-003",
+                "role": "追加桥段",
+                "content": "新增细分桥段",
+                "intensity": 8,
+                "source_evidence": ["她收回了权限。"],
+                "bid_ids": ["BID-03"],
+            }
+        )
+
+        hierarchy = OUTLINE.build_source_hierarchy(specs)
+
+        self.assertEqual(["BID-01", "BID-02", "BID-03"], hierarchy["bridge_order"])
+        derived = hierarchy["bridges"][2]["profile_rule"]
+        self.assertTrue(derived["derived_from_ledgers"])
+        self.assertEqual(["E-003"], [item["beat_id"] for item in derived["emotion_sequence"]])
+
     def test_profile_emotion_intensity_must_match_ledger(self) -> None:
         specs = self.specs()
         specs[0]["hierarchy_assets"]["bridge_rules"][0]["emotion_sequence"][0][
@@ -592,14 +696,18 @@ class HotNewsValidationTest(unittest.TestCase):
         news_id: str = "HN-001",
         publisher: str = "测试新闻社",
         host: str = "news.example.com",
+        material_type: str = "social_news",
+        social_heat_signal: str = "该话题进入平台热榜并引发多家媒体连续跟进讨论",
     ) -> dict:
         return {
             "news_id": news_id,
+            "material_type": material_type,
             "title": "公开授权规则调整",
             "publisher": publisher,
             "published_at": published_at,
             "retrieved_at": "2026-08-19",
             "url": f"https://{host}/authorization",
+            "social_heat_signal": social_heat_signal,
             "transferable_mechanism": f"{news_id} 的排他授权会被系统留痕并公开确认优先顺位",
             "fact_boundary": "只采用排他授权与系统留痕机制，真实人物、机构、时间线和具体后果均不进入正文",
         }
@@ -608,13 +716,43 @@ class HotNewsValidationTest(unittest.TestCase):
         errors = OUTLINE.validate_hot_news_materials(
             [self.material("2026-01-01")], [self.replacement()]
         )
-        self.assertTrue(any("超过热点新闻 90 天上限" in error for error in errors))
+        self.assertTrue(any("超过社会热点材料 90 天上限" in error for error in errors))
 
     def test_traceable_current_news_passes_for_single_p_beat(self) -> None:
         errors = OUTLINE.validate_hot_news_materials(
             [self.material()], [self.replacement()]
         )
         self.assertEqual([], errors)
+
+    def test_traceable_internet_meme_passes_for_single_p_beat(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [self.material(material_type="internet_meme")], [self.replacement()]
+        )
+        self.assertEqual([], errors)
+
+    def test_missing_social_heat_signal_is_rejected(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [self.material(social_heat_signal="")], [self.replacement()]
+        )
+        self.assertTrue(any("social_heat_signal" in error for error in errors))
+
+    def test_government_domain_is_rejected(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [self.material(host="example.gov.cn")], [self.replacement()]
+        )
+        self.assertTrue(any("禁止使用政府/政务网站" in error for error in errors))
+
+    def test_government_publisher_is_rejected(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [self.material(publisher="某市应急管理局")], [self.replacement()]
+        )
+        self.assertTrue(any("禁止使用政府部门或监管机构" in error for error in errors))
+
+    def test_search_engine_result_is_rejected(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [self.material(host="news.google.com")], [self.replacement()]
+        )
+        self.assertTrue(any("禁止使用搜索引擎或聚合搜索结果" in error for error in errors))
 
     def test_no_hot_news_passes_when_user_did_not_request_it(self) -> None:
         errors = OUTLINE.validate_hot_news_materials(
@@ -642,7 +780,7 @@ class HotNewsValidationTest(unittest.TestCase):
 
         errors = OUTLINE.validate_hot_news_materials(materials, replacements)
 
-        self.assertTrue(any("不同热点新闻必须分别落到" in error for error in errors))
+        self.assertTrue(any("不同社会热点材料必须分别落到" in error for error in errors))
 
 
 if __name__ == "__main__":

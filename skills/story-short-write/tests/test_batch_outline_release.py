@@ -230,6 +230,15 @@ class BatchOutlineReleaseTest(unittest.TestCase):
             list(GATE.OUTLINE.SOURCE_STYLE_GRANULARITY_FIELDS),
             payload["granularity_coverage"][0]["style_dimensions"],
         )
+        requirements = payload["granularity_coverage"][0]["dimension_requirements"]
+        self.assertEqual(
+            set(GATE.OUTLINE.SOURCE_STYLE_GRANULARITY_FIELDS),
+            set(requirements),
+        )
+        self.assertEqual(
+            ["我没想到"],
+            requirements["narrative_voice_and_attitude"]["source_evidence"],
+        )
         self.assertEqual([], payload["granularity_coverage"][0]["target_regions"])
         self.assertTrue(payload["sources"][0]["subflow_catalog"]["sha256"])
         self.assertEqual(["BID-01"], payload["source_hierarchy"]["bridge_order"])
@@ -309,11 +318,13 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         template["hot_news_materials"] = [
             {
                 "news_id": "HN-001",
+                "material_type": "social_news",
                 "title": "平台紧急授权规则调整引发关注",
                 "publisher": "测试新闻社",
                 "published_at": "2026-08-10",
                 "retrieved_at": "2026-08-19",
                 "url": "https://news.example.com/rule-change",
+                "social_heat_signal": "该话题进入平台热榜后由多家媒体连续跟进并引发讨论",
                 "transferable_mechanism": "紧急权限只能授予一人，系统记录会公开固化谁被优先选择",
                 "fact_boundary": "只采用权限排他和系统留痕机制，人物、机构、时间线与具体结果全部虚构化处理",
             }
