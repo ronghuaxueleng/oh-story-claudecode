@@ -2,29 +2,48 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 import sys
+import re
 from pathlib import Path
 
 
-def project_root_from_script() -> Path:
-    return Path(__file__).resolve().parents[1]
+def repo_root_from_script() -> Path:
+    return Path(__file__).resolve().parents[3]
 
 
 def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
 
 
+def markdown_sha1s(root: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for path in sorted(root.rglob("*.md")):
+        if path.is_file():
+            hashes[str(path.relative_to(root))] = hashlib.sha1(path.read_bytes()).hexdigest()
+    return hashes
+
+
 def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
+    validator_status = validator_payload.get("status")
+    if validator_status not in {
+        "ready-for-write",
+        "blocked-on-source-coverage",
+        "blocked-on-fact-integrity",
+        "blocked-on-assets",
+    }:
+        validator_status = "ready-for-write" if validator_payload.get("ok") else "blocked-on-assets"
     return {
         "root": str(root),
         "ok": bool(validator_payload.get("ok")),
-        "status": "ready-for-write" if validator_payload.get("ok") else "blocked-on-assets",
+        "status": validator_status,
         "profile_generated": profile_generated,
         "error_count": validator_payload.get("error_count", 0),
         "errors": validator_payload.get("errors", []),
         "notes": notes + validator_payload.get("notes", []),
+        "human_review_items": validator_payload.get("human_review_items", []),
     }
 
 
@@ -38,6 +57,44 @@ def parse_validator_output(stdout: str) -> dict:
             "errors": [stdout.strip() or "验收脚本输出无法解析"],
             "notes": [],
         }
+
+
+def update_completion_state(root: Path) -> list[str]:
+    notes: list[str] = []
+    meta_path = root / "_meta.json"
+    if meta_path.exists():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return notes
+        changed = False
+        profile_source = root / "写作资产" / "profile_source.md"
+        if profile_source.exists():
+            source_text = profile_source.read_text(encoding="utf-8", errors="ignore")
+            genre_match = re.search(r"^\s*-\s*深层流派[：:]\s*(.+)$", source_text, flags=re.M)
+            if not genre_match:
+                genre_match = re.search(r"^\s*-\s*表面题材[：:]\s*(.+)$", source_text, flags=re.M)
+            if genre_match:
+                genre = genre_match.group(1).strip()
+                if genre and meta.get("genre_detected") != genre:
+                    meta["genre_detected"] = genre
+                    changed = True
+        if meta.get("stages_completed") != [2, 3, 4, 5, 6]:
+            meta["stages_completed"] = [2, 3, 4, 5, 6]
+            changed = True
+        if meta.get("last_stage_in_progress") is not None:
+            meta["last_stage_in_progress"] = None
+            changed = True
+        if isinstance(meta.get("upgrade_existing"), dict) and meta.get("upgrade_status") != "completed":
+            meta["upgrade_status"] = "completed"
+            changed = True
+        if changed:
+            meta_path.write_text(
+                json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            notes.append("_meta.json 已回写题材、完成阶段并清除进行中状态。")
+    return notes
 
 
 def main() -> int:
@@ -72,11 +129,13 @@ def main() -> int:
             print(f"- 目录不存在：{root}")
         return 2
 
-    project_root = project_root_from_script()
+    repo_root = repo_root_from_script()
     profile_source = root / "写作资产" / "profile_source.md"
     profile_output = root / "book.profile.json"
-    generator = project_root / "scripts" / "generate_story_profile.py"
-    validator = project_root / "scripts" / "validate_short_analyze_outputs.py"
+    generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
+    validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
+
+    markdown_before = markdown_sha1s(root)
 
     if not args.skip_profile:
         if not profile_source.exists():
@@ -142,6 +201,22 @@ def main() -> int:
         return 2
 
     validator_payload = parse_validator_output(result.stdout)
+    markdown_after = markdown_sha1s(root)
+    if markdown_after != markdown_before:
+        changed = sorted(
+            path
+            for path in set(markdown_before) | set(markdown_after)
+            if markdown_before.get(path) != markdown_after.get(path)
+        )
+        validator_payload.setdefault("errors", []).append(
+            "finalize 运行期间 Markdown 发生变化，禁止收口脚本补写或改写正式产物："
+            + ", ".join(changed)
+        )
+        validator_payload["ok"] = False
+        validator_payload["status"] = "blocked-on-assets"
+        validator_payload["error_count"] = len(validator_payload["errors"])
+    if validator_payload.get("ok"):
+        notes.extend(update_completion_state(root))
     payload = build_payload(root, profile_generated, validator_payload, notes)
 
     if args.json:

@@ -3,7 +3,7 @@
 这一阶段只做两件事：
 
 1. 把结构化上游补全
-2. 生成无损语义编译包并跑最终收口，不做任何 Markdown 补写或修复
+2. 跑只读式最终收口，不做任何补写或修复
 
 ## 零兜底原则
 
@@ -26,7 +26,8 @@
 额外硬目标：
 
 - `book.profile.json` 不能只做到“有键可过 schema”
-- 至少要让 `bridge_rules` 保住 4 类信息：起手、承重件、顺序/假点原因、逐 BID 六拍情绪序列
+- `book.profile.json.prose_style_contract` 必须是 `primary_only`，且 `sentence_motion / narrator_voice / dialogue_and_character_voice / anti_patterns` 四个数组全部非空
+- 至少要让 `bridge_rules` 保住 4 类信息：起手、承重件、顺序/假点原因、对应全文总账的逐 BID 原序情绪拍子集；全文全集仍以 `全文情绪颗粒总账.json` 为准
 - 如果生成出的 `book.profile.json` 比同书 `bak` 明显更空，默认本批未完成；但 `bak` 只用于对比厚度和找漏项，不能参与回填或直接回灌正式产物
 
 ## profile_source 必补章节
@@ -37,9 +38,6 @@
 - `## 10. 作者站位高危句`
 - `## 11. style_assets 原始材料`
 - `## 12. 迁移替换资产`
-- `## 13. 场景因果资产`
-
-`## 13. 场景因果资产` 每张卡固定以 `- 因果资产：CPA-xx 名称` 起卡，嵌套写 `到场原因 / 知情边界 / 物件生命周期 / 制度约束 / 明显替代方案阻断 / 离场因果 / 原文证据`。这些内容必须由 `book.profile.json.causal_precondition_assets` 原样结构化承接，禁止下游临写细纲时再猜。
 
 ## 7. 禁句 / 禁写法 的硬写法
 
@@ -66,14 +64,10 @@
 4. `style_assets` 混入换壳词
 5. `bridge_rules` 只剩 `must_keep` 壳，没有 `must_avoid / fake_signals / why_order_matters / why_original_passes / emotion_sequence`
 6. `role_bias_variants` 或 `scene_assets.consequence_chain` 被中文逗号、顿号切成失去语义的碎词
-7. `子流程索引.jsonl` 只有事件流程，没有逐 SF `source_style_granularity`
-8. 多个 SF 复用同一组“叙述克制、长短句结合、对白留白”通用文风模板，证据也不在本 SF 行段内
 
 这些都要在 finalize 前修。
 
 ## 收口规则
-
-历史增量目录在收口前必须先运行 `complete_upgrade_existing.py`。若产出 `_style_reanalysis_tasks.json`，当前模型必须自动逐 SF 重读其中的精确原文切片，真实重写六项文风颗粒并复验；不得让脚本按事件字段拼 analysis，也不得停在待办清单。只有检查器返回 `ready_for_finalize` 且任务文件已清除，才进入下面的同步复核与 finalize。
 
 最后固定运行：
 
@@ -83,15 +77,15 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 理解口径：
 
-- 正式 Markdown 补齐后先运行 `sync_finalize_human_review.py "拆文库/{书名}" --json`，同步当前 SHA 与待裁决项；脚本不得自动填写 `resolved / not_applicable`
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
-- finalize 只允许生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 和读取正式产物，不允许修改 Markdown
-- 无损编译包归拆书阶段所有：它必须是 `version: 1.1`，包含唯一完整原文、全部 SF 原始字段、每个 SF 的逐场 `source_style_granularity`、BID 施工卡和 profile 承重资产；写作阶段只读、只校验，缺失、旧版或过期必须返回本阶段重跑 finalize
-- `source_style_granularity` 必须在 finalize 前已经由拆书产物固化。六项分别是 `narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`；每项至少两条不同原文证据，且证据必须落在该 SF 的 `source_range` 内
-- `source_asset_coverage` 必须排除无损编译包自身，避免自引用；包内仍保留不含自身的完整来源清单用于新鲜度校验
-- 全量 validator 未通过时，finalize 必须撤销本轮生成包；只有 `ready-for-write` 的拆书目录可以保留并下发该包
+- finalize 只允许生成 `book.profile.json` 和读取正式产物，不允许修改 Markdown
 - 人工复核回执未闭环时，finalize 必须保持阻断
+- 如果本轮来自 `prepare_short_analyze_job.py --upgrade-existing`，先看 `upgrade_actions` 再决定动作顺序：
+  - `safe_refresh_process_files` 只说明过程文件已刷新
+  - `manual_backfill_missing_outputs` 先补缺失正式产物
+  - `profile_regeneration_required` 非空时，本批必须重生 `book.profile.json`
+  - `profile_dependency_review` 列出的上游资产必须在重生 profile 前逐项复核
 - 如果主报告厚、但个别资产文件明显薄，不要在同一长上下文里补丁式连修很多轮
 - 优先冷启动回到对应阶段文档，重做那一批
 - 冷启动只负责验证这次修改是否真的修好；确认有效后，必须把修复落到正式 skill，再回到正式目录重跑，不允许把冷启动目录当正式产物来源

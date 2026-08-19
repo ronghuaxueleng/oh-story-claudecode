@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "project_name": "",
+  "profile_path": "../profiles/{project_name}.project.profile.json",
+  "length_policy": {
+    "mode": "source_anchored",
+    "max_total_ratio": 1.25,
+    "max_section_ratio": 1.25
+  },
+  "primary": {
+    "name": "",
+    "profile_path": "",
+    "original_path": "",
+    "emotion_ledger_path": "",
+    "plot_ledger_path": "",
+    "role": "primary_full_plot_and_emotion",
+    "prose_voice": "exclusive",
+    "emotion_transfer_policy": "primary_full_emotion"
+  },
+  "auxiliaries": []
+}

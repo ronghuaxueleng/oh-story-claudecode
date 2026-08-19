@@ -50,6 +50,8 @@ sync-policy: |
 │   ├── 动作细节库.md
 │   └── 场面细节库.md
 ├── 写作资产/
+│   ├── 全文情绪颗粒总账.json # 先于 BID 的全文逐行覆盖与实际情绪拍全集
+│   ├── 全文情节微拍总账.json # 与情绪拍分轨的全文事件动作全集
 │   ├── 母结构_故事走法.md
 │   ├── 主冲突_副升级器.md
 │   ├── 异物清单.md
@@ -71,10 +73,7 @@ sync-policy: |
 │   ├── 原文资产候选池.md       # 全文第二遍资产回扫与16表逐项核销账
 │   ├── 本书动态信号字典.json   # 单书信号发现、表后回补与候选关联
 │   ├── profile_source.md      # 模型先提的 profile 原始材料
-│   ├── 桥段施工卡.md          # 人类可直接调用的厚拆桥段卡
-│   ├── 子流程施工卡.md        # BID 内可独立迁移的完整连续子流程
-│   ├── 子流程索引.jsonl       # 机器可检索的 SF 全量索引
-│   └── 仿写无损编译包.json     # finalize 生成；写作仿写模式唯一语义读取包
+│   └── 桥段施工卡.md          # 人类可直接调用的厚拆桥段卡
 ├── book.profile.json       # 单书结构化规则包，仿写/融合/去AI味硬门槛
 ├── 拆文报告.md             # 人类可读综合报告（Stage 2-6 综合）
 ├── 情节节点.md             # Stage 2 情节节点清单
@@ -82,7 +81,7 @@ sync-policy: |
 └── _meta.json             # 管道元数据 + 结构计数（resume + Phase 7 门控数值依据）
 ```
 
-**默认产出约定**：上面列出的文件和目录，进入正式拆书后必须全部自动落盘；不存在“可选文件后补”。缺任意 1 项，默认不能进入 `ready-for-write`。`仿写无损编译包.json` 由拆书 finalize 在 `book.profile.json` 之后生成并验收，写作阶段不得临时生成或刷新；它不计入 `source_asset_coverage`，避免自引用。根目录 `_meta / _timing / _progress / _plan / _receipt` 等下划线过程文件同样不进入语义来源清单，只有 `_sample_comparison.md` 作为正式样本证据保留；否则 finalize 自己更新过程状态就会让刚生成的包过期。
+**默认产出约定**：上面列出的文件和目录，进入正式拆书后必须全部自动落盘；不存在“可选文件后补”。缺任意 1 项，默认不能进入 `ready-for-write`。
 
 ### Few-Shot 对照契约
 
@@ -179,6 +178,27 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 硬规则：
 
 - 类别至少覆盖 `主体边界 / 时间边界 / 证据来源`
+
+### 全文情绪颗粒总账契约
+
+`事实与推断台账.md` 完成后、`_analysis_brief.md` 与 BID 注册之前，必须人工落盘 `写作资产/全文情绪颗粒总账.json`。顶层固定包含 `schema_version / source / coverage_segments / beats / completeness_review`。
+
+- `coverage_segments` 从 L1 连续覆盖到原文末行，`kind` 只能是 `emotion_bearing / non_emotional_support / structural_marker`。
+- `emotion_bearing` 段必须按原序引用该段全部 beat_id；另外两类不得挂拍，并必须说明理由。
+- `beats` 是全文实际情绪拍全集，不是 BID 拍合集。每拍包含 `beat_id / segment_id / start_line / end_line / role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence`。
+- 非 BID 拍固定保留 `bid_ids=[]`。导语、过场、回忆、后果和尾声不得因未归入承重桥而删除。
+- BID 在总账完成后归纳；桥段资产与 `book.profile.json.bridge_rules[*].emotion_sequence` 只能引用总账中的拍，并保持 role、烈度和原文证据一致。
+
+### 全文情节微拍总账契约
+
+在同一次 L1 到 EOF 逐行通读中，独立落盘 `写作资产/全文情节微拍总账.json`。顶层固定包含 `schema_version / source / beats / completeness_review`。
+
+- `beats` 是全文有效情节微拍全集，不是情绪拍的换名副本。
+- 每拍包含 `P-* beat_id / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。
+- 施事者、动作对象、控制权、知情范围或现实后果每发生一次可辨变化，就登记一拍；不得只抽承重节点。
+- 桥外有效动作保留 `bid_ids=[]`；桥内每拍最多归属一个 BID，防止同一情节拍在多桥重复消费；BID 子序列只能从总账原序引用。
+- `P-*` 与情绪总账 `E-*` 不得共用 ID，不得复制情绪 `content / role / trigger` 充当 `action`，不得人为配平两轨拍数。
+- `completeness_review` 必须确认 `full_text_scanned_l1_to_eof / independent_from_emotion_ledger / no_emotion_beat_substitution / all_effective_plot_beats_preserved`，并留当前模型人工裁决。
 - 口径只允许 `原文明确 / 人工推断 / 未知`
 - 锚点必须真实存在于对应原文行范围
 - 所有事实必须分开记录 `叙述时点 / 故事时点 / 时间依据`；没有回叙时写“与叙述同步”，不能留空
@@ -252,8 +272,6 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
   - `桥段角色` 使用本书动态归纳的功能标签，不预设掉位、私域旧伤或公开炸场
   - `一句人话抓手` 必须是生活化、可记忆的冲突句；只有权限/秩序/现实后果等抽象词不算
   - 这份文件优先服务写作者直接调用，不承担 json 抽取稳定性的主职责
-- `写作资产/子流程施工卡.md + 子流程索引.jsonl`：必须把每个 BID 继续下钻为一个或多个 `SF-*` 完整子流程。每条保留 `进场状态 / 完整动作与反应顺序 / 场面颗粒 / 场景因果 / 信息延迟 / 控制权变化 / 情绪顺序 / 场末状态 / 可嵌入位置 / 不兼容条件 / 原文证据 / source_style_granularity`。`SF-*` 不是动作、物件或对白零件，不允许跨条拆散混拼；每个 BID 至少被一条 SF 覆盖，索引必须回指同名施工卡、父 BID 和真实原文。
-- `source_style_granularity` 是逐 SF 文风合同，不是全书风格摘要。每个 SF 必须包含六项：`narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`。每项必须写 `analysis` 和至少两条不同 `source_evidence`，证据必须位于该 SF 自己的 `source_range` 原文行段内。禁止用“贴脸叙述、长短句结合、留白克制”等通用模板跨 SF 复用；缺任一项，旧资产视为过期，必须回拆书 finalize 前的责任批补拆。
 - `写作资产/交流承压拆解.md`：必须把“人物如何真实发生交流”拆到现场证据层，不得只写“有张力 / 有对视 / 有停顿”。至少包含 `场名 / 原文位置 / 谁先施压 / 压力载体 / 对方被迫改了什么 / 删掉台词是否仍成立 / 为什么不是作者替人物接招 / 仿写最容易写假的点`。其中 `压力载体` 至少从 `肢体 / 物件 / 空间 / 身份 / 节奏 / 外部秩序` 中选 1 项，`对方被迫改了什么` 必须落到 `动作 / 站位 / 物件控制权 / 回答范围 / 身份 / 后果 / 现场秩序`
 - `写作资产/冲突载体清单.md`：必须把承重冲突拆成“到底在抢什么现实权力”，不得只写“吵架 / 关系恶化 / 情绪升级”。至少包含 `场名 / 原文位置 / 表层冲突 / 第二层争夺权 / 主载体 / 谁当场失位 / 越界后果 / 如果只保留对白会丢掉什么`。`主载体` 必须从 `dialogue / body / object / space / identity / rhythm` 中至少选 1 项；`第二层争夺权` 必须具体到 `制止权 / 解释权 / 入场权 / 去留决定权 / 物件处置权 / 花钱决定权 / 公开头位`
 
@@ -321,17 +339,23 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 python3 skills/story-short-analyze/scripts/prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}" --json
 ```
 
+升级输出现在除了 `missing_files`，还必须读取并执行 `upgrade_actions`：
+
+- `safe_refresh_process_files`：这批只表示过程文件已安全刷新，不等于正式内容已升级。
+- `manual_backfill_missing_outputs`：这批缺失正式产物必须人工回填，不能靠脚本补空壳。
+- `profile_regeneration_required`：这批文件必须在内容复核后重生；默认至少包含 `book.profile.json`。
+- `profile_dependency_review`：重生 profile 前必须回看的上游资产，至少覆盖 `profile_source.md / 全文情绪颗粒总账.json / 全文情节微拍总账.json / 桥段施工卡.md` 中本次实际存在者。
+
 硬规则：
 
 - `--upgrade-existing` 不删除、不覆盖已有正式产物。
 - 脚本刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _source_reading_plan.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；不覆盖正式 Markdown。
 - 缺失的正式 Markdown / JSON 产物只登记到 `_upgrade_plan.md`，不得由脚本写空模板、兜底内容或通用占位。
-- 一旦进入 `--upgrade-existing`，主流程不得停在扫描结果；当前模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后，自动继续增量补拆缺失、过期和缺字段内容。
-- 升级入口必须自动调用 `complete_upgrade_existing.py`。若逐 SF 文风缺失、不完整、证据越界、命中旧模板或跨 3 个以上 SF 重复 analysis，脚本生成 `_style_reanalysis_tasks.json`；每项任务必须包含原文绝对路径、`source_range`、精确 `source_excerpt`、待写六字段和写回目标，不得生成任何语义 analysis。
-- `_style_reanalysis_tasks.json` 是当前模型必须立即执行的任务清单，不是交给用户的诊断报告。模型逐项重读切片，按本 SF 的真实叙述口气、句间关系、段落气口、对白错答、动作感知情绪织法和即时插嘴分别写回 `子流程索引.jsonl`；不得用事件摘要、旧 analysis、全书风格摘要或跨 SF 模板代写。
-- 写回后重跑 `complete_upgrade_existing.py`。仅当状态为 `ready_for_finalize` 且旧任务文件已清除，才可运行 `sync_finalize_human_review.py`，由模型完成真实复核裁决，再运行 `run_short_analyze_finalize.py`；任一环节报错都回到责任资产继续增量补拆。
+- 模型必须按 `_upgrade_plan.md` 回读原文、样本、事实台账、节点、写作手法、候选池和对应模板后人工回填。
 - `_meta.json.upgrade_status` 在升级后固定为 `pending_content_review`；`missing_files=[]` 也不能直接完成。
-- 必须逐项复核当前 first-write contract、逐 BID 六拍情绪贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA。
+- `upgrade_actions.safe_refresh_process_files` 只代表过程文件刷新完成；不能把它误报成正式资产已通过。
+- `upgrade_actions.profile_regeneration_required` 一旦非空，必须在同一次升级闭环里完成 `book.profile.json` 重生；禁止沿用旧 profile。
+- 必须逐项复核当前 first-write contract、全文情绪总账、各 BID 原序子集贯通和 profile 重生，并在 `_finalize_human_review.json` 记录具体判断、证据与当前正式 Markdown SHA；不得用 BID 并集冒充全文全集。
 - 回填后必须运行 `run_short_analyze_finalize.py`；未通过前不得标记 `ready-for-write`。
 
 ---
@@ -428,14 +452,14 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 如果实际落盘标题顺序和固定骨架不一致，默认按未通过处理，不接受“意思差不多”的自由发挥
 - `写作资产/profile_source.md` 里如果只有几条抽象标签，没有字段化原始材料，视为未通过
 - `写作资产/profile_source.md` 里如果 `桥段承重件` 缺 `原文怎么起手 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过` 里的任意 2 类，视为未通过
-- `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 的每个 BID 都必须包含 `情绪进入点 / 刺痛或受辱拍 / 短暂希望或反抗 / 反刀拍 / 峰值拍 / 场末余痛`；每拍带 `烈度 1-10 + 原文证据`
+- `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 的每个 BID 都必须逐句列出原文实际情绪拍全集；每拍写 `beat_id / 实际作用 / 内容 / 烈度 1-10 / 独占原文证据`，不设预选角色；拍表后填写 `情绪拍完整性复核`
 - `写作资产/profile_source.md` 的 `- 开头信号：` 少于 3 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 的 `- 为什么假：` 少于 2 行时进入模型复核，不由脚本直接判错
 - `写作资产/profile_source.md` 里如果缺 `## 7. 禁句 / 禁写法 / ## 8. 场面资产 / ## 9. 后果链 / ## 10. 作者站位高危句` 里的任意一节，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain / 感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点 / 容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型` 里的任意关键字段，视为未通过
 - `写作资产/profile_source.md` 里如果缺 `## 12. 迁移替换资产` 或 5 类迁移标签，视为未通过
 - `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 如果真实核心桥漏记，或同一桥的功能标签不一致，视为未通过
-- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 六拍情绪序列` 里的任意 2 项，视为未通过
+- `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 实际情绪拍全集` 里的任意 2 项，视为未通过
 - `写作资产/桥段施工卡.md` 里如果没有至少 1 张中段承重桥，视为未通过
 - 这 5 份里任意 1 份缺“正面可学项 + 负面禁写项”双侧信息，默认仍是 `blocked-on-assets`
 
@@ -446,7 +470,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 `profile_source.md` 不是最终规则包，而是“模型先提、脚本后收”的中间层。
 禁止跳过这一层，直接让脚本从全部 Markdown 盲抽。
 
-收口脚本只自动生成 `book.profile.json`、`写作资产/仿写无损编译包.json` 并执行校验，不得修改任何 Markdown。`仿写无损编译包.json` 的版本必须是 `1.1`，并原样携带每个 SF 的 `source_style_granularity`；旧 `1.0` 包、缺文风字段的包或证据不在本 SF 行段内的包都不得进入写作阶段。需要单独排查时，才手动调用：
+收口脚本只自动生成 `book.profile.json` 并执行校验，不得修改任何 Markdown。需要单独排查时，才手动调用：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -470,7 +494,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 - `must_keep`
 - `fake_signals`
 - `recommended_sequence`
-- `emotion_sequence`：固定六拍，每拍含 `beat / content / intensity / source_evidence`
+- `emotion_sequence`：原文逐句盘点出的实际拍全集，不预设拍数；每拍含 `beat_id / role / content / intensity / source_evidence`
 
 如果桥段只有 `must_keep / must_avoid`，默认仍没拆到可直接支撑同桥段仿写与去 AI 味回修的层级。
 

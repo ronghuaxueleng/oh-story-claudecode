@@ -134,14 +134,8 @@ def main() -> int:
     profile_output = root / "book.profile.json"
     generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
     validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
-    subflow_builder = repo_root / "skills" / "story-short-analyze" / "scripts" / "build_subflow_library.py"
-    imitation_builder = repo_root / "skills" / "story-short-analyze" / "scripts" / "build_direct_imitation_package.py"
 
     markdown_before = markdown_sha1s(root)
-    package_output = root / "写作资产" / "仿写无损编译包.json"
-    if package_output.is_file():
-        package_output.unlink()
-        notes.append("已撤销旧仿写无损编译包，等待本轮 profile 重生与全量验收。")
 
     if not args.skip_profile:
         if not profile_source.exists():
@@ -167,24 +161,27 @@ def main() -> int:
                 profile_generated = True
                 notes.append("book.profile.json 已重新生成。")
 
-    if not errors:
-        package_result = run_command(
-            [sys.executable, str(imitation_builder), str(root), "--json"]
-        )
-        if package_result.returncode != 0:
-            package_payload = parse_validator_output(package_result.stdout)
-            package_errors = package_payload.get("errors") or [
-                package_result.stderr.strip() or "生成仿写无损编译包失败"
-            ]
-            errors.extend(f"仿写无损编译包生成失败：{item}" for item in package_errors)
+    if errors:
+        payload = {
+            "root": str(root),
+            "ok": False,
+            "status": "blocked-on-assets",
+            "profile_generated": profile_generated,
+            "error_count": len(errors),
+            "errors": errors,
+            "notes": notes,
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
-            notes.append("仿写无损编译包已由拆书 finalize 重新生成。")
+            print(f"root: {root}")
+            print("status: blocked-on-assets")
+            for item in errors:
+                print(f"- {item}")
+        return 2
 
     result = run_command([sys.executable, str(validator), str(root), "--json"])
     if result.returncode not in {0, 1, 2}:
-        if package_output.is_file():
-            package_output.unlink()
-            notes.append("validator 异常退出，本轮生成的仿写无损编译包已撤销。")
         payload = {
             "root": str(root),
             "ok": False,
@@ -204,11 +201,6 @@ def main() -> int:
         return 2
 
     validator_payload = parse_validator_output(result.stdout)
-    if errors:
-        validator_payload.setdefault("errors", [])[:0] = errors
-        validator_payload["ok"] = False
-        validator_payload["status"] = "blocked-on-assets"
-        validator_payload["error_count"] = len(validator_payload["errors"])
     markdown_after = markdown_sha1s(root)
     if markdown_after != markdown_before:
         changed = sorted(
@@ -224,34 +216,7 @@ def main() -> int:
         validator_payload["status"] = "blocked-on-assets"
         validator_payload["error_count"] = len(validator_payload["errors"])
     if validator_payload.get("ok"):
-        if root.parent.name == "拆文库":
-            library_output = root.parent.parent / "资料库" / "子流程总索引.jsonl"
-            library_result = run_command(
-                [
-                    sys.executable,
-                    str(subflow_builder),
-                    str(root.parent),
-                    "--output",
-                    str(library_output),
-                ]
-            )
-            if library_result.returncode != 0:
-                validator_payload.setdefault("errors", []).append(
-                    library_result.stderr.strip()
-                    or library_result.stdout.strip()
-                    or "跨书子流程总索引重建失败"
-                )
-                validator_payload["ok"] = False
-                validator_payload["status"] = "blocked-on-assets"
-                validator_payload["error_count"] = len(validator_payload["errors"])
-            else:
-                notes.append(f"跨书子流程总索引已重建：{library_output}")
-    if validator_payload.get("ok"):
         notes.extend(update_completion_state(root))
-    else:
-        if package_output.is_file():
-            package_output.unlink()
-            notes.append("最终收口未通过，本轮生成的仿写无损编译包已撤销，禁止写作阶段误用。")
     payload = build_payload(root, profile_generated, validator_payload, notes)
 
     if args.json:

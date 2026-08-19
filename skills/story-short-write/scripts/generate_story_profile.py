@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from collections import defaultdict
@@ -30,6 +29,67 @@ def collect_original_source_text(roots: list[Path]) -> str:
             if path.is_file() and path.suffix.lower() in {".txt", ".md"}:
                 chunks.append(read_text(path))
     return "\n".join(chunks)
+
+
+def build_prose_style_contract(root: Path) -> dict[str, object]:
+    """Keep prose guidance owned by one source instead of merging voices."""
+    dna_path = root / "写作资产" / "作者DNA指纹.md"
+    if not dna_path.is_file():
+        return {}
+    text = read_text(dna_path)
+    return {
+        "source_role": "primary_only",
+        "source_root": str(root.resolve()),
+        "author_dna_path": str(dna_path.resolve()),
+        "sentence_motion": collect_heading_block_lines(
+            text, ("句法", "句长", "切句", "停顿", "断场"), max_items=12
+        ),
+        "narrator_voice": collect_heading_block_lines(
+            text,
+            (
+                "总指纹",
+                "DNA 总述",
+                "结构 DNA",
+                "情绪 DNA",
+                "视角",
+                "情绪落点",
+                "动作替代",
+                "旧伤触发",
+                "章法指纹",
+                "信息控制",
+                "作者站位",
+                "公开秩序",
+                "后果回灌",
+                "收口",
+                "尾声入口",
+                "迁移结论",
+                "迁移总提醒",
+                "DNA调用速记",
+            ),
+            max_items=12,
+        ),
+        "dialogue_and_character_voice": collect_heading_block_lines(
+            text,
+            (
+                "人物口气",
+                "人物不同脸",
+                "口气差",
+                "反应先后",
+                "人物动作权限",
+                "全文对白",
+            ),
+            max_items=12,
+        ),
+        "anti_patterns": normalize_items(
+            collect_heading_block_lines(
+                text,
+                ("反面 DNA", "反面句型", "反面仿写", "明显不像", "禁写", "禁学"),
+                max_items=12,
+            )
+            + collect_explicit_anti_pattern_lines(text, max_items=12)
+        )[:12],
+        "contract_note": "该字段提供主体声线依据；正文完成后在初稿终审中核对声线一致性。",
+    }
 
 
 DYNAMIC_OBJECT_CATEGORIES = ("核心物件", "证据载体")
@@ -202,8 +262,20 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
     capture = False
     for line in text.splitlines():
         stripped = line.strip()
-        if stripped.startswith("#"):
-            capture = any(keyword in stripped for keyword in heading_keywords)
+        heading = re.match(r"^(#{1,6})\s+(.+)$", stripped)
+        if heading:
+            level = len(heading.group(1))
+            title = heading.group(2).strip()
+            if level <= 2:
+                capture = level == 2 and any(
+                    keyword in title for keyword in heading_keywords
+                )
+            elif capture:
+                title = re.sub(r"^\d+[.、]\s*", "", title).strip()
+                if title:
+                    items.append(title)
+            if len(items) >= max_items:
+                break
             continue
         if not capture or not stripped:
             continue
@@ -211,9 +283,32 @@ def collect_heading_block_lines(text: str, heading_keywords: tuple[str, ...], ma
             items.append(stripped[2:].strip())
         elif re.match(r"^\d+\.\s+", stripped):
             items.append(re.sub(r"^\d+\.\s+", "", stripped).strip())
+        elif stripped.startswith("|") and not re.fullmatch(r"[|:\-\s]+", stripped):
+            items.append(stripped)
+        elif stripped.startswith(("功能：", "迁移规则：", "必须保：", "必须换：")):
+            items.append(stripped)
+        elif not stripped.startswith((">", "```")):
+            items.append(stripped)
         if len(items) >= max_items:
             break
-    return items
+    return normalize_items(items)[:max_items]
+
+
+def collect_explicit_anti_pattern_lines(text: str, max_items: int = 6) -> list[str]:
+    """Collect labeled negative rules that live inside otherwise positive DNA sections."""
+    items: list[str] = []
+    for line in text.splitlines():
+        stripped = re.sub(r"^[-*]\s*", "", line.strip())
+        stripped = re.sub(r"^\*\*([^*]+)\*\*\s*[：:]", r"\1：", stripped)
+        if re.match(r"^(?:反面句型(?:\s*\d+|[一二三四五六七八九十]+)?|禁学|禁写)[：:]", stripped):
+            items.append(stripped)
+        elif re.match(r"^风险边界[：:]", stripped) and re.search(
+            r"不纳入|不当作|不当|不能|不得|禁", stripped
+        ):
+            items.append(stripped)
+        if len(items) >= max_items:
+            break
+    return normalize_items(items)[:max_items]
 
 
 def collect_labeled_values(text: str, label_keywords: tuple[str, ...], max_items: int = 6) -> list[str]:
@@ -294,7 +389,7 @@ def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
             if value:
                 result[f"{current_parent}::{key.strip()}"].append(value.strip())
             continue
-        if re.match(r"^(?:桥段|因果资产)[：:]", body):
+        if re.match(r"^桥段[：:]", body):
             current_parent = body
             result[current_parent]
             continue
@@ -609,7 +704,7 @@ def collect_bridge_reason_terms(values: list[str]) -> list[str]:
     return normalize_items(cleaned)
 
 
-BRIDGE_EMOTION_LABELS = (
+LEGACY_BRIDGE_EMOTION_LABELS = (
     "情绪进入点",
     "刺痛/受辱拍",
     "短暂希望或反抗",
@@ -620,14 +715,27 @@ BRIDGE_EMOTION_LABELS = (
 
 
 def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
-    text = clean_bridge_line(value)
+    # Emotion-beat evidence is a verbatim ledger key. Generic asset cleanup
+    # strips terminal Chinese punctuation and breaks exact reconciliation.
+    text = re.sub(r"\s+", " ", value).strip()
     if not text:
         return None
     intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
     evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
     content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
+    beat_id = ""
+    role = beat
+    if beat == "情绪拍":
+        beat_id_match = re.match(r"\s*([^|]+?)\s*\|", text)
+        role_match = re.search(r"(?:实际)?作用[：:]\s*([^|]+)", text)
+        content_match = re.search(r"内容[：:]\s*([^|]+)", text)
+        beat_id = beat_id_match.group(1).strip() if beat_id_match else ""
+        role = role_match.group(1).strip() if role_match else ""
+        content = content_match.group(1).strip() if content_match else ""
     result: dict[str, object] = {
-        "beat": beat,
+        "beat_id": beat_id or beat,
+        "beat": role or beat,
+        "role": role or beat,
         "content": content,
         "source_evidence": evidence_match.group(1).strip() if evidence_match else "",
     }
@@ -640,7 +748,14 @@ def collect_bridge_emotion_sequence(
     collect_aliases: Callable[..., list[str]],
 ) -> list[dict[str, object]]:
     sequence: list[dict[str, object]] = []
-    for label in BRIDGE_EMOTION_LABELS:
+    dynamic_values = collect_aliases("情绪拍")
+    if dynamic_values:
+        for value in dynamic_values:
+            item = parse_bridge_emotion_beat("情绪拍", value)
+            if item:
+                sequence.append(item)
+        return sequence
+    for label in LEGACY_BRIDGE_EMOTION_LABELS:
         values = collect_aliases(label)
         if not values:
             continue
@@ -1067,41 +1182,6 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
     return rules
 
 
-def build_profile_source_causal_assets(text: str) -> list[dict]:
-    """Extract source-grounded scene-causality cards from profile_source.md."""
-    sections = parse_markdown_sections(text)
-    lines = sections.get("13. 场景因果资产", [])
-    if not lines:
-        return []
-    pairs = collect_profile_source_pairs(lines)
-    assets: list[dict] = []
-    field_aliases = (
-        ("arrival_causes", "到场原因"),
-        ("knowledge_boundaries", "知情边界"),
-        ("object_lifecycle", "物件生命周期"),
-        ("institutional_constraints", "制度约束"),
-        ("obvious_alternative_blockers", "明显替代方案阻断"),
-        ("exit_cause", "离场因果"),
-        ("source_evidence", "原文证据"),
-    )
-    for key in pairs:
-        if not key.startswith("因果资产") or "::" in key:
-            continue
-        title = key.removeprefix("因果资产：").removeprefix("因果资产:").strip()
-        id_match = re.search(r"\b(CPA-\d{2,3})\b", title, flags=re.I)
-        asset: dict[str, object] = {
-            "causal_asset_id": id_match.group(1).upper() if id_match else "",
-            "name": re.sub(r"^CPA-\d{2,3}\s*", "", title, flags=re.I).strip(),
-        }
-        for output_field, label in field_aliases:
-            values = normalize_items(
-                collect_profile_source_reason_lines(pairs.get(f"{key}::{label}", []))
-            )
-            asset[output_field] = values
-        assets.append(asset)
-    return assets
-
-
 def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     sections = parse_markdown_sections(text)
     result: dict[str, list[str] | list[dict]] = {}
@@ -1392,7 +1472,6 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
         result["story_guardrails"] = story_guardrails
 
     result["bridge_rules"] = build_profile_source_bridge_rules(text)
-    result["causal_precondition_assets"] = build_profile_source_causal_assets(text)
     return result
 
 
@@ -1627,13 +1706,13 @@ def keep_object_pressure_asset(
     stripped = strip_asset_wrappers(text)
     if not keep_explicit_style_asset(stripped):
         return False
-    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not matches_dynamic_object_term(
-        stripped,
-        dynamic_terms,
-    ):
+    dynamic_match = matches_dynamic_object_term(stripped, dynamic_terms)
+    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not dynamic_match:
         return False
     if OBJECT_PRESSURE_BAD_RE.search(stripped):
         return False
+    if dynamic_match:
+        return True
     if OBJECT_PRESSURE_SENTENCE_RE.search(stripped) and not stripped.endswith(("视频", "录音", "录像", "钥匙", "花束", "礼物", "截图", "照片", "协议", "证据册", "副驾驶", "座位", "家属栏", "离婚证")):
         return False
     if len(stripped) > 18 and not stripped.endswith(("视频", "录音", "录像", "证据册")):
@@ -2299,7 +2378,8 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 "emotion_sequence": [
                     beat
                     for beat in item.get("emotion_sequence", [])
-                    if isinstance(beat, dict) and str(beat.get("beat", "")).strip()
+                    if isinstance(beat, dict)
+                    and str(beat.get("beat_id") or beat.get("beat") or "").strip()
                 ],
             }
             existing_index = index_by_key.get(key)
@@ -2324,17 +2404,14 @@ def merge_bridge_rule_lists(*rule_lists: list[dict], merge_by_sequence: bool = F
                 existing.get("why_original_passes", []) + normalized_item["why_original_passes"]
             )
             emotion_by_beat = {
-                str(beat.get("beat", "")).strip(): beat
+                str(beat.get("beat_id") or beat.get("beat") or "").strip(): beat
                 for beat in existing.get("emotion_sequence", [])
                 if isinstance(beat, dict)
             }
             for beat in normalized_item["emotion_sequence"]:
-                emotion_by_beat.setdefault(str(beat.get("beat", "")).strip(), beat)
-            existing["emotion_sequence"] = [
-                emotion_by_beat[label]
-                for label in BRIDGE_EMOTION_LABELS
-                if label in emotion_by_beat
-            ]
+                key = str(beat.get("beat_id") or beat.get("beat") or "").strip()
+                emotion_by_beat.setdefault(key, beat)
+            existing["emotion_sequence"] = list(emotion_by_beat.values())
     return merged
 
 
@@ -2398,7 +2475,7 @@ def build_bridge_rules(text: str) -> list[dict]:
                 if item.endswith(("：", ":")) and inline_key:
                     current = inline_key
                     continue
-                if inline_key in BRIDGE_EMOTION_LABELS:
+                if inline_key == "情绪拍" or inline_key in LEGACY_BRIDGE_EMOTION_LABELS:
                     beat = parse_bridge_emotion_beat(inline_key, inline_val)
                     if beat:
                         emotion_sequence.append(beat)
@@ -2464,7 +2541,6 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     }
     collected: dict[str, list[str]] = defaultdict(list)
     bridge_rules: list[dict] = []
-    causal_precondition_assets: list[dict] = []
     sample_source_entries: list[dict[str, str]] = []
     dynamic_object_terms: set[str] = set()
     precheck_fact_patterns: list[str] = []
@@ -2674,11 +2750,6 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
             collected["profile_derived_patterns"].extend(parsed.get("derived_patterns", []))
             for asset_name, items in parsed.get("migration_assets", {}).items():
                 collected[f"profile_migration_asset::{asset_name}"].extend(items)
-            parsed_causal_assets = parsed.get("causal_precondition_assets", [])
-            if isinstance(parsed_causal_assets, list):
-                causal_precondition_assets.extend(
-                    item for item in parsed_causal_assets if isinstance(item, dict)
-                )
             collected["profile_consequence_terms"].extend(parsed.get("consequence_terms", []))
             collected["profile_author_stance"].extend(parsed.get("author_stance_terms", []))
             story_guardrails = parsed.get("story_guardrails", {})
@@ -2918,6 +2989,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
     if consequence_out:
         story_guardrails["consequence_structure"] = consequence_out
 
+    prose_style_contract = build_prose_style_contract(sources[0]) if sources else {}
     profile = {
         "meta": {
             "name": name,
@@ -2935,12 +3007,13 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         "banned_phrases": banned_phrases,
         "banned_regex": [],
         "bridge_rules": bridge_rules,
-        "causal_precondition_assets": causal_precondition_assets,
         "scene_assets": scene_assets,
         "style_assets": style_assets,
         "derived_patterns": derived_patterns,
         "migration_assets": migration_assets,
     }
+    if prose_style_contract:
+        profile["prose_style_contract"] = prose_style_contract
     precheck_overrides: dict[str, object] = {}
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
@@ -3102,17 +3175,19 @@ def merge_profiles(profile_paths: list[Path], name: str) -> dict:
                 if isinstance(profile.get("bridge_rules", []), list)
             ]
         ),
-        "causal_precondition_assets": [
-            item
-            for profile in profiles
-            for item in profile.get("causal_precondition_assets", [])
-            if isinstance(item, dict)
-        ],
         "scene_assets": scene_assets,
         "style_assets": style_assets,
         "derived_patterns": merge_string_lists(profiles, "derived_patterns"),
         "migration_assets": migration_assets,
     }
+    primary_prose_contract = profiles[0].get("prose_style_contract") if profiles else None
+    if isinstance(primary_prose_contract, dict) and primary_prose_contract:
+        merged["prose_style_contract"] = {
+            **primary_prose_contract,
+            "source_role": "primary_only",
+            "primary_profile_path": str(profile_paths[0].resolve()),
+            "auxiliary_profiles_supply_prose": False,
+        }
     fact_patterns = normalize_items(precheck_fact_patterns)
     action_patterns = normalize_items(precheck_action_patterns)
     if fact_patterns or action_patterns:
@@ -3195,40 +3270,6 @@ def collect_profiles_from_dirs(profile_dirs: list[Path], profile_name: str) -> l
     return collected
 
 
-def build_source_asset_coverage(sources: list[Path]) -> list[dict[str, object]]:
-    """Bind every formal Markdown/JSON source asset so writers can use a compact read set safely."""
-    coverage: list[dict[str, object]] = []
-    for root in sources:
-        resolved = root.resolve()
-        files = []
-        for path in sorted(resolved.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in {".md", ".json", ".jsonl", ".txt"}:
-                continue
-            relative = path.relative_to(resolved).as_posix()
-            if (
-                path.name == "book.profile.json"
-                or relative == "写作资产/仿写无损编译包.json"
-                or (path.parent == resolved and path.name.startswith("_") and path.name != "_sample_comparison.md")
-                or "bak" in path.parts
-                or "__pycache__" in path.parts
-            ):
-                continue
-            files.append(
-                {
-                    "path": relative,
-                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-                }
-            )
-        coverage.append(
-            {
-                "root": str(resolved),
-                "file_count": len(files),
-                "files": files,
-            }
-        )
-    return coverage
-
-
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", action="append", help="拆书目录，可重复传入")
@@ -3254,7 +3295,6 @@ def main() -> int:
                     f"拆书结果缺少有效动态预检字典，请重新全量拆书: {path}"
                 )
         profile = generate_profile_from_sources(sources, args.name)
-        profile["source_asset_coverage"] = build_source_asset_coverage(sources)
     else:
         profile_paths: list[Path] = []
         if args.merge_profile:

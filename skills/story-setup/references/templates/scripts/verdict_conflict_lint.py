@@ -11,7 +11,7 @@ from pathlib import Path
 
 PASS_TEXTS = ("[x] `可并入主正文`", "结论：可并入主正文", "- 可并入主正文", "并入裁决：可并入主正文")
 FAIL_TEXTS = ("[x] `不可并入主正文`", "[x] `不可继续顺写`", "结论：不可并入主正文", "- 不可并入主正文", "并入裁决：不可并入主正文")
-WRITE_AFTER_PAT = re.compile(r"写后验收_第\d+(?:章)?[-－]\d+(?:章)?\.md$")
+WRITE_AFTER_PAT = re.compile(r"(?:写后验收|写后检查)_第\d+(?:章)?[-－]\d+(?:章)?\.md$")
 
 
 @dataclass
@@ -55,9 +55,9 @@ def lint(project_root: Path) -> list[Issue]:
     review_pass = [p.name for p, v in review_verdicts if v == "pass"]
 
     if group_pass and review_fail:
-        issues.append(make_issue(tracking_dir, "error", f"章组写后验收与审查工单并入口径冲突：写后验收={group_pass}，审查工单={review_fail}"))
+        issues.append(make_issue(tracking_dir, "error", f"章组写后检查与审查工单并入口径冲突：写后检查={group_pass}，审查工单={review_fail}"))
     if group_fail and review_pass:
-        issues.append(make_issue(tracking_dir, "error", f"章组写后验收与审查工单并入口径冲突：写后验收={group_fail}，审查工单={review_pass}"))
+        issues.append(make_issue(tracking_dir, "error", f"章组写后检查与审查工单并入口径冲突：写后检查={group_fail}，审查工单={review_pass}"))
     return issues
 
 

@@ -81,8 +81,7 @@
 > 8. 统一核销与 BID 贯通
 > 9. `profile_source.md`
 > 10. 生成 `book.profile.json`
-> 11. 生成并校验 `写作资产/仿写无损编译包.json`
-> 12. 全量验收
+> 11. 全量验收
 >
 > 每个批次都必须：
 >
@@ -93,6 +92,8 @@
 > - 通过后立即进入下一批，不回头统一“补厚”
 >
 > 全量 `finalize` 只在所有文件齐备后运行一次。若失败，按错误清单整体评估 skill，不在同一次冷启动里反复补丁式修复。
+>
+> 如果本次是历史目录升级，先运行 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`，读取 `_upgrade_plan.md` 与 `upgrade_actions`。不要只看 `missing_files`；凡出现 `profile_regeneration_required` 或 `profile_dependency_review`，都必须把 `profile_source.md -> book.profile.json -> bridge_rules[*].emotion_sequence` 的重生与依赖复核纳入本次闭环。
 
 ---
 
@@ -429,7 +430,6 @@
 - `高敏桥段识别.md` 是否不存在 `桥1 / 桥2` 这类空占位标题、半成品草稿壳、重复卡片
 - `作者DNA指纹.md` 是否不是空标签，且 3 个核心段都显式写了 `原文：`
 - `仿写约束_禁写清单.md` 是否每条都回答“为什么假”
-- `仿写约束_禁写清单.md` 是否单列电报式句段风险，并用原文证据区分有效短促气口与“一段一个动作/证据/反应”的机械镜头
 - `同桥段过检规则.md` 是否显式写了 `原文：`，并写清起手件、承重件、假点、顺序原因
 - `交流承压拆解.md` 是否至少覆盖 5 组原文级承压场，并明确写出 `谁先施压 -> 对方被迫改了什么`
 - `交流承压拆解.md` 是否至少有 2 组“删掉台词仍成立”的证据，而不是全靠对白摘要
@@ -447,11 +447,13 @@
 ### 写法硬约束
 
 - `profile_source.md` 不是只服务脚本抽取，还要服务人直接拿去写；不能只剩结构桶和 json 友好短句
+- 如果历史升级的 `upgrade_actions` 含 `profile_regeneration_required`，本批三步必须强制重跑，不得沿用旧 `book.profile.json`
 - 在保留结构化小节的同时，必须额外补出明确的人类可读层：`句长切法`、`口气差`、`动作替代`、`旧伤触发器`、`反面句型`
 - 这些人类可读层必须写成“原文怎么做 / 为什么这样才像它 / 换成什么就不像”，不能只写标签词
 - `桥段：...` 小节不只写亮桥，也要把中段承重桥写进去，避免 profile 只剩导语桥和终局桥
 - `style_assets` 显式标签如果已经写了，内容优先写成“原文可逐字命中的短语/短句”，不要把解释句混进 `opening_hooks / misdirection / object_pressure / action_axis / micro_actions / quiet_pressure / character_bias / meltdown_dialogue / rotten_relationship / dialogue_bridges`
 - `opening_hooks` 优先填显式短语，不要把 `开头信号` 里的解释句整段搬进结构化字段
+- 全文情绪总账只要发生 `重切 / 补尾 / 改 bid_ids 边界 / 改 source_evidence` 任一变化，旧 `book.profile.json` 立刻失效；本批必须重生，并把 `bridge_rules[*].emotion_sequence` 校到与各 BID 子序列完全同序相等
 
 ### 本批自检
 
@@ -464,8 +466,7 @@
 
 1. 先由模型补完 `profile_source.md`
 2. 再生成 `book.profile.json`
-3. 再由 finalize 生成无损编译包
-4. 再检查 profile 与编译包关键字段是否齐且新鲜
+3. 再检查 JSON 关键字段是否齐
 
 ### 本批自检
 
@@ -513,24 +514,10 @@
 - `book.profile.json.migration_assets` 是否完整含有 `object_substitutes / scene_substitutes / action_substitutes / dialogue_substitutes / role_bias_variants`，且每类按字数档达到 `4 / 3 / 2`
 - `profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 是否都写了基于本书归纳的 `桥段角色`
 - 每张桥段施工卡是否有 `一句人话抓手`，且不是“权限/秩序/现实后果/承重结构”一类抽象术语拼接
-- `子流程施工卡.md / 子流程索引.jsonl` 是否已把每个 BID 下钻成完整 `SF-*`
-- 每个 `SF-*` 是否保留进场状态、连续动作/反应顺序、信息延迟、控制权变化和场末状态，而不是只有功能名
-- `子流程索引.jsonl` 是否逐条回指同名施工卡、父 BID 和至少两条真实原文证据
-- 每个 `SF-*` 是否已写入逐场 `source_style_granularity`，且六项齐全：`narrative_voice_and_attitude / sentence_relation_and_rhythm / paragraph_breath_and_cut_points / dialogue_misfire_or_avoidance / action_perception_emotion_weave / narrator_interjection_and_roughness`
-- `source_style_granularity` 每项是否都有 `analysis` 和至少两条不同原文证据，且证据位于该 SF 的 `source_range` 内；如果只是全书通用文风、跨 SF 重复模板或一句“按原文颗粒度”，不得进入 finalize
 - `story_guardrails.character_face_split` 是否完整含有非空的 `different_face_evidence / reaction_order_split / action_authority_split`
 - `story_guardrails.consequence_structure` 是否完整含有非空的 `pre_evidence_reality_consequences / consequence_rebound_modes / tail_entry_owner / tail_entry_exclusion_reason`
 
 ## 第 6 批：全量验收批
-
-### 历史目录文风自动重拆闭环
-
-历史目录进入本批前先运行 `complete_upgrade_existing.py "拆文库/{书名}" --json`。返回 `needs_model_reanalysis` 时：
-
-1. 立即读取 `_style_reanalysis_tasks.json`，不得只汇报任务数量或等待用户再次下令。
-2. 当前模型逐项重读 `source_excerpt`，把六项真实 `source_style_granularity` 和各自至少两条范围内证据写回对应 SF；不要读取旧 analysis 作为改写底稿。
-3. 重跑检查器直到 `ready_for_finalize` 且任务文件被清除；脚本不得代写任何 analysis。
-4. 运行 `sync_finalize_human_review.py`，由模型逐项填写真实裁决，再运行 finalize；报错继续回修责任资产。
 
 ### 洁净与贯通硬闸
 
@@ -549,8 +536,6 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 - 收口脚本是否通过
 - `book.profile.json` 是否已自动生成
-- `写作资产/仿写无损编译包.json` 是否已由拆书 finalize 生成 `version: 1.1` 并通过新鲜度校验
-- 编译包是否原样携带全部 SF 字段和逐 SF `source_style_granularity`；旧 `1.0` 包或写作阶段临时补文风都不能放行
 - 是否仍有缺件、缺标题、缺字段
 - `_meta.json` 与真实文件数是否一致
 

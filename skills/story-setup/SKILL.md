@@ -1,12 +1,13 @@
 ---
 name: story-setup
-version: 1.5.0
 description: |
   网文写作工具集基础设施部署。将 `.codex/agents`、hooks、rules、项目级 scripts、`CLAUDE.md` 等宿主基础设施部署到用户项目目录；仅在已存在真实书籍目录时，再补齐 `写作执行铁律.md`、`追踪/上下文.md` 等书内文件。
   触发方式：提到 `/story-setup`、`story-setup`，或直接说「准备写书」「帮我搭一下环境」「配置写作项目」
 ---
 
 # story-setup：网文写作工具集基础设施部署
+
+当前部署版本：`1.7.1`。
 
 你是写作基础设施部署器。将网文写作工具集的全套基础设施（`.codex/agents`、hooks、rules、项目级 scripts、`CLAUDE.md`）部署到用户项目目录；若项目内已经存在真实书籍目录，再继续部署 `写作执行铁律.md`、`追踪/上下文.md` 等书内文件。
 
@@ -20,15 +21,18 @@ description: |
 
 1. 检查当前目录是否已部署过（存在 `.story-deployed`）
    - 如果已存在 → 明确提示已部署，并让用户确认是否重新部署
-2. 检查是否有书名目录（包含 `追踪/` 子目录的目录，或同时包含 `正文/设定/大纲/追踪/` 的真实书目录）
-   - 有 → 识别为“书籍模式”，显示当前项目信息
+2. 检查是否有书名目录（包含 `追踪/`、`正文/`、`正文.md`、`设定/`、`设定.md`、`大纲/` 等书籍结构的候选目录）
+   - 先校验候选目录 basename：不得是 `新书-题材-日期`、骨架名、暂定名或内部任务代号；书内 `设定.md`、`小节大纲.md`、`正文.md` 已声明书名时，目录 basename 必须与其逐字一致
+   - 通过 → 识别为“书籍模式”，显示当前项目信息
+   - 不通过 → 只列为疑似书目录并阻断书内文件部署；先确认正式书名、重命名目录并同步内部路径，不得把工作代号写入模板或 `.active-book`
    - 无 → 识别为“宿主模式”；此时只部署宿主基础设施，不创建任何 `正文/设定/大纲/追踪/对标/` 目录，不创建 `.active-book`
 3. 检查当前宿主配置文件：
    - 检查 `.codex/config.toml`
    - 存在 → 读取现有配置，后续合并或覆盖
    - 不存在 → 后续创建新文件
 4. 检查 `.active-book` 文件是否存在
-   - 存在 → 显示当前活跃书目
+   - 存在且目标位于项目根内、目录存在并通过正式书名目录校验 → 显示当前活跃书目
+   - 指向工作代号、不存在目录或项目根外路径 → 视为无效，不得让 hooks 采用
    - 不存在 → 跳过
 
 ## Phase 2：部署基础设施
@@ -58,9 +62,10 @@ description: |
 - 生成 `.codex/agents/`、`.codex/hooks/`、`.codex/rules/`
 - 生成 `.codex/skills/story-setup/references/agent-references/`
 - `agent-references/` 必须包含新一轮参考边界卡：`reference-boundary-and-sources-split.md`、`chapter-prewrite-card-enforcement.md`、`reference-chapter-comparison-protocol.md`，避免部署后正文写作仍缺“可借层/禁借层/参考对比”口径
-- `agent-references/` 还必须包含短篇资料包副本：`material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，避免短篇写作和拆文部署后缺“情节融合 / 口气模板 / 人物功能位”材料库
-- `agent-references/` 还必须包含短篇治理与审计副本：`short-write-execution-core.md`、`no-external-block-audit-self-check.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`gate-pass-checklist.md`、`audit-rulebook-coverage.md`、`story-profile-schema.md`、`profile-source-template.md`、`internal-toolchain-map.md`，以及 `audit-rulebook.json`、`precheck_rewrite_gate.config.json`、`通用高风险词类词典.json`、`虚词模板词典.json`，避免部署后短篇高敏回修仍缺正式规则包
-- 生成项目级 `scripts/`，并复制 `references/templates/scripts/*` 全套模板脚本；当前最小应包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`，以及短篇拆书 / profile / 审计 / 回修链：`prepare_short_analyze_job.py`、`validate_short_analyze_outputs.py`、`run_short_analyze_finalize.py`、`generate_story_profile.py`、`run_full_ai_audit.py`、`auto_revise_ai_flavor.py`、`run_revision_cycle.py`、`precheck_rewrite_gate.py`、`validate_gate_receipts.py`、`compare_with_external_block_audit.py`、`audit_ai_flavor.py`、`audit_novel_ai_flavor.py`、`apply_humanizer.py`、`normalize-punctuation.js`
+- `agent-references/` 必须包含短篇现行资料：`material-packs-setting-plot.md`、`material-packs-character.md`、`opening-and-hook-library.md`、`emotion-and-outcome-library.md`、`character-voice-library.md`、`short-write-execution-core.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`story-profile-schema.md`、`profile-source-template.md`、`internal-toolchain-map.md`
+- 生成项目级 `scripts/`，复制 `references/templates/scripts/*` 全套模板脚本。部署包必须覆盖 `story-long-write/scripts/`、`story-short-write/scripts/`、`story-short-analyze/scripts/` 中全部正式 `.py/.js`，不得只维护一份容易过期的手写文件名枚举
+- 正式书名确定后，创建书内文件前必须运行 `validate_project_directory_name.py --project-dir <目录> --title <正式书名>`；结构探测只能找候选目录，不能替代正式书名确认
+- 修改任一上游脚本或参考资料后，先运行 `python3 skills/story-setup/scripts/validate_bundle.py --sync` 清除部署包旧副本，再运行不带参数的校验；出现缺文件、残留文件或死链接时不得发布
 - 确保 `.codex/hooks/` 下脚本有执行权限（chmod +x）
 - 确保项目 `scripts/*.py` 也有执行权限（chmod +x）
 - 同时复制 `.codex/hooks/lib/` 公共脚本
@@ -87,29 +92,28 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 18
-  setup_skill_version: 1.5.0
+  agents_version: 21
+  setup_skill_version: 1.7.1
   target_cli: codex
   resolver_strategy: project-local-skill-reference
   references_dir: .codex/skills/story-setup/references/agent-references
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
-- 仅当存在真实书籍目录时，才允许创建或更新 `.active-book`
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 18，提示用户重新运行 `story-setup` 以更新子代理/hooks/rules/scripts（v18 把短篇 profile/审计/回修脚本链正式并入部署脚本，并同步下发短篇治理副本：`short-write-execution-core`、`no-external-block-audit-self-check`、`high-sensitivity-block-audit-rewrite-playbook`、`story-profile-schema`、`audit-rulebook` 与相关词典配置；同时让部署后的子代理能直接读取“逐条引用正文句子”“现实后果隔层 / 尾声入口 / 人物不同脸”这套短篇高敏口径；v17 把根 `CLAUDE.md`、书内 `写作执行铁律.md`、`追踪/上下文.md` 的模板落盘正式并入安装脚本，并用 `<!-- managed-by: story-setup -->` 保护用户手写文件；v16 补齐短篇资料包副本 `material-packs-setting-plot.md`、`material-packs-expression.md`、`material-packs-character.md`，并把短篇起盘字段、人物功能位、口气模板要求下沉到部署后的子代理；v15 补齐参考边界卡、单章写前卡、参考章节对比协议到 agent-references，并把参考原文使用边界下沉到部署后的子代理；v14 补齐新版根模板、兼容层 rules 模板、项目级完整脚本链；v13 补齐项目级 `story_review_regression.py` 并串联正文/追踪回归链；v12 补齐项目级 `validate_tracking_state.py` 与 `detect_key_character_promotion.py`；v11 补齐追踪同步四连收尾、compact/续写前追踪主表核对、hook 级追踪提醒；v10 补齐项目级 `scene_lint.py` 与 `draft_purity_guard.py`；v9 补齐 references bundle 与 sentinel 字段并增强 hook 根路径检测；v8 修复子代理读取参考资料路径；v7 修复日更续写 continuation 与伏笔 hook 误报；v6 统一短篇主会话/子代理正文格式；v5 更新 `narrative-writer` 场景写法、段落密度规则和跨平台字数统计）
+- 仅当目录通过正式书名校验时，才允许创建或更新 `.active-book`；只有一个有效书目录时写入项目内相对路径，多书时只采用已通过校验的用户选择
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 21，重新运行 `story-setup`。v21 在精简短篇主链中恢复主体 SF 六维全集的确定性覆盖，不恢复已废弃流程。
 
 ## Phase 3：验证安装
 
 1. 验证宿主环境文件：
    - 检查 `.codex/config.toml`、`.codex/hooks/`、`.codex/rules/`、`.codex/agents/`
-   - 检查 `scripts/scene_lint.py`、`scripts/draft_purity_guard.py`、`scripts/template_exhaustion_lint.py`、`scripts/scene_narrowness_lint.py`、`scripts/script_version_check.py`、`scripts/validate_tracking_state.py`、`scripts/verdict_conflict_lint.py`、`scripts/chapter_hook_repeat_lint.py`、`scripts/detect_key_character_promotion.py`、`scripts/character_agency_lint.py`、`scripts/story_review_regression.py`
-   - 检查 `scripts/prepare_short_analyze_job.py`、`scripts/validate_short_analyze_outputs.py`、`scripts/run_short_analyze_finalize.py`、`scripts/generate_story_profile.py`、`scripts/run_full_ai_audit.py`、`scripts/auto_revise_ai_flavor.py`、`scripts/run_revision_cycle.py`、`scripts/precheck_rewrite_gate.py`、`scripts/validate_gate_receipts.py`、`scripts/compare_with_external_block_audit.py`、`scripts/audit_ai_flavor.py`、`scripts/audit_novel_ai_flavor.py`、`scripts/apply_humanizer.py`、`scripts/normalize-punctuation.js`
-   - 检查 `.codex/skills/story-setup/references/agent-references/short-write-execution-core.md`、`no-external-block-audit-self-check.md`、`high-sensitivity-block-audit-rewrite-playbook.md`、`story-profile-schema.md`、`audit-rulebook.json`
+   - 运行 `python3 skills/story-setup/scripts/validate_bundle.py --sync` 同步正式文件并清除残留，再运行 `python3 skills/story-setup/scripts/validate_bundle.py` 校验 scripts、hooks、rules、agents、基础模板、参考资料、上游版本和 Markdown 内部链接
+   - 安装后逐项比较 `references/templates/scripts/` 与项目 `scripts/`、`references/agent-references/` 与项目 `.codex/skills/story-setup/references/agent-references/`，不得只抽查旧版最小清单
 2. 若为书籍模式，再额外验证书内文件：
    - 检查 `{书名}/写作执行铁律.md`
    - 检查 `{书名}/追踪/上下文.md`
-4. 验证部署标记：
+3. 验证部署标记：
    - 检查 `.story-deployed` 是否存在且包含时间戳
-5. 输出安装报告：
+4. 输出安装报告：
    - 列出所有已部署的文件
    - 列出需要注意的事项（如已有配置已合并）
    - 提示用户可以开始使用 `/story-long-write`、`story-long-write`、`/story-short-write` 或 `story-short-write`
@@ -120,21 +124,21 @@ description: |
 
 | 占位符 | 替换规则 | 示例 |
 |--------|----------|------|
-| `{项目名}` | 用户项目名称或目录名 | 《剑来》、《暗卫》 |
-| `{书名}` | 书名目录名（与目录一致） | 与 `{项目名}` 相同，或用户自定义 |
+| `{项目名}` | 宿主项目名称；用户未指定时可用宿主根目录名 | 小说工作区 |
+| `{书名}` | 已确认的小说正式书名；必须与书目录 basename 一致，不得回退为宿主目录名或工作代号 | 他把我的旧录像送给白月光后，我离婚了 |
 | `{目标平台}` | 目标发布平台 | 起点、番茄、晋江、知乎盐言 |
 | `{作者名}` | 用户笔名或昵称 | 未指定时用「作者」 |
 
-替换时去掉花括号。如果用户未指定项目名，用当前目录名。未指定的占位符保留原样不替换。
+替换时去掉花括号。如果用户未指定项目名，`{项目名}` 可用当前宿主目录名。没有已确认正式书名时，保留 `{书名}` 占位符并跳过所有书内模板；不得用 `{项目名}`、当前目录名或疑似书目录名补成 `{书名}`。
 
 ## CLAUDE.md 合并策略
 
 用户已有 CLAUDE.md 时，按 section 合并：
 1. 读取用户现有 CLAUDE.md，按 `##` 标题切分为 section map
 2. 读取模板 CLAUDE.md.tmpl，同样切分
-3. 模板中的标准 section（Skill 路由表、文件结构、协作规则、Context Recovery、语言）**覆盖**用户同名 section
+3. 模板实际拥有的标准 section（如 Skill 路由表、文件结构、协作规则、Compact 后恢复上下文）**覆盖**用户同名 section
 4. 用户独有的 section（自定义内容）**保留**不动
-5. 未知冲突时明确列出差异，并让用户选择保留哪个版本
+5. 只按完整二级标题精确匹配；标题不同的用户 section 一律保留，不做模糊覆盖
 
 ## `.codex/config.toml` 处理策略
 
@@ -147,8 +151,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 18` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 18 → 提示需要更新，重新执行 Phase 2 覆盖子代理/hooks/rules/scripts，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 21` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 21 → 重新执行 Phase 2 覆盖子代理/hooks/rules/scripts/references，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
 
 ---
 
@@ -158,18 +162,16 @@ description: |
 |------|------|
 | references/templates/CLAUDE.md.tmpl | 项目根 CLAUDE.md 模板 |
 | references/templates/写作执行铁律.md.tmpl | 书籍目录内公共执行铁律模板（仅书籍模式部署） |
-| references/templates/hooks/ | 6 个 hook 脚本模板 |
+| references/templates/hooks/ | 生命周期与写作门禁 hook 脚本及公共函数库 |
 | references/templates/hooks/lib/ | hook 依赖的公共 shell 函数 |
-| references/templates/scripts/ | 项目级正文/追踪/回归质检脚本模板，以及短篇拆书入口 / 验收 / profile / 审计 / 回修脚本链（包含 `scene_lint.py`、`draft_purity_guard.py`、`template_exhaustion_lint.py`、`scene_narrowness_lint.py`、`script_version_check.py`、`validate_tracking_state.py`、`verdict_conflict_lint.py`、`chapter_hook_repeat_lint.py`、`detect_key_character_promotion.py`、`character_agency_lint.py`、`story_review_regression.py`、`prepare_short_analyze_job.py`、`validate_short_analyze_outputs.py`、`run_short_analyze_finalize.py`、`generate_story_profile.py`、`run_full_ai_audit.py`、`auto_revise_ai_flavor.py`、`run_revision_cycle.py`、`precheck_rewrite_gate.py`、`validate_gate_receipts.py`、`compare_with_external_block_audit.py`、`audit_ai_flavor.py`、`audit_novel_ai_flavor.py`、`apply_humanizer.py`、`normalize-punctuation.js`） |
+| references/templates/scripts/ | 长篇写作、短篇写作、短篇拆文的完整项目级脚本部署副本；具体清单由 `scripts/validate_bundle.py` 对上游自动核对 |
 | references/templates/rules/ | 4 条 path-scoped 规则模板 |
 | references/templates/subagents/ | 7 个代理模板目录；部署时复制到 `.codex/agents/`（story-architect, character-designer, narrative-writer, consistency-checker, story-researcher, story-explorer, chapter-extractor） |
 | references/agent-references/ | 子代理自带参考资料副本；模板统一引用本目录，避免跨 skill 引用失效 |
 | references/agent-references/material-packs-setting-plot.md | 短篇情节/设定/冲突/融合写法资料包副本，供起盘、补冲突、做融合写作时调用 |
-| references/agent-references/material-packs-expression.md | 短篇表达/口气/开头句/虐点表达资料包副本，供角色口气设计与正文修辞调用 |
 | references/agent-references/material-packs-character.md | 短篇人物功能位/关系重组/接住者与对照组资料包副本，供人物与关系设计调用 |
-| references/agent-references/short-write-execution-core.md | 短篇 profile 闭环、审计优先级、逐条引用正文句子的自检口径副本 |
-| references/agent-references/no-external-block-audit-self-check.md | 无外部分块审计时的块级自检副本，要求每个判断贴正文原句 |
+| references/agent-references/short-write-execution-core.md | 短篇现行主链和唯一正式产物口径副本 |
 | references/agent-references/high-sensitivity-block-audit-rewrite-playbook.md | 短篇高敏桥段第二闸门与回修停机口径副本 |
 | references/agent-references/story-profile-schema.md | `book.profile.json / project.profile.json / story_guardrails` 结构合同副本 |
-| references/agent-references/audit-rulebook.json | 短篇正式审计规则簿副本，供项目内审计脚本直接读取 |
 | references/templates/上下文.md.tmpl | 写作上下文模板（仅书籍模式部署） |
+| scripts/validate_bundle.py | `--sync` 同步并删除残留；无参数校验文件齐全、上游版本和内部链接 |

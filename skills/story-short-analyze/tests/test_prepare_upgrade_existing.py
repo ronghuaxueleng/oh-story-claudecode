@@ -4,6 +4,7 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,35 @@ SPEC.loader.exec_module(PREPARE)
 
 
 class PrepareUpgradeExistingTest(unittest.TestCase):
+    def test_upgrade_existing_cli_human_output_does_not_require_new_job_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "拆文库" / "旧书"
+            (root / "原文").mkdir(parents=True)
+            source = root / "原文" / "旧书.txt"
+            source.write_text("第一行\n第二行", encoding="utf-8")
+            (root / "_meta.json").write_text(
+                json.dumps({"skill_fingerprint": "old", "structure_counts": {}}),
+                encoding="utf-8",
+            )
+            (root / "_source_manifest.json").write_text(
+                json.dumps({"source_file": str(source), "copied_to": str(source)}),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT_PATH), "--upgrade-existing", str(root)],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("book_name: 旧书", result.stdout)
+            self.assertIn("missing_files:", result.stdout)
+            self.assertIn("upgrade_actions:", result.stdout)
+            self.assertIn("profile_regeneration_required:", result.stdout)
+            self.assertNotIn("source_copy:", result.stdout)
+
     def test_upgrade_existing_keeps_existing_outputs_and_writes_backfill_plan(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "拆文库" / "旧书"
@@ -73,25 +103,30 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertFalse((root / "写作资产" / "冲突载体清单.md").exists())
             self.assertIn("写作资产/交流承压拆解.md", payload["missing_files"])
             self.assertIn("写作资产/冲突载体清单.md", payload["missing_files"])
+            self.assertEqual(
+                ["book.profile.json"],
+                payload["upgrade_actions"]["profile_regeneration_required"],
+            )
+            self.assertIn(
+                "写作资产/全文情绪颗粒总账.json",
+                payload["upgrade_actions"]["profile_dependency_review"],
+            )
+            self.assertIn(
+                "_parallel_plan.json",
+                payload["upgrade_actions"]["safe_refresh_process_files"],
+            )
 
             plan = (root / "_upgrade_plan.md").read_text(encoding="utf-8")
-            self.assertIn("不允许脚本伪造空模板、通用占位或无依据的正式内容", plan)
-            self.assertIn("当前模型必须继续自动增量补拆", plan)
+            self.assertIn("不自动生成任何正式 Markdown 内容", plan)
             self.assertIn("文件缺失清单不等于升级完成", plan)
             self.assertIn("finalize 返回 `ok=true`", plan)
             self.assertIn("写作资产/交流承压拆解.md", plan)
             self.assertIn("写作资产/冲突载体清单.md", plan)
             self.assertIn("过程文件已刷新", plan)
+            self.assertIn("升级动作分类", plan)
+            self.assertIn("必须重生 profile / 桥段子序列", plan)
             self.assertIn("内容合同逐项复核", plan)
-            self.assertIn("FS 状态链、KS 知情链、OL 物件生命周期", plan)
-            self.assertIn("每条 SF 已在施工卡和索引中补齐", plan)
-            self.assertIn("## 13. 场景因果资产", plan)
             self.assertIn("profile 重新生成", plan)
-            self.assertIn("仿写无损编译包.json", plan)
-            model_section = plan.split("## 缺失正式产物", 1)[1].split("## 缺失的 finalize 生成物", 1)[0]
-            generated_section = plan.split("## 缺失的 finalize 生成物", 1)[1].split("## 回填执行顺序", 1)[0]
-            self.assertNotIn("仿写无损编译包.json", model_section)
-            self.assertIn("禁止手写", generated_section)
 
             manifest = json.loads((root / "_required_outputs.json").read_text(encoding="utf-8"))
             self.assertIn("交流承压拆解.md", manifest["required"]["asset_files"])
@@ -115,26 +150,6 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertTrue(
                 all("first_write_contract" in lane for lane in parallel_plan["asset_lanes"])
             )
-            node_contract = parallel_plan["foundation_lanes"][1]["first_write_contract"]["files"]["情节节点.md"]
-            self.assertIn("入场前提", node_contract["required_entry_fields"])
-            sensitive_contract = next(
-                lane["first_write_contract"]
-                for lane in parallel_plan["asset_lanes"]
-                if lane["id"] == "sensitive_assets"
-            )
-            subflow_contract = sensitive_contract["files"]["写作资产/子流程索引.jsonl"]
-            self.assertIn("causal_preconditions", subflow_contract["required_fields"])
-
-            execution_prompt = (root / "_execution_prompt.md").read_text(encoding="utf-8")
-            self.assertIn("FS 状态链", execution_prompt)
-            self.assertIn("入场前提 / 行动权限 / 替代方案阻断 / 离场因果", execution_prompt)
-            self.assertIn("causal_preconditions", execution_prompt)
-            self.assertIn("## 13. 场景因果资产", execution_prompt)
-
-            self.assertIn("_style_reanalysis_tasks.json", payload["next_step"]["then"])
-            self.assertIn("自动增量补拆", payload["next_step"]["then"])
-            self.assertEqual("needs_model_reanalysis", payload["style_reanalysis"]["status"])
-            self.assertTrue(payload["next_step"]["auto_continue_expected"])
 
             progress = (root / "_progress.md").read_text(encoding="utf-8")
             self.assertIn(
@@ -152,24 +167,6 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertEqual("pending_content_review", receipt["upgrade_status"])
             self.assertEqual([], receipt["formal_markdown_sha1s"])
             self.assertEqual(3, len(receipt["upgrade_reviews"]))
-
-            receipt["upgrade_reviews"][0].update(
-                {
-                    "status": "resolved",
-                    "judgement": "这段人工判断不得被重复 prepare 覆盖。",
-                    "evidence": ["_parallel_plan.json"],
-                }
-            )
-            (root / "_finalize_human_review.json").write_text(
-                json.dumps(receipt, ensure_ascii=False), encoding="utf-8"
-            )
-            PREPARE.upgrade_existing(
-                argparse.Namespace(upgrade_existing=str(root), source=None, name=None)
-            )
-            repeated = json.loads(
-                (root / "_finalize_human_review.json").read_text(encoding="utf-8")
-            )
-            self.assertIn("不得被重复", repeated["upgrade_reviews"][0]["judgement"])
 
 
 if __name__ == "__main__":

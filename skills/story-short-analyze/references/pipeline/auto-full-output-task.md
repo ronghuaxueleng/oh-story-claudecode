@@ -27,8 +27,8 @@
 5. foundation 预检
 6. 第二波并发：按 3 个复用会话粗粒度派发；`agent-core` 一次完成结构动作表+高敏资产，`agent-craft` 一次完成对白关系表+常规资产，`agent-discovery` 从发现索引续写 8 份细节库
 7. 统一核销与 BID 贯通
-8. `profile_source`，随后脚本单独生成 `book.profile` 与仿写无损编译包
-9. 全量验收并校验编译包新鲜度
+8. `profile_source`，随后脚本单独生成 `book.profile`
+9. 全量验收
 
 每个批次都要满足：
 
@@ -38,6 +38,8 @@
 4. 批末统一做文件齐全、截断和厚度快检
 5. 失败批次先二分重跑，二分仍失败才对责任子批降级为双文件模式
 6. 通过当前批次后立即进入下一批
+
+如果是历史目录升级，先运行 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"` 并读取 `_upgrade_plan.md` 与 `upgrade_actions`。`missing_files=[]` 只代表文件层齐备，不代表升级责任完成；`profile_regeneration_required`、`profile_dependency_review` 这类动作仍必须进入本次施工单。
 
 禁止：
 
@@ -201,7 +203,7 @@
 默认分两批连续落盘：
 
 1. 常规资产：前 11 份结构、人物、关系与情绪资产
-2. 高敏资产：`样本分级与可学层 / 高敏桥段识别 / 作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则 / 桥段施工卡 / 子流程施工卡 / 子流程索引`
+2. 高敏资产：`样本分级与可学层 / 高敏桥段识别 / 作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则 / 桥段施工卡`
 
 每份仍独立使用原文证据，不允许批量复用同一抽象句。批末快检失败时只二分责任批，二分仍失败才降级为双文件。
 
@@ -214,7 +216,6 @@
 - `人物不同脸证据 / 谁先解释谁先压场 / 动作权限差`
 - `高敏桥段识别.md`、`作者DNA指纹.md`、`同桥段过检规则.md` 都要显式写 `原文：` 证据行
 - 候选池与事实台账共同确认的核心承重桥，必须贯通主报告、节点、对应仿写表、高敏桥资产和 profile_source
-- 每个 BID 必须继续下钻成一个或多个完整 `SF-*`；`子流程索引.jsonl` 必须保留连续顺序和原文证据，不能建成动作/物件零件池
 
 ## 第 5 组：`profile_source + book.profile` 微批
 
@@ -229,6 +230,8 @@
 2. 单独运行 `generate_story_profile.py`
 3. 检查 `book.profile.json`
 
+若历史升级的 `upgrade_actions` 含 `profile_regeneration_required`，这一组必须强制重跑，不得沿用旧 profile。
+
 ### 本批最低要求
 
 - `profile_source.md` 必须补齐 `## 0-12`
@@ -242,6 +245,7 @@
 - `## 12. 迁移替换资产` 必须逐行提供 5 类换壳资产，与原文 style assets 分开；每类至少 `4 / 3 / 2`
 - 每个 `桥段：` 小节都要补齐 `原文怎么起手 / 承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 最容易写假的点 / 原文为什么能过`
 - 每个 `桥段：` 小节还要补 `桥段角色`，并与 `桥段施工卡.md / 高敏桥段识别.md` 使用同一角色口径
+- 全文情绪总账只要发生 `重切 / 补尾 / 改 bid_ids 边界 / 改 source_evidence` 任一变化，旧 `book.profile.json` 立刻失效；本批必须重生，并把 `bridge_rules[*].emotion_sequence` 校到与各 BID 子序列完全同序相等
 - 生成后的 `book.profile.json` 不能只有壳，至少确认：
   - 非空 `bridge_rules[*].must_keep`
   - 非空 `scene_assets`

@@ -18,18 +18,8 @@
 - `.codex/hooks/` — 所有 hook 脚本
 - `.codex/agents/` — 所有子代理定义
 - `.codex/rules/` — 所有 path-scoped 规则
-- `scripts/install-codex-project.sh` — 项目级基础设施安装/刷新脚本
-- `scripts/scene_lint.py` — 正文场面质检脚本
-- `scripts/draft_purity_guard.py` — 正文纯净度守门脚本
-- `scripts/validate_tracking_state.py` — 追踪状态与章组总表校验脚本
-- `scripts/detect_key_character_promotion.py` — 关键角色晋升与缺卡检测脚本
-- `scripts/template_exhaustion_lint.py` — 模板榨干与模板术语回流质检脚本
-- `scripts/scene_narrowness_lint.py` — 中段会议化 / 作者代判句 / 过程写窄质检脚本
-- `scripts/script_version_check.py` — 项目脚本版本与双层目录路径校验脚本
-- `scripts/verdict_conflict_lint.py` — 并入口径冲突校验脚本
-- `scripts/chapter_hook_repeat_lint.py` — 连续章章尾撞型校验脚本
-- `scripts/character_agency_lint.py` — 人物能动性与软肋角色回针校验脚本
-- `scripts/story_review_regression.py` — 统一回归汇总脚本
+- `scripts/` — `story-setup` 部署的长篇写作、短篇写作、短篇拆文与安装辅助脚本；完整清单由 `scripts/validate_bundle.py` 对上游自动核对
+- `.codex/skills/story-setup/references/agent-references/` — 部署用参考资料副本；用户自定义资料不要放入此受管目录
 
 ### 需合并（不覆盖）
 
@@ -42,7 +32,7 @@
 这些文件完全由用户管理：
 - `{书名}/追踪/上下文.md` — 用户写作上下文
 - `{书名}/追踪/伏笔.md` — 用户伏笔追踪
-- `.active-book` — 用户活跃书目
+- `.active-book` 仅在多个有效书目录间由用户选择；只有一个通过正式书名校验的书目录时，安装器会自动刷新该相对路径
 
 ## 版本检测
 
@@ -65,7 +55,10 @@
 - `agents_version: 15` → 旧版，需重新部署以补齐短篇资料包副本到项目内 agent-references
 - `agents_version: 16` → 旧版，需重新部署以补齐托管模板落盘与受管文件保护
 - `agents_version: 17` → 旧版，需重新部署以补齐短篇 profile / 审计 / 回修脚本链与治理副本
-- `agents_version: 18` → 当前版本
+- `agents_version: 18` → 旧版，需重新部署以获取正式书名目录硬闸、完整脚本/参考资料同步与部署包自检
+- `agents_version: 19` → 旧版，需重新部署以清除短篇废弃提示、脚本和停止 hook
+- `agents_version: 20` → 旧版，需重新部署以补齐主体 SF 六维全集覆盖
+- `agents_version: 21` → 当前版本
 
 ## 版本变更
 
@@ -185,7 +178,7 @@
 - 受管模板统一使用 `<!-- managed-by: story-setup -->` 标记；重部署只覆盖受管文件，默认保留用户手写文件
 - 已部署项目需重新运行 `story-setup`，以获取托管模板落盘和受管文件保护，并让版本标记升级到 `agents_version: 17`
 
-### v18 (当前)
+### v18
 
 - `story-setup` 现在会同步部署短篇 profile / 审计 / 回修脚本链到项目 `scripts/`：
   - `generate_story_profile.py`
@@ -214,3 +207,25 @@
   - `虚词模板词典.json`
 - 部署后的 `narrative-writer` 和 `story-architect` 子代理已可直接读取短篇 profile 闭环、高敏桥护栏和“逐条引用正文句子”自检口径
 - 已部署项目需重新运行 `story-setup`，以补齐短篇脚本链与治理副本，并让版本标记升级到 `agents_version: 18`
+
+### v19
+
+- 新增正式书名目录硬闸：工作代号、骨架名、日期目录或与书内声明书名不一致的候选目录，不再进入书籍模式，也不会写入 `.active-book`
+- 安装器和所有 hooks 共用同一套书目发现与校验逻辑；无效或越出项目根的 `.active-book` 不再被采用
+- 补齐 `story-long-write/scripts/`、`story-short-write/scripts/`、`story-short-analyze/scripts/` 的全部正式 `.py/.js` 部署副本，并同步当前治理、工具链、写作与仿写参考资料
+- 新增 `scripts/validate_bundle.py` 和安装回归测试，自动检查缺失脚本、旧版副本、hooks/rules/agents/模板缺项及 Markdown 死链接
+- `CLAUDE.md` 冷启动保留 `{书名}` 占位符；已有用户文件按二级标题精确合并，模板拥有的同名 section 更新，用户独有 section 保留
+- 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 19`
+
+### v20
+
+- 删除短篇写作已退出主链的提示、脚本、测试和停止 hook
+- 部署包改由 `validate_bundle.py --sync` 从上游现行文件同步并清除残留
+- 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 20`
+
+### v21 (当前)
+
+- 精简短篇合同强制绑定主体 `子流程索引.jsonl`，校验每个 SF 的六维文字颗粒完整性
+- SF 到目标区域由原文行区间和现有 P 拍映射确定性派生，不增加独立回执或人工映射阶段
+- 初稿合并终审按区域绑定 SF 引用并一次确认全集覆盖，辅助来源仍不得供应正文声线
+- 已部署项目需重新运行 `story-setup`，让版本标记升级到 `agents_version: 21`

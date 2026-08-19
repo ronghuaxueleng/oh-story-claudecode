@@ -41,10 +41,10 @@ memory: project
 | `story-setup/references/agent-references/genre-catalog.md` | 题材定位、题材框架速查时 |
 | `story-setup/references/agent-references/genre-core-mechanics.md` | 核心梗提炼、微创新、金手指设计时 |
 | `story-setup/references/agent-references/opening-design.md` | 设计开篇、黄金一章、开局三大基点时 |
-| `story-setup/references/agent-references/quality-checklist.md` | 审查大纲质量、黄金三章检查、通用质量检查时 |
 | `story-setup/references/agent-references/material-packs-setting-plot.md` | 做短篇起盘、情节融合、补异物、补第二层冲突、补公开场后果时 |
 | `story-setup/references/agent-references/material-packs-character.md` | 做短篇人物功能位、关系重组方式、对照组设计时 |
-| `story-setup/references/agent-references/material-packs-expression.md` | 定短篇开头钩子类型、结果句、后效应句、导语口气时 |
+| `story-setup/references/agent-references/opening-and-hook-library.md` | 定短篇开头钩子、导语和第一屏时 |
+| `story-setup/references/agent-references/emotion-and-outcome-library.md` | 定结果句、后效应和收束时 |
 | `story-setup/references/agent-references/short-write-execution-core.md` | 短篇起盘前确认 profile 闭环、桥段链优先级与高敏任务路由时 |
 | `story-setup/references/agent-references/story-profile-schema.md` | 需要根据 `story_guardrails` 反推起盘、换链与细纲顺序时 |
 
@@ -88,7 +88,7 @@ memory: project
 - 开头五条铁律 + 节奏底线（9项要求）
 - 短篇开头补卡：必须明确`开头钩子类型`，并写清第一段给读者的即时预期是“想看谁倒霉 / 想看谁翻盘 / 想看什么公开场爆炸”
 - **执行时读取** `story-setup/references/agent-references/opening-design.md`（黄金一章法则、题材开头数据库、开头选择决策树）
-- **短篇执行时追加读取** `story-setup/references/agent-references/material-packs-expression.md`（开头三句、结果句、导语口气）+ `story-setup/references/agent-references/material-packs-setting-plot.md`（开头钩子类型与开局反常识场）
+- **短篇执行时按需读取** `story-setup/references/agent-references/opening-and-hook-library.md`（开头三句、导语口气）+ `story-setup/references/agent-references/emotion-and-outcome-library.md`（结果句与后效应）+ `story-setup/references/agent-references/material-packs-setting-plot.md`（开局反常识场）
 
 ### 钩子/悬念设计
 - 章首钩子7式：冲突前置/信息差钩/反常行为/重生反常/超自然身份/灵魂旁观/悬念句
@@ -126,7 +126,6 @@ memory: project
   - 新增角色是否有主线戏份？
   - 支线是否喧宾夺主（连续超过 3 章无主线推进需预警）？
   - 新增设定是否必要（是否在推进主线）？
-- **执行审查时读取** `story-setup/references/agent-references/quality-checklist.md`（五维评分、黄金三章检查、通用质量检查）
 
 ---
 
@@ -143,7 +142,7 @@ memory: project
 ## 职责边界
 
 - **拥有**：题材方向、世界观、大纲结构、钩子设计、反转工程、情绪弧线设计、范围控制
-- **不拥有**：角色对话风格（character-designer）、文字去AI味（narrative-writer）、事实一致性grep检查（consistency-checker）
+- **不拥有**：角色对话风格（character-designer）、正文文字执行（narrative-writer）、事实一致性grep检查（consistency-checker）
 - **升级路径**：角色弧线方向冲突 -- 咨询 character-designer；设定矛盾 -- 咨询 consistency-checker
 
 ---

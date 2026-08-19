@@ -19,14 +19,14 @@ SPEC.loader.exec_module(VALIDATOR)
 class ZhihuSectionFormatTest(unittest.TestCase):
     def test_pure_numeric_sections_pass(self) -> None:
         errors, sections = VALIDATOR.validate_text(
-            "1.\n\n第一节正文。\n\n2.\n\n第二节正文。\n"
+            "1.\n第一节正文。\n2.\n第二节正文。\n"
         )
         self.assertEqual([], errors)
         self.assertEqual([1, 2], sections)
 
     def test_book_title_on_first_nonempty_line_is_allowed(self) -> None:
         errors, sections = VALIDATOR.validate_text(
-            "\n# 测试书名\n\n1.\n\n第一节正文。\n\n2.\n\n第二节正文。\n"
+            "\n# 测试书名\n\n1.\n第一节正文。\n2.\n第二节正文。\n"
         )
         self.assertEqual([], errors)
         self.assertEqual([1, 2], sections)
@@ -61,25 +61,6 @@ class ZhihuSectionFormatTest(unittest.TestCase):
         )
         self.assertEqual([1, 3], sections)
         self.assertTrue(any("连续递增" in error for error in errors))
-
-    def test_natural_paragraphs_with_one_blank_line_pass(self) -> None:
-        errors, sections = VALIDATOR.validate_text(
-            "# 测试书名\n\n1.\n\n第一段。\n\n「一轮对话。」\n\n第二段。\n"
-        )
-        self.assertEqual([], errors)
-        self.assertEqual([1], sections)
-
-    def test_missing_paragraph_blank_line_is_blocked(self) -> None:
-        errors, _ = VALIDATOR.validate_text(
-            "# 测试书名\n\n1.\n第一段。\n第二段。\n"
-        )
-        self.assertTrue(any("缺少一个空行" in error for error in errors))
-
-    def test_multiple_blank_lines_are_blocked(self) -> None:
-        errors, _ = VALIDATOR.validate_text(
-            "# 测试书名\n\n\n1.\n\n第一段。\n"
-        )
-        self.assertTrue(any("连续空行" in error for error in errors))
 
 
 if __name__ == "__main__":

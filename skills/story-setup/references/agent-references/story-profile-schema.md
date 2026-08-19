@@ -86,6 +86,13 @@
   "banned_regex": ["<来自拆书的禁句正则>"],
   "sample_grading": {
     "level": "<A类正样本 / B类骨架样本 / C类负样本>",
+    "structure_grade": "<A/B/C>",
+    "performance_grade": "<A/B/C>",
+    "sentence_grade": "<A/B/C>",
+    "terminal_consequence_grade": "<A/B/C>",
+    "positive_dna_layers": ["<可正向提取层>"],
+    "skeleton_only_layers": ["<只取骨架层>"],
+    "negative_rule_layers": ["<只进反面规则层>"],
     "dna_usable": "<可 / 部分可 / 不可>",
     "summary": "<一句话判断>",
     "source_score_judgement": "<原文检测结论>",
@@ -190,10 +197,9 @@
 - 默认来源：
   - `写作资产/样本分级与可学层.md`
   - `写作资产/profile_source.md` 里的 `0. 样本分级与可学层`
-- 写作侧使用口径：
-  - `A类正样本`：可学句法、口气、动作落点、桥段承重件
-  - `B类骨架样本`：只学骨架、承重件、后果链、场面秩序，不学现成句法壳
-  - `C类负样本`：只进禁写规则、反面桥提醒，不进正向融合
+- 写作侧优先按 `structure_grade / performance_grade / sentence_grade / terminal_consequence_grade` 分层消费。
+- 整书 `A/B/C` 只作摘要，不得把整书 B 一刀切成“句法一定不可学”。
+- `positive_dna_layers / skeleton_only_layers / negative_rule_layers` 是直接消费清单。
 - 如果 `source_score_judgement` 明确写了“原文开头桥段高分 / 原文整本高分 / 原文只局部可学”：
   - 必须优先服从这条分数口径
   - 不允许因为题材爽就把它回升成 `A类正样本`
@@ -280,6 +286,13 @@
   也就是说，分段分数不是孤立数字，后面要能顺着 `bridge_rules / scene_assets / style_assets`
   解释“这一片段为什么高、该先补什么、该先删什么”。
 
+### `precheck_overrides`
+
+- 从 `写作资产/本书动态信号字典.json` 的“核心物件、证据载体、动作与微动作”生成。
+- `fact_anchor_patterns` 和 `action_anchor_patterns` 只补充书级事实、动作语境，不覆盖通用风险规则。
+- 融合 profile 对各单书字段去重合并。
+- 缺少该字段视为拆书资产不完整；禁止从旧 `style_assets` 猜测兼容，必须重新全量拆书。
+
 ## 生成原则
 
 1. 不猜。
@@ -296,6 +309,7 @@
 `profile_source.md` 不要求是最终 JSON，但至少要显式补齐这些区块：
 
 - `样本分级与可学层`
+- `高敏层级判断`
 - `题材流派`
 - `主梗 / 副梗`
 - `作者DNA`
@@ -306,9 +320,24 @@
 - `场面资产`
 - `后果链`
 - `作者站位高危句`
-- `那 10 张仿写表对应的 style_assets 原始材料`
 
 没有这些区块时，后续脚本生成的 `book.profile.json` 通常会偏脏，或者漏掉隐性规则。
+
+额外格式硬要求：
+
+- `开头高信息量信号` 里至少给 3 行独立的 `- 开头信号：`
+- `禁句 / 禁写法` 里至少给 2 行独立的 `- 为什么假：`
+- `场面资产` 里至少给 1 组 `公开场硬件 / 外部秩序件 / 后果链`
+- `后果链` 里至少给 1 组 `感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点`
+- `作者站位高危句` 里至少给 1 组 `容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型`
+- `桥段承重件` 每个桥段下面都要补齐：
+  - `原文怎么起手`
+  - `承重件`
+  - `不能丢的顺序`
+  - `为什么这个顺序不能乱`
+  - `最容易写假的点`
+  - `原文为什么能过`
+- `高敏桥段识别.md`、`作者DNA指纹.md`、`同桥段过检规则.md` 不能只给抽象规则，至少要显式出现 `原文：` 证据行
 
 模板参考：
 
@@ -317,14 +346,14 @@
 ## 调用方式
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --source '拆文库/从昨天的风景散场' \
   --name '从昨天的风景散场' \
   --output '拆文库/从昨天的风景散场/book.profile.json'
 ```
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --merge-profile '拆文库/从昨天的风景散场/book.profile.json' \
   --merge-profile '拆文库/你的爱扛不住柴米油盐/book.profile.json' \
   --name '追妻火葬场-组合包' \
@@ -334,7 +363,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 如果确实要从多本拆书目录直接试跑，也可以：
 
 ```bash
-python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
+python3 "$SKILL_ROOT/scripts/generate_story_profile.py" \
   --source '拆文库/从昨天的风景散场' \
   --source '拆文库/你的爱扛不住柴米油盐' \
   --name '追妻火葬场-组合包' \

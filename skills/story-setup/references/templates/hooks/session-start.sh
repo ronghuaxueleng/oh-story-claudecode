@@ -40,8 +40,8 @@ if sentinel_exists "$ROOT/.story-deployed"; then
       HAS_CONTENT=true
       ;;
     *)
-      if [ "$AGENTS_VERSION" -lt 14 ]; then
-        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v14。重新运行 /story-setup 刷新 hooks、agents、templates、references 和项目级脚本。\n\n"
+      if [ "$AGENTS_VERSION" -lt 19 ]; then
+        OUTPUT+="[WARN] story-setup agents_version=$AGENTS_VERSION 低于 v19。重新运行 /story-setup 刷新书名目录硬闸、hooks、agents、templates、references 和项目级脚本。\n\n"
         HAS_CONTENT=true
       fi
       ;;
