@@ -438,9 +438,9 @@ class InitialReviewLengthPolicyTest(unittest.TestCase):
                     "all_primary_prose_subflows_covered": True,
                     "full_story_hierarchy_preserved": True,
                     "all_primary_p_beats_replaced": True,
-                    "all_hot_news_mechanisms_realized": True,
+                    "all_hot_news_mechanisms_realized": None,
                     "source_event_shell_rejected_globally": True,
-                    "news_fact_and_privacy_boundary_reviewed": True,
+                    "news_fact_and_privacy_boundary_reviewed": None,
                     "source_voice_quotes": ["主体引句一。", "主体引句二。", "主体引句三。"],
                     "draft_voice_quotes": ["测试书", "短导语。", "短节。"],
                     "voice_comparison": "主体原文与正文在叙述距离、句间转折、段落气口和即时主观声音上保持同源机制，同时没有复制原句和事件外壳。对白轮转仍由人物关系和现场动作推动，辅助来源也没有进入句式、语气或叙述者声音。",
@@ -613,6 +613,12 @@ class HotNewsValidationTest(unittest.TestCase):
     def test_traceable_current_news_passes_for_single_p_beat(self) -> None:
         errors = OUTLINE.validate_hot_news_materials(
             [self.material()], [self.replacement()]
+        )
+        self.assertEqual([], errors)
+
+    def test_no_hot_news_passes_when_user_did_not_request_it(self) -> None:
+        errors = OUTLINE.validate_hot_news_materials(
+            [], [self.replacement(news_ids=[])]
         )
         self.assertEqual([], errors)
 

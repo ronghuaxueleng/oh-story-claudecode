@@ -78,6 +78,18 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertRegex(path.read_text(encoding="utf-8"), pattern)
 
+    def test_hot_news_requires_explicit_request_and_never_uses_browser_cdp(self) -> None:
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        hot_news_rule = (
+            ROOT / "references" / "governance" / "p-beat-hot-news-replacement.md"
+        ).read_text(encoding="utf-8")
+        combined = skill + "\n" + hot_news_rule
+        self.assertIn("默认禁止检索或使用热点新闻", skill)
+        self.assertIn("只有用户在当前任务中明确要求", combined)
+        self.assertIn("禁止使用浏览器或 CDP 获取新闻", combined)
+        self.assertIn("直接使用 WebSearch、公开网页或可信机构页面", combined)
+        self.assertNotIn("浏览器/CDP 可用时优先", combined)
+
 
 if __name__ == "__main__":
     unittest.main()

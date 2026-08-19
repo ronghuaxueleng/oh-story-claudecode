@@ -696,6 +696,15 @@ def validate_hot_news_materials(
     errors: list[str] = []
     if not isinstance(materials, list):
         return ["hot_news_materials 必须是列表"]
+    cited_ids = {
+        str(news_id or "").strip()
+        for replacement in replacements
+        if isinstance(replacement, dict)
+        for news_id in replacement.get("news_ids") or []
+        if str(news_id or "").strip()
+    }
+    if not materials and not cited_ids:
+        return []
     required_count = min(2, len(replacements))
     if len(materials) < required_count:
         errors.append(f"hot_news_materials 至少需要 {required_count} 条不同热点新闻")
@@ -1011,7 +1020,7 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         "instructions": (
             "三个 targets 数组分别与对应 source 序列等长同序；每项只填一个 target_id。"
             "完整保留上层关系/BID/E/SF 层级，只逐拍替换主体 P 拍事件壳；"
-            "热点新闻只供应目标 P 拍的现实机制。"
+            "只有用户明确要求热点时才填写热点字段，新闻只供应目标 P 拍的现实机制。"
         ),
         "target_catalog": [
             {
@@ -1148,10 +1157,15 @@ def validate_data(data: dict[str, Any], outline_path: Path | None = None) -> lis
                 "primary_is_exclusive_prose_voice",
                 "primary_full_prose_granularity_loaded",
                 "source_event_shell_rejected",
-                "hot_news_is_event_mechanism_only",
             ):
                 if confirmation.get(field) is not True:
                     errors.append(f"manual_confirmation.{field} 必须为 true")
+            if data.get("hot_news_materials") and (
+                confirmation.get("hot_news_is_event_mechanism_only") is not True
+            ):
+                errors.append(
+                    "manual_confirmation.hot_news_is_event_mechanism_only 必须为 true"
+                )
             if len(str(confirmation.get("manual_judgment") or "").strip()) < 30:
                 errors.append("manual_confirmation.manual_judgment 至少 30 字")
         expected_coverage = build_granularity_coverage(specs, actual_catalog, mapping)

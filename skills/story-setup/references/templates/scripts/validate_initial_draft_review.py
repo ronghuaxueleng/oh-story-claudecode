@@ -480,9 +480,7 @@ def validate_data(data: dict[str, Any]) -> list[str]:
             "all_primary_prose_subflows_covered",
             "full_story_hierarchy_preserved",
             "all_primary_p_beats_replaced",
-            "all_hot_news_mechanisms_realized",
             "source_event_shell_rejected_globally",
-            "news_fact_and_privacy_boundary_reviewed",
         ):
             if global_review.get(field) is not True:
                 errors.append(f"global_review.{field} 必须为 true")
@@ -520,6 +518,13 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         }
         if reviewed_news != expected_news:
             errors.append("region_reviews 必须覆盖全部已选热点新闻机制")
+        if expected_news:
+            for field in (
+                "all_hot_news_mechanisms_realized",
+                "news_fact_and_privacy_boundary_reviewed",
+            ):
+                if global_review.get(field) is not True:
+                    errors.append(f"global_review.{field} 必须为 true")
         primary_source = Path(contract["sources"][0]["original"]["path"]).read_text(encoding="utf-8")
         source_quotes = global_review.get("source_voice_quotes")
         if not isinstance(source_quotes, list) or len(source_quotes) < 3:

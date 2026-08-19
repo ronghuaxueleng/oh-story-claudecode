@@ -352,6 +352,43 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertEqual(target_id, merged["p_beat_replacements"][0]["target_id"])
         self.assertEqual("HN-001", merged["hot_news_materials"][0]["news_id"])
 
+    def test_apply_template_without_hot_news_passes(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目", project_dir=self.project_root
+        )
+        self.assertEqual([], errors)
+        sidecar = self.project_root / "写作资产" / "纲层迁移侧车.json"
+        template = GATE.OUTLINE.export_template(self.outline_receipt, sidecar)
+        target_id = template["target_catalog"][0]["target_beats"][0]["target_id"]
+        template["mapping"]["primary_plot_targets"] = [target_id]
+        template["mapping"]["primary_emotion_targets"] = [target_id]
+        template["p_beat_replacements"][0].update(
+            {
+                "preserved_function": "保留关系中公开掉位并推动离开的承重功能",
+                "changed_dimensions": ["setting", "trigger", "consequence"],
+                "news_ids": [],
+                "adaptation_judgment": "目标细拍改用全新虚构场景、触发方式与现实后果制造同一关系位移，已经脱离原文人物动作、职业现场和物件链。",
+            }
+        )
+        template["manual_confirmation"] = {
+            "full_story_hierarchy_preserved": True,
+            "primary_plot_slots_replaced_one_to_one_and_in_order": True,
+            "primary_emotion_complete_and_in_order": True,
+            "auxiliary_is_plot_mechanism_only": True,
+            "primary_is_exclusive_prose_voice": True,
+            "primary_full_prose_granularity_loaded": True,
+            "source_event_shell_rejected": True,
+            "hot_news_is_event_mechanism_only": None,
+            "manual_judgment": "主体关系层级、情绪和文字颗粒均已逐项核对；全部 P 拍只保留承重功能并换成新的虚构现实事件，本次未使用热点新闻。",
+        }
+        sidecar.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
+
+        merged = GATE.OUTLINE.apply_template(self.outline_receipt, sidecar)
+
+        self.assertEqual("passed", merged["gate_status"])
+        self.assertEqual([], merged["hot_news_materials"])
+        self.assertEqual([], merged["p_beat_replacements"][0]["news_ids"])
+
     def test_p_replacement_without_event_shell_change_blocks(self) -> None:
         errors, _ = GATE.start_outline_release(
             project="测试项目", project_dir=self.project_root
