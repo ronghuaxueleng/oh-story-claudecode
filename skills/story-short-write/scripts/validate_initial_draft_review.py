@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "story-short-write.initial-draft-review.v1"
+SCHEMA_VERSION = "story-short-write.initial-draft-review.v2"
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 H1_RE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 
@@ -128,6 +128,8 @@ def required_refs_by_review_region(contract: dict[str, Any]) -> dict[str, dict[s
             "emotion_refs": [],
             "auxiliary_plot_refs": [],
             "prose_subflow_refs": [],
+            "p_replacement_refs": [],
+            "hot_news_refs": [],
         }
     }
     for section in contract.get("sections") or []:
@@ -136,6 +138,8 @@ def required_refs_by_review_region(contract: dict[str, Any]) -> dict[str, dict[s
             "emotion_refs": [],
             "auxiliary_plot_refs": [],
             "prose_subflow_refs": [],
+            "p_replacement_refs": [],
+            "hot_news_refs": [],
         }
 
     def review_region(target_id: str) -> str:
@@ -167,6 +171,19 @@ def required_refs_by_review_region(contract: dict[str, Any]) -> dict[str, dict[s
                 region = numeric[-1] if numeric else region
             if region in result and source_ref not in result[region]["prose_subflow_refs"]:
                 result[region]["prose_subflow_refs"].append(source_ref)
+    for item in contract.get("p_beat_replacements") or []:
+        if not isinstance(item, dict):
+            continue
+        source_ref = str(item.get("source_ref") or "").strip()
+        region = review_region(str(item.get("target_id") or "").strip())
+        if region not in result:
+            continue
+        if source_ref and source_ref not in result[region]["p_replacement_refs"]:
+            result[region]["p_replacement_refs"].append(source_ref)
+        for news_id in item.get("news_ids") or []:
+            normalized = str(news_id or "").strip()
+            if normalized and normalized not in result[region]["hot_news_refs"]:
+                result[region]["hot_news_refs"].append(normalized)
     return result
 
 
@@ -214,7 +231,11 @@ def create_receipt(
                 "emotion_complete": None,
                 "scene_complete": None,
                 "voice_match": None,
+                "p_replacements_realized": None,
+                "source_event_shell_rejected": None,
+                "hot_news_mechanisms_realized": None,
                 "evidence_quotes": [],
+                "hot_news_evidence_quotes": [],
                 "manual_judgment": "",
             }
             for region_id in required
@@ -228,6 +249,11 @@ def create_receipt(
             "long_sentence_breath_reviewed": None,
             "dialogue_efficiency_reviewed": None,
             "all_primary_prose_subflows_covered": None,
+            "full_story_hierarchy_preserved": None,
+            "all_primary_p_beats_replaced": None,
+            "all_hot_news_mechanisms_realized": None,
+            "source_event_shell_rejected_globally": None,
+            "news_fact_and_privacy_boundary_reviewed": None,
             "source_voice_quotes": [],
             "draft_voice_quotes": [],
             "voice_comparison": "",
@@ -251,6 +277,8 @@ def can_preserve_region_review(
         "emotion_refs",
         "auxiliary_plot_refs",
         "prose_subflow_refs",
+        "p_replacement_refs",
+        "hot_news_refs",
     )
     same_requirements = all(
         old_review.get(field) == refreshed_review.get(field)
@@ -275,6 +303,21 @@ def can_preserve_region_review(
     return same_requirements and same_content and quotes_still_bound
 
 
+def region_review_complete(review: dict[str, Any]) -> bool:
+    base_fields = ("plot_complete", "emotion_complete", "scene_complete", "voice_match")
+    if not all(review.get(field) is True for field in base_fields):
+        return False
+    if review.get("p_replacement_refs"):
+        if review.get("p_replacements_realized") is not True:
+            return False
+        if review.get("source_event_shell_rejected") is not True:
+            return False
+    if review.get("hot_news_refs"):
+        if review.get("hot_news_mechanisms_realized") is not True:
+            return False
+    return True
+
+
 def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
     current = read_json(receipt_path, "初稿终审回执")
     if current.get("schema_version") != SCHEMA_VERSION:
@@ -297,7 +340,11 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
         "emotion_complete",
         "scene_complete",
         "voice_match",
+        "p_replacements_realized",
+        "source_event_shell_rejected",
+        "hot_news_mechanisms_realized",
         "evidence_quotes",
+        "hot_news_evidence_quotes",
         "manual_judgment",
     )
     refreshed_regions = review_regions(
@@ -317,12 +364,7 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
             if field in old_global:
                 refreshed["global_review"][field] = old_global[field]
     refreshed["summary"]["reviewed_regions"] = sum(
-        1
-        for review in refreshed["region_reviews"]
-        if all(
-            review.get(field) is True
-            for field in ("plot_complete", "emotion_complete", "scene_complete", "voice_match")
-        )
+        1 for review in refreshed["region_reviews"] if region_review_complete(review)
     )
     refreshed["refreshed_at"] = now_iso()
     write_json(receipt_path, refreshed)
@@ -387,18 +429,39 @@ def validate_data(data: dict[str, Any]) -> list[str]:
             "emotion_refs",
             "auxiliary_plot_refs",
             "prose_subflow_refs",
+            "p_replacement_refs",
+            "hot_news_refs",
         ):
             if review.get(field) != expected_refs[region_id][field]:
                 errors.append(f"{label}.{field} 不得改写或漏拍")
         for field in ("plot_complete", "emotion_complete", "scene_complete", "voice_match"):
             if review.get(field) is not True:
                 errors.append(f"{label}.{field} 必须为 true")
+        if review.get("p_replacement_refs"):
+            if review.get("p_replacements_realized") is not True:
+                errors.append(f"{label}.p_replacements_realized 必须为 true")
+            if review.get("source_event_shell_rejected") is not True:
+                errors.append(f"{label}.source_event_shell_rejected 必须为 true")
+        if review.get("hot_news_refs"):
+            if review.get("hot_news_mechanisms_realized") is not True:
+                errors.append(f"{label}.hot_news_mechanisms_realized 必须为 true")
         quotes = review.get("evidence_quotes")
         region_text = regions.get(region_id, "")
         if not isinstance(quotes, list) or len(quotes) < 1:
             errors.append(f"{label}.evidence_quotes 至少一条")
         elif any(not isinstance(quote, str) or not quote.strip() or quote not in region_text for quote in quotes):
             errors.append(f"{label}.evidence_quotes 必须来自当前正文区域")
+        news_quotes = review.get("hot_news_evidence_quotes")
+        if review.get("hot_news_refs"):
+            if not isinstance(news_quotes, list) or len(news_quotes) < 1:
+                errors.append(f"{label}.hot_news_evidence_quotes 至少一条")
+            elif any(
+                not isinstance(quote, str)
+                or not quote.strip()
+                or quote not in region_text
+                for quote in news_quotes
+            ):
+                errors.append(f"{label}.hot_news_evidence_quotes 必须来自当前正文区域")
         if len(str(review.get("manual_judgment") or "").strip()) < 30:
             errors.append(f"{label}.manual_judgment 至少 30 字")
 
@@ -415,6 +478,11 @@ def validate_data(data: dict[str, Any]) -> list[str]:
             "long_sentence_breath_reviewed",
             "dialogue_efficiency_reviewed",
             "all_primary_prose_subflows_covered",
+            "full_story_hierarchy_preserved",
+            "all_primary_p_beats_replaced",
+            "all_hot_news_mechanisms_realized",
+            "source_event_shell_rejected_globally",
+            "news_fact_and_privacy_boundary_reviewed",
         ):
             if global_review.get(field) is not True:
                 errors.append(f"global_review.{field} 必须为 true")
@@ -428,6 +496,30 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         }
         if reviewed_subflows != set(expected_subflows):
             errors.append("region_reviews 必须覆盖主体全部文字子流程")
+        expected_replacements = {
+            str(item.get("source_ref") or "").strip()
+            for item in contract.get("p_beat_replacements") or []
+            if isinstance(item, dict)
+        }
+        reviewed_replacements = {
+            ref
+            for review in review_by_id.values()
+            for ref in review.get("p_replacement_refs") or []
+        }
+        if reviewed_replacements != expected_replacements:
+            errors.append("region_reviews 必须覆盖主体全部 P 拍替换")
+        expected_news = {
+            str(item.get("news_id") or "").strip()
+            for item in contract.get("hot_news_materials") or []
+            if isinstance(item, dict)
+        }
+        reviewed_news = {
+            ref
+            for review in review_by_id.values()
+            for ref in review.get("hot_news_refs") or []
+        }
+        if reviewed_news != expected_news:
+            errors.append("region_reviews 必须覆盖全部已选热点新闻机制")
         primary_source = Path(contract["sources"][0]["original"]["path"]).read_text(encoding="utf-8")
         source_quotes = global_review.get("source_voice_quotes")
         if not isinstance(source_quotes, list) or len(source_quotes) < 3:

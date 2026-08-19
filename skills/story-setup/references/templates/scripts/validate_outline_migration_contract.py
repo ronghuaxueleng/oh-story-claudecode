@@ -13,13 +13,14 @@ import hashlib
 import json
 import re
 from copy import deepcopy
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
-SCHEMA_VERSION = "story-short-write.outline-migration-contract.v2"
-TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v1"
+SCHEMA_VERSION = "story-short-write.outline-migration-contract.v3"
+TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v2"
 FULL_BRIDGE_PLOT_LEDGER_SCHEMA = "story-short-analyze.full-text-plot-ledger.v2"
 FULL_EMOTION_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v2"
 SOURCE_STYLE_GRANULARITY_FIELDS = (
@@ -30,6 +31,26 @@ SOURCE_STYLE_GRANULARITY_FIELDS = (
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
 )
+P_REPLACEMENT_DIMENSIONS = {
+    "character_role",
+    "relationship_shell",
+    "occupation_domain",
+    "setting",
+    "trigger",
+    "object",
+    "evidence",
+    "control_mechanism",
+    "consequence",
+}
+P_REPLACEMENT_CORE_DIMENSIONS = {
+    "occupation_domain",
+    "setting",
+    "trigger",
+    "evidence",
+    "control_mechanism",
+    "consequence",
+}
+HOT_NEWS_MAX_AGE_DAYS = 90
 HEADING_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
 FIELD_RE = re.compile(r"(?m)^- ([^：\n]+)：(.*)$")
 SECTION_HEADING_RE = re.compile(r"^(\d+)[.、．](?:\s+.*)?$")
@@ -111,6 +132,40 @@ def _subflow_catalog_path(
     if str(entry.get("subflow_catalog_path") or "").strip():
         return _resolve_path(entry["subflow_catalog_path"], project_dir)
     return original.parent.parent / "写作资产" / "子流程索引.jsonl"
+
+
+def _primary_hierarchy_assets(
+    entry: dict[str, Any], original: Path, project_dir: Path
+) -> dict[str, Any]:
+    profile_raw = str(entry.get("profile_path") or "").strip()
+    if not profile_raw:
+        raise ValueError("主体来源缺少 profile_path，无法绑定完整上层层级")
+    profile = _resolve_path(profile_raw, project_dir)
+    report = (
+        _resolve_path(entry["story_core_path"], project_dir)
+        if str(entry.get("story_core_path") or "").strip()
+        else original.parent.parent / "拆文报告.md"
+    )
+    emotion_motherline = (
+        _resolve_path(entry["emotion_motherline_path"], project_dir)
+        if str(entry.get("emotion_motherline_path") or "").strip()
+        else original.parent.parent / "写作资产" / "情绪母线.md"
+    )
+    profile_data = read_json(profile, "主体 profile")
+    bridge_rules = profile_data.get("bridge_rules")
+    if not isinstance(bridge_rules, list) or not bridge_rules:
+        raise ValueError("主体 profile.bridge_rules 必须是非空列表")
+    report_text = report.read_text(encoding="utf-8")
+    if "故事核" not in report_text:
+        raise ValueError(f"主体拆文报告缺少故事核: {report}")
+    if len(re.sub(r"\s+", "", emotion_motherline.read_text(encoding="utf-8"))) < 20:
+        raise ValueError(f"主体情绪母线过短，无法作为上层真源: {emotion_motherline}")
+    return {
+        "profile": binding(profile),
+        "story_core": binding(report),
+        "emotion_motherline": binding(emotion_motherline),
+        "bridge_rules": deepcopy(bridge_rules),
+    }
 
 
 def _load_beats(path: Path, label: str, expected_schema: str) -> list[dict[str, Any]]:
@@ -223,6 +278,9 @@ def source_specs(config_path: Path) -> list[dict[str, Any]]:
             )
             subflow_catalog = _subflow_catalog_path(entry, original, project_dir)
             prose_subflows = _load_subflows(subflow_catalog)
+            hierarchy_assets = _primary_hierarchy_assets(entry, original, project_dir)
+        else:
+            hierarchy_assets = None
         plot_beats = _load_beats(plot_ledger, "全文情节微拍总账", FULL_BRIDGE_PLOT_LEDGER_SCHEMA)
         if role == "auxiliary":
             available_bids = {
@@ -261,6 +319,7 @@ def source_specs(config_path: Path) -> list[dict[str, Any]]:
                 "plot_beats": plot_beats,
                 "emotion_beats": emotion_beats,
                 "prose_subflows": prose_subflows,
+                "hierarchy_assets": hierarchy_assets,
             }
         )
     return specs
@@ -335,7 +394,7 @@ def parse_outline(outline_path: Path) -> dict[str, Any]:
 
 
 def _public_source(spec: dict[str, Any]) -> dict[str, Any]:
-    return {key: deepcopy(spec[key]) for key in (
+    result = {key: deepcopy(spec[key]) for key in (
         "source_id",
         "name",
         "role",
@@ -347,10 +406,149 @@ def _public_source(spec: dict[str, Any]) -> dict[str, Any]:
         "emotion_ledger",
         "subflow_catalog",
     )}
+    hierarchy_assets = spec.get("hierarchy_assets")
+    if spec.get("role") == "primary" and isinstance(hierarchy_assets, dict):
+        result["profile"] = deepcopy(hierarchy_assets["profile"])
+        result["story_core"] = deepcopy(hierarchy_assets["story_core"])
+        result["emotion_motherline"] = deepcopy(
+            hierarchy_assets["emotion_motherline"]
+        )
+    return result
 
 
 def _source_ref(source_id: str, beat: dict[str, Any]) -> str:
     return f"{source_id}:{str(beat.get('beat_id') or '').strip()}"
+
+
+def build_source_hierarchy(specs: list[dict[str, Any]]) -> dict[str, Any]:
+    primary = specs[0]
+    hierarchy_assets = primary.get("hierarchy_assets")
+    if not isinstance(hierarchy_assets, dict):
+        raise ValueError("主体来源缺少完整上层层级资产")
+    bridge_order: list[str] = []
+
+    def add_bridge(value: Any) -> None:
+        bridge_id = str(value or "").strip()
+        if bridge_id and bridge_id not in bridge_order:
+            bridge_order.append(bridge_id)
+
+    for beat in primary["plot_beats"]:
+        for bridge_id in beat.get("bid_ids") or []:
+            add_bridge(bridge_id)
+    for beat in primary["emotion_beats"]:
+        for bridge_id in beat.get("bid_ids") or []:
+            add_bridge(bridge_id)
+    for subflow in primary["prose_subflows"]:
+        add_bridge(subflow.get("parent_bridge_id"))
+
+    profile_rules = hierarchy_assets.get("bridge_rules")
+    if not isinstance(profile_rules, list):
+        raise ValueError("主体 profile.bridge_rules 必须是列表")
+    rule_by_id: dict[str, dict[str, Any]] = {}
+    profile_bridge_order: list[str] = []
+    for index, rule in enumerate(profile_rules, start=1):
+        if not isinstance(rule, dict):
+            raise ValueError(f"主体 profile.bridge_rules[{index}] 必须是对象")
+        bridge_id = str(rule.get("id") or "").strip()
+        if not bridge_id:
+            raise ValueError(f"主体 profile.bridge_rules[{index}] 缺少 id")
+        if bridge_id in rule_by_id:
+            raise ValueError(f"主体 profile.bridge_rules id 重复: {bridge_id}")
+        must_keep = rule.get("must_keep")
+        if not isinstance(must_keep, list) or not any(
+            str(item or "").strip() for item in must_keep
+        ):
+            raise ValueError(
+                f"主体 profile.bridge_rules.{bridge_id}.must_keep 必须是非空列表"
+            )
+        rule_by_id[bridge_id] = rule
+        profile_bridge_order.append(bridge_id)
+    if profile_bridge_order != bridge_order:
+        raise ValueError(
+            "主体 profile.bridge_rules 必须与 P/E/SF 总账中的 BID 完全同序: "
+            f"profile={profile_bridge_order}, ledgers={bridge_order}"
+        )
+
+    bridges: list[dict[str, Any]] = []
+    for bridge_id in bridge_order:
+        emotion_beats = [
+            beat
+            for beat in primary["emotion_beats"]
+            if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
+        ]
+        expected_emotion_ids = [
+            str(beat.get("beat_id") or "").strip() for beat in emotion_beats
+        ]
+        profile_rule = rule_by_id[bridge_id]
+        profile_emotion_sequence = profile_rule.get("emotion_sequence")
+        if not isinstance(profile_emotion_sequence, list):
+            raise ValueError(
+                f"主体 profile.bridge_rules.{bridge_id}.emotion_sequence 必须是列表"
+            )
+        if any(not isinstance(item, dict) for item in profile_emotion_sequence):
+            raise ValueError(
+                f"主体 profile.bridge_rules.{bridge_id}.emotion_sequence 每项必须是对象"
+            )
+        actual_emotion_ids = [
+            str(item.get("beat_id") or "").strip()
+            for item in profile_emotion_sequence
+        ]
+        if actual_emotion_ids != expected_emotion_ids:
+            raise ValueError(
+                f"主体 profile {bridge_id} 的情绪序列必须与 E 总账完全同序: "
+                f"profile={actual_emotion_ids}, ledger={expected_emotion_ids}"
+            )
+        for profile_beat, ledger_beat in zip(
+            profile_emotion_sequence, emotion_beats
+        ):
+            beat_id = str(ledger_beat.get("beat_id") or "").strip()
+            for field in ("role", "content", "intensity"):
+                if profile_beat.get(field) != ledger_beat.get(field):
+                    raise ValueError(
+                        f"主体 profile {bridge_id}/{beat_id}.{field} 必须与 E 总账一致"
+                    )
+            profile_evidence = str(
+                profile_beat.get("source_evidence") or ""
+            ).strip()
+            ledger_evidence_raw = ledger_beat.get("source_evidence")
+            ledger_evidence = (
+                [str(item or "").strip() for item in ledger_evidence_raw]
+                if isinstance(ledger_evidence_raw, list)
+                else [str(ledger_evidence_raw or "").strip()]
+            )
+            if not profile_evidence or profile_evidence not in ledger_evidence:
+                raise ValueError(
+                    f"主体 profile {bridge_id}/{beat_id}.source_evidence 必须取自 E 总账"
+                )
+        bridges.append(
+            {
+                "bridge_id": bridge_id,
+                "source_plot_refs": [
+                    _source_ref(primary["source_id"], beat)
+                    for beat in primary["plot_beats"]
+                    if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
+                ],
+                "source_emotion_refs": [
+                    _source_ref(primary["source_id"], beat)
+                    for beat in emotion_beats
+                ],
+                "source_prose_subflow_refs": [
+                    f"{primary['source_id']}:{str(item.get('subflow_id') or '').strip()}"
+                    for item in primary["prose_subflows"]
+                    if str(item.get("parent_bridge_id") or "").strip() == bridge_id
+                ],
+                "profile_rule": deepcopy(profile_rule),
+            }
+        )
+    return {
+        "story_core_source": deepcopy(hierarchy_assets["story_core"]),
+        "emotion_motherline_source": deepcopy(
+            hierarchy_assets["emotion_motherline"]
+        ),
+        "profile_source": deepcopy(hierarchy_assets["profile"]),
+        "bridge_order": bridge_order,
+        "bridges": bridges,
+    }
 
 
 def expected_sequences(specs: list[dict[str, Any]]) -> dict[str, Any]:
@@ -367,6 +565,246 @@ def expected_sequences(specs: list[dict[str, Any]]) -> dict[str, Any]:
             for spec in specs[1:]
         },
     }
+
+
+def _target_evidence(catalog: dict[str, Any]) -> dict[str, str]:
+    return {
+        str(beat.get("target_id") or "").strip(): str(beat.get("evidence") or "").strip()
+        for region in catalog.get("regions") or []
+        for beat in region.get("target_beats") or []
+    }
+
+
+def _editable_p_replacements(
+    receipt: dict[str, Any], specs: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    existing = {
+        str(item.get("source_ref") or "").strip(): item
+        for item in receipt.get("p_beat_replacements") or []
+        if isinstance(item, dict)
+    }
+    result: list[dict[str, Any]] = []
+    for beat in specs[0]["plot_beats"]:
+        source_ref = _source_ref(specs[0]["source_id"], beat)
+        current = existing.get(source_ref) or {}
+        result.append(
+            {
+                "source_ref": source_ref,
+                "preserved_function": str(current.get("preserved_function") or ""),
+                "changed_dimensions": list(current.get("changed_dimensions") or []),
+                "news_ids": list(current.get("news_ids") or []),
+                "adaptation_judgment": str(current.get("adaptation_judgment") or ""),
+            }
+        )
+    return result
+
+
+def build_p_replacements(
+    raw_replacements: Any,
+    specs: list[dict[str, Any]],
+    mapping: dict[str, Any],
+    outline_catalog: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_replacements, list):
+        raise ValueError("p_beat_replacements 必须是列表")
+    primary_refs = [
+        _source_ref(specs[0]["source_id"], beat) for beat in specs[0]["plot_beats"]
+    ]
+    if len(raw_replacements) != len(primary_refs):
+        raise ValueError(
+            "p_beat_replacements 必须与主体 P 拍等长: "
+            f"expected={len(primary_refs)}, actual={len(raw_replacements)}"
+        )
+    targets = mapping.get("primary_plot_targets") or []
+    if len(targets) != len(primary_refs):
+        raise ValueError("主体 P 拍映射未完成，不能生成 P 拍替换合同")
+    evidence_by_target = _target_evidence(outline_catalog)
+    result: list[dict[str, Any]] = []
+    for index, (expected_ref, target_id, item) in enumerate(
+        zip(primary_refs, targets, raw_replacements), start=1
+    ):
+        if not isinstance(item, dict):
+            raise ValueError(f"p_beat_replacements[{index}] 必须是对象")
+        source_ref = str(item.get("source_ref") or "").strip()
+        if source_ref != expected_ref:
+            raise ValueError(
+                f"p_beat_replacements[{index}].source_ref 必须与主体 P 拍同序: {expected_ref}"
+            )
+        normalized_target = str(target_id or "").strip()
+        result.append(
+            {
+                "source_ref": source_ref,
+                "target_id": normalized_target,
+                "target_evidence": evidence_by_target.get(normalized_target, ""),
+                "preserved_function": str(item.get("preserved_function") or "").strip(),
+                "changed_dimensions": [
+                    str(value or "").strip()
+                    for value in item.get("changed_dimensions") or []
+                    if str(value or "").strip()
+                ],
+                "news_ids": [
+                    str(value or "").strip()
+                    for value in item.get("news_ids") or []
+                    if str(value or "").strip()
+                ],
+                "adaptation_judgment": str(item.get("adaptation_judgment") or "").strip(),
+            }
+        )
+    return result
+
+
+def validate_p_replacements(
+    replacements: Any,
+    specs: list[dict[str, Any]],
+    mapping: dict[str, Any],
+    outline_catalog: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    try:
+        expected = build_p_replacements(replacements, specs, mapping, outline_catalog)
+    except ValueError as exc:
+        return [str(exc)]
+    if replacements != expected:
+        errors.append(
+            "p_beat_replacements 的 target_id 与 target_evidence 必须由主体 P 映射和当前细纲确定性生成"
+        )
+    for index, item in enumerate(expected, start=1):
+        label = f"p_beat_replacements[{index}]"
+        if len(item["preserved_function"]) < 12:
+            errors.append(f"{label}.preserved_function 至少 12 字，必须说明保留的承重功能")
+        dimensions = item["changed_dimensions"]
+        unknown = sorted(set(dimensions) - P_REPLACEMENT_DIMENSIONS)
+        if unknown:
+            errors.append(f"{label}.changed_dimensions 含未知维度: {unknown}")
+        if len(dimensions) != len(set(dimensions)):
+            errors.append(f"{label}.changed_dimensions 不得重复")
+        if len(dimensions) < 3:
+            errors.append(f"{label}.changed_dimensions 至少替换三个事件壳维度")
+        if len(set(dimensions) & P_REPLACEMENT_CORE_DIMENSIONS) < 2:
+            errors.append(f"{label}.changed_dimensions 至少包含两个核心现实机制维度")
+        if len(item["news_ids"]) != len(set(item["news_ids"])):
+            errors.append(f"{label}.news_ids 不得重复")
+        if len(item["adaptation_judgment"]) < 30:
+            errors.append(f"{label}.adaptation_judgment 至少 30 字")
+    return errors
+
+
+def validate_hot_news_materials(
+    materials: Any,
+    replacements: list[dict[str, Any]],
+) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(materials, list):
+        return ["hot_news_materials 必须是列表"]
+    required_count = min(2, len(replacements))
+    if len(materials) < required_count:
+        errors.append(f"hot_news_materials 至少需要 {required_count} 条不同热点新闻")
+    normalized: list[dict[str, str]] = []
+    for index, item in enumerate(materials, start=1):
+        label = f"hot_news_materials[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        values = {
+            key: str(item.get(key) or "").strip()
+            for key in (
+                "news_id",
+                "title",
+                "publisher",
+                "published_at",
+                "retrieved_at",
+                "url",
+                "transferable_mechanism",
+                "fact_boundary",
+            )
+        }
+        normalized.append(values)
+        for key, value in values.items():
+            if not value:
+                errors.append(f"{label}.{key} 不能为空")
+        if not re.fullmatch(r"HN-\d{3,}", values["news_id"]):
+            errors.append(f"{label}.news_id 必须使用 HN-001 形态")
+        parsed_url = urlparse(values["url"])
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            errors.append(f"{label}.url 必须是可追溯的 http/https 新闻链接")
+        try:
+            published = date.fromisoformat(values["published_at"])
+            retrieved = date.fromisoformat(values["retrieved_at"])
+            age = (retrieved - published).days
+            if age < 0:
+                errors.append(f"{label} 检索日期不得早于发布日期")
+            elif age > HOT_NEWS_MAX_AGE_DAYS:
+                errors.append(
+                    f"{label} 发布至检索已 {age} 天，超过热点新闻 {HOT_NEWS_MAX_AGE_DAYS} 天上限"
+                )
+        except ValueError:
+            errors.append(f"{label}.published_at/retrieved_at 必须是 YYYY-MM-DD")
+        if len(values["transferable_mechanism"]) < 15:
+            errors.append(f"{label}.transferable_mechanism 至少 15 字")
+        if len(values["fact_boundary"]) < 20:
+            errors.append(f"{label}.fact_boundary 至少 20 字，说明去标识化和虚构边界")
+
+    ids = [item["news_id"] for item in normalized if item["news_id"]]
+    if len(ids) != len(set(ids)):
+        errors.append("hot_news_materials.news_id 不得重复")
+    publishers = {item["publisher"] for item in normalized if item["publisher"]}
+    hosts = {urlparse(item["url"]).netloc.lower() for item in normalized if item["url"]}
+    distinct_required = min(required_count, len(normalized))
+    if len(publishers) < distinct_required or len(hosts) < distinct_required:
+        errors.append("热点新闻必须来自至少两个不同发布机构和站点")
+    mechanisms = [item["transferable_mechanism"] for item in normalized if item["transferable_mechanism"]]
+    if len(mechanisms) != len(set(mechanisms)):
+        errors.append("热点新闻不得用不同链接重复登记同一迁移机制")
+
+    known_ids = set(ids)
+    used_ids = {
+        str(news_id or "").strip()
+        for replacement in replacements
+        if isinstance(replacement, dict)
+        for news_id in replacement.get("news_ids") or []
+        if str(news_id or "").strip()
+    }
+    unknown = sorted(used_ids - known_ids)
+    if unknown:
+        errors.append(f"P 拍替换引用了未知热点新闻: {unknown}")
+    unused = sorted(known_ids - used_ids)
+    if unused:
+        errors.append(f"热点新闻未落到任何目标 P 拍: {unused}")
+    news_by_beat = [
+        {
+            str(news_id or "").strip()
+            for news_id in replacement.get("news_ids") or []
+            if str(news_id or "").strip() in known_ids
+        }
+        for replacement in replacements
+        if isinstance(replacement, dict)
+    ]
+    distinct_assignment_exists = required_count == 0 or (
+        required_count == 1 and any(news_by_beat)
+    )
+    if required_count == 2:
+        distinct_assignment_exists = any(
+            first_news != second_news
+            for first_index, first_ids in enumerate(news_by_beat)
+            for second_ids in news_by_beat[first_index + 1 :]
+            for first_news in first_ids
+            for second_news in second_ids
+        )
+    if not distinct_assignment_exists:
+        errors.append(
+            f"至少 {required_count} 条不同热点新闻必须分别落到 "
+            f"{required_count} 个不同目标 P 拍"
+        )
+    return errors
+
+
+def ensure_source_assets_unchanged(
+    receipt: dict[str, Any], specs: list[dict[str, Any]]
+) -> None:
+    if receipt.get("sources") != [_public_source(spec) for spec in specs]:
+        raise ValueError("来源资产已变更，旧纲层判断失效，请重新初始化并导出侧车")
+    if receipt.get("source_hierarchy") != build_source_hierarchy(specs):
+        raise ValueError("主体上层层级已变更，旧纲层判断失效，请重新初始化并导出侧车")
 
 
 def build_granularity_coverage(
@@ -418,12 +856,18 @@ def build_sections(
     sequences: dict[str, Any],
     mapping: dict[str, Any],
     granularity_coverage: list[dict[str, Any]],
+    p_beat_replacements: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     plot_pairs = dict(zip(sequences["primary_plot_refs"], mapping.get("primary_plot_targets") or []))
     emotion_pairs = dict(zip(sequences["primary_emotion_refs"], mapping.get("primary_emotion_targets") or []))
     aux_pairs = {
         source_id: dict(zip(refs, (mapping.get("auxiliary_plot_targets") or {}).get(source_id) or []))
         for source_id, refs in sequences["auxiliary_plot_refs"].items()
+    }
+    replacement_by_ref = {
+        str(item.get("source_ref") or "").strip(): deepcopy(item)
+        for item in p_beat_replacements or []
+        if isinstance(item, dict)
     }
     target_region: dict[str, str] = {}
     for region in outline_catalog["regions"]:
@@ -468,6 +912,11 @@ def build_sections(
                         "allocated_chars": (target_chars["min"] + target_chars["max"]) // 2,
                         "emotion_beat_ids": [ref.split(":", 1)[1] for ref in emotion_refs],
                         "plot_beat_ids": [ref.split(":", 1)[1] for ref in plot_refs],
+                        "p_beat_replacements": [
+                            replacement_by_ref[ref]
+                            for ref in plot_refs
+                            if ref in replacement_by_ref
+                        ],
                         "auxiliary_plot_beat_refs": auxiliary_refs,
                         "prose_subflow_refs": prose_subflow_refs,
                         "prose_style_dimensions": list(SOURCE_STYLE_GRANULARITY_FIELDS),
@@ -500,18 +949,24 @@ def create_receipt(project: str, outline_path: Path, config_path: Path) -> dict[
         "outline": binding(outline),
         "project_config": binding(config),
         "sources": [_public_source(spec) for spec in specs],
+        "source_hierarchy": build_source_hierarchy(specs),
         "outline_catalog": catalog,
         "mapping": mapping,
+        "hot_news_materials": [],
+        "p_beat_replacements": [],
         "granularity_coverage": granularity_coverage,
         "manual_confirmation": {
-            "primary_plot_complete_and_in_order": None,
+            "full_story_hierarchy_preserved": None,
+            "primary_plot_slots_replaced_one_to_one_and_in_order": None,
             "primary_emotion_complete_and_in_order": None,
             "auxiliary_is_plot_mechanism_only": None,
             "primary_is_exclusive_prose_voice": None,
             "primary_full_prose_granularity_loaded": None,
+            "source_event_shell_rejected": None,
+            "hot_news_is_event_mechanism_only": None,
             "manual_judgment": "",
         },
-        "sections": build_sections(catalog, sequences, mapping, granularity_coverage),
+        "sections": build_sections(catalog, sequences, mapping, granularity_coverage, []),
         "blocking_failures": list(catalog["errors"]),
     }
 
@@ -546,13 +1001,18 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         raise ValueError("只能从紧凑纲层迁移合同导出模板")
     config_path = Path(receipt["project_config"]["path"])
     specs = source_specs(config_path)
+    ensure_source_assets_unchanged(receipt, specs)
     manual_confirmation = deepcopy(receipt["manual_confirmation"])
     manual_confirmation.setdefault("primary_full_prose_granularity_loaded", None)
     template = {
         "schema_version": TEMPLATE_SCHEMA,
         "receipt_path": str(receipt_path.resolve()),
         "receipt_sha256": sha256(receipt_path),
-        "instructions": "三个 targets 数组分别与对应 source 序列等长同序；每项只填一个 target_id。",
+        "instructions": (
+            "三个 targets 数组分别与对应 source 序列等长同序；每项只填一个 target_id。"
+            "完整保留上层关系/BID/E/SF 层级，只逐拍替换主体 P 拍事件壳；"
+            "热点新闻只供应目标 P 拍的现实机制。"
+        ),
         "target_catalog": [
             {
                 "region_id": region["region_id"],
@@ -569,6 +1029,8 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
             },
         },
         "mapping": deepcopy(receipt["mapping"]),
+        "hot_news_materials": deepcopy(receipt.get("hot_news_materials") or []),
+        "p_beat_replacements": _editable_p_replacements(receipt, specs),
         "manual_confirmation": manual_confirmation,
     }
     write_json(output_path, template)
@@ -633,6 +1095,9 @@ def validate_data(data: dict[str, Any], outline_path: Path | None = None) -> lis
         expected_sources = [_public_source(spec) for spec in specs]
         if data.get("sources") != expected_sources:
             errors.append("sources 与项目配置及来源账本不一致")
+        expected_hierarchy = build_source_hierarchy(specs)
+        if data.get("source_hierarchy") != expected_hierarchy:
+            errors.append("source_hierarchy 必须完整保留主体 BID、E 拍和 SF 上层结构")
         sequences = expected_sequences(specs)
         mapping = data.get("mapping") or {}
         ranks = _target_rank(actual_catalog)
@@ -659,16 +1124,31 @@ def validate_data(data: dict[str, Any], outline_path: Path | None = None) -> lis
                 aux_targets.get(source_id), refs, ranks,
                 f"mapping.auxiliary_plot_targets.{source_id}", errors,
             )
+        replacements = data.get("p_beat_replacements")
+        errors.extend(
+            validate_p_replacements(replacements, specs, mapping, actual_catalog)
+        )
+        normalized_replacements = (
+            replacements if isinstance(replacements, list) else []
+        )
+        errors.extend(
+            validate_hot_news_materials(
+                data.get("hot_news_materials"), normalized_replacements
+            )
+        )
         confirmation = data.get("manual_confirmation")
         if not isinstance(confirmation, dict):
             errors.append("manual_confirmation 必须是对象")
         else:
             for field in (
-                "primary_plot_complete_and_in_order",
+                "full_story_hierarchy_preserved",
+                "primary_plot_slots_replaced_one_to_one_and_in_order",
                 "primary_emotion_complete_and_in_order",
                 "auxiliary_is_plot_mechanism_only",
                 "primary_is_exclusive_prose_voice",
                 "primary_full_prose_granularity_loaded",
+                "source_event_shell_rejected",
+                "hot_news_is_event_mechanism_only",
             ):
                 if confirmation.get(field) is not True:
                     errors.append(f"manual_confirmation.{field} 必须为 true")
@@ -685,7 +1165,11 @@ def validate_data(data: dict[str, Any], outline_path: Path | None = None) -> lis
         if empty_subflows:
             errors.append(f"主体文字子流程未映射到目标区域: {empty_subflows}")
         expected_sections = build_sections(
-            actual_catalog, sequences, mapping, expected_coverage
+            actual_catalog,
+            sequences,
+            mapping,
+            expected_coverage,
+            normalized_replacements,
         )
         if data.get("sections") != expected_sections:
             errors.append("sections 必须由当前映射和细纲确定性生成，不得人工改写")
@@ -709,16 +1193,30 @@ def apply_template(receipt_path: Path, template_path: Path) -> dict[str, Any]:
         raise ValueError("侧车绑定的正式合同 SHA 已失效，请重新导出")
     merged = deepcopy(receipt)
     merged["mapping"] = deepcopy(template.get("mapping"))
+    merged["hot_news_materials"] = deepcopy(template.get("hot_news_materials"))
     merged["manual_confirmation"] = deepcopy(template.get("manual_confirmation"))
     specs = source_specs(Path(merged["project_config"]["path"]))
+    ensure_source_assets_unchanged(receipt, specs)
     sequences = expected_sequences(specs)
     merged["sources"] = [_public_source(spec) for spec in specs]
+    merged["source_hierarchy"] = build_source_hierarchy(specs)
+    replacements = build_p_replacements(
+        template.get("p_beat_replacements"),
+        specs,
+        merged["mapping"],
+        merged["outline_catalog"],
+    )
+    merged["p_beat_replacements"] = replacements
     coverage = build_granularity_coverage(
         specs, merged["outline_catalog"], merged["mapping"]
     )
     merged["granularity_coverage"] = coverage
     merged["sections"] = build_sections(
-        merged["outline_catalog"], sequences, merged["mapping"], coverage
+        merged["outline_catalog"],
+        sequences,
+        merged["mapping"],
+        coverage,
+        replacements,
     )
     merged["gate_status"] = "pending"
     merged["blocking_failures"] = []
@@ -753,14 +1251,24 @@ def _mapping_has_targets(mapping: Any) -> bool:
 
 
 def _preservation_source(
-    receipt_path: Path, receipt: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    receipt_path: Path,
+    receipt: dict[str, Any],
+    specs: list[dict[str, Any]],
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any],
+    dict[str, Any],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
     mapping = receipt.get("mapping")
     if _mapping_has_targets(mapping):
         return (
             deepcopy(receipt.get("outline_catalog") or {}),
             deepcopy(mapping),
             deepcopy(receipt.get("manual_confirmation") or {}),
+            deepcopy(receipt.get("hot_news_materials") or []),
+            _editable_p_replacements(receipt, specs),
         )
 
     sidecar_path = receipt_path.with_name("纲层迁移侧车.json")
@@ -778,6 +1286,8 @@ def _preservation_source(
         _catalog_from_template(template),
         deepcopy(template_mapping),
         deepcopy(template.get("manual_confirmation") or {}),
+        deepcopy(template.get("hot_news_materials") or []),
+        deepcopy(template.get("p_beat_replacements") or []),
     )
 
 
@@ -852,15 +1362,26 @@ def rebind_outline(
         raise ValueError("只能重绑紧凑纲层迁移合同")
     config_path = Path(receipt["project_config"]["path"]).resolve()
     specs = source_specs(config_path)
+    if preserve_by_evidence:
+        ensure_source_assets_unchanged(receipt, specs)
     sequences = expected_sequences(specs)
     catalog = parse_outline(outline_path.resolve())
     if catalog["errors"]:
         raise ValueError("；".join(catalog["errors"]))
     if preserve_by_evidence:
-        old_catalog, old_mapping, manual_confirmation = _preservation_source(
-            receipt_path, receipt
+        (
+            old_catalog,
+            old_mapping,
+            manual_confirmation,
+            hot_news_materials,
+            editable_replacements,
+        ) = _preservation_source(
+            receipt_path, receipt, specs
         )
         mapping = migrate_mapping_by_evidence(old_catalog, catalog, old_mapping)
+        replacements = build_p_replacements(
+            editable_replacements, specs, mapping, catalog
+        )
     else:
         mapping = {
             "primary_plot_targets": [],
@@ -870,22 +1391,32 @@ def rebind_outline(
             },
         }
         manual_confirmation = {
-            "primary_plot_complete_and_in_order": None,
+            "full_story_hierarchy_preserved": None,
+            "primary_plot_slots_replaced_one_to_one_and_in_order": None,
             "primary_emotion_complete_and_in_order": None,
             "auxiliary_is_plot_mechanism_only": None,
             "primary_is_exclusive_prose_voice": None,
             "primary_full_prose_granularity_loaded": None,
+            "source_event_shell_rejected": None,
+            "hot_news_is_event_mechanism_only": None,
             "manual_judgment": "",
         }
+        hot_news_materials = []
+        replacements = []
     coverage = build_granularity_coverage(specs, catalog, mapping)
     receipt["outline"] = binding(outline_path)
     receipt["project_config"] = binding(config_path)
     receipt["sources"] = [_public_source(spec) for spec in specs]
+    receipt["source_hierarchy"] = build_source_hierarchy(specs)
     receipt["outline_catalog"] = catalog
     receipt["mapping"] = mapping
+    receipt["hot_news_materials"] = hot_news_materials
+    receipt["p_beat_replacements"] = replacements
     receipt["granularity_coverage"] = coverage
     receipt["manual_confirmation"] = manual_confirmation
-    receipt["sections"] = build_sections(catalog, sequences, mapping, coverage)
+    receipt["sections"] = build_sections(
+        catalog, sequences, mapping, coverage, replacements
+    )
     receipt["gate_status"] = "pending"
     receipt["blocking_failures"] = []
     receipt["rebound_at"] = now_iso()

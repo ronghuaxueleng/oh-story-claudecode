@@ -26,6 +26,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.outline = self.project_root / "小节大纲.md"
         self.outline_receipt = self.project_root / "写作资产" / "细纲表演验收回执.json"
         self.source_original = self.source / "原文" / "样本.txt"
+        self.source_profile = self.source / "book.profile.json"
 
         self._build_outline_support_assets()
         self.setting.parent.mkdir(parents=True, exist_ok=True)
@@ -78,6 +79,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
                     "primary": {
                         "name": "样本",
                         "original_path": str(self.source_original),
+                        "profile_path": str(self.source_profile),
                     },
                     "auxiliaries": [],
                 },
@@ -94,6 +96,8 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         emotion_ledger = self.source / "写作资产" / "全文情绪颗粒总账.json"
         bridge_catalog = self.source / "写作资产" / "桥段施工卡.md"
         subflow_catalog = self.source / "写作资产" / "子流程索引.jsonl"
+        story_report = self.source / "拆文报告.md"
+        emotion_motherline = self.source / "写作资产" / "情绪母线.md"
         self.source_original.parent.mkdir(parents=True, exist_ok=True)
         plot_ledger.parent.mkdir(parents=True, exist_ok=True)
         self.source_original.write_text(
@@ -160,6 +164,37 @@ class BatchOutlineReleaseTest(unittest.TestCase):
             "## BID-01\n\n桥段说明\n",
             encoding="utf-8",
         )
+        story_report.write_text(
+            "# 拆文报告\n\n## 故事核\n\n关系中的公开掉位最终迫使主角离开。\n",
+            encoding="utf-8",
+        )
+        emotion_motherline.write_text(
+            "从被优先保护的关系位置跌落，经由公开刺痛确认失去资格，最终主动离开并关闭关系入口。\n",
+            encoding="utf-8",
+        )
+        self.source_profile.write_text(
+            json.dumps(
+                {
+                    "bridge_rules": [
+                        {
+                            "id": "BID-01",
+                            "must_keep": ["公开掉位", "主动离开"],
+                            "emotion_sequence": [
+                                {
+                                    "beat_id": "E-001",
+                                    "role": "第一次刺痛",
+                                    "content": "先护别人",
+                                    "intensity": 8,
+                                    "source_evidence": "我没想到他还会替别人解释。",
+                                }
+                            ],
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
         subflow_catalog.write_text(
             json.dumps(
                 {
@@ -197,6 +232,11 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         )
         self.assertEqual([], payload["granularity_coverage"][0]["target_regions"])
         self.assertTrue(payload["sources"][0]["subflow_catalog"]["sha256"])
+        self.assertEqual(["BID-01"], payload["source_hierarchy"]["bridge_order"])
+        self.assertEqual(
+            ["SRC-PRIMARY:P-001"],
+            payload["source_hierarchy"]["bridges"][0]["source_plot_refs"],
+        )
         assets = self.project_root / "写作资产"
         self.assertEqual(
             {"项目写作配置.json", "细纲表演验收回执.json"},
@@ -266,13 +306,41 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         target_id = receipt["outline_catalog"]["regions"][0]["target_beats"][0]["target_id"]
         template["mapping"]["primary_plot_targets"] = [target_id]
         template["mapping"]["primary_emotion_targets"] = [target_id]
+        template["hot_news_materials"] = [
+            {
+                "news_id": "HN-001",
+                "title": "平台紧急授权规则调整引发关注",
+                "publisher": "测试新闻社",
+                "published_at": "2026-08-10",
+                "retrieved_at": "2026-08-19",
+                "url": "https://news.example.com/rule-change",
+                "transferable_mechanism": "紧急权限只能授予一人，系统记录会公开固化谁被优先选择",
+                "fact_boundary": "只采用权限排他和系统留痕机制，人物、机构、时间线与具体结果全部虚构化处理",
+            }
+        ]
+        template["p_beat_replacements"][0].update(
+            {
+                "preserved_function": "保留关系中公开掉位并推动离开的承重功能",
+                "changed_dimensions": [
+                    "occupation_domain",
+                    "setting",
+                    "evidence",
+                    "consequence",
+                ],
+                "news_ids": ["HN-001"],
+                "adaptation_judgment": "目标细拍改用平台紧急授权和系统记录制造公开掉位，人物职业、现场证据与现实后果均已脱离原文门口阻拦事件。",
+            }
+        )
         template["manual_confirmation"] = {
-            "primary_plot_complete_and_in_order": True,
+            "full_story_hierarchy_preserved": True,
+            "primary_plot_slots_replaced_one_to_one_and_in_order": True,
             "primary_emotion_complete_and_in_order": True,
             "auxiliary_is_plot_mechanism_only": True,
             "primary_is_exclusive_prose_voice": True,
             "primary_full_prose_granularity_loaded": True,
-            "manual_judgment": "主体情节、情绪和文字颗粒均已逐项核对并按原序映射到唯一目标细拍。",
+            "source_event_shell_rejected": True,
+            "hot_news_is_event_mechanism_only": True,
+            "manual_judgment": "主体关系层级、情绪和文字颗粒均已逐项核对；全部 P 拍只保留承重功能并换成新的现实事件，热点只供应机制。",
         }
         sidecar.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
 
@@ -281,6 +349,42 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertFalse(sidecar.exists())
         merged = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
         self.assertEqual("passed", merged["gate_status"])
+        self.assertEqual(target_id, merged["p_beat_replacements"][0]["target_id"])
+        self.assertEqual("HN-001", merged["hot_news_materials"][0]["news_id"])
+
+    def test_p_replacement_without_event_shell_change_blocks(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目", project_dir=self.project_root
+        )
+        self.assertEqual([], errors)
+        sidecar = self.project_root / "写作资产" / "纲层迁移侧车.json"
+        template = GATE.OUTLINE.export_template(self.outline_receipt, sidecar)
+        target_id = template["target_catalog"][0]["target_beats"][0]["target_id"]
+        template["mapping"]["primary_plot_targets"] = [target_id]
+        template["mapping"]["primary_emotion_targets"] = [target_id]
+        template["p_beat_replacements"][0]["preserved_function"] = "保留关系公开掉位并推动离开的功能"
+        template["p_beat_replacements"][0]["changed_dimensions"] = ["object"]
+        template["p_beat_replacements"][0]["adaptation_judgment"] = "只换了一个物件，其余人物动作、现场和结果都沿用了原文事件，因此必须被阻断。"
+        sidecar.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "至少替换三个事件壳维度"):
+            GATE.OUTLINE.apply_template(self.outline_receipt, sidecar)
+
+    def test_source_change_after_export_invalidates_old_sidecar(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目", project_dir=self.project_root
+        )
+        self.assertEqual([], errors)
+        sidecar = self.project_root / "写作资产" / "纲层迁移侧车.json"
+        GATE.OUTLINE.export_template(self.outline_receipt, sidecar)
+        profile = json.loads(self.source_profile.read_text(encoding="utf-8"))
+        profile["updated_after_export"] = True
+        self.source_profile.write_text(
+            json.dumps(profile, ensure_ascii=False), encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(ValueError, "来源资产已变更"):
+            GATE.OUTLINE.apply_template(self.outline_receipt, sidecar)
 
     def test_project_name_mismatch_blocks(self) -> None:
         errors, summary = GATE.start_outline_release(
