@@ -50,4 +50,6 @@ python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" apply-templ
   --input "{项目目录}/写作资产/纲层迁移侧车.json"
 ```
 
+`apply-template` 校验并合并成功后自动删除工作侧车；后续只读取正式合同。
+
 已存在但不符合当前 schema 的同名文件会阻断初始化；先将其移出项目正式资产目录，再重新初始化。

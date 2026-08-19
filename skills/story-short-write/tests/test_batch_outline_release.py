@@ -30,7 +30,46 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self._build_outline_support_assets()
         self.setting.parent.mkdir(parents=True, exist_ok=True)
         self.setting.write_text("设定内容", encoding="utf-8")
-        self.outline.write_text("# 标题\n\n## 1. 起事\n\n大纲动作一\n", encoding="utf-8")
+        self.outline.write_text(
+            "# 标题\n\n"
+            "## 导语\n\n"
+            "- 主事件：开场。\n"
+            "- 子事件：开场细节。\n"
+            "- 细拍拆分：开场动作。\n"
+            "- 情绪：悬念。\n"
+            "- 读者新获知什么：关系异常。\n"
+            "- 钩子：下一步。\n"
+            "- 伏笔/物件：钥匙。\n"
+            "- 动静：静。\n"
+            "- 对话密度：低。\n"
+            "- 目标字数：100-200字。\n"
+            "- 场面单元：门口起事。\n\n"
+            "## 1. 起事\n\n"
+            "- 主事件：起事。\n"
+            "- 子事件：关系变化。\n"
+            "- 细拍拆分：他先伸手拦我，我把他的手推开。\n"
+            "- 情绪：刺痛。\n"
+            "- 读者新获知什么：他先解释别人。\n"
+            "- 钩子：门会不会关。\n"
+            "- 伏笔/物件：钥匙。\n"
+            "- 动静：先动后静。\n"
+            "- 对话密度：中。\n"
+            "- 目标字数：500-700字。\n"
+            "- 场面单元：门口争执。\n\n"
+            "## 尾声\n\n"
+            "- 主事件：门关上。\n"
+            "- 子事件：关系结束。\n"
+            "- 细拍拆分：最后门关上了。\n"
+            "- 情绪：决绝。\n"
+            "- 读者新获知什么：关系结束。\n"
+            "- 钩子：无。\n"
+            "- 伏笔/物件：门。\n"
+            "- 动静：静。\n"
+            "- 对话密度：低。\n"
+            "- 目标字数：100-200字。\n"
+            "- 场面单元：门外收束。\n",
+            encoding="utf-8",
+        )
         self.config.parent.mkdir(parents=True, exist_ok=True)
         self.config.write_text(
             json.dumps(
@@ -214,6 +253,34 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertFalse(summary["resumed_existing"])
         payload = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
         self.assertEqual("测试项目", payload["project"])
+
+    def test_apply_template_removes_merged_sidecar(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+        self.assertEqual([], errors)
+        sidecar = self.project_root / "写作资产" / "纲层迁移侧车.json"
+        template = GATE.OUTLINE.export_template(self.outline_receipt, sidecar)
+        receipt = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
+        target_id = receipt["outline_catalog"]["regions"][0]["target_beats"][0]["target_id"]
+        template["mapping"]["primary_plot_targets"] = [target_id]
+        template["mapping"]["primary_emotion_targets"] = [target_id]
+        template["manual_confirmation"] = {
+            "primary_plot_complete_and_in_order": True,
+            "primary_emotion_complete_and_in_order": True,
+            "auxiliary_is_plot_mechanism_only": True,
+            "primary_is_exclusive_prose_voice": True,
+            "primary_full_prose_granularity_loaded": True,
+            "manual_judgment": "主体情节、情绪和文字颗粒均已逐项核对并按原序映射到唯一目标细拍。",
+        }
+        sidecar.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
+
+        GATE.OUTLINE.apply_template(self.outline_receipt, sidecar)
+
+        self.assertFalse(sidecar.exists())
+        merged = json.loads(self.outline_receipt.read_text(encoding="utf-8"))
+        self.assertEqual("passed", merged["gate_status"])
 
     def test_project_name_mismatch_blocks(self) -> None:
         errors, summary = GATE.start_outline_release(

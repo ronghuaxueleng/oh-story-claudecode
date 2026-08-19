@@ -22,6 +22,7 @@
 | `初稿终审回执.json` | 最终正文一次性人工验收与 SHA 绑定 |
 
 任何只证明“读过”、重复解释细纲或把最终审查拆成多份的产物都不进入主链。
+`纲层迁移侧车.json` 只在映射填写期间存在，合并成功后由脚本自动删除。
 
 ## 纲层命令
 
@@ -38,6 +39,8 @@ python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" apply-templ
   --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
   --input "{项目目录}/写作资产/纲层迁移侧车.json"
 ```
+
+`apply-template` 成功即删除工作侧车；正式合同已经包含全部人工映射。
 
 ## 正文命令
 
@@ -62,6 +65,10 @@ python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" init \
   --project-config "{项目目录}/写作资产/项目写作配置.json" \
   --receipt "{项目目录}/写作资产/初稿终审回执.json"
 
+# init 后若正文被修改，只用此命令重绑
+python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" refresh-derived \
+  --receipt "{项目目录}/写作资产/初稿终审回执.json"
+
 python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" seal \
   --receipt "{项目目录}/写作资产/初稿终审回执.json"
 
@@ -70,6 +77,9 @@ python3 "$SKILL_ROOT/scripts/validate_continuation_gate.py" \
   --reason initial_draft_stop \
   --platform zhihu
 ```
+
+`seal` 通过后直接运行停靠闸，不重复执行格式校验或终审 `validate`。
+细纲目标字数只服务写前配重与分节密度，不是正文逐节封口门禁。
 
 ## 执行边界
 

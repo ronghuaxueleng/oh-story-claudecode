@@ -728,6 +728,11 @@ def apply_template(receipt_path: Path, template_path: Path) -> dict[str, Any]:
     merged["gate_status"] = "passed"
     merged["reviewed_at"] = now_iso()
     write_json(receipt_path, merged)
+    try:
+        template_path.unlink()
+    except OSError:
+        # The merged receipt is authoritative; failed cleanup must not undo it.
+        pass
     return merged
 
 
@@ -845,7 +850,8 @@ def rebind_outline(
     receipt = read_json(receipt_path, "细纲迁移合同")
     if receipt.get("schema_version") != SCHEMA_VERSION:
         raise ValueError("只能重绑紧凑纲层迁移合同")
-    specs = source_specs(Path(receipt["project_config"]["path"]))
+    config_path = Path(receipt["project_config"]["path"]).resolve()
+    specs = source_specs(config_path)
     sequences = expected_sequences(specs)
     catalog = parse_outline(outline_path.resolve())
     if catalog["errors"]:
@@ -873,6 +879,8 @@ def rebind_outline(
         }
     coverage = build_granularity_coverage(specs, catalog, mapping)
     receipt["outline"] = binding(outline_path)
+    receipt["project_config"] = binding(config_path)
+    receipt["sources"] = [_public_source(spec) for spec in specs]
     receipt["outline_catalog"] = catalog
     receipt["mapping"] = mapping
     receipt["granularity_coverage"] = coverage

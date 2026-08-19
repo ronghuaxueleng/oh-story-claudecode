@@ -41,6 +41,8 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         assets = project / "写作资产"
         config = json.loads((assets / "项目写作配置.json").read_text(encoding="utf-8"))
         self.assertEqual("测试书", config["project_name"])
+        self.assertEqual("source_anchored", config["length_policy"]["mode"])
+        self.assertEqual(1.25, config["length_policy"]["max_total_ratio"])
         self.assertEqual({"项目写作配置.json"}, {path.name for path in assets.iterdir()})
 
     def test_init_prechecks_all_targets_before_writing(self) -> None:
@@ -71,6 +73,7 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         )
         primary.write_text(
             json.dumps({
+                "meta": {"name": "主体"},
                 "prose_style_contract": {
                     "source_role": "primary_only",
                     "sentence_motion": ["短句落锤"],
@@ -80,6 +83,7 @@ class ProjectWritingAssetsTest(unittest.TestCase):
                 },
                 "style_assets": {"x": ["y"]},
                 "scene_assets": {"public_explosion": ["主体场面"]},
+                "sample_source_buckets": {"source": "主体"},
             }),
             encoding="utf-8",
         )
@@ -98,6 +102,55 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         value = json.loads(profile.read_text(encoding="utf-8"))
         self.assertEqual("主体", value["meta"]["source_policy"]["primary"]["name"])
         self.assertFalse(value["prose_style_contract"]["auxiliary_profiles_supply_prose"])
+        self.assertEqual(["主体场面"], value["scene_assets"]["public_explosion"])
+        self.assertEqual({"source": "主体"}, value["sample_source_buckets"])
+
+    def test_profile_policy_initializes_missing_profile_from_primary(self) -> None:
+        profile = self.root / "profiles" / "project.profile.json"
+        primary = self.root / "primary.json"
+        auxiliary = self.root / "auxiliary.json"
+        primary.write_text(
+            json.dumps({
+                "meta": {"name": "主体"},
+                "prose_style_contract": {
+                    "source_role": "primary_only",
+                    "sentence_motion": ["短句落锤"],
+                    "narrator_voice": ["事实后判断"],
+                    "dialogue_and_character_voice": ["角色口气不同"],
+                    "anti_patterns": ["不用空总结"],
+                },
+                "scene_assets": {"public_explosion": ["主体场面"]},
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        auxiliary.write_text(
+            json.dumps({"scene_assets": {"public_explosion": ["辅助污染"]}}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        config = self.root / "config.json"
+        config.write_text(
+            json.dumps({
+                "project_name": "测试书",
+                "profile_path": str(profile),
+                "primary": {"name": "主体", "profile_path": str(primary)},
+                "auxiliaries": [{
+                    "name": "辅助",
+                    "profile_path": str(auxiliary),
+                    "role": "plot_mechanism_only",
+                    "selected_bids": ["BID-01"],
+                    "supplies_prose_voice": False,
+                    "supplies_emotion_beats": False,
+                }],
+            }, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+        result = self.run_script(POLICY, "--config", str(config))
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        value = json.loads(profile.read_text(encoding="utf-8"))
+        self.assertEqual("测试书", value["meta"]["name"])
+        self.assertEqual("primary_policy", value["meta"]["mode"])
         self.assertEqual(["主体场面"], value["scene_assets"]["public_explosion"])
 
     def test_release_rejects_empty_prose_guidance(self) -> None:

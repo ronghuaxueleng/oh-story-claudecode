@@ -7,6 +7,7 @@ import argparse
 import copy
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -60,7 +61,10 @@ def digest(path: Path) -> str:
 
 def apply_policy(config_path: Path) -> Path:
     config = load(config_path)
-    profile_path = resolve(config_path, str(config.get("profile_path") or ""))
+    profile_raw = str(config.get("profile_path") or "").strip()
+    if not profile_raw:
+        raise ValueError("项目配置缺少 profile_path")
+    profile_path = resolve(config_path, profile_raw)
     primary_config = config.get("primary")
     auxiliaries = config.get("auxiliaries")
     if not isinstance(primary_config, dict):
@@ -68,12 +72,11 @@ def apply_policy(config_path: Path) -> Path:
     if not isinstance(auxiliaries, list):
         raise ValueError("项目配置 auxiliaries 必须是列表")
     primary_path = resolve(config_path, str(primary_config.get("profile_path") or ""))
-    for path in (profile_path, primary_path):
-        if not path.is_file():
-            raise ValueError(f"绑定文件不存在: {path}")
+    if not primary_path.is_file():
+        raise ValueError(f"主体 profile 不存在: {primary_path}")
 
-    profile = load(profile_path)
     primary = load(primary_path)
+    profile = copy.deepcopy(primary)
     primary_contract = primary.get("prose_style_contract")
     if not isinstance(primary_contract, dict):
         raise ValueError("主体 profile 缺少 prose_style_contract")
@@ -118,6 +121,13 @@ def apply_policy(config_path: Path) -> Path:
     meta = profile.setdefault("meta", {})
     if not isinstance(meta, dict):
         raise ValueError("profile.meta 必须是对象")
+    project_name = str(config.get("project_name") or "").strip()
+    if project_name:
+        meta["name"] = project_name
+    meta["mode"] = "primary_policy"
+    meta["source_count"] = 1
+    meta["sources"] = [str(primary_path)]
+    meta["generated_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
     meta["source_policy"] = {
         "primary": {
             "name": str(primary_config.get("name") or ""),
@@ -131,6 +141,7 @@ def apply_policy(config_path: Path) -> Path:
         },
         "auxiliaries": auxiliary_policy,
     }
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(
         json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

@@ -2,14 +2,14 @@
 
 ## 正式主链
 
-- `validate_project_directory_name.py`：书名目录预检与复验。
+- `validate_project_directory_name.py`：一次完成书名校验、目录原子创建与复验。
 - `init_project_writing_assets.py`：只初始化项目配置。
-- `generate_story_profile.py`：从主体拆文资产生成项目 profile。
-- `apply_project_profile_policy.py`：把项目来源边界写入项目 profile。
+- `generate_story_profile.py`：维护来源 profile；单书写作主链不直接调用。
+- `apply_project_profile_policy.py`：从主体 profile 初始化项目 profile，并写入项目来源边界。
 - `batch_outline_release.py`：初始化或续用纲层合同。
 - `validate_outline_migration_contract.py`：一次导出、合并并校验三组紧凑 E/P 映射。
 - `validate_streamlined_write_release.py`：检查来源角色、profile 和纲层合同后放行正文。
-- `validate_initial_draft_review.py`：初始化并封口唯一初稿终审。
+- `validate_initial_draft_review.py`：初始化并封口唯一初稿终审；每区只留一条正文引句和合并判断。
 - `validate_continuation_gate.py`：验证合法初稿停靠。
 - `validate_zhihu_section_format.py`：按需验证知乎数字分节格式。
 

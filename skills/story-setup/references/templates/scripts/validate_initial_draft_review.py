@@ -30,6 +30,18 @@ def _load_outline_module():
 OUTLINE = _load_outline_module()
 
 
+def _load_release_module():
+    path = Path(__file__).with_name("validate_streamlined_write_release.py")
+    spec = importlib.util.spec_from_file_location("story_short_write_release", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+RELEASE = _load_release_module()
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -170,6 +182,14 @@ def create_receipt(
     if outline_errors or contract.get("gate_status") != "passed":
         raise ValueError("细纲迁移合同未通过: " + "；".join(outline_errors))
     draft_text = draft_path.read_text(encoding="utf-8")
+    primary_original = Path(contract["sources"][0]["original"]["path"]).resolve()
+    length_errors = RELEASE.validate_source_anchored_draft(
+        draft_text,
+        primary_original,
+        read_json(project_config_path, "项目写作配置"),
+    )
+    if length_errors:
+        raise ValueError("；".join(length_errors))
     regions = review_regions(draft_text)
     required = required_refs_by_review_region(contract)
     if list(regions) != list(required):
@@ -195,7 +215,6 @@ def create_receipt(
                 "scene_complete": None,
                 "voice_match": None,
                 "evidence_quotes": [],
-                "issues_fixed": [],
                 "manual_judgment": "",
             }
             for region_id in required
@@ -245,7 +264,7 @@ def can_preserve_region_review(
     quotes = old_review.get("evidence_quotes")
     quotes_still_bound = (
         isinstance(quotes, list)
-        and len(quotes) >= 2
+        and len(quotes) >= 1
         and all(
             isinstance(quote, str)
             and quote.strip()
@@ -279,7 +298,6 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
         "scene_complete",
         "voice_match",
         "evidence_quotes",
-        "issues_fixed",
         "manual_judgment",
     )
     refreshed_regions = review_regions(
@@ -324,24 +342,6 @@ def _validate_binding(item: Any, label: str, errors: list[str]) -> Path | None:
     return path
 
 
-def _planned_budgets(contract: dict[str, Any]) -> dict[str, tuple[int, int]]:
-    result: dict[str, tuple[int, int]] = {}
-    section_keys: list[str] = []
-    for region in contract["outline_catalog"]["regions"]:
-        region_id = region["region_id"]
-        minimum = int(region["target_chars"]["min"])
-        maximum = int(region["target_chars"]["max"])
-        if region_id == "epilogue":
-            last = section_keys[-1]
-            old_min, old_max = result[last]
-            result[last] = old_min + minimum, old_max + maximum
-        else:
-            result[region_id] = minimum, maximum
-            if region_id.startswith("section:"):
-                section_keys.append(region_id)
-    return result
-
-
 def validate_data(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if data.get("schema_version") != SCHEMA_VERSION:
@@ -358,6 +358,14 @@ def validate_data(data: dict[str, Any]) -> list[str]:
     if contract.get("gate_status") != "passed":
         errors.append("细纲迁移合同 gate_status 未 passed")
     draft_text = draft_path.read_text(encoding="utf-8")
+    primary_original = Path(contract["sources"][0]["original"]["path"]).resolve()
+    errors.extend(
+        RELEASE.validate_source_anchored_draft(
+            draft_text,
+            primary_original,
+            read_json(config_path, "项目写作配置"),
+        )
+    )
     regions = review_regions(draft_text)
     expected_refs = required_refs_by_review_region(contract)
     expected_ids = list(expected_refs)
@@ -387,22 +395,12 @@ def validate_data(data: dict[str, Any]) -> list[str]:
                 errors.append(f"{label}.{field} 必须为 true")
         quotes = review.get("evidence_quotes")
         region_text = regions.get(region_id, "")
-        if not isinstance(quotes, list) or len(quotes) < 2:
-            errors.append(f"{label}.evidence_quotes 至少两条")
+        if not isinstance(quotes, list) or len(quotes) < 1:
+            errors.append(f"{label}.evidence_quotes 至少一条")
         elif any(not isinstance(quote, str) or not quote.strip() or quote not in region_text for quote in quotes):
             errors.append(f"{label}.evidence_quotes 必须来自当前正文区域")
         if len(str(review.get("manual_judgment") or "").strip()) < 30:
             errors.append(f"{label}.manual_judgment 至少 30 字")
-
-    budgets = _planned_budgets(contract)
-    for region_id, (minimum, maximum) in budgets.items():
-        count = nonspace_count(regions.get(region_id, ""))
-        tolerated_min = max(100, int(minimum * 0.75))
-        tolerated_max = int(maximum * 1.25)
-        if not tolerated_min <= count <= tolerated_max:
-            errors.append(
-                f"{region_id} 字数超出正式容差: actual={count}, allowed={tolerated_min}-{tolerated_max}"
-            )
 
     global_review = data.get("global_review")
     if not isinstance(global_review, dict):
@@ -437,8 +435,8 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         elif any(not isinstance(quote, str) or quote not in primary_source for quote in source_quotes):
             errors.append("global_review.source_voice_quotes 必须逐字来自主体原文")
         draft_quotes = global_review.get("draft_voice_quotes")
-        if not isinstance(draft_quotes, list) or len(draft_quotes) < 5:
-            errors.append("global_review.draft_voice_quotes 至少五条正文引句")
+        if not isinstance(draft_quotes, list) or len(draft_quotes) < 3:
+            errors.append("global_review.draft_voice_quotes 至少三条正文引句")
         elif any(not isinstance(quote, str) or quote not in draft_text for quote in draft_quotes):
             errors.append("global_review.draft_voice_quotes 必须逐字来自最终正文")
         if len(str(global_review.get("voice_comparison") or "").strip()) < 60:

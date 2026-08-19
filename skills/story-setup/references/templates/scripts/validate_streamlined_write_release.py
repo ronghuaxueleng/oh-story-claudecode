@@ -56,6 +56,9 @@ PRIMARY_ONLY_FIELDS = (
 SOURCE_SECTION_RE = re.compile(r"^\s*(\d+)(?:[.、．])?\s*$")
 MAX_SECTION_DENSITY_EXPANSION = 1.6
 MIN_REASONABLE_SECTION_CHARS = 800
+DEFAULT_MAX_TOTAL_RATIO = 1.25
+DEFAULT_MAX_SECTION_RATIO = 1.25
+MAX_SOURCE_ANCHORED_RATIO = 1.25
 
 
 def read_json(path: Path, label: str) -> dict[str, Any]:
@@ -110,6 +113,99 @@ def source_numeric_sections(text: str) -> list[str]:
         "\n".join(lines[start + 1 : markers[index + 1][0] if index + 1 < len(markers) else len(lines)])
         for index, (start, _) in enumerate(markers)
     ]
+
+
+def nonspace_count(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def resolve_length_policy(config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    errors: list[str] = []
+    raw = config.get("length_policy")
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        return {}, ["项目写作配置 length_policy 必须是对象"]
+    mode = str(raw.get("mode") or "source_anchored").strip()
+    if mode not in {"source_anchored", "explicit_expansion"}:
+        return {}, ["length_policy.mode 只能是 source_anchored 或 explicit_expansion"]
+    try:
+        max_total_ratio = float(raw.get("max_total_ratio", DEFAULT_MAX_TOTAL_RATIO))
+        max_section_ratio = float(raw.get("max_section_ratio", DEFAULT_MAX_SECTION_RATIO))
+    except (TypeError, ValueError):
+        return {}, ["length_policy 的比例必须是数字"]
+    if max_total_ratio <= 0 or max_section_ratio <= 0:
+        errors.append("length_policy 的比例必须大于 0")
+    if mode == "source_anchored" and (
+        max_total_ratio > MAX_SOURCE_ANCHORED_RATIO
+        or max_section_ratio > MAX_SOURCE_ANCHORED_RATIO
+    ):
+        errors.append("source_anchored 模式的整体与分节比例不得超过 1.25")
+    if mode == "explicit_expansion":
+        if raw.get("authorized_by_user") is not True:
+            errors.append("explicit_expansion 必须记录 authorized_by_user=true")
+        if len(str(raw.get("authorization_note") or "").strip()) < 4:
+            errors.append("explicit_expansion 必须记录用户明确扩写要求")
+    return {
+        "mode": mode,
+        "max_total_ratio": max_total_ratio,
+        "max_section_ratio": max_section_ratio,
+    }, errors
+
+
+def validate_source_anchored_outline(
+    outline_catalog: dict[str, Any], primary_original: Path, config: dict[str, Any]
+) -> list[str]:
+    policy, errors = resolve_length_policy(config)
+    if errors:
+        return errors
+    source_text = primary_original.read_text(encoding="utf-8")
+    source_chars = nonspace_count(source_text)
+    source_sections = source_numeric_sections(source_text)
+    if source_chars <= 0 or not source_sections:
+        return ["主体原文无法提供篇幅与分节锚点"]
+    regions = outline_catalog.get("regions") or []
+    try:
+        outline_max_chars = sum(int(region["target_chars"]["max"]) for region in regions)
+    except (KeyError, TypeError, ValueError):
+        return ["小节大纲目标字数上限无法解析"]
+    numeric_count = sum(
+        1 for region in regions
+        if str(region.get("region_id") or "").startswith("section:")
+    )
+    max_chars = math.floor(source_chars * policy["max_total_ratio"])
+    max_sections = math.ceil(len(source_sections) * policy["max_section_ratio"])
+    if outline_max_chars > max_chars:
+        errors.append(
+            "小节大纲整体上限超过主体原文体量许可: "
+            f"outline_max={outline_max_chars}, allowed_max={max_chars}, "
+            f"primary_chars={source_chars}, mode={policy['mode']}"
+        )
+    if numeric_count > max_sections:
+        errors.append(
+            "小节大纲数字节数超过主体原文呼吸许可: "
+            f"actual={numeric_count}, allowed_max={max_sections}, "
+            f"primary_sections={len(source_sections)}, mode={policy['mode']}"
+        )
+    return errors
+
+
+def validate_source_anchored_draft(
+    draft_text: str, primary_original: Path, config: dict[str, Any]
+) -> list[str]:
+    policy, errors = resolve_length_policy(config)
+    if errors:
+        return errors
+    source_chars = nonspace_count(primary_original.read_text(encoding="utf-8"))
+    draft_chars = nonspace_count(draft_text)
+    max_chars = math.floor(source_chars * policy["max_total_ratio"])
+    if draft_chars > max_chars:
+        errors.append(
+            "正文整体篇幅超过主体原文体量许可: "
+            f"draft={draft_chars}, allowed_max={max_chars}, "
+            f"primary_chars={source_chars}, mode={policy['mode']}"
+        )
+    return errors
 
 
 def minimum_outline_sections(source_sections: list[str], target_chars: int) -> int:
@@ -245,6 +341,13 @@ def validate_release(project_dir: Path) -> list[str]:
                 validate_section_density(
                     contract.get("outline_catalog") or {},
                     primary_original,
+                )
+            )
+            errors.extend(
+                validate_source_anchored_outline(
+                    contract.get("outline_catalog") or {},
+                    primary_original,
+                    config,
                 )
             )
     except (OSError, ValueError, json.JSONDecodeError) as exc:

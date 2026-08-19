@@ -87,6 +87,24 @@ class ProjectDirectoryNameTest(unittest.TestCase):
         )
         self.assertTrue(any("目录已被占用" in error for error in errors))
 
+    def test_create_new_validates_creates_and_rechecks(self) -> None:
+        project = self.root / "旧录像"
+        self.assertEqual([], GATE.create_new(project, "《旧录像》"))
+        self.assertTrue(project.is_dir())
+
+    def test_create_new_does_not_create_invalid_title(self) -> None:
+        title = "我听不见以后，他才说爱我"
+        project = self.root / title
+        errors = GATE.create_new(project, title)
+        self.assertTrue(any("泛化迟到情绪模板" in error for error in errors), errors)
+        self.assertFalse(project.exists())
+
+    def test_create_new_blocks_occupied_path(self) -> None:
+        project = self.root / "旧录像"
+        project.mkdir()
+        errors = GATE.create_new(project, "旧录像")
+        self.assertTrue(any("目录已被占用" in error for error in errors), errors)
+
 
 if __name__ == "__main__":
     unittest.main()

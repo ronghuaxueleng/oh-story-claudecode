@@ -52,6 +52,25 @@ def validate(project_dir: Path, title: str, *, new_project: bool = False) -> lis
     return errors
 
 
+def create_new(project_dir: Path, title: str) -> list[str]:
+    errors = validate(project_dir, title, new_project=True)
+    if errors:
+        return errors
+    try:
+        project_dir.mkdir()
+    except FileExistsError:
+        return [f"全新开书目录已被占用，不得复用: {project_dir}"]
+    except OSError as exc:
+        return [f"无法创建写作项目目录: {exc}"]
+    errors = validate(project_dir, title)
+    if errors:
+        try:
+            project_dir.rmdir()
+        except OSError:
+            pass
+    return errors
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--project-dir", required=True)
@@ -61,10 +80,21 @@ def main() -> int:
         action="store_true",
         help="创建前检查：目标路径必须完全不存在",
     )
+    parser.add_argument(
+        "--create-new",
+        action="store_true",
+        help="校验、原子创建并复验全新项目目录",
+    )
     args = parser.parse_args()
 
     project_dir = Path(args.project_dir).expanduser().resolve()
-    errors = validate(project_dir, args.title, new_project=args.new_project)
+    if args.new_project and args.create_new:
+        parser.error("--new-project 与 --create-new 不能同时使用")
+    errors = (
+        create_new(project_dir, args.title)
+        if args.create_new
+        else validate(project_dir, args.title, new_project=args.new_project)
+    )
     if errors:
         print("project_directory_name: blocked")
         for error in errors:
@@ -73,7 +103,14 @@ def main() -> int:
     print("project_directory_name: passed")
     print(f"project_dir: {project_dir}")
     print(f"title: {normalize_title(args.title)}")
-    print(f"mode: {'new_project_preflight' if args.new_project else 'existing_project_validation'}")
+    mode = (
+        "new_project_created"
+        if args.create_new
+        else "new_project_preflight"
+        if args.new_project
+        else "existing_project_validation"
+    )
+    print(f"mode: {mode}")
     return 0
 
 
