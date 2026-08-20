@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.87.4
+  version: 1.87.7
 ---
 
 # story-short-write：短篇网文写作
@@ -96,6 +96,25 @@ python3 "$SKILL_ROOT/scripts/validate_project_directory_name.py" \
 python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
   --config "{项目目录}/写作资产/项目写作配置.json"
 ```
+
+### 旧拆文资产兼容修复
+
+主体同名拆文目录已存在、但拆文时间早于当前逐层拓扑规则时，允许在 Phase 1 前做一次就地兼容修复。这个分支只在拆文侧正式 validator 明确报告 `source_layer_topology` 或全文行覆盖缺口时进入；已通过的来源不重放。
+
+- 只在本轮已允许读取的主体同名拆文目录内新建 `写作资产/子流程层次索引.jsonl`；不改写旧 `子流程索引.jsonl`，不读取其他书。
+- companion 优先使用 validator 定义的规范化 `source_layer` 记录；若旧主索引连 SF 行覆盖都有缺口，可在同一 companion 中增加最小 `subflow` 记录，由正式 validator 按原文行区间稳定插入。每层必须按原文行区间逐字绑定，并由当前模型人工判断层型、进出关系、叙述距离、六维 active/inactive 和目标保留规则。规范化记录不重抄 `source_text/source_excerpt`；正式 validator 按行区间确定性注入逐字原文，避免出现第二个人工文本真源。
+- 禁止用一层粗暴覆盖存在明显现场/概述/插嘴/急刹切换的整个 SF，也禁止从 SF 级六维摘要机械复制本层判断。
+- 修复只是来源兼容维护，不重跑全量拆文，不创建升级计划、进度或其他侧车。
+
+修复后只运行拆文侧已有的正式 validator：
+
+```bash
+python3 "$SKILL_ROOT/../story-short-analyze/scripts/validate_subflow_catalog.py" \
+  "{主体同名拆文目录}/写作资产/子流程索引.jsonl" \
+  "{主体同名拆文目录}/原文/{书名}.txt"
+```
+
+输出不是 `passed` 时仍留在该兼容分支修复，禁止通过放宽写作门禁绕过。
 
 ## 保留层与 P 拍换芯
 
@@ -249,6 +268,7 @@ python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" seal \
 - `validate_initial_draft_review.py`
 - `validate_continuation_gate.py`
 - `validate_zhihu_section_format.py`
+- `../story-short-analyze/scripts/validate_subflow_catalog.py`（仅用于上述旧拆文资产兼容修复）
 
 未列出的单本写作产物或短篇脚本视为流程污染，发现后不得读取或执行。
 

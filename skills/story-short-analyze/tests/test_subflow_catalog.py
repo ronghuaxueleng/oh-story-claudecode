@@ -149,6 +149,88 @@ class SubflowCatalogTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(["SF-01-L01", "SF-01-L02"], rows[0]["source_layer_order"])
 
+    def test_companion_can_insert_missing_subflow_by_source_range(self) -> None:
+        later = {
+            "schema_version": VALIDATOR.SCHEMA_VERSION,
+            "subflow_id": "SF-02",
+            "source_range": "L3-L4",
+            "source_excerpt": "1\n后来法院判了三年。",
+            "source_layer_order": ["SF-02-L01"],
+            "source_layer_topology": [
+                self.layer(
+                    "SF-02-L01",
+                    "L3-L4",
+                    "1\n后来法院判了三年。",
+                    "institutional_result",
+                )
+            ],
+        }
+        self.write(later)
+        earlier_layer = self.layer(
+            "SF-01-L01",
+            "L1-L2",
+            "她先把门关上。\n他问：你怕什么？",
+            "live_scene",
+        )
+        companion = self.catalog.with_name("子流程层次索引.jsonl")
+        companion.write_text(
+            "\n".join(
+                json.dumps(item, ensure_ascii=False)
+                for item in (
+                    {
+                        "record_type": "subflow",
+                        "subflow_id": "SF-01",
+                        "source_range": "L1-L2",
+                        "source_excerpt": "她先把门关上。\n他问：你怕什么？",
+                    },
+                    {
+                        "record_type": "source_layer",
+                        "schema_version": VALIDATOR.SCHEMA_VERSION,
+                        "subflow_id": "SF-01",
+                        "layer": earlier_layer,
+                    },
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        rows, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+
+        self.assertEqual([], errors)
+        self.assertEqual(["SF-01", "SF-02"], [row["subflow_id"] for row in rows])
+
+    def test_normalized_records_derive_exact_source_text_from_ranges(self) -> None:
+        row = self.valid_row()
+        layers = row.pop("source_layer_topology")
+        row.pop("source_layer_order")
+        row.pop("schema_version")
+        row.pop("source_excerpt")
+        for layer in layers:
+            layer.pop("source_text")
+        records = [row] + [
+            {
+                "record_type": "source_layer",
+                "schema_version": VALIDATOR.SCHEMA_VERSION,
+                "subflow_id": "SF-01",
+                "layer": layer,
+            }
+            for layer in layers
+        ]
+        self.catalog.write_text(
+            "\n".join(json.dumps(item, ensure_ascii=False) for item in records) + "\n",
+            encoding="utf-8",
+        )
+
+        rows, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+
+        self.assertEqual([], errors)
+        self.assertEqual(
+            "她先把门关上。\n他问：你怕什么？",
+            rows[0]["source_layer_topology"][0]["source_text"],
+        )
+        self.assertEqual(self.original.read_text(encoding="utf-8").rstrip("\n"), rows[0]["source_excerpt"])
+
 
 if __name__ == "__main__":
     unittest.main()
