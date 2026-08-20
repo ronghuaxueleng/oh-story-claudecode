@@ -3,7 +3,7 @@
 这一阶段只做两件事：
 
 1. 把结构化上游补全
-2. 跑只读式最终收口，不做任何补写或修复
+2. 跑确定性最终收口，只生成结构化编译产物，不补写或修复人工 Markdown
 
 ## 零兜底原则
 
@@ -79,7 +79,8 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
-- finalize 只允许生成 `book.profile.json` 和读取正式产物，不允许修改 Markdown
+- finalize 只允许生成 `book.profile.json`、`写作资产/来源成文脑图.json` 和读取正式产物，不允许修改 Markdown
+- 来源成文脑图由原文、P/E 总账、SF 索引、文字层索引和 profile 确定性编译；不复制大段 `source_text/source_excerpt`，每个 P/E/SF/层单独保存内容哈希以支持下游增量失效
 - 人工复核回执未闭环时，finalize 必须保持阻断
 - 如果本轮来自 `prepare_short_analyze_job.py --upgrade-existing`，先看 `upgrade_actions` 再决定动作顺序：
   - `safe_refresh_process_files` 只说明过程文件已刷新

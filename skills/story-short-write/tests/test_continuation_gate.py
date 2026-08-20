@@ -73,7 +73,7 @@ class ContinuationGateTest(unittest.TestCase):
                 project, "--reason", "initial_draft_stop", "--platform", "zhihu"
             )
         self.assertEqual(result.returncode, 2)
-        self.assertIn("初稿终审回执", result.stdout)
+        self.assertIn("正文覆盖回执", result.stdout)
 
     def test_external_blocker_requires_three_consecutive_attempts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

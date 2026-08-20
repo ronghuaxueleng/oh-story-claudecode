@@ -133,6 +133,13 @@ def main() -> int:
     profile_source = root / "写作资产" / "profile_source.md"
     profile_output = root / "book.profile.json"
     generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
+    source_map_compiler = (
+        repo_root
+        / "skills"
+        / "story-short-analyze"
+        / "scripts"
+        / "compile_source_prose_map.py"
+    )
     validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
 
     markdown_before = markdown_sha1s(root)
@@ -160,6 +167,21 @@ def main() -> int:
             else:
                 profile_generated = True
                 notes.append("book.profile.json 已重新生成。")
+
+    if not source_map_compiler.exists():
+        errors.append(f"缺少脚本：{source_map_compiler}")
+    else:
+        result = run_command(
+            [sys.executable, str(source_map_compiler), str(root), "--json"]
+        )
+        if result.returncode != 0:
+            compiler_payload = parse_validator_output(result.stdout)
+            compiler_errors = compiler_payload.get("errors") or [
+                result.stderr.strip() or "未知错误"
+            ]
+            errors.extend(f"生成来源成文脑图失败：{item}" for item in compiler_errors)
+        else:
+            notes.append("来源成文脑图.json 已确定性编译。")
 
     if errors:
         payload = {

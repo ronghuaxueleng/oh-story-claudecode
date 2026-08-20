@@ -1,6 +1,6 @@
 # P 拍换芯与按需社会热点
 
-本规则只在用户明确要求使用社会热点时读取。社会热点材料只包括非政府社会新闻和有可追溯热度证据的网络热梗。普通主体原文仿写仍须逐拍替换 P 拍事件壳，但不得检索、读取或注入热点材料，`hot_news_materials` 和全部 `news_ids` 保持空数组。字段名为现有合同兼容而保留，不表示允许政务新闻。
+本规则只在用户明确要求使用社会热点时读取。社会热点材料只包括非政府社会新闻和有可追溯热度证据的网络热梗。普通主体原文仿写仍须逐拍替换 P 拍事件壳，但不得检索、读取或注入热点材料，也不为空热点创建字段或回执。
 
 ## 层级边界
 
@@ -17,7 +17,7 @@
 
 - 主体 P 拍中的人物身份、关系壳、职业领域、现场、触发方式、核心物件、证据形态、控制权实现和现实后果。
 - 每个来源 P 拍只能对应一个目标 P 拍；保留的是“这一步必须完成什么”，不是“原文具体发生了什么”。
-- 每条替换至少改变三个事件壳维度，其中至少两个来自 `occupation_domain / setting / trigger / evidence / control_mechanism / consequence`。
+- 每条替换至少改变三个事件壳维度，只使用 `actor / relationship / setting / object / conflict_mechanism / information_mechanism / consequence`。
 
 E 拍与目标 P 拍是同步双轨：E 拍规定人物和读者必须发生的情绪位移，目标 P 拍负责用新事件把该位移制造出来。即使启用热点，也禁止先写情绪说明，再在后面硬贴新闻素材。
 
@@ -37,38 +37,33 @@ E 拍与目标 P 拍是同步双轨：E 拍规定人物和读者必须发生的�
 
 社会热点材料不是正文声线来源，也不是事实授权。它们只供应制度压力、职业规则、舆论机制、证据形态或后果机制；进入小说前必须虚构化、去标识化并重新建立因果。
 
-## 纲层填写
+## 目标脑图填写
 
-用户明确启用热点后，运行 `export-template`，在既有 `纲层迁移侧车.json` 内填写，不新增新闻回执。用户未启用时保持 `hot_news_materials=[]`，并让每个 `p_beat_replacements[*].news_ids=[]`。
+用户明确启用热点后，只在同一 `目标成文脑图.json` 中落两类信息：
 
-`hot_news_materials` 每项使用：
+- 对应目标节点的 `evidence` 写已经虚构化的目标事件机制及其后果。
+- 对应 P 拍 `event_shell_replacements[*].adaptation_decision` 写素材追溯、可迁移机制、事实边界以及该机制如何制造目标 E 拍。
 
-```json
-{
-  "news_id": "HN-001",
-  "material_type": "social_news",
-  "title": "社会新闻原始标题或网络热梗名称",
-  "publisher": "非政府媒体或平台发布者",
-  "published_at": "2026-08-10",
-  "retrieved_at": "2026-08-19",
-  "url": "https://example.com/news/1",
-  "social_heat_signal": "记录热榜、跨媒体跟进、平台讨论或当事方回应等可见证据",
-  "transferable_mechanism": "只写可迁移的现实压力、证据或后果机制",
-  "fact_boundary": "说明哪些事实只用于核验，正文如何去标识化和重新虚构"
-}
+`adaptation_decision` 用紧凑标签保留以下信息，不新增 JSON 对象、新闻回执、素材侧车或临时脚本：
+
+```text
+素材 HN-001｜material_type=social_news｜title=原始标题｜publisher=非政府发布者｜
+published_at=2026-08-10｜retrieved_at=2026-08-19｜url=https://example.com/news/1｜
+social_heat_signal=可见热度证据｜transferable_mechanism=可迁移压力机制｜
+fact_boundary=去标识化与重新虚构边界｜目标落法=该 P 拍如何制造对应 E 拍并形成后果
 ```
 
 `material_type` 只能为 `social_news` 或 `internet_meme`。`internet_meme` 的 `published_at` 填可核验的首次集中走热日或所引代表性公开记录日，不得用传闻日期。
 
-`p_beat_replacements` 与主体 P 拍等长同序。`source_ref` 由脚本预填，只填写人工判断：
+`event_shell_replacements` 与主体 P 拍等长同序。脚本预填 `source_id` 与来源内容哈希，人工只填写当前脑图已有字段：
 
 ```json
 {
-  "source_ref": "SRC-PRIMARY:P-001",
-  "preserved_function": "保留该拍在 BID 中造成关系公开掉位的承重功能",
-  "changed_dimensions": ["occupation_domain", "setting", "evidence", "consequence"],
-  "news_ids": ["HN-001"],
-  "adaptation_judgment": "说明目标细拍如何制造同一 E 拍，同时为什么已不再复刻原文事件壳"
+  "source_id": "P-001",
+  "source_content_sha256": "由脚本预填",
+  "dimensions_changed": ["actor", "setting", "information_mechanism", "consequence"],
+  "adaptation_decision": "按上面的紧凑标签记录材料、机制、事实边界和目标落法",
+  "human_confirmed": true
 }
 ```
 
@@ -76,7 +71,7 @@ E 拍与目标 P 拍是同步双轨：E 拍规定人物和读者必须发生的�
 
 ## 写作与终审
 
-写每个区域前同时读取：对应 BID/E 拍、SF 六维颗粒、目标细拍以及该区域的 `p_beat_replacements`。落笔顺序是“新事件触发 -> 期待或控制权变化 -> E 拍形成 -> 行动与后果”，不是“情绪标签 -> 新闻说明”。
+写每个区域前同时读取目标脑图中的对应 P/E 映射、SF 表演链、文字层绑定和 `event_shell_replacements`。落笔顺序是“新事件触发 -> 期待或控制权变化 -> E 拍形成 -> 行动与后果”，不是“情绪标签 -> 新闻说明”。
 
 启用热点不得成为扩写理由。总字数、数字节数仍受主体锚定上限约束；热点机制应替换或加深现有 P 拍，不得另起无关支线。
 

@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.87.7
+  version: 1.89.0
 ---
 
 # story-short-write：短篇网文写作
@@ -97,24 +97,7 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
   --config "{项目目录}/写作资产/项目写作配置.json"
 ```
 
-### 旧拆文资产兼容修复
-
-主体同名拆文目录已存在、但拆文时间早于当前逐层拓扑规则时，允许在 Phase 1 前做一次就地兼容修复。这个分支只在拆文侧正式 validator 明确报告 `source_layer_topology` 或全文行覆盖缺口时进入；已通过的来源不重放。
-
-- 只在本轮已允许读取的主体同名拆文目录内新建 `写作资产/子流程层次索引.jsonl`；不改写旧 `子流程索引.jsonl`，不读取其他书。
-- companion 优先使用 validator 定义的规范化 `source_layer` 记录；若旧主索引连 SF 行覆盖都有缺口，可在同一 companion 中增加最小 `subflow` 记录，由正式 validator 按原文行区间稳定插入。每层必须按原文行区间逐字绑定，并由当前模型人工判断层型、进出关系、叙述距离、六维 active/inactive 和目标保留规则。规范化记录不重抄 `source_text/source_excerpt`；正式 validator 按行区间确定性注入逐字原文，避免出现第二个人工文本真源。
-- 禁止用一层粗暴覆盖存在明显现场/概述/插嘴/急刹切换的整个 SF，也禁止从 SF 级六维摘要机械复制本层判断。
-- 修复只是来源兼容维护，不重跑全量拆文，不创建升级计划、进度或其他侧车。
-
-修复后只运行拆文侧已有的正式 validator：
-
-```bash
-python3 "$SKILL_ROOT/../story-short-analyze/scripts/validate_subflow_catalog.py" \
-  "{主体同名拆文目录}/写作资产/子流程索引.jsonl" \
-  "{主体同名拆文目录}/原文/{书名}.txt"
-```
-
-输出不是 `passed` 时仍留在该兼容分支修复，禁止通过放宽写作门禁绕过。
+主体拆文目录缺少 `写作资产/来源成文脑图.json`，或脑图依赖 SHA、顺序、逐项内容哈希失效时，停止写作主链并回到 `story-short-analyze` 完成正式 finalize。写作 skill 不就地修补拆文资产，也不回退其他合同。
 
 ## 保留层与 P 拍换芯
 
@@ -124,7 +107,7 @@ python3 "$SKILL_ROOT/../story-short-analyze/scripts/validate_subflow_catalog.py"
 
 默认禁止检索或使用社会热点材料。只有用户在当前任务中明确要求使用热点替换事件时，才按各 BID/E 拍的压力机制检索近 30 天的非政府社会新闻或网络热梗；没有合适机制时最多扩到 90 天。不得使用浏览器或 CDP，也不得使用通用搜索引擎、新闻搜索或聚合搜索结果；只能直接访问大型新闻门户、内容社区或社交平台的公开热榜、话题页、当事方页面和报道页。禁止使用政府部门、监管机构、政务网站以及纯政策/会议通稿；候选材料必须有热榜、跨媒体跟进、平台讨论或当事方回应之一的可见热度证据。材料只供应制度压力、职业规则、舆论机制、证据形态或现实后果，不供应声线，也不得复制真实人物、新闻/热梗原句或完整时间线。
 
-用户未明确要求热点时，`hot_news_materials` 和全部 `news_ids` 保持空数组，目标事件只从新书设定、虚构现实规则和已授权辅助机制中重建。用户明确要求时，再读取 [P 拍换芯与按需热点](references/governance/p-beat-hot-news-replacement.md)；热点与替换判断仍填入既有 `纲层迁移侧车.json`，不新增新闻回执或素材侧车。达到当前最低合格材料数后立即停止扩搜；材料锁定后只调整实际绑定的目标 P 拍，不得借热点重推全书 P/E 映射或延迟细纲落盘。
+用户未明确要求热点时，不检索也不注入热点，目标事件只从新书设定、虚构现实规则和已授权辅助机制中重建。用户明确要求时，再读取 [P 拍换芯与按需热点](references/governance/p-beat-hot-news-replacement.md)；热点机制和事实/虚构边界直接写进对应目标节点及 P 拍的人工改编判断，不新增新闻回执、素材侧车或临时脚本。达到当前最低合格材料数后立即停止扩搜；材料锁定后只调整实际绑定的目标 P 拍，不得借热点重推全书 P/E 映射或延迟细纲落盘。
 
 ## 唯一正式流程
 
@@ -144,69 +127,45 @@ python3 "$SKILL_ROOT/../story-short-analyze/scripts/validate_subflow_catalog.py"
 
 细纲的目标字数只用于写前配重、全书体量上限和分节密度判断，不是正文逐节硬门禁，也不得用于估算是否发生颗粒压缩。终审按 P/E 拍、完整 SF 表演链、局部说明段表演颗粒、六维和声线完整度逐项判断，并只以主体锚定的全书上限拦截失控扩写；不得因实际字数偏离单节目标而补描写、加回忆、重复情绪或删除必要现场。
 
-### Phase 2：一次紧凑迁移合同
+### Phase 2：唯一目标成文脑图
 
-纲层只保留不可机械恢复的判断：
+拆书 finalize 已把原文、BID、全部 P/E 拍、SF 表演链和文字层编译为主体 `写作资产/来源成文脑图.json`。来源脑图只保存行号、层型、进出关系、叙述距离、六维、保留规则和内容哈希；大段原文运行时按行号读取，不重复抄入项目。
 
-1. 主体全部 P 拍映射到哪条目标细拍。
-2. 主体全部 E 拍映射到哪条目标细拍。
-3. 辅助选中 BID 的 P 拍映射到哪条目标细拍。
-4. 每个主体 P 拍保留什么承重功能、替换了哪些事件壳维度。
-5. 仅在用户明确要求热点时，记录哪些非政府社会新闻或网络热梗机制进入哪些目标 P 拍，以及热度证据、事实与虚构边界。
-6. 每个主体 SF 的必经顺序、情绪序列和场面颗粒分别由哪些目标细拍承载；同一步可绑定多个连续目标细拍，不同步骤可共用同一细拍，但整体不得倒序，跨区 SF 必须覆盖全部落点。
-7. 每个主体 SF 的全部来源层分别由哪些目标细拍承载；逐层原文、层型和六维协同只读，人工只填写目标 ID、原层型确认和本层专属换壳说明，整体必须同序且覆盖全部落点。
+项目只维护 `写作资产/目标成文脑图.json`。目标节点可由 `小节大纲.md` 解析，也可直接接受用户 JSON 脑图。脑图必须全量记录：
 
-字数、场面、物件、主事件、节级承载和证据文本均直接从 `小节大纲.md` 解析，不允许再人工抄成节级合同。来源拍与目标拍使用同序 ID 数组，不逐拍重抄来源 actor、action、后果或期待变化。`p_beat_replacements` 与主体 P 拍等长同序，由脚本从映射自动绑定目标 ID 和细纲证据；人工只填写保留功能、至少三个替换维度和改编判断，新闻 ID 只在用户明确启用热点时填写。完整 SF 表演链只在同一 `纲层迁移侧车.json` 的 `sf_performance_bindings` 中逐步绑定目标 ID，合并后进入正式合同，不另建写前计划或验收文件。目标 ID 虽已存在，但对应 `outline_evidence` 仍只是流程描述、结果总结或分析标签时，不得把它确认成 `target_performance_carrier`；先在 `小节大纲.md` 补成可施工的现场颗粒，再正式重绑。
+1. 主体全部 P 拍和 E 拍的一对一目标节点。
+2. 每个 SF 全部必经步骤的目标表演链。
+3. 每个来源文字层的目标节点，并保持层序、层型、进出关系和叙述距离。
+4. 与 P 拍同序的事件壳替换判断；每拍至少确认人物、关系、场域、物件、冲突机制、信息机制、后果中的三个替换维度。
 
-主体 `子流程索引.jsonl` 是必需来源资产。写作脚本直接复用拆文侧正式 validator，要求每个 `SF-*` 除进入态、必经顺序、情绪序列和 SF 级六维外，还具备覆盖本 SF 全部正文行的 `source_layer_topology`：每层逐字原文、层型、进出关系、叙述距离、六维 active/inactive 与目标保留规则均完整。合同按原文行区间和主体 P 拍映射自动派生目标区域，同时写入完整表演链、完整来源层次、目标承载链及六维来源要求。SF 级摘要、整段 `source_excerpt` 和六条分析不能替代逐层资产；辅助来源不得接入文字颗粒。
-
-初始化或续用：
+初始化后直接在这一个 JSON 中填写人工映射，不导出侧车，也不重抄来源 actor、原文、SF 静态要求或六维说明：
 
 ```bash
-python3 "$SKILL_ROOT/scripts/batch_outline_release.py" \
-  --project "{项目名}" \
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" init \
+  --project-dir "{项目目录}"
+
+# 用户提供 JSON 脑图时改用：--mind-map "{脑图.json}"
+```
+
+映射完成后封存：
+
+```bash
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" validate \
   --project-dir "{项目目录}"
 ```
 
-细纲只做拆节、合节或移动且既有细拍证据原文未改时，使用正式重绑参数按证据迁移旧 P/E 映射和人工确认，不得另写临时迁移脚本。主体 SF 目录因全源覆盖校验而补漏时，同一命令只允许在原文、P/E 总账、profile 及旧 SF 内容和落点均未变化的前提下保留判断；旧 SF 改写、删除或其他来源资产变化仍必须阻断：
+细纲、脑图或来源资产变化时只能运行正式增量重绑。脚本按目标节点证据和每个 P/E/SF/层的内容哈希迁移未变项目；受改写、删除、歧义或来源哈希变化影响的项目留空并列入 `incremental_state.invalidated`，不得重新推翻全书映射，也不得编写临时迁移脚本：
 
 ```bash
-python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" rebind-outline \
-  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --outline "{项目目录}/小节大纲.md" \
-  --preserve-by-evidence
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" rebind \
+  --project-dir "{项目目录}"
 ```
 
-正文前因逐层拓扑发现细拍本身需要改写时，使用同一正式命令的显式人工重映射模式。脚本只迁移证据逐字未变的 P/E 与 SF 绑定，把受改写细拍影响的映射留空并将合同保持 `pending`；随后必须按下文 `export-template / apply-template` 补齐，默认不带该参数时仍严格阻断：
-
-```bash
-python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" rebind-outline \
-  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --outline "{项目目录}/小节大纲.md" \
-  --preserve-by-evidence \
-  --allow-manual-remap
-```
-
-现有 v6 合同由这条命令或 `batch_outline_release.py` 原地升级为 v7，保留证据未变的 P/E 映射和旧 SF 整链绑定，并确定性加入完整来源层次。逐层目标承载属于新的人工判断，升级后保持 `pending`，必须沿用正式 `export-template / apply-template` 在原侧车补完 `source_layer_target_bindings`，不得自动声称已迁移，也不得删除合同绕过迁移。
-
-一次导出、一次回填、一次合并：
-
-```bash
-python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" export-template \
-  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --output "{项目目录}/写作资产/纲层迁移侧车.json"
-
-python3 "$SKILL_ROOT/scripts/validate_outline_migration_contract.py" apply-template \
-  --receipt "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --input "{项目目录}/写作资产/纲层迁移侧车.json"
-```
-
-P/E 映射不得漏拍、并拍或倒序；SF 表演绑定不得漏步；逐层绑定不得漏层、改层型、倒序、引用自身承载范围外的目标细拍、复用施工说明或漏掉跨区落点。SF 整链步骤仍只绑定本 SF 的 P 承重细拍；逐层绑定可以使用该 SF 最早与最晚 P 承重细拍之间的非 P 插入细拍，以承载叙述者插嘴、概述换挡、制度急刹或传闻余尾，但不得越出这个连续区间。辅助来源只有 P 拍数组，没有 E 拍入口。`apply-template`
-成功后自动删除已合并的工作侧车，项目只保留正式合同。
+P/E 不得漏拍、并拍或倒序；SF 表演链不得漏步；文字层不得漏层、换序或越出 SF 连续承载范围。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
 
 ### Phase 3：正文放行与直接写作
 
-主体声线直接由主体原文、主体 profile 和主体子流程完整表演链约束；情绪由 E 拍映射和详细细纲约束；可见事件只来自已经换芯的目标 P 拍。正文放行会阻断任何缺少完整 SF 表演链、原文对应片段或目标细拍承载链的合同，通过后才直接写作。
+主体声线直接由主体原文、主体 profile 和来源脑图的逐层颗粒约束；情绪由目标脑图的 E 拍映射约束；可见事件只来自已经换芯的目标 P 拍。目标脑图不存在、未封存或已失效时，正文放行必须阻断。
 
 正文前只运行：
 
@@ -217,36 +176,26 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 通过后直接写入 `正文.md`：首行用 `# 《书名》`，随后写导语，再按 `1.`、`2.` 直到 `N.` 的知乎纯数字分节顺序写正文，尾声并入最后一个数字节。可以分批编辑文件，但不得为每节创建“开始/暂存/验收/提交”行政流程。
 
-写每个区域前，从合同的 `granularity_coverage` 读取该区域全部 `SF-*` 的完整 `source_layer_topology`、逐层目标绑定、表演链和六维要求，同时读取 BID/E 层级与 `p_beat_replacements`；合同存在热点材料时才读取对应新闻机制。按 `source_layer_order` 逐层施工，只替换事件壳：现场仍是现场，概述仍是概述，插嘴仍放在来源对应层间，急刹和冷尾不得扩写或提前。目标细拍无法承载某层时，先修 `小节大纲.md` 并正式重绑合同；不得临场把缺层改成流程总结。一个 SF 跨多个区域时，从首个落点到最后落点视为同一连续写作单元。每写完一个 SF 立即逐层回读，检查层型、层序、连接、叙述距离和本层六维协同是否仍在；某层六维 inactive 时不得机械补齐，对应 active 时也不得用远处引句兜底。检查发生在正文上，不另建逐节证明。
+写每个区域前，只从目标脑图读取本区域的 P/E、SF 步骤和层 ID，再按层 ID 回查来源脑图及原文行号。按来源层顺序施工，只替换事件壳：现场仍是现场，概述仍是概述，插嘴仍放在对应层间，急刹和冷尾不得扩写或提前。目标节点无法承载某层时，先修目标节点并正式 `rebind`；不得临场把缺层改成流程总结。一个 SF 跨多个区域时，从首个落点到最后落点视为同一连续写作单元。检查发生在正文上，不另建逐节证明。
 
-### Phase 4：一次合并终审
+### Phase 4：紧凑正文覆盖终审
 
-全文完成后只建立 `初稿终审回执.json`（当前 schema 为 v5）。终审不得用字数估算颗粒完整度；同一个 `sf_chain_reviews` 除原有整链项外，还按合同自动展开全部 `source_layer_reviews`。人工必须逐层填写 `realized`、对应目标区域逐字引句和不少于 30 字的专属说明，明确层型、层间连接、叙述距离和六维协同怎样在换壳后保留，并确认 `whole_layer_topology_preserved=true`。来源层本就是概述、制度结果或传闻余尾时不得判为“说明干区”；`technical_summary_rejected` 只拒绝把本应不同的多层拓扑压成统一技术说明。逐层证据、整链证据和区域六维证据彼此不能替代。任何漏层、改层型、换序、远距兜底、复用引句或模板说明都阻断 `seal`；发现问题直接修正文后运行 `refresh-derived`。
+全文完成后只建立 `正文覆盖回执.json`。静态的区域六维、SF 整链和来源层对象都保留在两张脑图中，终审不再重复三套内容；回执只保存两张脑图与正文 SHA、区域覆盖、全部来源层的正文逐字引句、人工结论以及缺失/倒序/层型错配异常。
+
+人工逐层填写 `realized=true`、`topology_preserved=true`、绑定区域内的逐字引句和本层专属结论。来源层本就是概述、制度结果或传闻余尾时不得判为“说明干区”。任何漏层、换序、改层型、失效引句或异常未清零都阻断封存；发现问题先改正文，再运行 `audit-init` 增量刷新，仍有效的层结论按 SHA 和引句保留。
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
   --text "{项目目录}/正文.md"
 
-python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" init \
-  --project "{项目名}" \
-  --draft "{项目目录}/正文.md" \
-  --outline "{项目目录}/小节大纲.md" \
-  --outline-contract "{项目目录}/写作资产/细纲表演验收回执.json" \
-  --project-config "{项目目录}/写作资产/项目写作配置.json" \
-  --receipt "{项目目录}/写作资产/初稿终审回执.json"
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-init \
+  --project-dir "{项目目录}"
 
-# init 后修改正文时运行；旧 v4 回执用此命令升到 v5，保留仍有效的区域六维判断，
-# 但必须重新填写新增的逐层判断
-python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" refresh-derived \
-  --receipt "{项目目录}/写作资产/初稿终审回执.json"
-
-python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" seal \
-  --receipt "{项目目录}/写作资产/初稿终审回执.json"
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
+  --project-dir "{项目目录}"
 ```
 
-终审发现问题必须先改正文，再运行 `refresh-derived` 绑定当前正文 SHA；不得删除正式回执重跑
-`init`，也不得只改回执结论。刷新后只重新填写被脚本清空的变更区域和全局判断。
-`seal` 输出通过后直接进入 Phase 5，不再单独重跑格式校验或终审 `validate`；停靠闸会复核两者。
+`audit-seal` 通过后直接进入 Phase 5；停靠闸只复核 `正文覆盖回执.json`。
 
 ### Phase 5：初稿停靠
 
@@ -254,7 +203,7 @@ python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" seal \
 
 ## 正式白名单
 
-单本项目只允许产生：`项目写作配置.json`、项目 profile、`设定.md`、`小节大纲.md`、`细纲表演验收回执.json`、映射填写期间的 `纲层迁移侧车.json`、`正文.md`、`初稿终审回执.json`。
+只允许产生：`项目写作配置.json`、项目 profile、`设定.md`、`小节大纲.md`、`目标成文脑图.json`、`正文.md`、`正文覆盖回执.json`。
 
 本 skill 只允许调用以下脚本：
 
@@ -262,13 +211,10 @@ python3 "$SKILL_ROOT/scripts/validate_initial_draft_review.py" seal \
 - `init_project_writing_assets.py`
 - `generate_story_profile.py`（来源 profile 维护工具，单书主链不调用）
 - `apply_project_profile_policy.py`
-- `batch_outline_release.py`
-- `validate_outline_migration_contract.py`
+- `manage_target_prose_map.py`
 - `validate_streamlined_write_release.py`
-- `validate_initial_draft_review.py`
 - `validate_continuation_gate.py`
 - `validate_zhihu_section_format.py`
-- `../story-short-analyze/scripts/validate_subflow_catalog.py`（仅用于上述旧拆文资产兼容修复）
 
 未列出的单本写作产物或短篇脚本视为流程污染，发现后不得读取或执行。
 

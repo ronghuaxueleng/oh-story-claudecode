@@ -89,8 +89,7 @@ description: |
 10. 第二波并发：16 张表两条 lane / 原文细节库 / 常规资产 / 高敏资产
 11. 主线程统一核销候选池、回扫动态字典并检查 BID 贯通
 12. `profile_source.md`
-13. 生成 `book.profile.json`
-14. `run_short_analyze_finalize.py`
+13. `run_short_analyze_finalize.py` 一次生成 `book.profile.json` 与 `写作资产/来源成文脑图.json` 并全量验收；禁止在此前重复手动生成
 
 硬规则：
 
@@ -201,6 +200,7 @@ description: |
 - `写作资产/全文情节微拍总账.json`
 - `写作资产/子流程索引.jsonl`
 - `写作资产/子流程层次索引.jsonl`
+- `写作资产/来源成文脑图.json`
 - `拆文报告.md`
 - `情节节点.md`
 - `写作手法.md`
@@ -248,7 +248,7 @@ description: |
 8.2 `子流程索引.jsonl + 子流程层次索引.jsonl` 联合覆盖 L1 到 EOF 全部非空正文行。每个 SF 的正式 `source_layer` 记录按叙事模式真正换挡处切层，不按固定句数、字数、人物/动作/物件组件凑层。每层逐字保存 `source_text` 并填写层型、进出关系、叙述距离、六维 active/inactive 与目标保留规则；validator 合并后的 `source_layer_topology` 才是写作入口。SF 级摘要、完整 `source_excerpt`、P/E 拍或桥段施工卡均不得替代逐层记录。
 9. `profile_source.md` 同时服务结构化抽取和单书厚规则包；`桥段施工卡.md` 继续承担更厚的人类施工解释层，但不能把桥规则骨架全甩给施工卡
 10. `拆文报告.md`、`写作手法.md`、`写作资产/样本分级与可学层.md` 必须共同承接全局成文形状审计；只在细节表或模型备注中提及不算完成
-11. `book.profile.json` 由脚本生成，不与 Markdown 同批手写
+11. `book.profile.json` 与 `写作资产/来源成文脑图.json` 均由正式收口脚本确定性生成，不与 Markdown 同批手写；来源脑图只保存行号、结构字段和哈希，不复制大段原文
 12. 收口必须跑：
 
 ```bash
@@ -286,6 +286,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 没落 `profile_source.md`
 - 没落 `桥段施工卡.md`
 - 没生成 `book.profile.json`
+- 没生成或校验 `写作资产/来源成文脑图.json`
 - `run_short_analyze_finalize.py` 未通过
 - finalize 修改了任一 Markdown 正式产物
 

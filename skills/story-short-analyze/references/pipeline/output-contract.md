@@ -54,6 +54,7 @@ sync-policy: |
 │   ├── 全文情节微拍总账.json # 与情绪拍分轨的全文事件动作全集
 │   ├── 子流程索引.jsonl       # SF 整链：进入态、必经顺序、情绪、场面与退出态
 │   ├── 子流程层次索引.jsonl   # 逐层精确原文、模式连接和六维协同，与上项确定性合并
+│   ├── 来源成文脑图.json       # finalize 编译的 P/E/SF/文字层单一写作入口，不复制大段原文
 │   ├── 母结构_故事走法.md
 │   ├── 主冲突_副升级器.md
 │   ├── 异物清单.md
@@ -487,7 +488,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 `profile_source.md` 不是最终规则包，而是“模型先提、脚本后收”的中间层。
 禁止跳过这一层，直接让脚本从全部 Markdown 盲抽。
 
-收口脚本只自动生成 `book.profile.json` 并执行校验，不得修改任何 Markdown。需要单独排查时，才手动调用：
+收口脚本只自动生成 `book.profile.json`、`写作资产/来源成文脑图.json` 并执行校验，不得修改任何 Markdown。来源脑图通过正式 `compile_source_prose_map.py` 编译；需要单独排查 profile 时，才手动调用：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \
@@ -497,7 +498,7 @@ python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py"
 ```
 
 如果生成失败，不进入 `ready-for-write`。
-如果 `book.profile.json` 缺少基本字段，也不进入 `ready-for-write`。
+如果 `book.profile.json` 缺少基本字段，或来源脑图的依赖 SHA、顺序、逐项内容哈希失效，也不进入 `ready-for-write`。
 `book.profile.json` 默认至少要能读到：
 
 - `bridge_rules`

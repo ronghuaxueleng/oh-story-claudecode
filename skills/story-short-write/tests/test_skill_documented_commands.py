@@ -9,12 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_SCRIPTS = {
     "apply_project_profile_policy.py",
-    "batch_outline_release.py",
     "generate_story_profile.py",
     "init_project_writing_assets.py",
+    "manage_target_prose_map.py",
     "validate_continuation_gate.py",
-    "validate_initial_draft_review.py",
-    "validate_outline_migration_contract.py",
     "validate_project_directory_name.py",
     "validate_streamlined_write_release.py",
     "validate_zhihu_section_format.py",
@@ -24,10 +22,9 @@ ALLOWED_PRODUCTS = {
     "项目写作配置.json",
     "设定.md",
     "小节大纲.md",
-    "细纲表演验收回执.json",
-    "纲层迁移侧车.json",
     "正文.md",
-    "初稿终审回执.json",
+    "目标成文脑图.json",
+    "正文覆盖回执.json",
 }
 
 

@@ -61,6 +61,7 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "全文情节微拍总账.json",
         "子流程索引.jsonl",
         "子流程层次索引.jsonl",
+        "来源成文脑图.json",
         "母结构_故事走法.md",
         "主冲突_副升级器.md",
         "异物清单.md",
@@ -89,6 +90,7 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/compile_source_prose_map.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",

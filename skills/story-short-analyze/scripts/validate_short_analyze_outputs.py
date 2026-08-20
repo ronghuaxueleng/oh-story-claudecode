@@ -24,6 +24,19 @@ def load_subflow_validator():
 SUBFLOW = load_subflow_validator()
 
 
+def load_source_map_validator():
+    path = Path(__file__).with_name("compile_source_prose_map.py")
+    spec = importlib.util.spec_from_file_location("short_analyze_source_map_validator", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载来源成文脑图 validator：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SOURCE_MAP = load_source_map_validator()
+
+
 ROOT_REQUIRED_FILES = [
     "_sample_comparison.md",
     "事实与推断台账.md",
@@ -108,6 +121,7 @@ WRITING_ASSET_FILES = [
     "全文情节微拍总账.json",
     "子流程索引.jsonl",
     "子流程层次索引.jsonl",
+    "来源成文脑图.json",
     "profile_source.md",
     "桥段施工卡.md",
 ]
@@ -391,6 +405,7 @@ STRUCTURE_COUNT_KEYS = [
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/compile_source_prose_map.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
@@ -3903,6 +3918,20 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         check_asset_candidate_ledger(root, source_lines, word_count, errors, notes)
     if source_lines and (asset_dir / "本书动态信号字典.json").is_file():
         check_dynamic_signal_dictionary(root, source_lines, errors, notes)
+    source_map_path = asset_dir / "来源成文脑图.json"
+    if source_map_path.is_file():
+        try:
+            source_map = json.loads(source_map_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"来源成文脑图无法读取：{exc}")
+        else:
+            if not isinstance(source_map, dict):
+                errors.append("来源成文脑图必须是 JSON 对象")
+            else:
+                errors.extend(
+                    f"blocked-on-assets：{item}"
+                    for item in SOURCE_MAP.validate_source_map(source_map, source_map_path)
+                )
 
     check_contains_all(root / "拆文报告.md", REPORT_HEADINGS, errors)
     check_contains_all(root / "写作手法.md", CRAFT_HEADINGS, errors)
