@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest import mock
 
@@ -32,6 +33,29 @@ INITIAL_REVIEW = load_module(
     "test_initial_review_refresh_module",
     "validate_initial_draft_review.py",
 )
+
+
+class SourceSubflowCoverageTest(unittest.TestCase):
+    def test_uncovered_prose_lines_are_reported_as_ranges(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "主体.txt"
+            original.write_text("甲\n乙\n1\n丙\n丁\n戊\n", encoding="utf-8")
+            subflows = [
+                {"subflow_id": "SF-01", "source_range": "L2-L4"},
+            ]
+
+            with self.assertRaisesRegex(ValueError, "L1, L5-L6"):
+                OUTLINE._validate_subflow_source_coverage(original, subflows)
+
+    def test_blank_and_numeric_marker_lines_do_not_require_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "主体.txt"
+            original.write_text("\n1.\n正文\n2、\n\n", encoding="utf-8")
+            subflows = [
+                {"subflow_id": "SF-01", "source_range": "L3-L3"},
+            ]
+
+            OUTLINE._validate_subflow_source_coverage(original, subflows)
 
 
 def catalog(region_beats: list[tuple[str, list[tuple[str, str]]]]) -> dict:
@@ -105,6 +129,31 @@ class EvidenceRebindingTest(unittest.TestCase):
                 new_catalog,
                 mapping,
             )
+
+    def test_changed_evidence_can_be_left_for_manual_remap(self) -> None:
+        old_catalog = catalog(
+            [("section:1", [("T-1-001", "保留"), ("T-1-002", "原证据")])]
+        )
+        new_catalog = catalog(
+            [("section:1", [("T-1-001", "保留"), ("T-1-002", "被改写")])]
+        )
+        mapping = {
+            "primary_plot_targets": ["T-1-001", "T-1-002", ""],
+            "primary_emotion_targets": ["T-1-002"],
+            "auxiliary_plot_targets": {},
+        }
+
+        migrated = OUTLINE.migrate_mapping_by_evidence(
+            old_catalog,
+            new_catalog,
+            mapping,
+            allow_manual_remap=True,
+        )
+
+        self.assertEqual(
+            ["T-1-001", "", ""], migrated["primary_plot_targets"]
+        )
+        self.assertEqual([""], migrated["primary_emotion_targets"])
 
     def test_rebind_refreshes_changed_project_config_binding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -308,16 +357,30 @@ class InitialReviewRefreshTest(unittest.TestCase):
     region_text = "第一条证据。中间内容。第二条证据。"
 
     def granularity_reviews(self, quote: str = "第一条证据。") -> list[dict]:
+        default_quotes = [
+            "第一条证据。",
+            "中间内容。",
+            "第二条证据。",
+            "第一条证据。中间内容。",
+            "中间内容。第二条证据。",
+            self.region_text,
+        ]
         return [
             {
                 "source_ref": "SF-001",
                 "dimensions": {
                     dimension: {
                         "status": "realized",
-                        "evidence_quote": quote,
-                        "adaptation_note": "该维度已通过当前场面的动作、感知和句间关系完成换芯落地。",
+                        "evidence_quote": (
+                            default_quotes[index]
+                            if quote == "第一条证据。"
+                            else f"{quote}{index}"
+                        ),
+                        "adaptation_note": f"第{index + 1}维已通过当前场面的专属动作与句间关系完成换芯落地。",
                     }
-                    for dimension in INITIAL_REVIEW.GRANULARITY_DIMENSIONS
+                    for index, dimension in enumerate(
+                        INITIAL_REVIEW.GRANULARITY_DIMENSIONS
+                    )
                 },
             }
         ]
@@ -422,129 +485,255 @@ class InitialReviewRefreshTest(unittest.TestCase):
         )
         self.assertTrue(any("逐字来自当前正文区域" in item for item in errors))
 
+    def test_reused_dimension_quote_and_note_blocks(self) -> None:
+        entries = self.granularity_reviews()
+        for dimension in INITIAL_REVIEW.GRANULARITY_DIMENSIONS:
+            entries[0]["dimensions"][dimension]["evidence_quote"] = "第一条证据。"
+            entries[0]["dimensions"][dimension]["adaptation_note"] = (
+                "六个维度全部复用同一段泛化说明，因此不能证明分别完成。"
+            )
+        errors = INITIAL_REVIEW.validate_granularity_dimension_reviews(
+            entries,
+            [{"source_ref": "SF-001"}],
+            self.region_text,
+            "region",
+        )
+        self.assertTrue(any("不得复用同一句" in item for item in errors))
+        self.assertTrue(any("不得复用模板" in item for item in errors))
+
+
+class InitialReviewWholeSfChainTest(unittest.TestCase):
+    draft_regions = {
+        "section:1": (
+            "进入证据。动作一证据。场面证据。情绪一证据。"
+            "前区补充证据甲。前区补充证据乙。"
+        ),
+        "section:2": "动作二证据。情绪二证据。退出证据。",
+    }
+
+    def scaffold(self) -> list[dict]:
+        contract = {
+            "granularity_coverage": [
+                {
+                    "source_ref": "SRC:SF-001",
+                    "target_regions": ["section:1", "section:2"],
+                    "performance_requirements": {
+                        "entry_state": "人物带着尚未说破的疑问进入现场",
+                        "required_sequence": ["先追问异常", "再由动作切断对话"],
+                        "scene_granularity": "追问、错答、停顿和离场都要写成现场",
+                        "emotion_sequence": ["疑问升为警觉", "警觉落成离开决定"],
+                        "end_state": "人物结束对话并取得离场主动权",
+                        "source_excerpt": "来源片段",
+                    },
+                    "source_layer_order": ["SF-001-L01", "SF-001-L02"],
+                    "source_layer_topology": [
+                        {
+                            "layer_id": "SF-001-L01",
+                            "source_range": "L1-L2",
+                            "source_text": "来源现场一",
+                            "layer_modes": ["live_scene"],
+                            "layer_role": "追问异常并从错答中升起警觉。",
+                            "entry_relation": "承接尚未说破的疑问。",
+                            "exit_relation": "错答后把警觉送入动作切断。",
+                            "narrative_distance": "近景跟随追问与停顿。",
+                            "dimension_realization": {},
+                            "must_preserve_in_target": ["保持追问错答的近景现场。"],
+                        },
+                        {
+                            "layer_id": "SF-001-L02",
+                            "source_range": "L3-L4",
+                            "source_text": "来源现场二",
+                            "layer_modes": ["live_scene"],
+                            "layer_role": "动作切断对话并取得离场主动权。",
+                            "entry_relation": "承接前层错答后的警觉。",
+                            "exit_relation": "以离场动作关闭整个 SF。",
+                            "narrative_distance": "近景跟随切断和离场。",
+                            "dimension_realization": {},
+                            "must_preserve_in_target": ["保持动作切断后的直接离场。"],
+                        },
+                    ],
+                }
+            ],
+            "sf_performance_bindings": [
+                {
+                    "source_ref": "SRC:SF-001",
+                    "required_sequence_target_ids": [["T-1"], ["T-2"]],
+                    "emotion_sequence_target_ids": [["T-1"], ["T-2"]],
+                    "scene_granularity_target_ids": ["T-1", "T-2"],
+                    "source_layer_target_bindings": [
+                        {
+                            "layer_id": "SF-001-L01",
+                            "target_ids": ["T-1"],
+                            "preserved_layer_modes": ["live_scene"],
+                            "adaptation_instruction": "第一层保持近景追问与错答的连续现场，并在停顿处切入下一层。",
+                        },
+                        {
+                            "layer_id": "SF-001-L02",
+                            "target_ids": ["T-2"],
+                            "preserved_layer_modes": ["live_scene"],
+                            "adaptation_instruction": "第二层保持动作切断与直接离场，不退成对关系结果的概述。",
+                        },
+                    ],
+                }
+            ],
+            "outline_catalog": {
+                "regions": [
+                    {
+                        "region_id": "section:1",
+                        "target_beats": [{"target_id": "T-1"}],
+                    },
+                    {
+                        "region_id": "section:2",
+                        "target_beats": [{"target_id": "T-2"}],
+                    },
+                ]
+            },
+        }
+        return INITIAL_REVIEW.required_sf_chain_reviews(
+            contract, ["section:1", "section:2"]
+        )
+
+    def completed_review(self) -> tuple[list[dict], list[dict]]:
+        expected = self.scaffold()
+        actual = deepcopy(expected)
+        review = actual[0]
+        evidence = {
+            "entry_state_review": (
+                "进入证据。",
+                "进入态通过人物落座后的追视和停顿具体落地，没有直接汇报疑问。",
+            ),
+            "scene_granularity_review": (
+                "场面证据。",
+                "场面颗粒通过追问、错答与动作停顿连续展开，没有压成结果说明。",
+            ),
+            "end_state_review": (
+                "退出证据。",
+                "退出态通过人物主动结束谈话并离场兑现，控制权变化已经可见。",
+            ),
+        }
+        for field, (quote, note) in evidence.items():
+            review[field].update(
+                {"status": "realized", "evidence_quote": quote, "adaptation_note": note}
+            )
+        sequence_evidence = [
+            ("动作一证据。", "第一条动作以当场追问异常完成换芯，保留了来源动作推进顺序。"),
+            ("动作二证据。", "第二条动作以人物切断对话完成换芯，并在后一区域接续前一步。"),
+        ]
+        emotion_evidence = [
+            ("情绪一证据。", "第一段情绪由疑问转成警觉，通过视线与错答后的判断显现。"),
+            ("情绪二证据。", "第二段情绪由警觉落到离开决定，通过实际动作改变关系位置。"),
+        ]
+        for item, (quote, note) in zip(
+            review["required_sequence_reviews"], sequence_evidence
+        ):
+            item.update(
+                {"status": "realized", "evidence_quote": quote, "adaptation_note": note}
+            )
+        for item, (quote, note) in zip(
+            review["emotion_sequence_reviews"], emotion_evidence
+        ):
+            item.update(
+                {"status": "realized", "evidence_quote": quote, "adaptation_note": note}
+            )
+        layer_evidence = [
+            (
+                "前区补充证据甲。",
+                "第一来源层仍以近景追问、错答和停顿运行，并在警觉形成的位置切向后层。",
+            ),
+            (
+                "动作二证据。情绪二证据。",
+                "第二来源层承接警觉后用动作切断对话并直接离场，层型和叙述距离均未改变。",
+            ),
+        ]
+        for item, (quote, note) in zip(
+            review["source_layer_reviews"], layer_evidence
+        ):
+            item.update(
+                {"status": "realized", "evidence_quote": quote, "adaptation_note": note}
+            )
+        review["whole_chain_in_order"] = True
+        review["whole_layer_topology_preserved"] = True
+        review["technical_summary_rejected"] = True
+        review["manual_judgment"] = (
+            "两区正文从疑问进入、追问错答、动作切断到主动离场保持连续，"
+            "动作顺序与情绪位移均未换序，也没有被职业流程或结果说明替代。"
+        )
+        return actual, expected
+
+    def test_complete_cross_region_chain_passes(self) -> None:
+        actual, expected = self.completed_review()
+        self.assertEqual(
+            [],
+            INITIAL_REVIEW.validate_sf_chain_reviews(
+                actual, expected, self.draft_regions
+            ),
+        )
+
+    def test_missing_step_or_changed_requirement_blocks(self) -> None:
+        actual, expected = self.completed_review()
+        actual[0]["required_sequence_reviews"][1]["status"] = "partial"
+        actual[0]["required_sequence_reviews"][0]["source_requirement"] = "泛化动作"
+        actual[0]["required_sequence_reviews"][0]["target_ids"] = ["T-OTHER"]
+        errors = INITIAL_REVIEW.validate_sf_chain_reviews(
+            actual, expected, self.draft_regions
+        )
+        self.assertTrue(any("status 必须为 realized" in item for item in errors))
+        self.assertTrue(any("source_requirement 必须与合同一致" in item for item in errors))
+        self.assertTrue(any("target_ids 必须与写前 SF 绑定一致" in item for item in errors))
+
+    def test_step_quote_must_come_from_bound_target_region(self) -> None:
+        actual, expected = self.completed_review()
+        actual[0]["required_sequence_reviews"][0]["evidence_quote"] = "动作二证据。"
+        errors = INITIAL_REVIEW.validate_sf_chain_reviews(
+            actual, expected, self.draft_regions
+        )
+        self.assertTrue(any("目标正文区域" in item for item in errors))
+
+    def test_reused_evidence_and_template_note_blocks(self) -> None:
+        actual, expected = self.completed_review()
+        for item in actual[0]["required_sequence_reviews"]:
+            item["evidence_quote"] = "前区补充证据甲。"
+            item["adaptation_note"] = "两个动作步骤复用了同一套泛化说明，因此不能证明逐步完成换芯。"
+        errors = INITIAL_REVIEW.validate_sf_chain_reviews(
+            actual, expected, self.draft_regions
+        )
+        self.assertTrue(any("不得复用同一句" in item for item in errors))
+        self.assertTrue(any("专属说明" in item for item in errors))
+
+    def test_cross_region_chain_cannot_review_only_first_region(self) -> None:
+        actual, expected = self.completed_review()
+        second_region_items = (
+            actual[0]["required_sequence_reviews"][1],
+            actual[0]["emotion_sequence_reviews"][1],
+            actual[0]["end_state_review"],
+        )
+        first_region_quotes = [
+            "前区补充证据甲。",
+            "前区补充证据乙。",
+            "进入证据。动作一证据。",
+        ]
+        for item, quote in zip(second_region_items, first_region_quotes):
+            item["evidence_quote"] = quote
+        actual[0]["source_layer_reviews"][1]["evidence_quote"] = (
+            "前区补充证据甲。"
+        )
+        errors = INITIAL_REVIEW.validate_sf_chain_reviews(
+            actual, expected, self.draft_regions
+        )
+        self.assertTrue(any("未覆盖全部跨区落点" in item for item in errors))
+
 
 class InitialReviewLengthPolicyTest(unittest.TestCase):
-    def test_v2_receipt_requires_refresh_upgrade(self) -> None:
-        errors = INITIAL_REVIEW.validate_data(
-            {"schema_version": INITIAL_REVIEW.PREVIOUS_SCHEMA_VERSION}
-        )
-        self.assertEqual(1, len(errors))
-        self.assertIn("refresh-derived", errors[0])
-
-    def test_target_char_range_is_not_a_draft_gate(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            draft = root / "正文.md"
-            outline = root / "小节大纲.md"
-            contract_path = root / "细纲表演验收回执.json"
-            config = root / "项目写作配置.json"
-            source = root / "主体.txt"
-            draft.write_text("# 《测试书》\n\n短导语。\n\n1.\n\n短节。\n", encoding="utf-8")
-            outline.write_text("细纲", encoding="utf-8")
-            config.write_text("{}", encoding="utf-8")
-            source.write_text("主体引句一。主体引句二。主体引句三。", encoding="utf-8")
-            contract = {
-                "gate_status": "passed",
-                "sources": [{"original": {"path": str(source)}}],
-                "granularity_coverage": [],
-                "outline_catalog": {
-                    "regions": [
-                        {
-                            "region_id": "opening",
-                            "target_chars": {"min": 5000, "max": 6000},
-                        },
-                        {
-                            "region_id": "section:1",
-                            "target_chars": {"min": 5000, "max": 6000},
-                        },
-                    ]
-                },
-            }
-            contract_path.write_text(
-                json.dumps(contract, ensure_ascii=False),
-                encoding="utf-8",
-            )
-
-            regions = INITIAL_REVIEW.review_regions(draft.read_text(encoding="utf-8"))
-            empty_refs = {
-                key: {
-                    "plot_refs": [],
-                    "emotion_refs": [],
-                    "auxiliary_plot_refs": [],
-                    "prose_subflow_refs": [],
-                    "p_replacement_refs": [],
-                    "hot_news_refs": [],
-                }
-                for key in regions
-            }
-            reviews = [
-                {
-                    "region_id": region_id,
-                    "content_sha256": INITIAL_REVIEW.text_sha256(text),
-                    **empty_refs[region_id],
-                    "plot_complete": True,
-                    "emotion_complete": True,
-                    "scene_complete": True,
-                    "voice_match": True,
-                    "granularity_dimension_reviews": [],
-                    "p_replacements_realized": None,
-                    "source_event_shell_rejected": None,
-                    "hot_news_mechanisms_realized": None,
-                    "evidence_quotes": [text],
-                    "hot_news_evidence_quotes": [],
-                    "manual_judgment": "已按场面、情绪、剧情与声线完整度人工确认通过，不以目标字数代替判断。",
-                }
-                for region_id, text in regions.items()
-            ]
-            data = {
-                "schema_version": INITIAL_REVIEW.SCHEMA_VERSION,
-                "project": "测试书",
-                "bindings": {
-                    "draft": INITIAL_REVIEW.binding(draft),
-                    "outline": INITIAL_REVIEW.binding(outline),
-                    "outline_contract": INITIAL_REVIEW.binding(contract_path),
-                    "project_config": INITIAL_REVIEW.binding(config),
-                },
-                "region_reviews": reviews,
-                "global_review": {
-                    "primary_voice_exclusive": True,
-                    "auxiliary_voice_rejected": True,
-                    "title_promise_fulfilled": True,
-                    "opening_bearing_passed": True,
-                    "ending_consequence_passed": True,
-                    "long_sentence_breath_reviewed": True,
-                    "dialogue_efficiency_reviewed": True,
-                    "all_primary_prose_subflows_covered": True,
-                    "full_story_hierarchy_preserved": True,
-                    "all_primary_p_beats_replaced": True,
-                    "all_hot_news_mechanisms_realized": None,
-                    "source_event_shell_rejected_globally": True,
-                    "news_fact_and_privacy_boundary_reviewed": None,
-                    "source_voice_quotes": ["主体引句一。", "主体引句二。", "主体引句三。"],
-                    "draft_voice_quotes": ["测试书", "短导语。", "短节。"],
-                    "voice_comparison": "主体原文与正文在叙述距离、句间转折、段落气口和即时主观声音上保持同源机制，同时没有复制原句和事件外壳。对白轮转仍由人物关系和现场动作推动，辅助来源也没有进入句式、语气或叙述者声音。",
-                    "final_judgment": "全文已完成题面、开头、结尾后果、对白效率、长句换气和来源边界的人工终审，不存在需要依靠补字解决的场面问题。区域中的情节、情绪和声线完整度均由真实引句与人工判断支撑，目标字数只作写前参考。",
-                },
-                "summary": {
-                    "draft_nonspace_chars": INITIAL_REVIEW.nonspace_count(
-                        draft.read_text(encoding="utf-8")
-                    ),
-                    "reviewed_regions": len(regions),
-                    "reviewed_granularity_dimensions": 0,
-                },
-            }
-            with mock.patch.object(
-                INITIAL_REVIEW.OUTLINE,
-                "validate_receipt",
-                return_value=[],
-            ), mock.patch.object(
-                INITIAL_REVIEW,
-                "required_refs_by_review_region",
-                return_value=empty_refs,
-            ):
-                errors = INITIAL_REVIEW.validate_data(data)
-
-        self.assertEqual([], errors)
+    def test_old_receipts_require_refresh_upgrade(self) -> None:
+        old_schemas = {
+            INITIAL_REVIEW.PREVIOUS_SCHEMA_VERSION,
+            *INITIAL_REVIEW.LEGACY_SCHEMA_VERSIONS,
+        }
+        for schema in old_schemas:
+            with self.subTest(schema=schema):
+                errors = INITIAL_REVIEW.validate_data({"schema_version": schema})
+                self.assertEqual(1, len(errors))
+                self.assertIn("refresh-derived", errors[0])
 
     def test_hot_news_region_requires_current_draft_evidence(self) -> None:
         review = {

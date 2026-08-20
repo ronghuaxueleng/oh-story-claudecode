@@ -26,6 +26,8 @@ FOUNDATION_FILES = (
     "事实与推断台账.md",
     "写作资产/全文情绪颗粒总账.json",
     "写作资产/全文情节微拍总账.json",
+    "写作资产/子流程索引.jsonl",
+    "写作资产/子流程层次索引.jsonl",
     "拆文报告.md",
     "情节节点.md",
     "写作手法.md",
@@ -123,10 +125,17 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
 
     manifest_errors: list[str] = []
     manifest = VALIDATOR.load_source_manifest(root, manifest_errors)
-    _, source_lines = VALIDATOR.read_manifest_source(root, manifest, manifest_errors)
+    source_path, source_lines = VALIDATOR.read_manifest_source(root, manifest, manifest_errors)
     errors.extend(manifest_errors)
     if not source_lines:
         return errors, notes
+
+    if source_path is not None:
+        _, subflow_errors = VALIDATOR.SUBFLOW.validate_catalog(
+            root / "写作资产" / "子流程索引.jsonl",
+            source_path,
+        )
+        errors.extend(subflow_errors)
 
     full_emotion_ledger = VALIDATOR.check_full_text_emotion_ledger(
         root, source_lines, errors

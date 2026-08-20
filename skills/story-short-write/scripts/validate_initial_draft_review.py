@@ -8,13 +8,18 @@ import hashlib
 import importlib.util
 import json
 import re
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "story-short-write.initial-draft-review.v3"
-PREVIOUS_SCHEMA_VERSION = "story-short-write.initial-draft-review.v2"
+SCHEMA_VERSION = "story-short-write.initial-draft-review.v5"
+PREVIOUS_SCHEMA_VERSION = "story-short-write.initial-draft-review.v4"
+LEGACY_SCHEMA_VERSIONS = {
+    "story-short-write.initial-draft-review.v3",
+    "story-short-write.initial-draft-review.v2",
+}
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 H1_RE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 
@@ -229,6 +234,337 @@ def required_granularity_reviews_by_region(
     return result
 
 
+def required_sf_chain_reviews(
+    contract: dict[str, Any],
+    review_region_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Build one whole-chain review scaffold for every source SF."""
+    if review_region_ids is None:
+        review_region_ids = list(required_refs_by_review_region(contract))
+    coverage_entries = contract.get("granularity_coverage") or []
+    if not coverage_entries:
+        return []
+    numeric_regions = [
+        region_id for region_id in review_region_ids if region_id.startswith("section:")
+    ]
+    last_numeric_region = numeric_regions[-1] if numeric_regions else ""
+    bindings = {
+        str(item.get("source_ref") or "").strip(): item
+        for item in contract.get("sf_performance_bindings") or []
+        if isinstance(item, dict)
+    }
+    target_region_by_id = _target_region_map(contract)
+
+    def normalized_regions(values: Any) -> list[str]:
+        result: list[str] = []
+        for value in values or []:
+            region_id = str(value or "").strip()
+            if region_id == "epilogue" and last_numeric_region:
+                region_id = last_numeric_region
+            if region_id in review_region_ids and region_id not in result:
+                result.append(region_id)
+        return result
+
+    def regions_for_targets(target_ids: Any) -> list[str]:
+        return normalized_regions(
+            [
+                target_region_by_id.get(str(target_id or "").strip(), "")
+                for target_id in target_ids
+            ]
+        )
+
+    def review_item(
+        requirement: str,
+        target_ids: Any = None,
+        evidence_regions: list[str] | None = None,
+    ) -> dict[str, Any]:
+        item: dict[str, Any] = {
+            "source_requirement": requirement,
+            "evidence_regions": (
+                evidence_regions
+                if evidence_regions is not None
+                else regions_for_targets(target_ids or [])
+            ),
+            "status": None,
+            "evidence_quote": "",
+            "adaptation_note": "",
+        }
+        if target_ids is not None:
+            item["target_ids"] = [str(value or "").strip() for value in target_ids]
+        return item
+
+    result: list[dict[str, Any]] = []
+    for coverage in coverage_entries:
+        if not isinstance(coverage, dict):
+            raise ValueError("granularity_coverage 每项必须是对象")
+        source_ref = str(coverage.get("source_ref") or "").strip()
+        performance = coverage.get("performance_requirements")
+        binding = bindings.get(source_ref)
+        if not source_ref or not isinstance(performance, dict) or not isinstance(binding, dict):
+            raise ValueError(f"主体 SF {source_ref or '<missing>'} 缺少完整表演链或目标绑定")
+        required_sequence = performance.get("required_sequence")
+        emotion_sequence = performance.get("emotion_sequence")
+        required_targets = binding.get("required_sequence_target_ids")
+        emotion_targets = binding.get("emotion_sequence_target_ids")
+        if (
+            not isinstance(required_sequence, list)
+            or not isinstance(emotion_sequence, list)
+            or not isinstance(required_targets, list)
+            or not isinstance(emotion_targets, list)
+            or len(required_sequence) != len(required_targets)
+            or len(emotion_sequence) != len(emotion_targets)
+            or any(not isinstance(group, list) or not group for group in required_targets)
+            or any(not isinstance(group, list) or not group for group in emotion_targets)
+            or not isinstance(binding.get("scene_granularity_target_ids"), list)
+            or not binding.get("scene_granularity_target_ids")
+        ):
+            raise ValueError(f"主体 SF {source_ref} 的表演步骤与目标绑定不等长")
+        target_regions = normalized_regions(coverage.get("target_regions"))
+        if not target_regions:
+            raise ValueError(f"主体 SF {source_ref} 没有可复核的正文区域")
+        source_layers = coverage.get("source_layer_topology")
+        layer_bindings = binding.get("source_layer_target_bindings")
+        if (
+            not isinstance(source_layers, list)
+            or not source_layers
+            or not isinstance(layer_bindings, list)
+            or len(source_layers) != len(layer_bindings)
+        ):
+            raise ValueError(f"主体 SF {source_ref} 缺少逐层来源拓扑或目标绑定")
+        source_layer_reviews: list[dict[str, Any]] = []
+        for source_layer, layer_binding in zip(source_layers, layer_bindings):
+            if (
+                not isinstance(source_layer, dict)
+                or not isinstance(layer_binding, dict)
+                or source_layer.get("layer_id") != layer_binding.get("layer_id")
+            ):
+                raise ValueError(f"主体 SF {source_ref} 的逐层绑定与来源层不一致")
+            target_ids = layer_binding.get("target_ids")
+            if not isinstance(target_ids, list) or not target_ids:
+                raise ValueError(f"主体 SF {source_ref} 的来源层未绑定目标细拍")
+            source_layer_reviews.append(
+                {
+                    "layer_id": source_layer["layer_id"],
+                    "source_layer": deepcopy(source_layer),
+                    "target_ids": deepcopy(target_ids),
+                    "evidence_regions": regions_for_targets(target_ids),
+                    "status": None,
+                    "evidence_quote": "",
+                    "adaptation_note": "",
+                }
+            )
+        result.append(
+            {
+                "source_ref": source_ref,
+                "target_regions": target_regions,
+                "entry_state_review": review_item(
+                    str(performance.get("entry_state") or "").strip(),
+                    evidence_regions=regions_for_targets(required_targets[0]),
+                ),
+                "required_sequence_reviews": [
+                    review_item(str(requirement).strip(), target_ids)
+                    for requirement, target_ids in zip(
+                        required_sequence, required_targets
+                    )
+                ],
+                "scene_granularity_review": review_item(
+                    str(performance.get("scene_granularity") or "").strip(),
+                    binding.get("scene_granularity_target_ids") or [],
+                ),
+                "emotion_sequence_reviews": [
+                    review_item(str(requirement).strip(), target_ids)
+                    for requirement, target_ids in zip(
+                        emotion_sequence, emotion_targets
+                    )
+                ],
+                "end_state_review": review_item(
+                    str(performance.get("end_state") or "").strip(),
+                    evidence_regions=regions_for_targets(required_targets[-1]),
+                ),
+                "source_layer_reviews": source_layer_reviews,
+                "whole_chain_in_order": None,
+                "whole_layer_topology_preserved": None,
+                "technical_summary_rejected": None,
+                "manual_judgment": "",
+            }
+        )
+    return result
+
+
+def validate_sf_chain_reviews(
+    actual_entries: Any,
+    expected_entries: list[dict[str, Any]],
+    draft_regions: dict[str, str],
+) -> list[str]:
+    """Validate whole-SF realization instead of accepting unrelated region quotes."""
+    errors: list[str] = []
+    if not isinstance(actual_entries, list):
+        return ["sf_chain_reviews 必须是列表"]
+    expected_refs = [entry["source_ref"] for entry in expected_entries]
+    actual_refs = [
+        str(entry.get("source_ref") or "").strip()
+        for entry in actual_entries
+        if isinstance(entry, dict)
+    ]
+    if actual_refs != expected_refs:
+        errors.append("sf_chain_reviews 必须与合同全部 SF 完整同序")
+
+    def validate_item(
+        actual: Any,
+        expected: dict[str, Any],
+        region_texts: dict[str, str],
+        label: str,
+    ) -> tuple[str, str, set[str]]:
+        matched_regions: set[str] = set()
+        if not isinstance(actual, dict):
+            errors.append(f"{label} 必须是对象")
+            return "", "", matched_regions
+        if actual.get("source_requirement") != expected.get("source_requirement"):
+            errors.append(f"{label}.source_requirement 必须与合同一致")
+        if "target_ids" in expected and actual.get("target_ids") != expected.get("target_ids"):
+            errors.append(f"{label}.target_ids 必须与写前 SF 绑定一致")
+        if actual.get("evidence_regions") != expected.get("evidence_regions"):
+            errors.append(f"{label}.evidence_regions 必须与目标细拍所在区域一致")
+        if actual.get("status") != "realized":
+            errors.append(f"{label}.status 必须为 realized")
+        quote = str(actual.get("evidence_quote") or "").strip()
+        allowed_regions = expected.get("evidence_regions") or []
+        if quote:
+            matched_regions = {
+                region_id
+                for region_id in allowed_regions
+                if quote in region_texts.get(region_id, "")
+            }
+        if not quote or not matched_regions:
+            errors.append(f"{label}.evidence_quote 必须逐字来自该 SF 的目标正文区域")
+        note = str(actual.get("adaptation_note") or "").strip()
+        if len(note) < 20:
+            errors.append(f"{label}.adaptation_note 至少 20 字并说明该项如何换芯落地")
+        return quote, note, matched_regions
+
+    for expected, actual in zip(expected_entries, actual_entries):
+        source_ref = expected["source_ref"]
+        label = f"sf_chain_reviews[{source_ref}]"
+        if not isinstance(actual, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        if str(actual.get("source_ref") or "").strip() != source_ref:
+            errors.append(f"{label}.source_ref 不得改写")
+        target_regions = expected["target_regions"]
+        if actual.get("target_regions") != target_regions:
+            errors.append(f"{label}.target_regions 必须与合同落点一致")
+        region_texts = {
+            region_id: draft_regions.get(region_id, "") for region_id in target_regions
+        }
+        covered_regions: set[str] = set()
+        all_notes: list[str] = []
+
+        for field in (
+            "entry_state_review",
+            "scene_granularity_review",
+            "end_state_review",
+        ):
+            _, note, matched = validate_item(
+                actual.get(field), expected[field], region_texts, f"{label}.{field}"
+            )
+            all_notes.append(note)
+            covered_regions.update(matched)
+
+        for field in ("required_sequence_reviews", "emotion_sequence_reviews"):
+            actual_items = actual.get(field)
+            expected_items = expected[field]
+            if not isinstance(actual_items, list) or len(actual_items) != len(expected_items):
+                errors.append(f"{label}.{field} 必须与来源步骤等长")
+                continue
+            quotes: list[str] = []
+            notes: list[str] = []
+            for index, (actual_item, expected_item) in enumerate(
+                zip(actual_items, expected_items), start=1
+            ):
+                quote, note, matched = validate_item(
+                    actual_item,
+                    expected_item,
+                    region_texts,
+                    f"{label}.{field}[{index}]",
+                )
+                quotes.append(quote)
+                notes.append(note)
+                all_notes.append(note)
+                covered_regions.update(matched)
+            if len(set(quotes)) != len(expected_items):
+                errors.append(f"{label}.{field} 每个来源步骤必须分别取证，不得复用同一句")
+            if len(set(notes)) != len(expected_items):
+                errors.append(f"{label}.{field} 每个来源步骤必须使用专属说明")
+
+        actual_layers = actual.get("source_layer_reviews")
+        expected_layers = expected.get("source_layer_reviews")
+        if not isinstance(actual_layers, list) or len(actual_layers) != len(
+            expected_layers
+        ):
+            errors.append(f"{label}.source_layer_reviews 必须与来源层次完整同序")
+        else:
+            layer_quotes: list[str] = []
+            layer_notes: list[str] = []
+            for layer_index, (actual_layer, expected_layer) in enumerate(
+                zip(actual_layers, expected_layers), start=1
+            ):
+                layer_label = f"{label}.source_layer_reviews[{layer_index}]"
+                if not isinstance(actual_layer, dict):
+                    errors.append(f"{layer_label} 必须是对象")
+                    continue
+                for field in (
+                    "layer_id",
+                    "source_layer",
+                    "target_ids",
+                    "evidence_regions",
+                ):
+                    if actual_layer.get(field) != expected_layer.get(field):
+                        errors.append(f"{layer_label}.{field} 必须与写前来源层绑定一致")
+                if actual_layer.get("status") != "realized":
+                    errors.append(f"{layer_label}.status 必须为 realized")
+                quote = str(actual_layer.get("evidence_quote") or "").strip()
+                matched = {
+                    region_id
+                    for region_id in expected_layer.get("evidence_regions") or []
+                    if quote and quote in region_texts.get(region_id, "")
+                }
+                if not matched:
+                    errors.append(
+                        f"{layer_label}.evidence_quote 必须逐字来自该来源层绑定的目标正文区域"
+                    )
+                covered_regions.update(matched)
+                note = str(actual_layer.get("adaptation_note") or "").strip()
+                if len(note) < 30:
+                    errors.append(
+                        f"{layer_label}.adaptation_note 至少 30 字，"
+                        "必须说明层型、连接、叙述距离和六维协同如何保留"
+                    )
+                layer_quotes.append(quote)
+                layer_notes.append(note)
+                all_notes.append(note)
+            if len(set(layer_quotes)) != len(expected_layers):
+                errors.append(f"{label}.source_layer_reviews 每层必须分别取证")
+            if len(set(layer_notes)) != len(expected_layers):
+                errors.append(f"{label}.source_layer_reviews 每层必须使用专属说明")
+
+        if len(set(all_notes)) != len(all_notes):
+            errors.append(f"{label} 各表演要求的 adaptation_note 不得复用模板")
+        if not set(target_regions).issubset(covered_regions):
+            missing_regions = [
+                region_id for region_id in target_regions if region_id not in covered_regions
+            ]
+            errors.append(f"{label} 的整链证据未覆盖全部跨区落点: {missing_regions}")
+        if actual.get("whole_chain_in_order") is not True:
+            errors.append(f"{label}.whole_chain_in_order 必须为 true")
+        if actual.get("whole_layer_topology_preserved") is not True:
+            errors.append(f"{label}.whole_layer_topology_preserved 必须为 true")
+        if actual.get("technical_summary_rejected") is not True:
+            errors.append(f"{label}.technical_summary_rejected 必须为 true")
+        if len(str(actual.get("manual_judgment") or "").strip()) < 40:
+            errors.append(f"{label}.manual_judgment 至少 40 字并说明整链连续性")
+    return errors
+
+
 def create_receipt(
     project: str,
     draft_path: Path,
@@ -252,6 +588,7 @@ def create_receipt(
     regions = review_regions(draft_text)
     required = required_refs_by_review_region(contract)
     required_granularity = required_granularity_reviews_by_region(contract)
+    required_sf_chains = required_sf_chain_reviews(contract, list(required))
     if list(regions) != list(required):
         raise ValueError(f"正文分节与细纲不一致: draft={list(regions)}, expected={list(required)}")
     return {
@@ -284,6 +621,7 @@ def create_receipt(
             }
             for region_id in required
         ],
+        "sf_chain_reviews": required_sf_chains,
         "global_review": {
             "primary_voice_exclusive": None,
             "auxiliary_voice_rejected": None,
@@ -307,6 +645,7 @@ def create_receipt(
             "draft_nonspace_chars": nonspace_count(draft_text),
             "reviewed_regions": 0,
             "reviewed_granularity_dimensions": 0,
+            "reviewed_sf_chains": 0,
         },
         "blocking_failures": [],
     }
@@ -424,6 +763,8 @@ def validate_granularity_dimension_reviews(
         if not isinstance(dimensions, dict) or set(dimensions) != set(GRANULARITY_DIMENSIONS):
             errors.append(f"{label}[{source_ref}] 必须完整包含六维且不得增删 key")
             continue
+        dimension_quotes: list[str] = []
+        dimension_notes: list[str] = []
         for dimension in GRANULARITY_DIMENSIONS:
             dimension_item = dimensions.get(dimension)
             dimension_label = f"{label}[{source_ref}].{dimension}"
@@ -433,10 +774,17 @@ def validate_granularity_dimension_reviews(
             if dimension_item.get("status") != "realized":
                 errors.append(f"{dimension_label}.status 必须为 realized")
             evidence_quote = str(dimension_item.get("evidence_quote") or "").strip()
+            dimension_quotes.append(evidence_quote)
             if not evidence_quote or evidence_quote not in region_text:
                 errors.append(f"{dimension_label}.evidence_quote 必须逐字来自当前正文区域")
-            if len(str(dimension_item.get("adaptation_note") or "").strip()) < 20:
+            adaptation_note = str(dimension_item.get("adaptation_note") or "").strip()
+            dimension_notes.append(adaptation_note)
+            if len(adaptation_note) < 20:
                 errors.append(f"{dimension_label}.adaptation_note 至少 20 字")
+        if len(set(dimension_quotes)) != len(GRANULARITY_DIMENSIONS):
+            errors.append(f"{label}[{source_ref}] 六维 evidence_quote 必须分别取证，不得复用同一句")
+        if len(set(dimension_notes)) != len(GRANULARITY_DIMENSIONS):
+            errors.append(f"{label}[{source_ref}] 六维 adaptation_note 必须维度专属，不得复用模板")
     return errors
 
 
@@ -457,11 +805,24 @@ def region_review_complete(review: dict[str, Any]) -> bool:
     return True
 
 
+def sf_chain_review_complete(
+    review: dict[str, Any],
+    expected: dict[str, Any],
+    draft_regions: dict[str, str],
+) -> bool:
+    return not validate_sf_chain_reviews([review], [expected], draft_regions)
+
+
 def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
     current = read_json(receipt_path, "初稿终审回执")
     current_schema = current.get("schema_version")
-    if current_schema not in {SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION}:
-        raise ValueError("只能刷新当前或上一版本初稿终审回执")
+    supported_schemas = {
+        SCHEMA_VERSION,
+        PREVIOUS_SCHEMA_VERSION,
+        *LEGACY_SCHEMA_VERSIONS,
+    }
+    if current_schema not in supported_schemas:
+        raise ValueError("只能刷新当前或受支持旧版本的初稿终审回执")
     bindings = current.get("bindings") or {}
     refreshed = create_receipt(
         str(current.get("project") or "").strip(),
@@ -470,11 +831,12 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
         Path(bindings["outline_contract"]["path"]),
         Path(bindings["project_config"]["path"]),
     )
+    expected_sf_chains = deepcopy(refreshed["sf_chain_reviews"])
     current_reviews = {
         str(item.get("region_id") or ""): item
         for item in current.get("region_reviews") or []
         if isinstance(item, dict)
-    } if current_schema == SCHEMA_VERSION else {}
+    } if current_schema in {SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION} else {}
     preserved_fields = (
         "plot_complete",
         "emotion_complete",
@@ -498,10 +860,21 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
             for field in preserved_fields:
                 if field in old:
                     review[field] = old[field]
+    current_sf_chains = {
+        str(item.get("source_ref") or "").strip(): item
+        for item in current.get("sf_chain_reviews") or []
+        if isinstance(item, dict)
+    } if current_schema == SCHEMA_VERSION else {}
+    for index, review in enumerate(refreshed["sf_chain_reviews"]):
+        old = current_sf_chains.get(review["source_ref"])
+        if isinstance(old, dict) and sf_chain_review_complete(
+            old, review, refreshed_regions
+        ):
+            refreshed["sf_chain_reviews"][index] = deepcopy(old)
     old_global = current.get("global_review")
     bindings_unchanged = current.get("bindings") == refreshed.get("bindings")
     if (
-        current_schema == SCHEMA_VERSION
+        current_schema in {SCHEMA_VERSION, PREVIOUS_SCHEMA_VERSION}
         and bindings_unchanged
         and isinstance(old_global, dict)
     ):
@@ -520,6 +893,14 @@ def refresh_receipt(receipt_path: Path) -> dict[str, Any]:
         if isinstance(entry.get("dimensions"), dict)
         and isinstance(entry["dimensions"].get(dimension), dict)
         and entry["dimensions"][dimension].get("status") == "realized"
+    )
+    refreshed["summary"]["reviewed_sf_chains"] = sum(
+        1
+        for review, expected in zip(
+            refreshed["sf_chain_reviews"],
+            expected_sf_chains,
+        )
+        if sf_chain_review_complete(review, expected, refreshed_regions)
     )
     refreshed["refreshed_at"] = now_iso()
     write_json(receipt_path, refreshed)
@@ -542,7 +923,9 @@ def _validate_binding(item: Any, label: str, errors: list[str]) -> Path | None:
 def validate_data(data: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     if data.get("schema_version") == PREVIOUS_SCHEMA_VERSION:
-        return ["旧 v2 回执缺少逐 SF 六维正文证据；请运行 refresh-derived 升级后重新回填"]
+        return ["旧 v4 回执缺少逐来源层正文证据；请运行 refresh-derived 升级后回填"]
+    if data.get("schema_version") in LEGACY_SCHEMA_VERSIONS:
+        return ["旧回执缺少逐来源层、逐 SF 六维与完整表演链正文证据；请运行 refresh-derived 升级后重新回填"]
     if data.get("schema_version") != SCHEMA_VERSION:
         return [f"schema_version 必须为 {SCHEMA_VERSION}"]
     bindings = data.get("bindings") or {}
@@ -568,6 +951,7 @@ def validate_data(data: dict[str, Any]) -> list[str]:
     regions = review_regions(draft_text)
     expected_refs = required_refs_by_review_region(contract)
     expected_granularity = required_granularity_reviews_by_region(contract)
+    expected_sf_chains = required_sf_chain_reviews(contract, list(expected_refs))
     expected_ids = list(expected_refs)
     actual_ids = [str(item.get("region_id") or "") for item in data.get("region_reviews") or [] if isinstance(item, dict)]
     if actual_ids != expected_ids:
@@ -639,6 +1023,12 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         if len(str(review.get("manual_judgment") or "").strip()) < 30:
             errors.append(f"{label}.manual_judgment 至少 30 字")
 
+    errors.extend(
+        validate_sf_chain_reviews(
+            data.get("sf_chain_reviews"), expected_sf_chains, regions
+        )
+    )
+
     global_review = data.get("global_review")
     if not isinstance(global_review, dict):
         errors.append("global_review 必须是对象")
@@ -668,6 +1058,13 @@ def validate_data(data: dict[str, Any]) -> list[str]:
         }
         if reviewed_subflows != set(expected_subflows):
             errors.append("region_reviews 必须覆盖主体全部文字子流程")
+        reviewed_chain_refs = [
+            str(item.get("source_ref") or "").strip()
+            for item in data.get("sf_chain_reviews") or []
+            if isinstance(item, dict)
+        ]
+        if reviewed_chain_refs != expected_subflows:
+            errors.append("sf_chain_reviews 必须逐项覆盖主体全部文字子流程")
         expected_dimension_count = sum(
             len(entries) for entries in expected_granularity.values()
         ) * len(GRANULARITY_DIMENSIONS)
@@ -750,6 +1147,8 @@ def validate_data(data: dict[str, Any]) -> list[str]:
     ) * len(GRANULARITY_DIMENSIONS)
     if summary.get("reviewed_granularity_dimensions") != expected_dimension_count:
         errors.append("summary.reviewed_granularity_dimensions 必须等于全部 SF 区域落点数乘六")
+    if summary.get("reviewed_sf_chains") != len(expected_sf_chains):
+        errors.append("summary.reviewed_sf_chains 必须等于主体全部 SF 数量")
     return errors
 
 

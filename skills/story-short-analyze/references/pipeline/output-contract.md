@@ -52,6 +52,8 @@ sync-policy: |
 ├── 写作资产/
 │   ├── 全文情绪颗粒总账.json # 先于 BID 的全文逐行覆盖与实际情绪拍全集
 │   ├── 全文情节微拍总账.json # 与情绪拍分轨的全文事件动作全集
+│   ├── 子流程索引.jsonl       # SF 整链：进入态、必经顺序、情绪、场面与退出态
+│   ├── 子流程层次索引.jsonl   # 逐层精确原文、模式连接和六维协同，与上项确定性合并
 │   ├── 母结构_故事走法.md
 │   ├── 主冲突_副升级器.md
 │   ├── 异物清单.md
@@ -207,6 +209,21 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 - “选择利用既有条件”与“推动条件形成”必须分开；“收到匿名证据”与“主动搜集证据”必须分开
 - `拆文报告.md` 必须用 `原文明确动作 / 叙事意图判断 / 未知边界` 三层写主角能动性；事实谨慎只冻结未知实现，不得抹掉原文支持的借势、选择与策略性
 - 台账缺失或高主动性声明无回指，状态固定为 `blocked-on-fact-integrity`
+
+### 子流程完整来源层次契约
+
+`写作资产/子流程索引.jsonl`、`子流程层次索引.jsonl` 与两份总账在同一次 L1 到 EOF 通读中人工落盘。前者保存 SF 整链，后者每行保存一条 `record_type=source_layer` 的正式层记录；validator 将同一 `subflow_id` 的层记录完整同序合并为合同 `source_layer_topology`。
+
+每条 SF 固定使用 `story-short-analyze.subflow-catalog.v2`，除既有进入态、必经顺序、情绪序列和 SF 级六维分析外，必须包含：
+
+- `source_excerpt`：逐字等于整个 SF 原文范围。
+- `source_layer_order`：与逐层拓扑完整同序的 layer ID。
+- `source_layer_topology`：按原文现场、概述、插嘴、跳时、判刑急刹、传闻余尾等真实模式换挡切层。
+- 每层保存 `layer_id / source_range / source_text / layer_modes / layer_role / entry_relation / exit_relation / narrative_distance`。
+- 每层保存六维 `dimension_realization`。每维写 `status: active|inactive / how / source_evidence`；激活必须给本层逐字证据，缺席必须说明本层为什么不用该维度。
+- 每层保存 `must_preserve_in_target`，明确新稿必须保持的层型、连接和气口；只允许替换事件壳，不允许把现场、概述、插嘴、急刹和余尾改成同一种说明段。
+
+完整性由正式 `validate_subflow_catalog.py` 校验：逐层原文必须与 TXT 完全一致、层内无漏行、层间无重叠倒序、每个 SF 和全书正文行全覆盖。不得用字数比例、固定组件数量、SF 级摘要或“已完整”布尔值推定颗粒度。
 
 **语义约定**：`样本分级与可学层 / 作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则 / profile_source` 不能只是非空文件，必须是“证据型资产”：
 

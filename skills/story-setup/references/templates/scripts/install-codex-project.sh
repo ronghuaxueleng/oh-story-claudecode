@@ -144,8 +144,8 @@ fi
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 cat > "$PROJECT_ROOT/.story-deployed" <<EOF
 deployed_at: $TIMESTAMP
-agents_version: 21
-setup_skill_version: 1.7.1
+agents_version: 22
+setup_skill_version: 1.7.2
 target_cli: codex
 resolver_strategy: project-local-skill-reference
 references_dir: .codex/skills/story-setup/references/agent-references

@@ -91,6 +91,23 @@ class BatchOutlineReleaseTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def fill_sf_performance_binding(self, template: dict, target_id: str) -> None:
+        binding = template["sf_performance_bindings"][0]
+        binding["required_sequence_target_ids"] = [
+            [target_id] for _ in binding["required_sequence_target_ids"]
+        ]
+        binding["emotion_sequence_target_ids"] = [
+            [target_id] for _ in binding["emotion_sequence_target_ids"]
+        ]
+        binding["scene_granularity_target_ids"] = [target_id]
+        for index, layer in enumerate(
+            binding["source_layer_target_bindings"], start=1
+        ):
+            layer["target_ids"] = [target_id]
+            layer["adaptation_instruction"] = (
+                f"第{index}层保持来源现场后切入叙述者判断的层型、连接和气口，只替换事件壳。"
+            )
+
     def _build_outline_support_assets(self) -> None:
         plot_ledger = self.source / "写作资产" / "全文情节微拍总账.json"
         emotion_ledger = self.source / "写作资产" / "全文情绪颗粒总账.json"
@@ -102,9 +119,10 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         plot_ledger.parent.mkdir(parents=True, exist_ok=True)
         self.source_original.write_text(
             "原文场面里，他先伸手拦我，我把他的手推开。"
-            "我没想到他还会替别人解释。"
+            "我没想到他还会替别人解释。\n"
             "解释什么？"
             "钥匙放在桌上，她先拿走了。"
+            "\n"
             "有意思，现在倒像是我进错了门。"
             "最后门关上了。",
             encoding="utf-8",
@@ -198,9 +216,50 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         subflow_catalog.write_text(
             json.dumps(
                 {
+                    "schema_version": GATE.OUTLINE.SUBFLOW_VALIDATOR.SCHEMA_VERSION,
                     "subflow_id": "SF-01",
                     "parent_bridge_id": "BID-01",
                     "source_range": "L1-L3",
+                    "entry_state": "我准备离开，他仍试图拦住我。",
+                    "required_sequence": [
+                        "他先伸手阻拦。",
+                        "我推开后发现他仍替别人解释。",
+                        "钥匙被拿走，门最终关上。",
+                    ],
+                    "scene_granularity": "伸手、推开、错答、拿钥匙和关门连续发生。",
+                    "emotion_sequence": ["受阻", "错愕", "讥讽", "决绝"],
+                    "end_state": "我确认自己掉位并离开。",
+                    "source_excerpt": (
+                        "原文场面里，他先伸手拦我，我把他的手推开。我没想到他还会替别人解释。\n"
+                        "解释什么？钥匙放在桌上，她先拿走了。\n"
+                        "有意思，现在倒像是我进错了门。最后门关上了。"
+                    ),
+                    "source_layer_order": ["SF-01-L01"],
+                    "source_layer_topology": [
+                        {
+                            "layer_id": "SF-01-L01",
+                            "source_range": "L1-L3",
+                            "source_text": (
+                                "原文场面里，他先伸手拦我，我把他的手推开。我没想到他还会替别人解释。\n"
+                                "解释什么？钥匙放在桌上，她先拿走了。\n"
+                                "有意思，现在倒像是我进错了门。最后门关上了。"
+                            ),
+                            "layer_modes": ["live_scene", "narrator_interjection"],
+                            "layer_role": "阻拦、推开、错答、拿走钥匙和关门连续推进，叙述者在动作链中插入掉位判断。",
+                            "entry_relation": "从叙述者准备离开、对方试图阻止的进入态直接起现场。",
+                            "exit_relation": "以钥匙换手和门关上结束关系权限，不再补解释。",
+                            "narrative_distance": "近景跟随手部动作和短对白，中间只短促插入第一人称判断。",
+                            "dimension_realization": {
+                                "narrative_voice_and_attitude": {"status": "active", "how": "叙述者在被阻拦时直接判断自己掉位。", "source_evidence": ["我没想到他还会替别人解释。"]},
+                                "sentence_relation_and_rhythm": {"status": "active", "how": "阻拦、推开、错答、拿钥匙与关门按动作先后紧接。", "source_evidence": ["最后门关上了。"]},
+                                "paragraph_breath_and_cut_points": {"status": "active", "how": "三行分别承担冲突、物件换手和叙述者判词后的关门。", "source_evidence": ["解释什么？"]},
+                                "dialogue_misfire_or_avoidance": {"status": "active", "how": "追问没有获得解释，下一动作直接拿走钥匙。", "source_evidence": ["解释什么？"]},
+                                "action_perception_emotion_weave": {"status": "active", "how": "推手、拿钥匙与关门让掉位通过动作可见。", "source_evidence": ["钥匙放在桌上，她先拿走了。"]},
+                                "narrator_interjection_and_roughness": {"status": "active", "how": "叙述者用有意思即时插嘴，把门内位置判成走错门。", "source_evidence": ["有意思，现在倒像是我进错了门。"]}
+                            },
+                            "must_preserve_in_target": ["保持近景动作链中插入短促判断，并以关门动作直接切断。"]
+                        }
+                    ],
                     "source_style_granularity": {
                         "narrative_voice_and_attitude": [{"evidence": "我没想到"}],
                         "sentence_relation_and_rhythm": [{"evidence": "先拦后推"}],
@@ -238,6 +297,14 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertEqual(
             ["我没想到"],
             requirements["narrative_voice_and_attitude"]["source_evidence"],
+        )
+        performance = payload["granularity_coverage"][0][
+            "performance_requirements"
+        ]
+        self.assertEqual(3, len(performance["required_sequence"]))
+        self.assertIn("解释什么？", performance["source_excerpt"])
+        self.assertEqual(
+            [], payload["granularity_coverage"][0]["target_performance_carriers"]
         )
         self.assertEqual([], payload["granularity_coverage"][0]["target_regions"])
         self.assertTrue(payload["sources"][0]["subflow_catalog"]["sha256"])
@@ -315,6 +382,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         target_id = receipt["outline_catalog"]["regions"][0]["target_beats"][0]["target_id"]
         template["mapping"]["primary_plot_targets"] = [target_id]
         template["mapping"]["primary_emotion_targets"] = [target_id]
+        self.fill_sf_performance_binding(template, target_id)
         template["hot_news_materials"] = [
             {
                 "news_id": "HN-001",
@@ -373,6 +441,7 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         target_id = template["target_catalog"][0]["target_beats"][0]["target_id"]
         template["mapping"]["primary_plot_targets"] = [target_id]
         template["mapping"]["primary_emotion_targets"] = [target_id]
+        self.fill_sf_performance_binding(template, target_id)
         template["p_beat_replacements"][0].update(
             {
                 "preserved_function": "保留关系中公开掉位并推动离开的承重功能",
@@ -399,6 +468,40 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertEqual("passed", merged["gate_status"])
         self.assertEqual([], merged["hot_news_materials"])
         self.assertEqual([], merged["p_beat_replacements"][0]["news_ids"])
+
+    def test_missing_sf_step_binding_blocks_before_draft_release(self) -> None:
+        errors, _ = GATE.start_outline_release(
+            project="测试项目", project_dir=self.project_root
+        )
+        self.assertEqual([], errors)
+        sidecar = self.project_root / "写作资产" / "纲层迁移侧车.json"
+        template = GATE.OUTLINE.export_template(self.outline_receipt, sidecar)
+        target_id = template["target_catalog"][0]["target_beats"][0]["target_id"]
+        template["mapping"]["primary_plot_targets"] = [target_id]
+        template["mapping"]["primary_emotion_targets"] = [target_id]
+        template["p_beat_replacements"][0].update(
+            {
+                "preserved_function": "保留关系中公开掉位并推动离开的承重功能",
+                "changed_dimensions": ["setting", "trigger", "consequence"],
+                "news_ids": [],
+                "adaptation_judgment": "目标细拍已替换场景、触发和后果，但故意不填写 SF 写前逐步承载，用于验证正文放行前阻断。",
+            }
+        )
+        template["manual_confirmation"] = {
+            "full_story_hierarchy_preserved": True,
+            "primary_plot_slots_replaced_one_to_one_and_in_order": True,
+            "primary_emotion_complete_and_in_order": True,
+            "auxiliary_is_plot_mechanism_only": True,
+            "primary_is_exclusive_prose_voice": True,
+            "primary_full_prose_granularity_loaded": True,
+            "source_event_shell_rejected": True,
+            "hot_news_is_event_mechanism_only": None,
+            "manual_judgment": "主体层级和 P 拍换芯已确认，本用例只验证遗漏 SF 逐步目标承载时不能合并合同。",
+        }
+        sidecar.write_text(json.dumps(template, ensure_ascii=False), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "以下步骤必须绑定目标细拍"):
+            GATE.OUTLINE.apply_template(self.outline_receipt, sidecar)
 
     def test_p_replacement_without_event_shell_change_blocks(self) -> None:
         errors, _ = GATE.start_outline_release(
@@ -456,6 +559,23 @@ class BatchOutlineReleaseTest(unittest.TestCase):
         self.assertTrue(errors)
         self.assertFalse(summary["outline_ready"])
         self.assertIn("narrator_interjection_and_roughness", errors[0])
+
+    def test_missing_whole_performance_chain_blocks_before_outline_contract(self) -> None:
+        subflow_catalog = self.source / "写作资产" / "子流程索引.jsonl"
+        payload = json.loads(subflow_catalog.read_text(encoding="utf-8"))
+        del payload["required_sequence"]
+        subflow_catalog.write_text(
+            json.dumps(payload, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+        errors, summary = GATE.start_outline_release(
+            project="测试项目",
+            project_dir=self.project_root,
+        )
+
+        self.assertTrue(errors)
+        self.assertFalse(summary["outline_ready"])
+        self.assertIn("required_sequence", errors[0])
 
 
 if __name__ == "__main__":

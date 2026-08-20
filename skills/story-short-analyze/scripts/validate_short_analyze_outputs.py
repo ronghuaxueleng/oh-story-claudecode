@@ -4,10 +4,24 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import hashlib
+import importlib.util
 import json
 import math
 import re
 from pathlib import Path
+
+
+def load_subflow_validator():
+    path = Path(__file__).with_name("validate_subflow_catalog.py")
+    spec = importlib.util.spec_from_file_location("short_analyze_subflow_validator", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载子流程层次 validator：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SUBFLOW = load_subflow_validator()
 
 
 ROOT_REQUIRED_FILES = [
@@ -92,6 +106,8 @@ WRITING_ASSET_FILES = [
     "本书动态信号字典.json",
     "全文情绪颗粒总账.json",
     "全文情节微拍总账.json",
+    "子流程索引.jsonl",
+    "子流程层次索引.jsonl",
     "profile_source.md",
     "桥段施工卡.md",
 ]
@@ -379,6 +395,7 @@ SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_outputs.py",
+    "skills/story-short-analyze/scripts/validate_subflow_catalog.py",
     "skills/story-short-write/scripts/generate_story_profile.py",
     "skills/story-short-analyze/references/pipeline/output-contract.md",
     "skills/story-short-analyze/references/pipeline/output-templates.md",
@@ -3830,6 +3847,19 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         full_plot_ledger = check_full_text_plot_ledger(
             root, source_lines, errors, full_emotion_ledger
         )
+        original_files = sorted(
+            path for path in (root / "原文").iterdir() if path.is_file()
+        )
+        if len(original_files) == 1:
+            _, subflow_errors = SUBFLOW.validate_catalog(
+                root / "写作资产" / "子流程索引.jsonl",
+                original_files[0],
+            )
+            errors.extend(
+                f"blocked-on-assets：{error}" for error in subflow_errors
+            )
+        else:
+            errors.append("blocked-on-assets：无法确定子流程索引对应的唯一原文")
 
     original_dir = root / "原文"
     if not original_dir.exists() or not original_dir.is_dir():

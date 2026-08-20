@@ -7,7 +7,7 @@ description: |
 
 # story-setup：网文写作工具集基础设施部署
 
-当前部署版本：`1.7.1`。
+当前部署版本：`1.7.2`。
 
 你是写作基础设施部署器。将网文写作工具集的全套基础设施（`.codex/agents`、hooks、rules、项目级 scripts、`CLAUDE.md`）部署到用户项目目录；若项目内已经存在真实书籍目录，再继续部署 `写作执行铁律.md`、`追踪/上下文.md` 等书内文件。
 
@@ -92,15 +92,15 @@ description: |
 - 写入以下字段：
   ```
   deployed_at: <date -u +"%Y-%m-%dT%H:%M:%SZ">
-  agents_version: 21
-  setup_skill_version: 1.7.1
+  agents_version: 22
+  setup_skill_version: 1.7.2
   target_cli: codex
   resolver_strategy: project-local-skill-reference
   references_dir: .codex/skills/story-setup/references/agent-references
   ```
 - 此文件供 session-start.sh 和写作 skill 检测部署状态，避免重复提示
 - 仅当目录通过正式书名校验时，才允许创建或更新 `.active-book`；只有一个有效书目录时写入项目内相对路径，多书时只采用已通过校验的用户选择
-- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 21，重新运行 `story-setup`。v21 在精简短篇主链中恢复主体 SF 六维全集的确定性覆盖，不恢复已废弃流程。
+- 如果 `.story-deployed` 已存在但无 `agents_version` 或版本 < 22，重新运行 `story-setup`。v22 在 SF 整链之外增加独立逐层来源目录、v7 逐层目标绑定和 v5 逐层终审，不恢复已废弃流程。
 
 ## Phase 3：验证安装
 
@@ -151,8 +151,8 @@ description: |
 ## 重新部署
 
 - `.story-deployed` 不存在 → 全新安装，Phase 2 全部执行
-- `.story-deployed` 存在且 `agents_version: 21` → 提示已部署，并确认是否重新部署
-- `.story-deployed` 存在但 `agents_version` < 21 → 重新执行 Phase 2 覆盖子代理/hooks/rules/scripts/references，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
+- `.story-deployed` 存在且 `agents_version: 22` → 提示已部署，并确认是否重新部署
+- `.story-deployed` 存在但 `agents_version` < 22 → 重新执行 Phase 2 覆盖子代理/hooks/rules/scripts/references，模板文件按受管标记覆盖，用户手写文件默认保留，`.codex/config.toml` 走保守补齐策略
 
 ---
 

@@ -183,6 +183,18 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 
 情节拍和情绪拍可以引用同一原文窗口，但不能共用 ID 或把情绪作用换名为动作。两轨实际有多少拍就登记多少拍，不做等量配平。
 
+### Stage 2A.7 子流程完整来源层次
+
+在同一次全文扫描中分别落盘 `写作资产/子流程索引.jsonl` 和 `写作资产/子流程层次索引.jsonl`。前者每行只保存一个 SF 整链及其进入态、必经顺序、情绪序列、场面颗粒和退出态；后者每行只保存一条规范化 `source_layer`，由正式 validator 按 `subflow_id` 合并。不得把逐层记录继续塞回 SF 整链文件，也不得只写其中一份。
+
+切层依据是原文叙事模式、叙述距离或段落气口发生真实变化，不是每若干句切一层。`子流程层次索引.jsonl` 单行格式：
+
+```json
+{"record_type":"source_layer","schema_version":"story-short-analyze.subflow-catalog.v2","subflow_id":"SF-01","layer":{"layer_id":"SF-01-L01","source_range":"L25-L36","source_text":"逐字原文","layer_modes":["live_scene"],"layer_role":"本层从谁的什么动作起步，经过哪些话轮或反应，把什么关系推到下一层","entry_relation":"怎样承接前层或 SF 进入态","exit_relation":"以哪一动作、判断或断口把读者送入下一层","narrative_distance":"近景现场、中距概述、远距传闻等具体距离及其变化","dimension_realization":{"narrative_voice_and_attitude":{"status":"active","how":"本层叙述者怎样选取和判断事实","source_evidence":["本层逐字引句"]},"sentence_relation_and_rhythm":{"status":"active","how":"句与句怎样接、哪里提速或急刹","source_evidence":["本层逐字引句"]},"paragraph_breath_and_cut_points":{"status":"active","how":"段落怎样换气和断开","source_evidence":["本层逐字引句"]},"dialogue_misfire_or_avoidance":{"status":"inactive","how":"本层无对白，压力由动作或叙述承担，不能硬补问答","source_evidence":[]},"action_perception_emotion_weave":{"status":"active","how":"动作、身体感知与情绪怎样在同一推进链里出现","source_evidence":["本层逐字引句"]},"narrator_interjection_and_roughness":{"status":"active","how":"叙述者在哪里插嘴，语气毛边如何改变判断","source_evidence":["本层逐字引句"]}},"must_preserve_in_target":["必须保持本层叙事模式和与前后层的连接；只替换人物、事件、物件与场景壳"]}}
+```
+
+六维不是六句标签。`how` 必须把本层内部的实际句间关系写清；若模型仍需重开原文才能知道插嘴放在哪、对白怎样错答、哪句急刹或概述怎样切入，则该层未提取完整。
+
 正式产物出现高主动性因果词时，句末必须标 `【原文明确 Fxx】` 或 `【人工推断 Fxx】`。
 
 字数{X}字 | 节数{N} | 平台{平台} | 类型{题材/情绪类型} | 结局{HE/BE/开放式} | POV{第一/第三人称}

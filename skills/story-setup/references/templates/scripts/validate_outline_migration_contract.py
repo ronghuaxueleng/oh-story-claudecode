@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from copy import deepcopy
@@ -19,8 +20,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-SCHEMA_VERSION = "story-short-write.outline-migration-contract.v3"
-TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v2"
+SCHEMA_VERSION = "story-short-write.outline-migration-contract.v7"
+PREVIOUS_SCHEMA_VERSION = "story-short-write.outline-migration-contract.v6"
+LEGACY_SCHEMA_VERSIONS = {
+    "story-short-write.outline-migration-contract.v5",
+    "story-short-write.outline-migration-contract.v4",
+}
+TEMPLATE_SCHEMA = "story-short-write.outline-migration-template.v5"
 FULL_BRIDGE_PLOT_LEDGER_SCHEMA = "story-short-analyze.full-text-plot-ledger.v2"
 FULL_EMOTION_LEDGER_SCHEMA = "story-short-analyze.full-text-emotion-ledger.v2"
 SOURCE_STYLE_GRANULARITY_FIELDS = (
@@ -30,6 +36,13 @@ SOURCE_STYLE_GRANULARITY_FIELDS = (
     "dialogue_misfire_or_avoidance",
     "action_perception_emotion_weave",
     "narrator_interjection_and_roughness",
+)
+SOURCE_WHOLE_PERFORMANCE_FIELDS = (
+    "entry_state",
+    "required_sequence",
+    "scene_granularity",
+    "emotion_sequence",
+    "end_state",
 )
 P_REPLACEMENT_DIMENSIONS = {
     "character_role",
@@ -51,11 +64,56 @@ P_REPLACEMENT_CORE_DIMENSIONS = {
     "consequence",
 }
 HOT_NEWS_MAX_AGE_DAYS = 90
+HOT_MATERIAL_TYPES = {"social_news", "internet_meme"}
+GOVERNMENT_PUBLISHER_MARKERS = (
+    "政府",
+    "国务院",
+    "网信办",
+    "政务",
+    "公安部",
+    "公安厅",
+    "公安局",
+    "人民法院",
+    "人民检察院",
+    "应急管理部",
+    "应急管理厅",
+    "应急管理局",
+    "市场监管",
+    "市场监督管理",
+    "行政审批",
+    "税务局",
+    "执法局",
+    "管理委员会",
+    "监督管理局",
+)
+SEARCH_ENGINE_HOST_SUFFIXES = (
+    "google.com",
+    "google.cn",
+    "bing.com",
+    "sogou.com",
+    "duckduckgo.com",
+    "yandex.com",
+)
+SEARCH_ENGINE_EXACT_HOSTS = {
+    "baidu.com",
+    "www.baidu.com",
+    "m.baidu.com",
+    "wap.baidu.com",
+    "news.baidu.com",
+    "so.com",
+    "www.so.com",
+    "m.so.com",
+    "sm.cn",
+    "m.sm.cn",
+    "search.yahoo.com",
+    "search.brave.com",
+}
 HEADING_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
 FIELD_RE = re.compile(r"(?m)^- ([^：\n]+)：(.*)$")
 SECTION_HEADING_RE = re.compile(r"^(\d+)[.、．](?:\s+.*)?$")
 CHAR_RANGE_RE = re.compile(r"(\d+)\s*[-~至]\s*(\d+)\s*字")
 SOURCE_LINE_RANGE_RE = re.compile(r"L?(\d+)\s*[-~至]\s*L?(\d+)", re.IGNORECASE)
+SOURCE_SECTION_MARKER_RE = re.compile(r"\s*\d+(?:[.、．])?\s*")
 REQUIRED_OUTLINE_FIELDS = (
     "主事件",
     "子事件",
@@ -207,19 +265,34 @@ def _line_range(value: Any, label: str) -> tuple[int, int]:
     raise ValueError(f"{label} 无法解析原文行区间: {value!r}")
 
 
-def _load_subflows(path: Path) -> list[dict[str, Any]]:
+def _load_subflow_validator():
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "story-short-analyze"
+        / "scripts"
+        / "validate_subflow_catalog.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "story_short_analyze_subflow_validator", path
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载主体子流程 validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SUBFLOW_VALIDATOR = _load_subflow_validator()
+
+
+def _load_subflows(path: Path, original_path: Path) -> list[dict[str, Any]]:
     if not path.is_file():
         raise FileNotFoundError(f"主体子流程索引不存在: {path}")
-    rows: list[dict[str, Any]] = []
-    for line_number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not raw.strip():
-            continue
-        try:
-            item = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"主体子流程索引第 {line_number} 行不是有效 JSON: {exc}") from exc
-        if not isinstance(item, dict):
-            raise ValueError(f"主体子流程索引第 {line_number} 行必须是对象")
+    rows, topology_errors = SUBFLOW_VALIDATOR.validate_catalog(path, original_path)
+    if topology_errors:
+        raise ValueError("；".join(topology_errors))
+    validated_rows: list[dict[str, Any]] = []
+    for line_number, item in enumerate(rows, start=1):
         subflow_id = str(item.get("subflow_id") or "").strip()
         if not subflow_id:
             raise ValueError(f"主体子流程索引第 {line_number} 行缺少 subflow_id")
@@ -232,11 +305,73 @@ def _load_subflows(path: Path) -> list[dict[str, Any]]:
         for field in SOURCE_STYLE_GRANULARITY_FIELDS:
             if field not in granularity or not _has_text(granularity[field]):
                 raise ValueError(f"主体子流程 {subflow_id}.{field} 不能为空")
-        rows.append(item)
-    ids = [str(item["subflow_id"]).strip() for item in rows]
-    if not rows or len(ids) != len(set(ids)):
+        for field in SOURCE_WHOLE_PERFORMANCE_FIELDS:
+            value = item.get(field)
+            if field in {"required_sequence", "emotion_sequence"}:
+                if not isinstance(value, list) or not value or any(
+                    not isinstance(step, str) or not step.strip() for step in value
+                ):
+                    raise ValueError(
+                        f"主体子流程 {subflow_id}.{field} 必须是非空文本列表"
+                    )
+            elif not isinstance(value, str) or not value.strip():
+                raise ValueError(f"主体子流程 {subflow_id}.{field} 不能为空")
+        validated_rows.append(item)
+    ids = [str(item["subflow_id"]).strip() for item in validated_rows]
+    if not validated_rows or len(ids) != len(set(ids)):
         raise ValueError("主体子流程索引必须非空且 subflow_id 不得重复")
-    return rows
+    return validated_rows
+
+
+def _format_line_ranges(line_numbers: list[int]) -> str:
+    ranges: list[str] = []
+    start = previous = line_numbers[0]
+    for line_number in line_numbers[1:]:
+        if line_number == previous + 1:
+            previous = line_number
+            continue
+        ranges.append(f"L{start}" if start == previous else f"L{start}-L{previous}")
+        start = previous = line_number
+    ranges.append(f"L{start}" if start == previous else f"L{start}-L{previous}")
+    return ", ".join(ranges)
+
+
+def _validate_subflow_source_coverage(
+    original_path: Path,
+    subflows: list[dict[str, Any]],
+) -> None:
+    """Require SF ranges to cover every prose line in the primary original."""
+    lines = original_path.read_text(encoding="utf-8").splitlines()
+    covered: set[int] = set()
+    previous_start = 0
+    for subflow in subflows:
+        subflow_id = str(subflow.get("subflow_id") or "").strip()
+        start, end = _line_range(
+            subflow.get("source_range"), f"主体子流程 {subflow_id}.source_range"
+        )
+        if end > len(lines):
+            raise ValueError(
+                f"主体子流程 {subflow_id}.source_range 超出原文总行数: "
+                f"L{start}-L{end}, total={len(lines)}"
+            )
+        if start < previous_start:
+            raise ValueError(
+                f"主体子流程索引必须按原文行区间非递减排列: {subflow_id}=L{start}-L{end}"
+            )
+        previous_start = start
+        covered.update(range(start, end + 1))
+
+    prose_lines = [
+        line_number
+        for line_number, line in enumerate(lines, start=1)
+        if line.strip() and not SOURCE_SECTION_MARKER_RE.fullmatch(line)
+    ]
+    uncovered = [line_number for line_number in prose_lines if line_number not in covered]
+    if uncovered:
+        raise ValueError(
+            "主体子流程索引未覆盖原文全部正文行: "
+            + _format_line_ranges(uncovered)
+        )
 
 
 def source_specs(config_path: Path) -> list[dict[str, Any]]:
@@ -277,7 +412,11 @@ def source_specs(config_path: Path) -> list[dict[str, Any]]:
                 project_dir,
             )
             subflow_catalog = _subflow_catalog_path(entry, original, project_dir)
-            prose_subflows = _load_subflows(subflow_catalog)
+            prose_subflows = _load_subflows(subflow_catalog, original)
+            _validate_subflow_source_coverage(original, prose_subflows)
+            subflow_layer_catalog = subflow_catalog.with_name(
+                "子流程层次索引.jsonl"
+            )
             hierarchy_assets = _primary_hierarchy_assets(entry, original, project_dir)
         else:
             hierarchy_assets = None
@@ -316,6 +455,11 @@ def source_specs(config_path: Path) -> list[dict[str, Any]]:
                 "plot_ledger": binding(plot_ledger),
                 "emotion_ledger": binding(emotion_ledger) if emotion_ledger else None,
                 "subflow_catalog": binding(subflow_catalog) if subflow_catalog else None,
+                "subflow_layer_catalog": (
+                    binding(subflow_layer_catalog)
+                    if role == "primary" and subflow_layer_catalog.is_file()
+                    else None
+                ),
                 "plot_beats": plot_beats,
                 "emotion_beats": emotion_beats,
                 "prose_subflows": prose_subflows,
@@ -406,6 +550,7 @@ def _public_source(spec: dict[str, Any]) -> dict[str, Any]:
         "emotion_ledger",
         "subflow_catalog",
     )}
+    result["subflow_layer_catalog"] = deepcopy(spec.get("subflow_layer_catalog"))
     hierarchy_assets = spec.get("hierarchy_assets")
     if spec.get("role") == "primary" and isinstance(hierarchy_assets, dict):
         result["profile"] = deepcopy(hierarchy_assets["profile"])
@@ -463,19 +608,108 @@ def build_source_hierarchy(specs: list[dict[str, Any]]) -> dict[str, Any]:
             )
         rule_by_id[bridge_id] = rule
         profile_bridge_order.append(bridge_id)
-    if profile_bridge_order != bridge_order:
+    # Older source profiles can predate a later ledger split. Preserve strict
+    # validation for the existing prefix, then derive only newly appended BID
+    # shells from the P/E ledgers instead of mutating the source profile.
+    if profile_bridge_order != bridge_order[: len(profile_bridge_order)]:
         raise ValueError(
-            "主体 profile.bridge_rules 必须与 P/E/SF 总账中的 BID 完全同序: "
+            "主体 profile.bridge_rules 必须与 P/E/SF 总账中的 BID 完全同序，或为其有序前缀: "
             f"profile={profile_bridge_order}, ledgers={bridge_order}"
         )
 
-    bridges: list[dict[str, Any]] = []
-    for bridge_id in bridge_order:
-        emotion_beats = [
+    emotion_by_bridge: dict[str, list[dict[str, Any]]] = {
+        bridge_id: [
             beat
             for beat in primary["emotion_beats"]
             if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
         ]
+        for bridge_id in bridge_order
+    }
+    plot_by_bridge: dict[str, list[dict[str, Any]]] = {
+        bridge_id: [
+            beat
+            for beat in primary["plot_beats"]
+            if bridge_id in [str(item) for item in beat.get("bid_ids") or []]
+        ]
+        for bridge_id in bridge_order
+    }
+
+    def ledger_emotion_sequence(bridge_id: str) -> list[dict[str, Any]]:
+        sequence: list[dict[str, Any]] = []
+        for beat in emotion_by_bridge.get(bridge_id) or []:
+            evidence = beat.get("source_evidence")
+            if isinstance(evidence, list):
+                evidence_value = next(
+                    (
+                        str(item or "").strip()
+                        for item in evidence
+                        if str(item or "").strip()
+                    ),
+                    "",
+                )
+            else:
+                evidence_value = str(evidence or "").strip()
+            sequence.append(
+                {
+                    "beat_id": str(beat.get("beat_id") or "").strip(),
+                    "role": beat.get("role"),
+                    "content": beat.get("content"),
+                    "intensity": beat.get("intensity"),
+                    "source_evidence": evidence_value,
+                }
+            )
+        return sequence
+
+    # Legacy profiles used six named emotion slots per bridge rather than the
+    # later E-* ledger IDs. Keep that summary for traceability, but make the
+    # ledger the canonical sequence used by the contract.
+    for bridge_id in profile_bridge_order:
+        rule = rule_by_id[bridge_id]
+        sequence = rule.get("emotion_sequence")
+        expected_ids = [
+            str(beat.get("beat_id") or "").strip()
+            for beat in emotion_by_bridge.get(bridge_id) or []
+        ]
+        actual_ids = [
+            str(item.get("beat_id") or "").strip()
+            for item in sequence
+            if isinstance(item, dict)
+        ] if isinstance(sequence, list) else []
+        if expected_ids and actual_ids != expected_ids and all(
+            not value.startswith("E-") for value in actual_ids
+        ):
+            normalized = deepcopy(rule)
+            normalized["profile_summary"] = deepcopy(rule.get("emotion_sequence"))
+            normalized["emotion_sequence"] = ledger_emotion_sequence(bridge_id)
+            normalized["derived_from_ledgers"] = True
+            rule_by_id[bridge_id] = normalized
+
+    for bridge_id in bridge_order[len(profile_bridge_order) :]:
+        ledger_emotions = emotion_by_bridge.get(bridge_id) or []
+        derived_sequence = ledger_emotion_sequence(bridge_id)
+        must_keep = [
+            str(beat.get("content") or "").strip()
+            for beat in ledger_emotions
+            if str(beat.get("content") or "").strip()
+        ]
+        if not must_keep:
+            must_keep = [
+                str(beat.get("action") or "").strip()
+                for beat in plot_by_bridge.get(bridge_id) or []
+                if str(beat.get("action") or "").strip()
+            ]
+        if not must_keep:
+            must_keep = [f"{bridge_id} 总账承重"]
+        rule_by_id[bridge_id] = {
+            "id": bridge_id,
+            "must_keep": must_keep,
+            "emotion_sequence": derived_sequence,
+            "derived_from_ledgers": True,
+        }
+
+    bridges: list[dict[str, Any]] = []
+    for bridge_id in bridge_order:
+        emotion_beats = emotion_by_bridge.get(bridge_id) or []
         expected_emotion_ids = [
             str(beat.get("beat_id") or "").strip() for beat in emotion_beats
         ]
@@ -707,7 +941,7 @@ def validate_hot_news_materials(
         return []
     required_count = min(2, len(replacements))
     if len(materials) < required_count:
-        errors.append(f"hot_news_materials 至少需要 {required_count} 条不同热点新闻")
+        errors.append(f"hot_news_materials 至少需要 {required_count} 条不同社会热点材料")
     normalized: list[dict[str, str]] = []
     for index, item in enumerate(materials, start=1):
         label = f"hot_news_materials[{index}]"
@@ -718,11 +952,13 @@ def validate_hot_news_materials(
             key: str(item.get(key) or "").strip()
             for key in (
                 "news_id",
+                "material_type",
                 "title",
                 "publisher",
                 "published_at",
                 "retrieved_at",
                 "url",
+                "social_heat_signal",
                 "transferable_mechanism",
                 "fact_boundary",
             )
@@ -733,9 +969,28 @@ def validate_hot_news_materials(
                 errors.append(f"{label}.{key} 不能为空")
         if not re.fullmatch(r"HN-\d{3,}", values["news_id"]):
             errors.append(f"{label}.news_id 必须使用 HN-001 形态")
+        if values["material_type"] not in HOT_MATERIAL_TYPES:
+            errors.append(
+                f"{label}.material_type 必须为 social_news 或 internet_meme"
+            )
         parsed_url = urlparse(values["url"])
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
-            errors.append(f"{label}.url 必须是可追溯的 http/https 新闻链接")
+            errors.append(f"{label}.url 必须是可追溯的 http/https 材料链接")
+        host = (parsed_url.hostname or "").rstrip(".").lower()
+        host_labels = set(host.split("."))
+        if "gov" in host_labels or host.endswith(".gov.cn") or host == "gov.cn":
+            errors.append(f"{label}.url 禁止使用政府/政务网站")
+        if (
+            host in SEARCH_ENGINE_EXACT_HOSTS
+            or host.startswith("search.")
+            or any(
+                host == suffix or host.endswith(f".{suffix}")
+                for suffix in SEARCH_ENGINE_HOST_SUFFIXES
+            )
+        ):
+            errors.append(f"{label}.url 禁止使用搜索引擎或聚合搜索结果")
+        if any(marker in values["publisher"] for marker in GOVERNMENT_PUBLISHER_MARKERS):
+            errors.append(f"{label}.publisher 禁止使用政府部门或监管机构")
         try:
             published = date.fromisoformat(values["published_at"])
             retrieved = date.fromisoformat(values["retrieved_at"])
@@ -744,10 +999,14 @@ def validate_hot_news_materials(
                 errors.append(f"{label} 检索日期不得早于发布日期")
             elif age > HOT_NEWS_MAX_AGE_DAYS:
                 errors.append(
-                    f"{label} 发布至检索已 {age} 天，超过热点新闻 {HOT_NEWS_MAX_AGE_DAYS} 天上限"
+                    f"{label} 发布/走热至检索已 {age} 天，超过社会热点材料 {HOT_NEWS_MAX_AGE_DAYS} 天上限"
                 )
         except ValueError:
             errors.append(f"{label}.published_at/retrieved_at 必须是 YYYY-MM-DD")
+        if len(values["social_heat_signal"]) < 15:
+            errors.append(
+                f"{label}.social_heat_signal 至少 15 字，说明热榜、跨媒体跟进、平台讨论或当事方回应"
+            )
         if len(values["transferable_mechanism"]) < 15:
             errors.append(f"{label}.transferable_mechanism 至少 15 字")
         if len(values["fact_boundary"]) < 20:
@@ -757,13 +1016,17 @@ def validate_hot_news_materials(
     if len(ids) != len(set(ids)):
         errors.append("hot_news_materials.news_id 不得重复")
     publishers = {item["publisher"] for item in normalized if item["publisher"]}
-    hosts = {urlparse(item["url"]).netloc.lower() for item in normalized if item["url"]}
+    hosts = {
+        (urlparse(item["url"]).hostname or "").rstrip(".").lower()
+        for item in normalized
+        if item["url"]
+    }
     distinct_required = min(required_count, len(normalized))
     if len(publishers) < distinct_required or len(hosts) < distinct_required:
-        errors.append("热点新闻必须来自至少两个不同发布机构和站点")
+        errors.append("社会热点材料必须来自至少两个不同发布者和站点")
     mechanisms = [item["transferable_mechanism"] for item in normalized if item["transferable_mechanism"]]
     if len(mechanisms) != len(set(mechanisms)):
-        errors.append("热点新闻不得用不同链接重复登记同一迁移机制")
+        errors.append("社会热点材料不得用不同链接重复登记同一迁移机制")
 
     known_ids = set(ids)
     used_ids = {
@@ -775,10 +1038,10 @@ def validate_hot_news_materials(
     }
     unknown = sorted(used_ids - known_ids)
     if unknown:
-        errors.append(f"P 拍替换引用了未知热点新闻: {unknown}")
+        errors.append(f"P 拍替换引用了未知社会热点材料: {unknown}")
     unused = sorted(known_ids - used_ids)
     if unused:
-        errors.append(f"热点新闻未落到任何目标 P 拍: {unused}")
+        errors.append(f"社会热点材料未落到任何目标 P 拍: {unused}")
     news_by_beat = [
         {
             str(news_id or "").strip()
@@ -801,7 +1064,7 @@ def validate_hot_news_materials(
         )
     if not distinct_assignment_exists:
         errors.append(
-            f"至少 {required_count} 条不同热点新闻必须分别落到 "
+            f"至少 {required_count} 条不同社会热点材料必须分别落到 "
             f"{required_count} 个不同目标 P 拍"
         )
     return errors
@@ -816,6 +1079,106 @@ def ensure_source_assets_unchanged(
         raise ValueError("主体上层层级已变更，旧纲层判断失效，请重新初始化并导出侧车")
 
 
+def ensure_source_assets_rebindable(
+    receipt: dict[str, Any], specs: list[dict[str, Any]]
+) -> None:
+    """Allow preserve-by-evidence to carry a strictly additive SF repair."""
+    expected_sources = [_public_source(spec) for spec in specs]
+    expected_hierarchy = build_source_hierarchy(specs)
+    if (
+        receipt.get("sources") == expected_sources
+        and receipt.get("source_hierarchy") == expected_hierarchy
+    ):
+        return
+
+    old_sources = deepcopy(receipt.get("sources"))
+    comparable_sources = deepcopy(expected_sources)
+    if (
+        not isinstance(old_sources, list)
+        or len(old_sources) != len(comparable_sources)
+        or not old_sources
+    ):
+        raise ValueError("来源资产已变更，旧纲层判断失效，请重新初始化并导出侧车")
+    for source in (old_sources[0], comparable_sources[0]):
+        if not isinstance(source, dict):
+            raise ValueError("来源资产已变更，旧纲层判断失效，请重新初始化并导出侧车")
+        source.pop("subflow_catalog", None)
+        source.pop("subflow_layer_catalog", None)
+    if old_sources != comparable_sources:
+        raise ValueError("来源资产已变更，旧纲层判断失效，请重新初始化并导出侧车")
+
+    old_hierarchy = deepcopy(receipt.get("source_hierarchy"))
+    comparable_hierarchy = deepcopy(expected_hierarchy)
+    for hierarchy in (old_hierarchy, comparable_hierarchy):
+        if not isinstance(hierarchy, dict):
+            raise ValueError("主体上层层级已变更，旧纲层判断失效，请重新初始化并导出侧车")
+        for bridge in hierarchy.get("bridges") or []:
+            if isinstance(bridge, dict):
+                bridge.pop("source_prose_subflow_refs", None)
+    if old_hierarchy != comparable_hierarchy:
+        raise ValueError("主体上层层级已变更，旧纲层判断失效，请重新初始化并导出侧车")
+
+    old_coverage = receipt.get("granularity_coverage")
+    if not isinstance(old_coverage, list) or not old_coverage:
+        raise ValueError("旧合同缺少可验证的 SF 覆盖，不能保留纲层判断")
+    new_coverage = build_granularity_coverage(
+        specs,
+        receipt.get("outline_catalog") or {},
+        receipt.get("mapping") or {},
+    )
+    def without_layer_topology(item: Any) -> Any:
+        normalized = deepcopy(item)
+        if isinstance(normalized, dict):
+            normalized.pop("source_layer_order", None)
+            normalized.pop("source_layer_topology", None)
+        return normalized
+
+    new_by_ref = {
+        str(item.get("source_ref") or "").strip(): without_layer_topology(item)
+        for item in new_coverage
+        if isinstance(item, dict)
+    }
+    changed_or_missing = [
+        str(item.get("source_ref") or "").strip()
+        for item in old_coverage
+        if not isinstance(item, dict)
+        or new_by_ref.get(str(item.get("source_ref") or "").strip())
+        != without_layer_topology(item)
+    ]
+    if changed_or_missing:
+        raise ValueError(
+            "主体旧 SF 被改写或删除，旧纲层判断失效: "
+            + str(changed_or_missing[:8])
+        )
+    if len(new_coverage) < len(old_coverage):
+        raise ValueError("主体 SF 目录发生非增补式变更，旧纲层判断失效")
+
+
+def _granularity_evidence(value: Any) -> list[str]:
+    """Extract only explicitly labelled evidence from a style dimension."""
+    evidence: list[str] = []
+
+    def visit(item: Any) -> None:
+        if isinstance(item, dict):
+            for key in ("evidence", "source_evidence", "quote", "excerpt"):
+                candidate = item.get(key)
+                if isinstance(candidate, str) and candidate.strip():
+                    evidence.append(candidate.strip())
+                elif isinstance(candidate, list):
+                    for nested in candidate:
+                        if isinstance(nested, str) and nested.strip():
+                            evidence.append(nested.strip())
+            for nested in item.values():
+                if isinstance(nested, (dict, list)):
+                    visit(nested)
+        elif isinstance(item, list):
+            for nested in item:
+                visit(nested)
+
+    visit(value)
+    return list(dict.fromkeys(evidence))
+
+
 def build_granularity_coverage(
     specs: list[dict[str, Any]], outline_catalog: dict[str, Any], mapping: dict[str, Any]
 ) -> list[dict[str, Any]]:
@@ -827,6 +1190,18 @@ def build_granularity_coverage(
         for beat in region.get("target_beats") or []
     }
     plot_pairs = list(zip(primary["plot_beats"], targets))
+    source_lines = Path(primary["original"]["path"]).read_text(
+        encoding="utf-8"
+    ).splitlines()
+    target_catalog = {
+        beat["target_id"]: {
+            "target_id": beat["target_id"],
+            "target_region": region["region_id"],
+            "outline_evidence": beat["evidence"],
+        }
+        for region in outline_catalog.get("regions") or []
+        for beat in region.get("target_beats") or []
+    }
     result: list[dict[str, Any]] = []
     for subflow in primary["prose_subflows"]:
         subflow_id = str(subflow["subflow_id"]).strip()
@@ -848,16 +1223,332 @@ def build_granularity_coverage(
             region = target_regions.get(target)
             if region and region not in regions:
                 regions.append(region)
+        granularity = subflow["source_style_granularity"]
+        target_carriers = []
+        for beat, target in overlapping:
+            carrier = target_catalog.get(target)
+            if not carrier:
+                continue
+            target_carriers.append(
+                {
+                    "source_plot_ref": _source_ref(primary["source_id"], beat),
+                    "source_range": str(beat.get("source_range") or "").strip(),
+                    **deepcopy(carrier),
+                }
+            )
         result.append(
             {
                 "source_ref": f"{primary['source_id']}:{subflow_id}",
                 "parent_bridge_id": str(subflow.get("parent_bridge_id") or "").strip(),
                 "source_range": str(subflow.get("source_range") or "").strip(),
                 "style_dimensions": list(SOURCE_STYLE_GRANULARITY_FIELDS),
+                "dimension_requirements": {
+                    field: {
+                        "analysis": deepcopy(granularity[field]),
+                        "source_evidence": _granularity_evidence(granularity[field]),
+                    }
+                    for field in SOURCE_STYLE_GRANULARITY_FIELDS
+                },
+                "performance_requirements": {
+                    "entry_state": str(subflow["entry_state"]).strip(),
+                    "required_sequence": [
+                        str(step).strip() for step in subflow["required_sequence"]
+                    ],
+                    "scene_granularity": str(
+                        subflow["scene_granularity"]
+                    ).strip(),
+                    "emotion_sequence": [
+                        str(step).strip() for step in subflow["emotion_sequence"]
+                    ],
+                    "end_state": str(subflow["end_state"]).strip(),
+                    "source_excerpt": "\n".join(source_lines[sf_start - 1 : sf_end]),
+                },
+                "source_layer_order": deepcopy(subflow["source_layer_order"]),
+                "source_layer_topology": deepcopy(
+                    subflow["source_layer_topology"]
+                ),
+                "target_performance_carriers": target_carriers,
                 "target_regions": regions,
             }
         )
     return result
+
+
+def empty_sf_performance_bindings(
+    granularity_coverage: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Create the manual pre-draft bindings inside the existing outline sidecar."""
+    return [
+        {
+            "source_ref": item["source_ref"],
+            "required_sequence_target_ids": [
+                [] for _ in item["performance_requirements"]["required_sequence"]
+            ],
+            "emotion_sequence_target_ids": [
+                [] for _ in item["performance_requirements"]["emotion_sequence"]
+            ],
+            "scene_granularity_target_ids": [],
+            "source_layer_target_bindings": [
+                {
+                    "layer_id": layer["layer_id"],
+                    "target_ids": [],
+                    "preserved_layer_modes": deepcopy(layer["layer_modes"]),
+                    "adaptation_instruction": "",
+                }
+                for layer in item["source_layer_topology"]
+            ],
+        }
+        for item in granularity_coverage
+    ]
+
+
+def ensure_source_layer_binding_scaffold(
+    bindings: list[dict[str, Any]],
+    granularity_coverage: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep valid older SF choices while adding the new per-layer decisions."""
+    if not bindings:
+        return empty_sf_performance_bindings(granularity_coverage)
+    by_ref = {
+        str(item.get("source_ref") or "").strip(): item
+        for item in bindings
+        if isinstance(item, dict)
+    }
+    result: list[dict[str, Any]] = []
+    for coverage in granularity_coverage:
+        source_ref = str(coverage.get("source_ref") or "").strip()
+        existing = deepcopy(by_ref.get(source_ref) or {})
+        if not existing:
+            existing = next(
+                item
+                for item in empty_sf_performance_bindings([coverage])
+            )
+        existing["source_ref"] = source_ref
+        expected_layers = coverage.get("source_layer_topology") or []
+        old_layers = {
+            str(item.get("layer_id") or "").strip(): item
+            for item in existing.get("source_layer_target_bindings") or []
+            if isinstance(item, dict)
+        }
+        existing["source_layer_target_bindings"] = [
+            deepcopy(old_layers[layer["layer_id"]])
+            if layer["layer_id"] in old_layers
+            else {
+                "layer_id": layer["layer_id"],
+                "target_ids": [],
+                "preserved_layer_modes": deepcopy(layer["layer_modes"]),
+                "adaptation_instruction": "",
+            }
+            for layer in expected_layers
+        ]
+        result.append(existing)
+    return result
+
+
+def validate_sf_performance_bindings(
+    bindings: Any,
+    granularity_coverage: list[dict[str, Any]],
+    outline_catalog: dict[str, Any],
+) -> list[str]:
+    """Require every whole-SF step to have an ordered target carrier before prose."""
+    errors: list[str] = []
+    if not isinstance(bindings, list):
+        return ["sf_performance_bindings 必须是列表"]
+    expected_refs = [item["source_ref"] for item in granularity_coverage]
+    actual_refs = [
+        str(item.get("source_ref") or "").strip()
+        for item in bindings
+        if isinstance(item, dict)
+    ]
+    if actual_refs != expected_refs:
+        errors.append("sf_performance_bindings 必须与主体全部 SF 完整同序")
+    ranks = _target_rank(outline_catalog)
+    region_by_target = {
+        str(beat.get("target_id") or "").strip(): str(
+            region.get("region_id") or ""
+        ).strip()
+        for region in outline_catalog.get("regions") or []
+        for beat in region.get("target_beats") or []
+        if isinstance(beat, dict)
+    }
+
+    def validate_groups(
+        groups: Any,
+        expected_count: int,
+        allowed_targets: set[str],
+        label: str,
+    ) -> set[str]:
+        used: set[str] = set()
+        if not isinstance(groups, list) or len(groups) != expected_count:
+            errors.append(f"{label} 必须与来源步骤等长")
+            return used
+        previous_rank = -1
+        missing_steps: list[int] = []
+        for index, targets in enumerate(groups, start=1):
+            if not isinstance(targets, list) or not targets:
+                missing_steps.append(index)
+                continue
+            normalized = [str(target or "").strip() for target in targets]
+            if any(not target or target not in allowed_targets for target in normalized):
+                errors.append(f"{label}[{index}] 只能引用当前 SF 的目标承载细拍")
+                continue
+            target_ranks = [ranks[target] for target in normalized if target in ranks]
+            if target_ranks != sorted(target_ranks) or (
+                target_ranks and target_ranks[0] < previous_rank
+            ):
+                errors.append(f"{label}[{index}] 必须保持来源表演顺序")
+            if target_ranks:
+                previous_rank = target_ranks[-1]
+            used.update(normalized)
+        if missing_steps:
+            errors.append(f"{label} 以下步骤必须绑定目标细拍: {missing_steps}")
+        return used
+
+    for expected, actual in zip(granularity_coverage, bindings):
+        if not isinstance(actual, dict):
+            errors.append("sf_performance_bindings 每项必须是对象")
+            continue
+        source_ref = expected["source_ref"]
+        allowed_targets = {
+            str(carrier.get("target_id") or "").strip()
+            for carrier in expected.get("target_performance_carriers") or []
+            if isinstance(carrier, dict)
+        }
+        carrier_ranks = sorted(
+            ranks[target] for target in allowed_targets if target in ranks
+        )
+        if carrier_ranks:
+            first_carrier_rank = carrier_ranks[0]
+            last_carrier_rank = carrier_ranks[-1]
+            layer_allowed_targets = {
+                target
+                for target, rank in ranks.items()
+                if first_carrier_rank <= rank <= last_carrier_rank
+            }
+        else:
+            layer_allowed_targets = set(allowed_targets)
+        performance = expected.get("performance_requirements")
+        if not isinstance(performance, dict):
+            errors.append(f"主体 SF {source_ref} 缺少完整写前表演链")
+            continue
+        sequence_used = validate_groups(
+            actual.get("required_sequence_target_ids"),
+            len(performance["required_sequence"]),
+            allowed_targets,
+            f"sf_performance_bindings[{source_ref}].required_sequence_target_ids",
+        )
+        emotion_used = validate_groups(
+            actual.get("emotion_sequence_target_ids"),
+            len(performance["emotion_sequence"]),
+            allowed_targets,
+            f"sf_performance_bindings[{source_ref}].emotion_sequence_target_ids",
+        )
+        scene_targets = actual.get("scene_granularity_target_ids")
+        if not isinstance(scene_targets, list) or not scene_targets:
+            errors.append(
+                f"sf_performance_bindings[{source_ref}].scene_granularity_target_ids "
+                "必须绑定至少一个目标细拍"
+            )
+            scene_used: set[str] = set()
+        else:
+            normalized_scene = [str(target or "").strip() for target in scene_targets]
+            if any(
+                not target or target not in allowed_targets
+                for target in normalized_scene
+            ):
+                errors.append(
+                    f"sf_performance_bindings[{source_ref}].scene_granularity_target_ids "
+                    "只能引用当前 SF 的目标承载细拍"
+                )
+            scene_used = set(normalized_scene)
+        expected_layers = expected.get("source_layer_topology")
+        actual_layers = actual.get("source_layer_target_bindings")
+        if not isinstance(expected_layers, list) or not expected_layers:
+            errors.append(f"主体 SF {source_ref} 缺少来源逐层拓扑")
+            layer_used: set[str] = set()
+        elif not isinstance(actual_layers, list) or len(actual_layers) != len(
+            expected_layers
+        ):
+            errors.append(
+                f"sf_performance_bindings[{source_ref}].source_layer_target_bindings "
+                "必须与来源层次完整同序"
+            )
+            layer_used = set()
+        else:
+            layer_used = set()
+            previous_layer_rank = -1
+            adaptation_notes: list[str] = []
+            for layer_index, (source_layer, layer_binding) in enumerate(
+                zip(expected_layers, actual_layers), start=1
+            ):
+                layer_label = (
+                    f"sf_performance_bindings[{source_ref}]"
+                    f".source_layer_target_bindings[{layer_index}]"
+                )
+                if not isinstance(layer_binding, dict):
+                    errors.append(f"{layer_label} 必须是对象")
+                    continue
+                if layer_binding.get("layer_id") != source_layer.get("layer_id"):
+                    errors.append(f"{layer_label}.layer_id 必须与来源层一致")
+                if layer_binding.get("preserved_layer_modes") != source_layer.get(
+                    "layer_modes"
+                ):
+                    errors.append(
+                        f"{layer_label}.preserved_layer_modes 不得改写来源层型"
+                    )
+                targets = layer_binding.get("target_ids")
+                if not isinstance(targets, list) or not targets:
+                    errors.append(f"{layer_label}.target_ids 必须绑定目标细拍")
+                    continue
+                normalized_targets = [str(target or "").strip() for target in targets]
+                if any(
+                    not target or target not in layer_allowed_targets
+                    for target in normalized_targets
+                ):
+                    errors.append(
+                        f"{layer_label}.target_ids 只能引用当前 SF 最早与最晚 P 承载细拍"
+                        "之间的目标细拍"
+                    )
+                    continue
+                target_ranks = [ranks[target] for target in normalized_targets]
+                if target_ranks != sorted(target_ranks) or (
+                    target_ranks and target_ranks[0] < previous_layer_rank
+                ):
+                    errors.append(f"{layer_label} 必须保持来源层次顺序")
+                if target_ranks:
+                    previous_layer_rank = target_ranks[-1]
+                layer_used.update(normalized_targets)
+                instruction = str(
+                    layer_binding.get("adaptation_instruction") or ""
+                ).strip()
+                if len(instruction) < 20:
+                    errors.append(
+                        f"{layer_label}.adaptation_instruction 至少 20 字，"
+                        "必须说明目标层怎样保留来源层型、连接和气口"
+                    )
+                adaptation_notes.append(instruction)
+            nonempty_notes = [note for note in adaptation_notes if note]
+            if len(nonempty_notes) != len(set(nonempty_notes)):
+                errors.append(
+                    f"sf_performance_bindings[{source_ref}] 各来源层必须填写专属施工说明，"
+                    "不得复用同一模板"
+                )
+        covered_regions = {
+            region_by_target.get(target, "")
+            for target in sequence_used | emotion_used | scene_used | layer_used
+        }
+        if not set(expected.get("target_regions") or []).issubset(covered_regions):
+            errors.append(
+                f"sf_performance_bindings[{source_ref}] 必须在写前覆盖该 SF 的全部目标区域"
+            )
+        layer_regions = {
+            region_by_target.get(target, "") for target in layer_used
+        }
+        if not set(expected.get("target_regions") or []).issubset(layer_regions):
+            errors.append(
+                f"sf_performance_bindings[{source_ref}] 的来源层次绑定必须覆盖全部目标区域"
+            )
+    return errors
 
 
 def build_sections(
@@ -964,6 +1655,7 @@ def create_receipt(project: str, outline_path: Path, config_path: Path) -> dict[
         "hot_news_materials": [],
         "p_beat_replacements": [],
         "granularity_coverage": granularity_coverage,
+        "sf_performance_bindings": [],
         "manual_confirmation": {
             "full_story_hierarchy_preserved": None,
             "primary_plot_slots_replaced_one_to_one_and_in_order": None,
@@ -1020,7 +1712,10 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
         "instructions": (
             "三个 targets 数组分别与对应 source 序列等长同序；每项只填一个 target_id。"
             "完整保留上层关系/BID/E/SF 层级，只逐拍替换主体 P 拍事件壳；"
-            "只有用户明确要求热点时才填写热点字段，新闻只供应目标 P 拍的现实机制。"
+            "每个 SF 的必经顺序、情绪序列和场面颗粒必须在写正文前绑定到该 SF 的目标细拍，"
+            "每个来源层也必须完整同序绑定目标细拍，保留原层型、连接和气口并填写专属施工说明；"
+            "同一数组内保持来源顺序，跨区 SF 必须覆盖全部落点；"
+            "只有用户明确要求热点时才填写热点字段，且只允许有热度证据的非政府社会新闻或网络热梗供应目标 P 拍的现实机制。"
         ),
         "target_catalog": [
             {
@@ -1038,6 +1733,22 @@ def export_template(receipt_path: Path, output_path: Path) -> dict[str, Any]:
             },
         },
         "mapping": deepcopy(receipt["mapping"]),
+        "source_performance_requirements": [
+            {
+                "source_ref": item["source_ref"],
+                "performance_requirements": deepcopy(
+                    item["performance_requirements"]
+                ),
+                "source_layer_order": deepcopy(item["source_layer_order"]),
+                "source_layer_topology": deepcopy(item["source_layer_topology"]),
+            }
+            for item in receipt["granularity_coverage"]
+        ],
+        "sf_performance_bindings": (
+            deepcopy(receipt.get("sf_performance_bindings"))
+            if receipt.get("sf_performance_bindings")
+            else empty_sf_performance_bindings(receipt["granularity_coverage"])
+        ),
         "hot_news_materials": deepcopy(receipt.get("hot_news_materials") or []),
         "p_beat_replacements": _editable_p_replacements(receipt, specs),
         "manual_confirmation": manual_confirmation,
@@ -1178,6 +1889,13 @@ def validate_data(data: dict[str, Any], outline_path: Path | None = None) -> lis
         ]
         if empty_subflows:
             errors.append(f"主体文字子流程未映射到目标区域: {empty_subflows}")
+        errors.extend(
+            validate_sf_performance_bindings(
+                data.get("sf_performance_bindings"),
+                expected_coverage,
+                actual_catalog,
+            )
+        )
         expected_sections = build_sections(
             actual_catalog,
             sequences,
@@ -1205,8 +1923,22 @@ def apply_template(receipt_path: Path, template_path: Path) -> dict[str, Any]:
         raise ValueError("侧车 receipt_path 与正式合同不一致")
     if template.get("receipt_sha256") != sha256(receipt_path):
         raise ValueError("侧车绑定的正式合同 SHA 已失效，请重新导出")
+    expected_performance_requirements = [
+        {
+            "source_ref": item["source_ref"],
+            "performance_requirements": deepcopy(item["performance_requirements"]),
+            "source_layer_order": deepcopy(item["source_layer_order"]),
+            "source_layer_topology": deepcopy(item["source_layer_topology"]),
+        }
+        for item in receipt.get("granularity_coverage") or []
+    ]
+    if template.get("source_performance_requirements") != expected_performance_requirements:
+        raise ValueError("侧车中的主体 SF 完整表演要求不得改写或删减")
     merged = deepcopy(receipt)
     merged["mapping"] = deepcopy(template.get("mapping"))
+    merged["sf_performance_bindings"] = deepcopy(
+        template.get("sf_performance_bindings")
+    )
     merged["hot_news_materials"] = deepcopy(template.get("hot_news_materials"))
     merged["manual_confirmation"] = deepcopy(template.get("manual_confirmation"))
     specs = source_specs(Path(merged["project_config"]["path"]))
@@ -1274,6 +2006,7 @@ def _preservation_source(
     dict[str, Any],
     list[dict[str, Any]],
     list[dict[str, Any]],
+    list[dict[str, Any]],
 ]:
     mapping = receipt.get("mapping")
     if _mapping_has_targets(mapping):
@@ -1283,6 +2016,7 @@ def _preservation_source(
             deepcopy(receipt.get("manual_confirmation") or {}),
             deepcopy(receipt.get("hot_news_materials") or []),
             _editable_p_replacements(receipt, specs),
+            deepcopy(receipt.get("sf_performance_bindings") or []),
         )
 
     sidecar_path = receipt_path.with_name("纲层迁移侧车.json")
@@ -1302,6 +2036,7 @@ def _preservation_source(
         deepcopy(template.get("manual_confirmation") or {}),
         deepcopy(template.get("hot_news_materials") or []),
         deepcopy(template.get("p_beat_replacements") or []),
+        deepcopy(template.get("sf_performance_bindings") or []),
     )
 
 
@@ -1326,6 +2061,7 @@ def migrate_mapping_by_evidence(
     old_catalog: dict[str, Any],
     new_catalog: dict[str, Any],
     old_mapping: dict[str, Any],
+    allow_manual_remap: bool = False,
 ) -> dict[str, Any]:
     old_targets = {
         str(beat.get("target_id") or "").strip(): str(beat.get("evidence") or "").strip()
@@ -1340,11 +2076,17 @@ def migrate_mapping_by_evidence(
         migrated: list[str] = []
         for target in targets:
             old_target = str(target or "").strip()
+            if not old_target and allow_manual_remap:
+                migrated.append("")
+                continue
             evidence = old_targets.get(old_target)
             if not evidence:
                 raise ValueError(f"{label} 含旧细纲未知 target_id: {old_target}")
             new_target = new_targets.get(evidence)
             if not new_target:
+                if allow_manual_remap:
+                    migrated.append("")
+                    continue
                 raise ValueError(f"{label} 的细拍证据已被改写或删除: {evidence}")
             migrated.append(new_target)
         return migrated
@@ -1366,18 +2108,106 @@ def migrate_mapping_by_evidence(
     }
 
 
+def migrate_sf_performance_bindings_by_evidence(
+    old_catalog: dict[str, Any],
+    new_catalog: dict[str, Any],
+    bindings: list[dict[str, Any]],
+    allow_manual_remap: bool = False,
+) -> list[dict[str, Any]]:
+    """Move pre-draft SF carrier choices with unchanged outline evidence."""
+    if not bindings:
+        return []
+    old_targets = {
+        str(beat.get("target_id") or "").strip(): str(
+            beat.get("evidence") or ""
+        ).strip()
+        for region in old_catalog.get("regions") or []
+        for beat in region.get("target_beats") or []
+    }
+    new_targets = _targets_by_evidence(new_catalog, "新细纲")
+
+    def migrate_ids(values: Any, label: str) -> list[str]:
+        if not isinstance(values, list):
+            raise ValueError(f"{label} 必须是列表")
+        migrated: list[str] = []
+        for value in values:
+            old_target = str(value or "").strip()
+            evidence = old_targets.get(old_target)
+            if not evidence or evidence not in new_targets:
+                if allow_manual_remap:
+                    continue
+                raise ValueError(f"{label} 的细拍证据已被改写或删除")
+            migrated.append(new_targets[evidence])
+        return migrated
+
+    result = deepcopy(bindings)
+    for binding_index, item in enumerate(result, start=1):
+        if not isinstance(item, dict):
+            raise ValueError("sf_performance_bindings 每项必须是对象")
+        for field in (
+            "required_sequence_target_ids",
+            "emotion_sequence_target_ids",
+        ):
+            groups = item.get(field)
+            if not isinstance(groups, list):
+                raise ValueError(
+                    f"sf_performance_bindings[{binding_index}].{field} 必须是列表"
+                )
+            item[field] = [
+                migrate_ids(
+                    group,
+                    f"sf_performance_bindings[{binding_index}].{field}[{group_index}]",
+                )
+                for group_index, group in enumerate(groups, start=1)
+            ]
+        item["scene_granularity_target_ids"] = migrate_ids(
+            item.get("scene_granularity_target_ids"),
+            f"sf_performance_bindings[{binding_index}].scene_granularity_target_ids",
+        )
+        layer_bindings = item.get("source_layer_target_bindings")
+        if layer_bindings is not None:
+            if not isinstance(layer_bindings, list):
+                raise ValueError(
+                    f"sf_performance_bindings[{binding_index}].source_layer_target_bindings "
+                    "必须是列表"
+                )
+            for layer_index, layer_binding in enumerate(layer_bindings, start=1):
+                if not isinstance(layer_binding, dict):
+                    raise ValueError(
+                        f"sf_performance_bindings[{binding_index}]"
+                        f".source_layer_target_bindings[{layer_index}] 必须是对象"
+                    )
+                layer_binding["target_ids"] = migrate_ids(
+                    layer_binding.get("target_ids"),
+                    f"sf_performance_bindings[{binding_index}]"
+                    f".source_layer_target_bindings[{layer_index}].target_ids",
+                )
+    return result
+
+
 def rebind_outline(
     receipt_path: Path,
     outline_path: Path,
     preserve_by_evidence: bool = False,
+    allow_manual_remap: bool = False,
 ) -> dict[str, Any]:
     receipt = read_json(receipt_path, "细纲迁移合同")
-    if receipt.get("schema_version") != SCHEMA_VERSION:
+    receipt_schema = receipt.get("schema_version")
+    supported_schemas = {
+        SCHEMA_VERSION,
+        PREVIOUS_SCHEMA_VERSION,
+        *LEGACY_SCHEMA_VERSIONS,
+    }
+    if receipt_schema not in supported_schemas:
         raise ValueError("只能重绑紧凑纲层迁移合同")
+    if receipt_schema != SCHEMA_VERSION and not preserve_by_evidence:
+        raise ValueError("旧合同升级必须使用 --preserve-by-evidence，避免丢失既有映射")
+    if allow_manual_remap and not preserve_by_evidence:
+        raise ValueError("--allow-manual-remap 必须与 --preserve-by-evidence 同时使用")
     config_path = Path(receipt["project_config"]["path"]).resolve()
     specs = source_specs(config_path)
     if preserve_by_evidence:
-        ensure_source_assets_unchanged(receipt, specs)
+        ensure_source_assets_rebindable(receipt, specs)
     sequences = expected_sequences(specs)
     catalog = parse_outline(outline_path.resolve())
     if catalog["errors"]:
@@ -1389,12 +2219,24 @@ def rebind_outline(
             manual_confirmation,
             hot_news_materials,
             editable_replacements,
+            old_sf_performance_bindings,
         ) = _preservation_source(
             receipt_path, receipt, specs
         )
-        mapping = migrate_mapping_by_evidence(old_catalog, catalog, old_mapping)
+        mapping = migrate_mapping_by_evidence(
+            old_catalog,
+            catalog,
+            old_mapping,
+            allow_manual_remap=allow_manual_remap,
+        )
         replacements = build_p_replacements(
             editable_replacements, specs, mapping, catalog
+        )
+        sf_performance_bindings = migrate_sf_performance_bindings_by_evidence(
+            old_catalog,
+            catalog,
+            old_sf_performance_bindings,
+            allow_manual_remap=allow_manual_remap,
         )
     else:
         mapping = {
@@ -1417,8 +2259,10 @@ def rebind_outline(
         }
         hot_news_materials = []
         replacements = []
+        sf_performance_bindings = []
     coverage = build_granularity_coverage(specs, catalog, mapping)
     receipt["outline"] = binding(outline_path)
+    receipt["schema_version"] = SCHEMA_VERSION
     receipt["project_config"] = binding(config_path)
     receipt["sources"] = [_public_source(spec) for spec in specs]
     receipt["source_hierarchy"] = build_source_hierarchy(specs)
@@ -1427,6 +2271,10 @@ def rebind_outline(
     receipt["hot_news_materials"] = hot_news_materials
     receipt["p_beat_replacements"] = replacements
     receipt["granularity_coverage"] = coverage
+    receipt["sf_performance_bindings"] = ensure_source_layer_binding_scaffold(
+        sf_performance_bindings,
+        coverage,
+    )
     receipt["manual_confirmation"] = manual_confirmation
     receipt["sections"] = build_sections(
         catalog, sequences, mapping, coverage, replacements
@@ -1434,7 +2282,12 @@ def rebind_outline(
     receipt["gate_status"] = "pending"
     receipt["blocking_failures"] = []
     receipt["rebound_at"] = now_iso()
-    if preserve_by_evidence:
+    if (
+        preserve_by_evidence
+        and sf_performance_bindings
+        and receipt_schema == SCHEMA_VERSION
+        and not allow_manual_remap
+    ):
         errors = validate_data(receipt)
         if errors:
             raise ValueError("；".join(errors))
@@ -1462,6 +2315,7 @@ def main() -> int:
     rebind.add_argument("--receipt", required=True)
     rebind.add_argument("--outline", required=True)
     rebind.add_argument("--preserve-by-evidence", action="store_true")
+    rebind.add_argument("--allow-manual-remap", action="store_true")
     validate = sub.add_parser("validate")
     validate.add_argument("--receipt", required=True)
     validate.add_argument("--outline")
@@ -1494,6 +2348,7 @@ def main() -> int:
                 Path(args.receipt).resolve(),
                 Path(args.outline).resolve(),
                 preserve_by_evidence=args.preserve_by_evidence,
+                allow_manual_remap=args.allow_manual_remap,
             )
             print("outline_migration_contract: rebound")
             return 0
