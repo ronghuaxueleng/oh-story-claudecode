@@ -12,16 +12,16 @@ from pathlib import Path
 from typing import Any
 
 
-def _load_outline_module():
-    path = Path(__file__).with_name("validate_outline_migration_contract.py")
-    spec = importlib.util.spec_from_file_location("story_short_write_outline_migration", path)
+def _load_target_map_module():
+    path = Path(__file__).with_name("manage_target_prose_map.py")
+    spec = importlib.util.spec_from_file_location("story_short_write_target_prose_map", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-OUTLINE = _load_outline_module()
+TARGET_MAP = _load_target_map_module()
 
 PROSE_GUIDANCE_FIELDS = (
     "sentence_motion",
@@ -59,79 +59,6 @@ MIN_REASONABLE_SECTION_CHARS = 800
 DEFAULT_MAX_TOTAL_RATIO = 1.25
 DEFAULT_MAX_SECTION_RATIO = 1.25
 MAX_SOURCE_ANCHORED_RATIO = 1.25
-
-
-def validate_full_sf_write_requirements(contract: dict[str, Any]) -> list[str]:
-    """Block drafting unless every SF carries its whole performance chain."""
-    errors: list[str] = []
-    coverage = contract.get("granularity_coverage")
-    if not isinstance(coverage, list) or not coverage:
-        return ["细纲迁移合同缺少主体 SF 全颗粒覆盖"]
-    required_performance_keys = {
-        "entry_state",
-        "required_sequence",
-        "scene_granularity",
-        "emotion_sequence",
-        "end_state",
-        "source_excerpt",
-    }
-    known_targets = {
-        str(beat.get("target_id") or "").strip()
-        for region in (contract.get("outline_catalog") or {}).get("regions") or []
-        for beat in region.get("target_beats") or []
-        if isinstance(beat, dict)
-    }
-    for item in coverage:
-        if not isinstance(item, dict):
-            errors.append("granularity_coverage 每项必须是对象")
-            continue
-        source_ref = str(item.get("source_ref") or "").strip() or "<missing>"
-        performance = item.get("performance_requirements")
-        if not isinstance(performance, dict) or set(performance) != required_performance_keys:
-            errors.append(f"主体 SF {source_ref} 缺少完整写前表演链")
-            continue
-        for field in ("entry_state", "scene_granularity", "end_state", "source_excerpt"):
-            if not isinstance(performance.get(field), str) or not performance[field].strip():
-                errors.append(f"主体 SF {source_ref}.{field} 不能为空")
-        for field in ("required_sequence", "emotion_sequence"):
-            value = performance.get(field)
-            if not isinstance(value, list) or not value or any(
-                not isinstance(step, str) or not step.strip() for step in value
-            ):
-                errors.append(f"主体 SF {source_ref}.{field} 必须是非空文本列表")
-        source_layers = item.get("source_layer_topology")
-        layer_order = item.get("source_layer_order")
-        if not isinstance(source_layers, list) or not source_layers:
-            errors.append(f"主体 SF {source_ref} 缺少完整来源层次拓扑")
-        elif layer_order != [layer.get("layer_id") for layer in source_layers]:
-            errors.append(f"主体 SF {source_ref} 的来源层次顺序不完整")
-        carriers = item.get("target_performance_carriers")
-        if not isinstance(carriers, list) or not carriers:
-            errors.append(f"主体 SF {source_ref} 没有目标细拍承载链，禁止开始正文")
-            continue
-        carrier_regions: list[str] = []
-        for carrier in carriers:
-            if not isinstance(carrier, dict):
-                errors.append(f"主体 SF {source_ref} 的目标承载项必须是对象")
-                continue
-            target_id = str(carrier.get("target_id") or "").strip()
-            region = str(carrier.get("target_region") or "").strip()
-            if target_id not in known_targets:
-                errors.append(f"主体 SF {source_ref} 引用了未知目标细拍: {target_id}")
-            if not str(carrier.get("outline_evidence") or "").strip():
-                errors.append(f"主体 SF {source_ref} 的目标细拍 {target_id} 缺少细纲证据")
-            if region and region not in carrier_regions:
-                carrier_regions.append(region)
-        if carrier_regions != item.get("target_regions"):
-            errors.append(f"主体 SF {source_ref} 的目标承载区域与 SF 落点不一致")
-    errors.extend(
-        OUTLINE.validate_sf_performance_bindings(
-            contract.get("sf_performance_bindings"),
-            coverage,
-            contract.get("outline_catalog") or {},
-        )
-    )
-    return errors
 
 
 def read_json(path: Path, label: str) -> dict[str, Any]:
@@ -339,7 +266,7 @@ def validate_release(project_dir: Path) -> list[str]:
     project = project_dir.name
     config_path = project_dir / "写作资产" / "项目写作配置.json"
     outline_path = project_dir / "小节大纲.md"
-    contract_path = project_dir / "写作资产" / "细纲表演验收回执.json"
+    target_map_path = project_dir / "写作资产" / "目标成文脑图.json"
     try:
         config = read_json(config_path, "项目写作配置")
         if config.get("project_name") != project:
@@ -396,30 +323,31 @@ def validate_release(project_dir: Path) -> list[str]:
                             }
                         if profile_data.get(field) != expected:
                             errors.append(f"项目 profile.{field} 必须完全来自主体 profile")
-        contract = read_json(contract_path, "细纲迁移合同")
-        contract_errors = OUTLINE.validate_receipt(contract_path, outline_path)
-        errors.extend(contract_errors)
-        errors.extend(validate_full_sf_write_requirements(contract))
-        if contract.get("gate_status") != "passed":
-            errors.append("细纲迁移合同 gate_status 未 passed")
-        if contract.get("project") != project:
-            errors.append("细纲迁移合同 project 与项目目录名不一致")
-        sources = contract.get("sources") or []
-        primary_source = sources[0] if sources and isinstance(sources[0], dict) else {}
-        original_binding = primary_source.get("original") or {}
+        target_map = read_json(target_map_path, "目标成文脑图")
+        errors.extend(TARGET_MAP.validate_target_map(target_map, require_gate=True))
+        if target_map.get("project") != project:
+            errors.append("目标成文脑图 project 与项目目录名不一致")
+        source_map_binding = target_map.get("source_map") or {}
+        source_map = read_json(
+            Path(str(source_map_binding.get("path") or "")).resolve(),
+            "来源成文脑图",
+        )
+        original_binding = (source_map.get("compiled_from") or {}).get("original") or {}
         primary_original = Path(str(original_binding.get("path") or "")).resolve()
+        outline_catalog = TARGET_MAP.parse_outline(outline_path)
+        errors.extend(outline_catalog.get("errors") or [])
         if not primary_original.is_file():
             errors.append(f"主体原文不存在: {primary_original}")
         else:
             errors.extend(
                 validate_section_density(
-                    contract.get("outline_catalog") or {},
+                    outline_catalog,
                     primary_original,
                 )
             )
             errors.extend(
                 validate_source_anchored_outline(
-                    contract.get("outline_catalog") or {},
+                    outline_catalog,
                     primary_original,
                     config,
                 )

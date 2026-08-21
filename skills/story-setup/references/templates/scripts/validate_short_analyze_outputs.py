@@ -24,6 +24,19 @@ def load_subflow_validator():
 SUBFLOW = load_subflow_validator()
 
 
+def load_source_map_validator():
+    path = Path(__file__).with_name("compile_source_prose_map.py")
+    spec = importlib.util.spec_from_file_location("short_analyze_source_map_validator", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载来源成文脑图 validator：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SOURCE_MAP = load_source_map_validator()
+
+
 ROOT_REQUIRED_FILES = [
     "_sample_comparison.md",
     "事实与推断台账.md",
@@ -108,6 +121,7 @@ WRITING_ASSET_FILES = [
     "全文情节微拍总账.json",
     "子流程索引.jsonl",
     "子流程层次索引.jsonl",
+    "来源成文脑图.json",
     "profile_source.md",
     "桥段施工卡.md",
 ]
@@ -391,6 +405,7 @@ STRUCTURE_COUNT_KEYS = [
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/compile_source_prose_map.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
@@ -3030,6 +3045,78 @@ def extract_high_risk_cards(text: str) -> list[tuple[str, str]]:
     return cards
 
 
+def check_bridge_emotion_asset_alignment(
+    path: Path,
+    full_emotion_ledger: dict,
+    errors: list[str],
+) -> None:
+    if not path.is_file() or not full_emotion_ledger:
+        return
+    ledger_beats = [
+        item
+        for item in full_emotion_ledger.get("beats", [])
+        if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
+    ]
+    ledger_by_id = {
+        str(item.get("beat_id") or "").strip(): item for item in ledger_beats
+    }
+    for title, block in extract_high_risk_cards(read_text(path)):
+        bid_match = re.search(r"\bBID-\d+\b", title)
+        if not bid_match:
+            errors.append(f"{path} 桥段卡缺少 BID：{title}")
+            continue
+        bridge_id = bid_match.group(0)
+        expected_ids = [
+            str(item.get("beat_id") or "").strip()
+            for item in ledger_beats
+            if bridge_id in [str(value).strip() for value in item.get("bid_ids", [])]
+        ]
+        rows = re.findall(r"^\s*-\s*情绪拍[：:]\s*(.+)$", block, flags=re.M)
+        parsed_rows: list[tuple[str, str, str, int, str]] = []
+        for row in rows:
+            match = re.fullmatch(
+                r"(E-\d+)\s*\|\s*(?:实际)?作用[：:]\s*([^|]+?)\s*\|\s*"
+                r"内容[：:]\s*([^|]+?)\s*\|\s*(?:情绪)?烈度[：:]\s*(\d{1,2})\s*\|\s*"
+                r"原文证据[：:]\s*(.+)",
+                row.strip(),
+            )
+            if not match:
+                errors.append(
+                    f"{path} {bridge_id} 每个情绪拍必须独占一行并使用完整字段：{row.strip()[:100]}"
+                )
+                continue
+            parsed_rows.append(
+                (
+                    match.group(1).strip(),
+                    match.group(2).strip(),
+                    match.group(3).strip(),
+                    int(match.group(4)),
+                    match.group(5).strip(),
+                )
+            )
+        actual_ids = [row[0] for row in parsed_rows]
+        if actual_ids != expected_ids:
+            errors.append(
+                f"{path} {bridge_id} 情绪拍必须与全文情绪总账原序子集完全一致: "
+                f"expected={','.join(expected_ids)}, actual={','.join(actual_ids)}"
+            )
+        for beat_id, role, content, intensity, evidence in parsed_rows:
+            source = ledger_by_id.get(beat_id)
+            if source is None:
+                continue
+            if role != str(source.get("role") or "").strip():
+                errors.append(f"{path} {bridge_id}/{beat_id} 作用与全文情绪总账不一致")
+            if content != str(source.get("content") or "").strip():
+                errors.append(f"{path} {bridge_id}/{beat_id} 内容与全文情绪总账不一致")
+            if intensity != source.get("intensity"):
+                errors.append(f"{path} {bridge_id}/{beat_id} 烈度与全文情绪总账不一致")
+            source_evidence = [
+                str(value).strip() for value in source.get("source_evidence", [])
+            ]
+            if evidence not in source_evidence:
+                errors.append(f"{path} {bridge_id}/{beat_id} 原文证据未取自全文情绪总账")
+
+
 def block_has_any_label(block: str, labels: tuple[str, ...]) -> bool:
     return any(
         re.search(rf"^\s*-\s*{re.escape(label)}[：:]\s*\S+", block, flags=re.M)
@@ -3903,6 +3990,20 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         check_asset_candidate_ledger(root, source_lines, word_count, errors, notes)
     if source_lines and (asset_dir / "本书动态信号字典.json").is_file():
         check_dynamic_signal_dictionary(root, source_lines, errors, notes)
+    source_map_path = asset_dir / "来源成文脑图.json"
+    if source_map_path.is_file():
+        try:
+            source_map = json.loads(source_map_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            errors.append(f"来源成文脑图无法读取：{exc}")
+        else:
+            if not isinstance(source_map, dict):
+                errors.append("来源成文脑图必须是 JSON 对象")
+            else:
+                errors.extend(
+                    f"blocked-on-assets：{item}"
+                    for item in SOURCE_MAP.validate_source_map(source_map, source_map_path)
+                )
 
     check_contains_all(root / "拆文报告.md", REPORT_HEADINGS, errors)
     check_contains_all(root / "写作手法.md", CRAFT_HEADINGS, errors)
@@ -3927,6 +4028,12 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     check_sample_grading_quality(asset_dir / "profile_source.md", errors)
     check_bridge_workcards_quality(asset_dir / "桥段施工卡.md", word_count, errors, notes)
     check_high_risk_asset_quality(asset_dir / "高敏桥段识别.md", word_count, errors)
+    check_bridge_emotion_asset_alignment(
+        asset_dir / "桥段施工卡.md", full_emotion_ledger, errors
+    )
+    check_bridge_emotion_asset_alignment(
+        asset_dir / "高敏桥段识别.md", full_emotion_ledger, errors
+    )
     check_cross_asset_semantics(root, original_text, word_count, errors, notes)
     check_character_bias_role_coverage(root, word_count, errors, notes)
 

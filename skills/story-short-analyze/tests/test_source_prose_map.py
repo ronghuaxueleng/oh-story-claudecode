@@ -75,6 +75,11 @@ class SourceProseMapTest(unittest.TestCase):
             "source_range": "L1-L3",
             "required_sequence": ["推门", "逼近", "落锤"],
             "scene_granularity": "三行完成",
+            "causal_preconditions": {"arrival_causes": ["误会"]},
+            "information_delay": "先给动作，后给落锤",
+            "control_changes": ["甲进入现场"],
+            "emotion_sequence": ["压迫", "失控"],
+            "end_state": "冲突开始",
             "source_excerpt": "禁止复制到脑图的大段原文",
         }
         (assets / "子流程索引.jsonl").write_text(
@@ -219,6 +224,26 @@ class SourceProseMapTest(unittest.TestCase):
             errors = MODULE.validate_source_map(payload)
 
         self.assertTrue(any("SF-01.layer_ids" in item for item in errors), errors)
+
+    def test_subflow_parent_bridge_must_match_overlapping_beats(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "样书"
+            self.build_fixture(root)
+            payload = MODULE.compile_source_map(root)
+            payload["subflows"][0]["parent_bridge_id"] = "BID-02"
+            payload["subflows"][0]["content_sha256"] = MODULE.canonical_sha256(
+                {
+                    key: value
+                    for key, value in payload["subflows"][0].items()
+                    if key != "content_sha256"
+                }
+            )
+            payload["content_sha256"] = MODULE.canonical_sha256(
+                {key: value for key, value in payload.items() if key != "content_sha256"}
+            )
+            errors = MODULE.validate_source_map(payload)
+
+        self.assertTrue(any("parent_bridge_id" in item for item in errors), errors)
 
     def test_missing_compiled_dependency_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -79,12 +79,14 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
+- 人工裁决完成后运行 `run_short_analyze_finalize.py "拆文库/{书名}" --refresh-review-state --json`，只确定性刷新当前 skill 指纹与正式 Markdown SHA；禁止手抄哈希或让该参数改写人工裁决
 - finalize 只允许生成 `book.profile.json`、`写作资产/来源成文脑图.json` 和读取正式产物，不允许修改 Markdown
 - 来源成文脑图由原文、P/E 总账、SF 索引、文字层索引和 profile 确定性编译；不复制大段 `source_text/source_excerpt`，每个 P/E/SF/层单独保存内容哈希以支持下游增量失效
 - 人工复核回执未闭环时，finalize 必须保持阻断
 - 如果本轮来自 `prepare_short_analyze_job.py --upgrade-existing`，先看 `upgrade_actions` 再决定动作顺序：
   - `safe_refresh_process_files` 只说明过程文件已刷新
   - `manual_backfill_missing_outputs` 先补缺失正式产物
+  - `finalize_generated_outputs` 只允许由 finalize 生成，禁止人工回填
   - `profile_regeneration_required` 非空时，本批必须重生 `book.profile.json`
   - `profile_dependency_review` 列出的上游资产必须在重生 profile 前逐项复核
 - 如果主报告厚、但个别资产文件明显薄，不要在同一长上下文里补丁式连修很多轮

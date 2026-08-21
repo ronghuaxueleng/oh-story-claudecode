@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -24,6 +25,32 @@ def markdown_sha1s(root: Path) -> dict[str, str]:
         if path.is_file():
             hashes[str(path.relative_to(root))] = hashlib.sha1(path.read_bytes()).hexdigest()
     return hashes
+
+
+def load_validator_module(path: Path):
+    spec = importlib.util.spec_from_file_location("story_short_analyze_validator", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 validator: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def refresh_human_review_receipt(root: Path, validator_module) -> int:
+    path = root / "_finalize_human_review.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"人工复核回执不存在: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("人工复核回执顶层必须是对象")
+    hashes = validator_module.formal_markdown_sha1s(root)
+    payload["skill_fingerprint"] = validator_module.compute_skill_fingerprint()
+    payload["formal_markdown_sha1s"] = hashes
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return len(hashes)
 
 
 def build_payload(root: Path, profile_generated: bool, validator_payload: dict, notes: list[str]) -> dict:
@@ -102,6 +129,11 @@ def main() -> int:
     parser.add_argument("root", help="拆文库/{书名} 目录")
     parser.add_argument("--name", help="书名；默认取目录名")
     parser.add_argument("--skip-profile", action="store_true", help="跳过 book.profile.json 生成，只做验收")
+    parser.add_argument(
+        "--refresh-review-state",
+        action="store_true",
+        help="只刷新人工回执的当前 skill 指纹与正式 Markdown SHA，不改人工裁决",
+    )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     args = parser.parse_args()
 
@@ -133,7 +165,29 @@ def main() -> int:
     profile_source = root / "写作资产" / "profile_source.md"
     profile_output = root / "book.profile.json"
     generator = repo_root / "skills" / "story-short-write" / "scripts" / "generate_story_profile.py"
+    source_map_compiler = (
+        repo_root
+        / "skills"
+        / "story-short-analyze"
+        / "scripts"
+        / "compile_source_prose_map.py"
+    )
     validator = repo_root / "skills" / "story-short-analyze" / "scripts" / "validate_short_analyze_outputs.py"
+
+    if args.refresh_review_state:
+        try:
+            count = refresh_human_review_receipt(root, load_validator_module(validator))
+        except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
+            payload = {"ok": False, "status": "review-state-refresh-failed", "error": str(exc)}
+            print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else str(exc))
+            return 2
+        payload = {
+            "ok": True,
+            "status": "review-state-refreshed",
+            "formal_markdown_count": count,
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else f"review_state: refreshed\nformal_markdown_count: {count}")
+        return 0
 
     markdown_before = markdown_sha1s(root)
 
@@ -160,6 +214,21 @@ def main() -> int:
             else:
                 profile_generated = True
                 notes.append("book.profile.json 已重新生成。")
+
+    if not source_map_compiler.exists():
+        errors.append(f"缺少脚本：{source_map_compiler}")
+    else:
+        result = run_command(
+            [sys.executable, str(source_map_compiler), str(root), "--json"]
+        )
+        if result.returncode != 0:
+            compiler_payload = parse_validator_output(result.stdout)
+            compiler_errors = compiler_payload.get("errors") or [
+                result.stderr.strip() or "未知错误"
+            ]
+            errors.extend(f"生成来源成文脑图失败：{item}" for item in compiler_errors)
+        else:
+            notes.append("来源成文脑图.json 已确定性编译。")
 
     if errors:
         payload = {

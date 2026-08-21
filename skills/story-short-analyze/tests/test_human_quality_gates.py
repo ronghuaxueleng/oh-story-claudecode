@@ -557,6 +557,42 @@ class HumanQualityGateTest(unittest.TestCase):
         VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, notes)
         self.assertEqual([], errors)
 
+    def test_bridge_emotion_asset_rejects_compressed_sequence(self) -> None:
+        path = self._write(
+            "桥段施工卡.md",
+            "- 桥段名：BID-01 位置翻转\n"
+            "- 情绪拍：E-001（第一拍） -> E-002（第二拍）\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        ledger = {
+            "beats": [
+                {"beat_id": "E-001", "role": "进入", "content": "先给位置。", "intensity": 4, "source_evidence": ["先给位置"], "bid_ids": ["BID-01"]},
+                {"beat_id": "E-002", "role": "撤回", "content": "再撤位置。", "intensity": 8, "source_evidence": ["再撤位置"], "bid_ids": ["BID-01"]},
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
+        self.assertTrue(any("每个情绪拍必须独占一行" in error for error in errors))
+        self.assertTrue(any("原序子集完全一致" in error for error in errors))
+
+    def test_bridge_emotion_asset_accepts_ledger_exact_rows(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "- 桥段名：BID-01 位置翻转\n"
+            "- 情绪拍：E-001 | 作用：进入 | 内容：先给位置。 | 烈度：4 | 原文证据：先给位置\n"
+            "- 情绪拍：E-002 | 作用：撤回 | 内容：再撤位置。 | 烈度：8 | 原文证据：再撤位置\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        ledger = {
+            "beats": [
+                {"beat_id": "E-001", "role": "进入", "content": "先给位置。", "intensity": 4, "source_evidence": ["先给位置"], "bid_ids": ["BID-01"]},
+                {"beat_id": "E-002", "role": "撤回", "content": "再撤位置。", "intensity": 8, "source_evidence": ["再撤位置"], "bid_ids": ["BID-01"]},
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
+        self.assertEqual([], errors)
+
     def test_bridge_reconciliation_accepts_bid_on_node_line(self) -> None:
         asset_dir = self.root / "写作资产"
         asset_dir.mkdir()
@@ -1074,6 +1110,31 @@ class HumanQualityGateTest(unittest.TestCase):
         path.write_text("第二版\n", encoding="utf-8")
         after = FINALIZER.markdown_sha1s(self.root)
         self.assertNotEqual(before, after)
+
+    def test_refresh_human_review_receipt_updates_only_deterministic_state(self) -> None:
+        self._write("拆文报告.md", "正式内容\n")
+        self._write("_progress.md", "过程内容\n")
+        receipt = {
+            "upgrade_status": "completed",
+            "upgrade_reviews": [{"scope": "content_contract_review", "status": "resolved"}],
+            "review_items": [{"id": "HR-1", "status": "not_applicable"}],
+            "skill_fingerprint": "old",
+            "formal_markdown_sha1s": {},
+        }
+        (self.root / "_finalize_human_review.json").write_text(
+            json.dumps(receipt, ensure_ascii=False), encoding="utf-8"
+        )
+
+        count = FINALIZER.refresh_human_review_receipt(self.root, VALIDATOR)
+        refreshed = json.loads(
+            (self.root / "_finalize_human_review.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(len(VALIDATOR.formal_markdown_sha1s(self.root)), count)
+        self.assertEqual(VALIDATOR.compute_skill_fingerprint(), refreshed["skill_fingerprint"])
+        self.assertEqual(VALIDATOR.formal_markdown_sha1s(self.root), refreshed["formal_markdown_sha1s"])
+        self.assertEqual(receipt["upgrade_reviews"], refreshed["upgrade_reviews"])
+        self.assertEqual(receipt["review_items"], refreshed["review_items"])
 
     def test_finalizer_has_no_markdown_repair_helpers(self) -> None:
         self.assertFalse(hasattr(FINALIZER, "repair_assets"))

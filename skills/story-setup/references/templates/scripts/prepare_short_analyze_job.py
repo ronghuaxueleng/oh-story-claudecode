@@ -61,6 +61,7 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
         "全文情节微拍总账.json",
         "子流程索引.jsonl",
         "子流程层次索引.jsonl",
+        "来源成文脑图.json",
         "母结构_故事走法.md",
         "主冲突_副升级器.md",
         "异物清单.md",
@@ -89,6 +90,7 @@ CONTRACT_LAYOUT_SCHEMA = ContractLayout(
 SKILL_FINGERPRINT_FILES = (
     "skills/story-short-analyze/SKILL.md",
     "skills/story-short-analyze/scripts/prepare_short_analyze_job.py",
+    "skills/story-short-analyze/scripts/compile_source_prose_map.py",
     "skills/story-short-analyze/scripts/record_short_analyze_timing.py",
     "skills/story-short-analyze/scripts/run_short_analyze_finalize.py",
     "skills/story-short-analyze/scripts/validate_short_analyze_foundation.py",
@@ -487,6 +489,11 @@ UPGRADE_REVIEW_SCOPES = (
     "profile_regeneration",
 )
 
+FINALIZE_GENERATED_OUTPUTS = {
+    "book.profile.json",
+    "写作资产/来源成文脑图.json",
+}
+
 ASSET_LANE_PREFERRED_READS = {
     "tables_structure_action": [
         "拆文报告.md",
@@ -851,6 +858,7 @@ def write_upgrade_plan(
 ) -> None:
     safe_refresh = list(upgrade_actions.get("safe_refresh_process_files") or [])
     manual_backfill = list(upgrade_actions.get("manual_backfill_missing_outputs") or [])
+    finalize_generated = list(upgrade_actions.get("finalize_generated_outputs") or [])
     profile_regen = list(upgrade_actions.get("profile_regeneration_required") or [])
     profile_dependency_review = list(upgrade_actions.get("profile_dependency_review") or [])
     lines = [
@@ -897,6 +905,17 @@ def write_upgrade_plan(
     )
     if manual_backfill:
         lines.extend(f"- [ ] `{name}`" for name in manual_backfill)
+    else:
+        lines.append("- 无")
+    lines.extend(
+        [
+            "",
+            "### 由 finalize 确定性生成（禁止人工回填）",
+            "",
+        ]
+    )
+    if finalize_generated:
+        lines.extend(f"- [ ] `{name}`" for name in finalize_generated)
     else:
         lines.append("- 无")
     lines.extend(
@@ -977,6 +996,12 @@ def build_upgrade_actions(
     missing_files: list[str],
     refreshed_process_files: list[str],
 ) -> dict[str, object]:
+    manual_backfill = [
+        rel for rel in missing_files if rel not in FINALIZE_GENERATED_OUTPUTS
+    ]
+    finalize_generated = [
+        rel for rel in missing_files if rel in FINALIZE_GENERATED_OUTPUTS
+    ]
     profile_dependency_review = [
         rel
         for rel in (
@@ -989,12 +1014,13 @@ def build_upgrade_actions(
     ]
     return {
         "safe_refresh_process_files": list(refreshed_process_files),
-        "manual_backfill_missing_outputs": list(missing_files),
+        "manual_backfill_missing_outputs": manual_backfill,
+        "finalize_generated_outputs": finalize_generated,
         "profile_regeneration_required": ["book.profile.json"],
         "profile_dependency_review": profile_dependency_review,
         "manual_rebuild_reason": (
-            "历史升级默认只安全刷新过程文件；缺失正式产物必须人工回填；"
-            "book.profile.json 必须在内容复核后重生，不能沿用旧版。"
+            "历史升级默认只安全刷新过程文件；缺失人工产物必须人工回填；"
+            "book.profile.json 与来源成文脑图必须由 finalize 生成，不能手工补写。"
         ),
     }
 
@@ -1712,7 +1738,7 @@ def upgrade_existing(args: argparse.Namespace) -> dict:
         "meta_refreshed": meta_refreshed,
         "written_files": refreshed_process_files + ["_upgrade_plan.md", "_meta.json"],
         "next_step": {
-            "then": "按 _upgrade_plan.md 人工回填缺失正式产物；脚本不会自动补写 Markdown 正式内容",
+            "then": "按 _upgrade_plan.md 人工回填缺失的人工产物并复核依赖；finalize 生成结构化编译产物",
             "finalize_after_backfill": f"python3 skills/story-short-analyze/scripts/run_short_analyze_finalize.py \"{out_dir}\" --json",
         },
     }
@@ -1767,6 +1793,7 @@ def main() -> int:
             for key in (
                 "safe_refresh_process_files",
                 "manual_backfill_missing_outputs",
+                "finalize_generated_outputs",
                 "profile_regeneration_required",
                 "profile_dependency_review",
             ):

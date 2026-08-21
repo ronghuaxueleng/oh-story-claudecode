@@ -115,6 +115,18 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
                 "_parallel_plan.json",
                 payload["upgrade_actions"]["safe_refresh_process_files"],
             )
+            self.assertNotIn(
+                "book.profile.json",
+                payload["upgrade_actions"]["manual_backfill_missing_outputs"],
+            )
+            self.assertNotIn(
+                "写作资产/来源成文脑图.json",
+                payload["upgrade_actions"]["manual_backfill_missing_outputs"],
+            )
+            self.assertEqual(
+                ["book.profile.json", "写作资产/来源成文脑图.json"],
+                payload["upgrade_actions"]["finalize_generated_outputs"],
+            )
 
             plan = (root / "_upgrade_plan.md").read_text(encoding="utf-8")
             self.assertIn("不自动生成任何正式 Markdown 内容", plan)
@@ -125,6 +137,7 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertIn("过程文件已刷新", plan)
             self.assertIn("升级动作分类", plan)
             self.assertIn("必须重生 profile / 桥段子序列", plan)
+            self.assertIn("由 finalize 确定性生成（禁止人工回填）", plan)
             self.assertIn("内容合同逐项复核", plan)
             self.assertIn("profile 重新生成", plan)
 

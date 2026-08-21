@@ -162,6 +162,38 @@ def merge_normalized_layer_records(
     return subflows
 
 
+def validate_declared_subflow_order(
+    raw_rows: list[dict[str, Any]], label: str, errors: list[str]
+) -> None:
+    """Keep each physical catalog ordered before cross-file compilation."""
+    previous_start = 0
+    for row_number, item in enumerate(raw_rows, start=1):
+        if str(item.get("record_type") or "subflow").strip() != "subflow":
+            continue
+        try:
+            start, _ = parse_line_range(
+                item.get("source_range"), f"{label}第 {row_number} 项.source_range"
+            )
+        except ValueError:
+            continue
+        if start < previous_start:
+            errors.append(f"{label}的 subflow 记录必须按原文行区间非递减排列")
+            return
+        previous_start = start
+
+
+def sort_compiled_subflows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Insert companion-owned compatibility SFs by their source ranges."""
+    def key(item: dict[str, Any]) -> tuple[int, int, str]:
+        try:
+            start, end = parse_line_range(item.get("source_range"), "source_range")
+        except ValueError:
+            start = end = 10**12
+        return start, end, str(item.get("subflow_id") or "")
+
+    return sorted(rows, key=key)
+
+
 def validate_dimension_realization(
     value: Any,
     layer_text: str,
@@ -206,10 +238,13 @@ def validate_catalog(
         return [], [f"原文不存在：{original_path}"]
     lines = original_path.read_text(encoding="utf-8").splitlines()
     raw_rows = read_jsonl(catalog_path, errors)
+    validate_declared_subflow_order(raw_rows, "子流程主索引", errors)
     layer_catalog_path = catalog_path.with_name("子流程层次索引.jsonl")
     if layer_catalog_path.is_file():
-        raw_rows.extend(read_jsonl(layer_catalog_path, errors))
-    rows = merge_normalized_layer_records(raw_rows, errors)
+        companion_rows = read_jsonl(layer_catalog_path, errors)
+        validate_declared_subflow_order(companion_rows, "子流程层次索引", errors)
+        raw_rows.extend(companion_rows)
+    rows = sort_compiled_subflows(merge_normalized_layer_records(raw_rows, errors))
     ids: list[str] = []
     all_covered: set[int] = set()
     previous_sf_start = 0
@@ -235,6 +270,8 @@ def validate_catalog(
             errors.append(f"{label} 必须按原文行区间非递减排列")
         previous_sf_start = sf_start
         exact_excerpt = "\n".join(lines[sf_start - 1 : sf_end])
+        if not isinstance(item.get("source_excerpt"), str):
+            item["source_excerpt"] = exact_excerpt
         if item.get("source_excerpt") != exact_excerpt:
             errors.append(f"{label}.source_excerpt 必须逐字等于 L{sf_start}-L{sf_end}")
 
@@ -268,6 +305,8 @@ def validate_catalog(
                 errors.append(f"{layer_label} 与前一层重叠或倒序")
             previous_layer_end = layer_end
             exact_layer_text = "\n".join(lines[layer_start - 1 : layer_end])
+            if not isinstance(layer.get("source_text"), str):
+                layer["source_text"] = exact_layer_text
             if layer.get("source_text") != exact_layer_text:
                 errors.append(
                     f"{layer_label}.source_text 必须逐字等于 L{layer_start}-L{layer_end}"

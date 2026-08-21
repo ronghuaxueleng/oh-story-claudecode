@@ -122,7 +122,7 @@ description: |
 - 禁止任何兜底生成、自动补写、自动扩写、默认事件代填或跨书内容借位；依据不足时直接阻断
 - finalize 只允许生成 `book.profile.json` 和执行验证，不允许修改任何 Markdown 正式产物
 - 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
-- `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；同时必须读取并执行 `upgrade_actions` 分类结果，至少逐条处理 `safe_refresh_process_files / manual_backfill_missing_outputs / profile_regeneration_required / profile_dependency_review`。缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件
+- `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；同时必须读取并执行 `upgrade_actions` 分类结果，至少逐条处理 `safe_refresh_process_files / manual_backfill_missing_outputs / finalize_generated_outputs / profile_regeneration_required / profile_dependency_review`。缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件；`book.profile.json` 与 `来源成文脑图.json` 只能进入 `finalize_generated_outputs`，禁止列入人工回填
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 与 `upgrade_actions`，确认文件缺失、profile 重生和依赖复核责任都已接单，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成，`upgrade_actions=[]` 才表示没有额外升级责任
 - 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、全文情绪总账重建、各 BID 子集贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
 - 全文情绪总账一旦发生 `重切 / 补尾 / 改 bid_ids 边界 / 改 source_evidence` 任一变化，旧 `book.profile.json` 立刻失效；必须在同一次升级闭环里重生 `book.profile.json`，并让 `bridge_rules[*].emotion_sequence` 与总账中归属各 BID 的子序列完全同序相等。禁止只修总账、不重生 profile，然后把漂移留给 `story-short-write` 阶段发现

@@ -69,20 +69,18 @@ def validate_initial_draft(project_dir: Path, platform: str) -> list[str]:
     errors: list[str] = []
     assets = project_dir / "写作资产"
     draft = project_dir / "正文.md"
-    review_path = assets / "初稿终审回执.json"
-    module_path = Path(__file__).with_name("validate_initial_draft_review.py")
+    review_path = assets / "正文覆盖回执.json"
+    module_path = Path(__file__).with_name("manage_target_prose_map.py")
     spec = importlib.util.spec_from_file_location(
-        "story_short_write_initial_draft_review", module_path
+        "story_short_write_prose_coverage_audit", module_path
     )
     if spec is None or spec.loader is None:
-        return [f"无法加载初稿终审校验器: {module_path}"]
+        return [f"无法加载正文覆盖校验器: {module_path}"]
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    review = load_json(review_path, "初稿终审回执", errors)
+    review = load_json(review_path, "正文覆盖回执", errors)
     if review:
-        errors.extend(module.validate_receipt(review_path))
-        if review.get("gate_status") != "passed":
-            errors.append("初稿终审回执 gate_status 未 passed")
+        errors.extend(module.validate_audit(review, project_dir, require_gate=True))
     if not draft.is_file():
         errors.append(f"正文不存在: {draft}")
         return errors

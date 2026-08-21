@@ -5,8 +5,8 @@
 ## 正式主链
 
 1. 起盘：隔离其他写作项目，锁名，绑定主体与最小辅助来源，完成 `设定.md`。
-2. 目标骨架：逐拍换芯并按连续 3-5 个区域写入 `小节大纲.md` 或接收用户 JSON 脑图；禁止退化成每个区域一次独立编辑，禁止在文件外先攒完整本 P/E 重映射，禁止创建分节草稿、临时细纲或临时合并脚本。
-3. 目标脑图：把全部 P/E、SF 表演步骤和来源文字层绑定到目标节点，逐 P 拍填写至少三个换壳维度；所有人工维护只发生在 `目标成文脑图.json`。
+2. 目标骨架：逐拍换芯并按连续 3-5 个区域写入 `小节大纲.md` 或接收用户 JSON 脑图；每条目标细拍同步登记隐藏的 P/E/SF步骤/来源层 ID，禁止退化成每个区域一次独立编辑，禁止创建分节草稿、临时细纲或临时合并脚本。
+3. 稳定预检与目标脑图：完整大纲先通过 `preflight`，确认 P/E 全量一对一同序、SF 无漏步、来源层无漏层换序，再 `init`；脚本只从显式声明派生绑定，逐 P 拍另行确认至少三个换壳维度。
 4. 正文：放行后按目标脑图逐层写 `正文.md`，不创建逐节行政回执。
 5. 紧凑终审：逐来源层只保存正文引句和人工结论，异常清零后进入初稿停靠。
 
@@ -28,6 +28,9 @@
 ## 目标脑图命令
 
 ```bash
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
+  --project-dir "{项目目录}"
+
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" init \
   --project-dir "{项目目录}"
 
@@ -51,6 +54,10 @@ python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-init \
   --project-dir "{项目目录}"
+
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm \
+  --project-dir "{项目目录}" \
+  --reviews-json '{"SF-xx-Lxx":{"evidence_quotes":["正文逐字引句"],"conclusion":"本层专属人工判断"}}'
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
   --project-dir "{项目目录}"
