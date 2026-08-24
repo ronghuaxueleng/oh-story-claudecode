@@ -5,10 +5,10 @@
 ## 正式主链
 
 1. 起盘：隔离其他写作项目，锁名，绑定主体与最小辅助来源，完成 `设定.md`。
-2. 目标骨架：逐拍换芯并按连续 3-5 个区域写入 `小节大纲.md` 或接收用户 JSON 脑图；每条目标细拍同步登记隐藏的 P/E/SF步骤/来源层 ID，禁止退化成每个区域一次独立编辑，禁止创建分节草稿、临时细纲或临时合并脚本。
-3. 稳定预检与目标脑图：完整大纲先通过 `preflight`，确认 P/E 全量一对一同序、SF 无漏步、来源层无漏层换序，再 `init`；脚本只从显式声明派生绑定，逐 P 拍另行确认至少三个换壳维度。
+2. 目标骨架：逐拍换芯并按连续 3-5 个区域写入 `小节大纲.md` 或接收用户 JSON 脑图；每条目标细拍首次落盘前分别核对 P 四项承重、E 五项语义和来源层拓扑，再登记隐藏的 P/E/SF步骤/来源层 ID。禁止按相邻序号分配 E、把整拍拆到前后节点或先用 ID 占位。
+3. 稳定预检与目标脑图：完整大纲先通过 `preflight`，再 `init`；脚本只从显式声明派生绑定。逐 P 拍确认换壳后，在同一目标脑图内逐 E 拍确认整拍同节点及五字段，逐层确认层型、进出关系、保留规则和六维；缺任一项不得 `validate` 或正文放行。
 4. 正文：放行后按目标脑图逐层写 `正文.md`，不创建逐节行政回执。
-5. 紧凑终审：逐来源层只保存正文引句和人工结论，异常清零后进入初稿停靠。
+5. 紧凑终审：逐 P/E/节点/来源层保存分字段正文引句和人工结论；P 五个布尔、E 五字段与整拍同节点、层拓扑/规则/六维均由模型显式提交，脚本不得自动判真。异常清零后进入初稿停靠。
 
 若主体 profile 早于账本的 BID 细分，放行只允许从 P/E 账本派生连续新增尾部 BID 壳，不修改来源 profile，也不放行乱序或中间缺失。热点只在用户明确要求时检索和使用。
 
@@ -34,6 +34,11 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" init \
   --project-dir "{项目目录}"
 
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" confirm-fidelity \
+  --project-dir "{项目目录}" \
+  --emotion-reviews-json '{逐 E 拍五字段显式复核 JSON}' \
+  --layer-reviews-json '{逐层拓扑、规则和六维显式复核 JSON}'
+
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" validate \
   --project-dir "{项目目录}"
 
@@ -57,7 +62,11 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-init \
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm \
   --project-dir "{项目目录}" \
-  --reviews-json '{"SF-xx-Lxx":{"evidence_quotes":["正文逐字引句"],"conclusion":"本层专属人工判断"}}'
+  --reviews-json '{逐层显式布尔及分字段正文证据 JSON}'
+
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-emotions \
+  --project-dir "{项目目录}" \
+  --reviews-json '{逐 E 拍五字段及整拍同节点正文证据 JSON}'
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
   --project-dir "{项目目录}"

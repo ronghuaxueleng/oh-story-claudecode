@@ -112,6 +112,15 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         self.assertIn("只调整实际绑定的目标 P 拍", combined)
         self.assertIn("不得借热点重推全书 P/E 映射或延迟细纲落盘", skill)
 
+    def test_first_write_requires_emotion_and_layer_fidelity_before_release(self) -> None:
+        combined = self.active_docs()
+        self.assertIn("confirm-fidelity", combined)
+        self.assertIn("whole_beat_in_one_node", combined)
+        self.assertIn("content / trigger / relationship_position_change / reader_effect / intensity", combined)
+        self.assertIn("无功能顺移", combined)
+        self.assertIn("audit-confirm-emotions", combined)
+        self.assertIn("脚本不得自动判真", combined)
+
     def test_profile_prefix_can_derive_appended_ledger_bridges(self) -> None:
         combined = "\n".join(
             (

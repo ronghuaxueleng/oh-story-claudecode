@@ -3477,6 +3477,10 @@ def check_full_text_emotion_ledger(
             )
         if len(str(review.get("split_basis") or "").strip()) < 20:
             errors.append(f"{path} completeness_review.split_basis 过短")
+    errors.extend(
+        f"{path} {item}"
+        for item in SOURCE_MAP.validate_emotion_candidate_coverage(data, source_lines)
+    )
     return data
 
 
@@ -3625,6 +3629,10 @@ def check_full_text_plot_ledger(
         errors.append(f"{path} source_plot_candidate_audit candidate_id 存在重复")
     if segment_candidate_ids != candidate_ids:
         errors.append(f"{path} coverage_segments 引用的 candidate_id 必须与源文候选全集同序相等")
+    errors.extend(
+        f"{path} {item}"
+        for item in SOURCE_MAP.validate_plot_candidate_coverage(data, source_lines)
+    )
 
     review = data.get("completeness_review")
     if not isinstance(review, dict):

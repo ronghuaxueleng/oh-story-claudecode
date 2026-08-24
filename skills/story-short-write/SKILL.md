@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.89.0
+  version: 1.90.0
 ---
 
 # story-short-write：短篇网文写作
@@ -117,6 +117,8 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 每批只读取该批实际承接的 BID/E/P/SF/来源层区间和已锁定热点机制，不得每写一个区域就重读全书账本、profile、主体原文或热点页面。每条 `细拍拆分` 首次落盘时必须在行尾写隐藏的来源覆盖注释，注释只登记 ID，不重抄来源内容：
 
+每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。
+
 ```md
 - 细拍拆分：目标现场施工内容 <!-- source-map: P=P-001; E=E-001; SF=SF-00A#1; L=SF-00A-L01 -->
 ```
@@ -171,6 +173,15 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" confirm-event-shells \
   --confirmation-note "{已逐 P 拍核对的本书换壳与热点边界}"
 ```
 
+随后在同一 `目标成文脑图.json` 内完成写前保真确认。`emotion-reviews-json` 可按连续区域增量提交，每个 E 必须显式确认整拍在同一节点，并分别填写五字段的 `preserved=true + target_realization`；`layer-reviews-json` 每层必须显式确认 `no_function_shift=true`，分别填写层型/进入/退出/距离、全部来源保留规则和六维的目标节点及具体实现。脚本不生成这些人工判断，也不接受一条总评代替逐字段判断：
+
+```bash
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" confirm-fidelity \
+  --project-dir "{项目目录}" \
+  --emotion-reviews-json '{逐 E 拍五字段显式复核 JSON}' \
+  --layer-reviews-json '{逐来源层拓扑、规则与六维显式复核 JSON}'
+```
+
 映射完成后封存：
 
 ```bash
@@ -187,7 +198,7 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" rebind \
 
 仅对本规则生效前已经初始化、尚未封存的旧项目，可一次使用 `migrate-legacy-source-refs`。它读取旧项目已人工复核的绑定及审阅者明确覆盖，先按新合同全量校验，再原子写回细纲隐藏声明并立即 rebind；新项目、已封存项目和存在未知绑定的项目禁止使用。该迁移不是正常写作阶段，不得用于绕过 `preflight`。
 
-P/E 不得漏拍、并拍或倒序；SF 表演链不得漏步；文字层不得漏层、换序或越出 SF 连续承载范围。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
+P/E 不得漏拍、并拍或倒序；E 五字段不得拆散或顺移；SF 表演链不得漏步；文字层不得漏层、换序、功能顺移或越出 SF 连续承载范围。任一写前保真确认缺失、目标节点内容哈希变化或仍用宽泛说明代替具体实现，`validate` 必须阻断。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
 
 ### Phase 3：正文放行与直接写作
 
@@ -208,7 +219,7 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 全文完成后只建立 `正文覆盖回执.json`。静态的区域六维、SF 整链和来源层对象都保留在两张脑图中，终审不再重复三套内容；回执只保存两张脑图与正文 SHA、区域覆盖、全部来源层的正文逐字引句、人工结论以及缺失/倒序/层型错配异常。
 
-人工逐层填写 `realized=true`、`topology_preserved=true`、绑定区域内的逐字引句和本层专属结论；同时必须对目标脑图全部节点逐节点填写 `realized=true`、`granularity_preserved=true`、正文逐字引句和本节点专属结论。除此之外，来源全部 P 拍必须逐拍对照来源脑图中的 `action / control_change / information_change / consequence`，分别确认保真并给出绑定区域内正文引句；目标节点只是写到了、情绪相近或事件更合理，都不能替代 P 拍承重功能保真。来源层本就是概述、制度结果或传闻余尾时不得判为“说明干区”；来源层是现场时，逐节点结论必须分别核对该节点承接的动作、对白、反应、控制变化和前后位置，禁止用同一区域的一条宽泛引句替整层或多个节点过检。任何漏 P、漏层、漏节点、功能顺移、换序、改层型、失效引句或异常未清零都阻断封存；发现问题先改正文，再运行 `audit-init` 增量刷新，仍有效的 P/层/节点结论按绑定和引句保留。
+人工逐层显式填写 `realized=true / topology_preserved=true`，并分别为层型、进入、退出、叙述距离、无功能顺移、每条来源保留规则和六维提供专属正文引句与结论；同时对全部目标节点逐节点确认颗粒。来源全部 P 拍必须逐拍显式提交五个保真布尔，并为 `action / control_change / information_change / consequence` 分别给正文引句与结论，脚本不得自动全置真。来源全部 E 拍还必须逐拍确认 `content / trigger / relationship_position_change / reader_effect / intensity` 及 `whole_beat_in_one_node=true`，每字段有绑定节点内的专属引句与结论。目标节点只是写到了、情绪相近或事件更合理，都不能替代对应拍位保真；宽泛引句不得替整层、多个字段或多个节点过检。任何漏 P/E、漏层、漏节点、功能顺移、换序、改层型、失效引句或异常未清零都阻断封存；发现问题先改正文，再运行 `audit-init` 增量刷新，仍有效的逐项判断按绑定和引句保留。
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
@@ -219,7 +230,7 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-init \
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm \
   --project-dir "{项目目录}" \
-  --reviews-json '{"SF-xx-Lxx":{"evidence_quotes":["正文逐字引句"],"conclusion":"本层专属人工判断"}}' \
+  --reviews-json '{逐层显式布尔、拓扑、保留规则与六维专属引句 JSON}' \
   --node-reviews-json '{"T-x-xxx":{"evidence_quotes":["正文逐字引句"],"conclusion":"本节点动作、对白、反应与控制变化的专属判断"}}'
 
 # 逐节点复核时允许按连续区域增量提交；每项仍须由当前模型明确给出引句和结论
@@ -230,12 +241,16 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-nodes \
 # 层复核只因局部回炉失效时，允许仅增量提交失效层
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-layers \
   --project-dir "{项目目录}" \
-  --reviews-json '{"SF-xx-Lxx":{"evidence_quotes":["正文逐字引句"],"conclusion":"本层层型、距离与进出拓扑判断"}}'
+  --reviews-json '{逐层显式布尔、拓扑、保留规则与六维专属引句 JSON}'
 
 # 每个来源 P 拍都必须单独确认承重功能，禁止批量套同一结论
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-plots \
   --project-dir "{项目目录}" \
-  --reviews-json '{"P-001":{"evidence_quotes":["正文逐字引句"],"conclusion":"本拍 action、控制权、信息变化和后果怎样完成换芯保真"}}'
+  --reviews-json '{逐 P 拍五个显式布尔及四字段专属引句 JSON}'
+
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-emotions \
+  --project-dir "{项目目录}" \
+  --reviews-json '{逐 E 拍五字段、整拍同节点及专属引句 JSON}'
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
   --project-dir "{项目目录}"

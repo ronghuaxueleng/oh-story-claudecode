@@ -226,6 +226,51 @@ class TargetProseMapTest(unittest.TestCase):
             )
         return audit
 
+    def audit_details(self, fields: tuple[str, ...], quote: str) -> dict:
+        return {
+            field: {
+                "preserved": True,
+                "evidence_quotes": [quote],
+                "conclusion": f"{field} 已由本字段专属正文证据完整保真。",
+            }
+            for field in fields
+        }
+
+    def layer_review_input(self, item: dict, quote: str) -> dict:
+        return {
+            "realized": True,
+            "topology_preserved": True,
+            "topology_reviews": self.audit_details(
+                MODULE.LAYER_AUDIT_TOPOLOGY_FIELDS, quote
+            ),
+            "preserve_rule_reviews": [
+                {
+                    "rule_index": review["rule_index"],
+                    "preserved": True,
+                    "evidence_quotes": [quote],
+                    "conclusion": "本条来源保留规则已由专属正文证据落实。",
+                }
+                for review in item["preserve_rule_reviews"]
+            ],
+            "dimension_reviews": {
+                field: {
+                    "preserved": True,
+                    "evidence_quotes": [quote],
+                    "conclusion": f"{field} 已按来源状态由正文证据落实。",
+                }
+                for field in item["dimension_reviews"]
+            },
+            "conclusion": "动作、层型、六维和进出关系均已按原顺序落实。",
+        }
+
+    def confirm_layer_reviews(self, audit: dict) -> dict:
+        quotes = {"SF-01-L01": "甲推门。", "SF-01-L02": "乙拒绝。"}
+        for item in audit["layer_reviews"]:
+            MODULE._apply_layer_audit_review(
+                item, self.layer_review_input(item, quotes[item["source_layer_id"]])
+            )
+        return audit
+
     def confirm_plot_reviews(self, audit: dict) -> dict:
         quotes = {"P-001": "甲推门。", "P-002": "乙拒绝。"}
         for review in audit["plot_reviews"]:
@@ -236,11 +281,76 @@ class TargetProseMapTest(unittest.TestCase):
                     "control_change_preserved": True,
                     "information_change_preserved": True,
                     "consequence_preserved": True,
+                    "field_reviews": self.audit_details(
+                        MODULE.PLOT_AUDIT_FIELDS, quotes[review["source_plot_id"]]
+                    ),
                     "evidence_quotes": [quotes[review["source_plot_id"]]],
                     "conclusion": "本拍动作、控制权、信息变化和后果均已换芯保真。",
                 }
             )
         return audit
+
+    def confirm_emotion_reviews(self, audit: dict) -> dict:
+        for review in audit["emotion_reviews"]:
+            quote = "乙拒绝。"
+            review.update(
+                {
+                    "content_preserved": True,
+                    "trigger_preserved": True,
+                    "relationship_position_change_preserved": True,
+                    "reader_effect_preserved": True,
+                    "intensity_preserved": True,
+                    "whole_beat_in_one_node": True,
+                    "field_reviews": self.audit_details(
+                        MODULE.EMOTION_AUDIT_FIELDS, quote
+                    ),
+                    "evidence_quotes": [quote],
+                    "conclusion": "本 E 拍五字段在同一目标节点完整保真。",
+                }
+            )
+        return audit
+
+    def confirm_prewrite_fidelity(self, payload: dict) -> dict:
+        for review in payload["emotion_fidelity_reviews"]:
+            review["whole_beat_in_one_node"] = True
+            review["field_reviews"] = {
+                field: {
+                    "preserved": True,
+                    "target_realization": f"{field} 已由当前目标节点完整承接。",
+                }
+                for field in MODULE.EMOTION_FIDELITY_FIELDS
+            }
+            review["human_confirmed"] = True
+        for review in payload["layer_fidelity_reviews"]:
+            review["no_function_shift"] = True
+            review["topology_reviews"] = {
+                field: {
+                    "preserved": True,
+                    "target_realization": f"{field} 已按来源层顺序完整承接。",
+                }
+                for field in MODULE.LAYER_TOPOLOGY_FIELDS
+            }
+            for item in review["preserve_rule_reviews"]:
+                item.update(
+                    {
+                        "preserved": True,
+                        "target_node_ids": list(review["target_node_ids"]),
+                        "target_realization": "来源保留规则已在绑定节点具体落实。",
+                    }
+                )
+            for field, item in review["dimension_reviews"].items():
+                item.update(
+                    {
+                        "preserved": True,
+                        "target_node_ids": list(review["target_node_ids"]),
+                        "target_realization": f"{field} 已按来源状态协同落实。",
+                    }
+                )
+            review["human_confirmed"] = True
+        confirmation = payload["manual_confirmation"]
+        confirmation["emotion_fidelity_confirmed"] = True
+        confirmation["layer_fidelity_confirmed"] = True
+        return payload
 
     def create_target(self) -> dict:
         target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
@@ -263,9 +373,12 @@ class TargetProseMapTest(unittest.TestCase):
                     "human_confirmed": True,
                 }
             )
+        self.confirm_prewrite_fidelity(payload)
         payload["manual_confirmation"] = {
             "mapping_complete": True,
             "event_shell_replacements_confirmed": True,
+            "emotion_fidelity_confirmed": True,
+            "layer_fidelity_confirmed": True,
             "note": "已逐项确认本书目标节点与换壳边界。",
         }
         payload["gate_status"] = "passed"
@@ -286,6 +399,82 @@ class TargetProseMapTest(unittest.TestCase):
         )
         self.assertNotIn("target_id", payload["event_shell_replacements"][0])
         self.assertNotIn("target_node_ids", payload["mappings"]["subflows"][0])
+
+    def test_target_map_blocks_unconfirmed_emotion_or_layer_fidelity(self) -> None:
+        payload = self.create_target()
+        payload["emotion_fidelity_reviews"][0]["field_reviews"]["trigger"] = {
+            "preserved": None,
+            "target_realization": "",
+        }
+        payload["layer_fidelity_reviews"][0]["no_function_shift"] = None
+        payload["content_sha256"] = MODULE.content_hash(payload)
+
+        errors = MODULE.validate_target_map(payload)
+
+        self.assertTrue(any("E-001.field_reviews.trigger" in item for item in errors), errors)
+        self.assertTrue(any("SF-01-L01" in item and "功能顺移" in item for item in errors), errors)
+
+    def test_confirm_fidelity_requires_explicit_per_field_reviews(self) -> None:
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+        emotion_review = {
+            "E-001": {
+                "whole_beat_in_one_node": True,
+                "field_reviews": {
+                    field: {
+                        "preserved": True,
+                        "target_realization": f"{field} 在乙拒绝节点完整落地。",
+                    }
+                    for field in MODULE.EMOTION_FIDELITY_FIELDS
+                },
+            }
+        }
+        layer_item = payload["layer_fidelity_reviews"][0]
+        layer_review = {
+            "SF-01-L01": {
+                "no_function_shift": True,
+                "topology_reviews": {
+                    field: {
+                        "preserved": True,
+                        "target_realization": f"{field} 在甲推门节点完整落地。",
+                    }
+                    for field in MODULE.LAYER_TOPOLOGY_FIELDS
+                },
+                "preserve_rule_reviews": [
+                    {
+                        "rule_index": 1,
+                        "preserved": True,
+                        "target_node_ids": ["T-1"],
+                        "target_realization": "甲推门动作独立位于第一目标节点。",
+                    }
+                ],
+                "dimension_reviews": {
+                    field: {
+                        "preserved": True,
+                        "target_node_ids": ["T-1"],
+                        "target_realization": f"{field} 在甲推门现场按来源状态落实。",
+                    }
+                    for field in layer_item["dimension_reviews"]
+                },
+            }
+        }
+
+        confirmed, errors = MODULE.command_confirm_fidelity(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(self.target_path),
+                emotion_reviews_json=json.dumps(emotion_review, ensure_ascii=False),
+                layer_reviews_json=json.dumps(layer_review, ensure_ascii=False),
+            )
+        )
+
+        self.assertEqual([], errors)
+        self.assertTrue(confirmed["emotion_fidelity_reviews"][0]["human_confirmed"])
+        self.assertTrue(confirmed["layer_fidelity_reviews"][0]["human_confirmed"])
+        self.assertFalse(confirmed["layer_fidelity_reviews"][1]["human_confirmed"])
 
     def test_outline_parser_is_owned_by_brain_map_script(self) -> None:
         outline = self.project / "小节大纲.md"
@@ -561,17 +750,10 @@ class TargetProseMapTest(unittest.TestCase):
         draft = self.project / "正文.md"
         draft.write_text("# 测试项目\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
         audit = MODULE.create_audit(self.project, self.target_path, target)
-        for index, review in enumerate(audit["layer_reviews"]):
-            review.update(
-                {
-                    "realized": True,
-                    "topology_preserved": True,
-                    "evidence_quotes": ["甲推门。" if index == 0 else "乙拒绝。"],
-                    "conclusion": "动作、层型和进出关系均已在本段按原顺序落实。",
-                }
-            )
+        self.confirm_layer_reviews(audit)
         self.confirm_node_reviews(audit)
         self.confirm_plot_reviews(audit)
+        self.confirm_emotion_reviews(audit)
         audit["gate_status"] = "passed"
         audit["content_sha256"] = MODULE.content_hash(audit)
 
@@ -579,22 +761,16 @@ class TargetProseMapTest(unittest.TestCase):
         serialized = json.dumps(audit, ensure_ascii=False)
         self.assertNotIn("dimension_realization", serialized)
         self.assertNotIn("required_sequence", serialized)
-        self.assertLess(len(serialized.encode("utf-8")), 8_000)
+        self.assertLess(len(serialized.encode("utf-8")), 20_000)
 
     def test_audit_blocks_when_any_target_node_lacks_granularity_review(self) -> None:
         target = self.create_target()
         draft = self.project / "正文.md"
         draft.write_text("# 测试项目\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
         audit = MODULE.create_audit(self.project, self.target_path, target)
-        for index, review in enumerate(audit["layer_reviews"]):
-            review.update(
-                {
-                    "realized": True,
-                    "topology_preserved": True,
-                    "evidence_quotes": ["甲推门。" if index == 0 else "乙拒绝。"],
-                    "conclusion": "动作、层型和进出关系均已在本段按原顺序落实。",
-                }
-            )
+        self.confirm_layer_reviews(audit)
+        self.confirm_plot_reviews(audit)
+        self.confirm_emotion_reviews(audit)
         self.confirm_node_reviews(audit)
         audit["node_reviews"][1].update(
             {"realized": None, "granularity_preserved": None, "evidence_quotes": []}
@@ -621,14 +797,11 @@ class TargetProseMapTest(unittest.TestCase):
         audit_path = self.assets / "正文覆盖回执.json"
         MODULE.write_json(audit_path, audit)
         reviews = {
-            "SF-01-L01": {
-                "evidence_quotes": ["甲推门。"],
-                "conclusion": "现场进入动作及叙述距离均按第一层顺序落实。",
-            },
-            "SF-01-L02": {
-                "evidence_quotes": ["乙拒绝。"],
-                "conclusion": "拒绝动作及冷收关系均按第二层顺序落实。",
-            },
+            item["source_layer_id"]: self.layer_review_input(
+                item,
+                "甲推门。" if item["source_layer_id"] == "SF-01-L01" else "乙拒绝。",
+            )
+            for item in audit["layer_reviews"]
         }
         node_reviews = {
             "T-1": {
@@ -655,6 +828,7 @@ class TargetProseMapTest(unittest.TestCase):
             all(item["realized"] is True for item in confirmed["layer_reviews"])
         )
         self.confirm_plot_reviews(confirmed)
+        self.confirm_emotion_reviews(confirmed)
         confirmed["content_sha256"] = MODULE.content_hash(confirmed)
         self.assertEqual([], MODULE.validate_audit(confirmed, self.project, require_gate=False))
 
@@ -693,18 +867,16 @@ class TargetProseMapTest(unittest.TestCase):
         audit = MODULE.create_audit(self.project, self.target_path, target)
         audit_path = self.assets / "正文覆盖回执.json"
         MODULE.write_json(audit_path, audit)
+        layer_input = self.layer_review_input(
+            audit["layer_reviews"][0], "甲推门。"
+        )
 
         confirmed, errors = MODULE.command_audit_confirm_layers(
             SimpleNamespace(
                 project_dir=str(self.project),
                 input=str(audit_path),
                 reviews_json=json.dumps(
-                    {
-                        "SF-01-L01": {
-                            "evidence_quotes": ["甲推门。"],
-                            "conclusion": "进入层的现场距离与动作顺序已经落实。",
-                        }
-                    },
+                    {"SF-01-L01": layer_input},
                     ensure_ascii=False,
                 ),
             )
@@ -721,18 +893,24 @@ class TargetProseMapTest(unittest.TestCase):
         audit = MODULE.create_audit(self.project, self.target_path, target)
         audit_path = self.assets / "正文覆盖回执.json"
         MODULE.write_json(audit_path, audit)
+        plot_input = {
+            "function_preserved": True,
+            "action_preserved": True,
+            "control_change_preserved": True,
+            "information_change_preserved": True,
+            "consequence_preserved": True,
+            "field_reviews": self.audit_details(
+                MODULE.PLOT_AUDIT_FIELDS, "甲推门。"
+            ),
+            "conclusion": "推门动作、入口控制、看见信息和冲突后果均保真。",
+        }
 
         confirmed, errors = MODULE.command_audit_confirm_plots(
             SimpleNamespace(
                 project_dir=str(self.project),
                 input=str(audit_path),
                 reviews_json=json.dumps(
-                    {
-                        "P-001": {
-                            "evidence_quotes": ["甲推门。"],
-                            "conclusion": "推门动作、入口控制、看见信息和冲突后果均保真。",
-                        }
-                    },
+                    {"P-001": plot_input},
                     ensure_ascii=False,
                 ),
             )
@@ -741,6 +919,65 @@ class TargetProseMapTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertTrue(confirmed["plot_reviews"][0]["function_preserved"])
         self.assertIsNone(confirmed["plot_reviews"][1]["function_preserved"])
+
+    def test_audit_commands_do_not_auto_confirm_from_one_quote(self) -> None:
+        target = self.create_target()
+        draft = self.project / "正文.md"
+        draft.write_text("# 测试项目\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
+        audit = MODULE.create_audit(self.project, self.target_path, target)
+        audit_path = self.assets / "正文覆盖回执.json"
+        MODULE.write_json(audit_path, audit)
+        thin_review = {
+            "evidence_quotes": ["甲推门。"],
+            "conclusion": "一句宽泛引句不能自动确认所有语义维度。",
+        }
+
+        with self.assertRaisesRegex(ValueError, "五个 P 拍保真布尔"):
+            MODULE.command_audit_confirm_plots(
+                SimpleNamespace(
+                    project_dir=str(self.project),
+                    input=str(audit_path),
+                    reviews_json=json.dumps({"P-001": thin_review}, ensure_ascii=False),
+                )
+            )
+        with self.assertRaisesRegex(ValueError, "realized=true"):
+            MODULE.command_audit_confirm_layers(
+                SimpleNamespace(
+                    project_dir=str(self.project),
+                    input=str(audit_path),
+                    reviews_json=json.dumps(
+                        {"SF-01-L01": thin_review}, ensure_ascii=False
+                    ),
+                )
+            )
+
+    def test_audit_confirm_emotions_requires_five_fields_in_one_node(self) -> None:
+        target = self.create_target()
+        draft = self.project / "正文.md"
+        draft.write_text("# 测试项目\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
+        audit = MODULE.create_audit(self.project, self.target_path, target)
+        audit_path = self.assets / "正文覆盖回执.json"
+        MODULE.write_json(audit_path, audit)
+        review = {
+            **{f"{field}_preserved": True for field in MODULE.EMOTION_AUDIT_FIELDS},
+            "whole_beat_in_one_node": True,
+            "field_reviews": self.audit_details(
+                MODULE.EMOTION_AUDIT_FIELDS, "乙拒绝。"
+            ),
+            "conclusion": "拒绝情绪的五项语义在同一节点完整保真。",
+        }
+
+        confirmed, errors = MODULE.command_audit_confirm_emotions(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(audit_path),
+                reviews_json=json.dumps({"E-001": review}, ensure_ascii=False),
+            )
+        )
+
+        self.assertEqual([], errors)
+        self.assertTrue(confirmed["emotion_reviews"][0]["whole_beat_in_one_node"])
+        self.assertTrue(confirmed["emotion_reviews"][0]["trigger_preserved"])
 
     def test_audit_refresh_preserves_unresolved_exceptions(self) -> None:
         target = self.create_target()

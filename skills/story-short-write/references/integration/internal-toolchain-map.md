@@ -6,7 +6,7 @@
 - `init_project_writing_assets.py`：只初始化项目配置。
 - `generate_story_profile.py`：维护来源 profile；单书写作主链不直接调用。
 - `apply_project_profile_policy.py`：从主体 profile 初始化项目 profile，并写入项目来源边界。
-- `manage_target_prose_map.py`：初始化、校验和增量重绑唯一目标脑图，并初始化、刷新和封存紧凑正文覆盖回执。
+- `manage_target_prose_map.py`：初始化、校验和增量重绑唯一目标脑图；正文前封存逐 E 五字段与逐层拓扑/规则/六维保真，正文后以显式 P/E/层分字段证据刷新和封存覆盖回执。
 - `validate_streamlined_write_release.py`：检查来源角色、profile 和目标脑图后放行正文。
 - `validate_continuation_gate.py`：验证合法初稿停靠。
 - `validate_zhihu_section_format.py`：按需验证知乎数字分节格式。

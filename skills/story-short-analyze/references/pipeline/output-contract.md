@@ -188,19 +188,22 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 
 - `coverage_segments` 从 L1 连续覆盖到原文末行，`kind` 只能是 `emotion_bearing / non_emotional_support / structural_marker`。
 - `emotion_bearing` 段必须按原序引用该段全部 beat_id；另外两类不得挂拍，并必须说明理由。
+- 每个 `emotion_bearing` 非空正文行必须落入本段 E 拍所绑定情绪候选的 `source_range`；纯换场、省略号或无情绪变化的支撑行单列 `non_emotional_support`，不得只靠 beat_id 数量自证完整。
 - `beats` 是全文实际情绪拍全集，不是 BID 拍合集。每拍包含 `beat_id / segment_id / start_line / end_line / role / content / trigger / relationship_position_change / reader_effect / intensity / narrative_function / bid_ids / source_evidence`。
 - 非 BID 拍固定保留 `bid_ids=[]`。导语、过场、回忆、后果和尾声不得因未归入承重桥而删除。
 - BID 在总账完成后归纳；桥段资产与 `book.profile.json.bridge_rules[*].emotion_sequence` 只能引用总账中的拍，并保持 role、烈度和原文证据一致。
 
 ### 全文情节微拍总账契约
 
-在同一次 L1 到 EOF 逐行通读中，独立落盘 `写作资产/全文情节微拍总账.json`。顶层固定包含 `schema_version / source / beats / completeness_review`。
+在同一次 L1 到 EOF 逐行通读中，独立落盘 `写作资产/全文情节微拍总账.json`。顶层固定包含 `schema_version / source / coverage_segments / source_plot_candidate_audit / beats / completeness_review`。
 
 - `beats` 是全文有效情节微拍全集，不是情绪拍的换名副本。
 - 每拍包含 `P-* beat_id / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。
 - 施事者、动作对象、控制权、知情范围或现实后果每发生一次可辨变化，就登记一拍；不得只抽承重节点。
 - 桥外有效动作保留 `bid_ids=[]`；桥内每拍最多归属一个 BID，防止同一情节拍在多桥重复消费；BID 子序列只能从总账原序引用。
 - `P-*` 与情绪总账 `E-*` 不得共用 ID，不得复制情绪 `content / role / trigger` 充当 `action`，不得人为配平两轨拍数。
+- 数字章节或明确结构标记必须单列 `structural_marker`，不得混进跨全书的 `plot_bearing` 大段；每个 `plot_bearing` 非空正文行必须被该段所列候选的 `source_range` 实际覆盖。
+- `source_plot_candidate_audit` 必须先独立发现再绑定 P；判断句、即时插嘴、微动作和旁观反应即使不独立成 P，也必须留下 `merged_same_atomic_chain / non_plot` 裁决或位于明确说明理由的 `non_plot_support` 段。候选与 P 等量同序一一互抄不能充当反向漏项审计。
 - `completeness_review` 必须确认 `full_text_scanned_l1_to_eof / independent_from_emotion_ledger / no_emotion_beat_substitution / all_effective_plot_beats_preserved`，并留当前模型人工裁决。
 - 口径只允许 `原文明确 / 人工推断 / 未知`
 - 锚点必须真实存在于对应原文行范围
@@ -490,7 +493,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 `profile_source.md` 不是最终规则包，而是“模型先提、脚本后收”的中间层。
 禁止跳过这一层，直接让脚本从全部 Markdown 盲抽。
 
-收口脚本只自动生成 `book.profile.json`、`写作资产/来源成文脑图.json` 并执行校验，不得修改任何 Markdown。来源脑图通过正式 `compile_source_prose_map.py` 编译；需要单独排查 profile 时，才手动调用：
+收口脚本只自动生成 `book.profile.json`、`写作资产/来源成文脑图.json` 并执行校验，不得修改任何 Markdown。来源脑图通过正式 `compile_source_prose_map.py` 编译，当前 schema 固定为 v2；v1 资产没有候选行域与结构分段保证，必须回到新版 finalize 重生，写作阶段不得兼容放行。需要单独排查 profile 时，才手动调用：
 
 ```bash
 python3 "$CODEX_HOME/skills/story-short-write/scripts/generate_story_profile.py" \

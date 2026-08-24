@@ -12,8 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-TARGET_SCHEMA = "story-short-write.target-prose-map.v1"
-AUDIT_SCHEMA = "story-short-write.prose-coverage-audit.v2"
+TARGET_SCHEMA = "story-short-write.target-prose-map.v2"
+AUDIT_SCHEMA = "story-short-write.prose-coverage-audit.v3"
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 H1_RE = re.compile(r"(?m)^#\s+(.+?)\s*$")
 OUTLINE_HEADING_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
@@ -51,6 +51,27 @@ REPLACEMENT_DIMENSIONS = {
     "information_mechanism",
     "consequence",
 }
+EMOTION_FIDELITY_FIELDS = (
+    "content",
+    "trigger",
+    "relationship_position_change",
+    "reader_effect",
+    "intensity",
+)
+LAYER_TOPOLOGY_FIELDS = (
+    "layer_modes",
+    "entry_relation",
+    "exit_relation",
+    "narrative_distance",
+)
+PLOT_AUDIT_FIELDS = (
+    "action",
+    "control_change",
+    "information_change",
+    "consequence",
+)
+EMOTION_AUDIT_FIELDS = EMOTION_FIDELITY_FIELDS
+LAYER_AUDIT_TOPOLOGY_FIELDS = LAYER_TOPOLOGY_FIELDS + ("no_function_shift",)
 
 
 def _load_source_map_validator():
@@ -579,6 +600,90 @@ def explicit_source_ref_mappings(
     }
 
 
+def _target_node_hashes(
+    target_ids: list[str], target_nodes: dict[str, dict[str, Any]]
+) -> list[str]:
+    return [str(target_nodes[target_id]["content_sha256"]) for target_id in target_ids]
+
+
+def _empty_emotion_fidelity(
+    item: dict[str, Any], target_id: str, target_nodes: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "source_id": item["beat_id"],
+        "source_content_sha256": item["content_sha256"],
+        "target_id": target_id,
+        "target_node_content_sha256": target_nodes[target_id]["content_sha256"],
+        "whole_beat_in_one_node": None,
+        "field_reviews": {
+            field: {"preserved": None, "target_realization": ""}
+            for field in EMOTION_FIDELITY_FIELDS
+        },
+        "human_confirmed": False,
+    }
+
+
+def _empty_layer_fidelity(
+    item: dict[str, Any], target_ids: list[str], target_nodes: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    dimension_realization = item.get("dimension_realization") or {}
+    return {
+        "source_id": item["layer_id"],
+        "source_content_sha256": item["content_sha256"],
+        "target_node_ids": list(target_ids),
+        "target_node_content_sha256s": _target_node_hashes(target_ids, target_nodes),
+        "no_function_shift": None,
+        "topology_reviews": {
+            field: {"preserved": None, "target_realization": ""}
+            for field in LAYER_TOPOLOGY_FIELDS
+        },
+        "preserve_rule_reviews": [
+            {
+                "rule_index": index,
+                "preserved": None,
+                "target_node_ids": [],
+                "target_realization": "",
+            }
+            for index, _ in enumerate(item.get("must_preserve_in_target") or [], 1)
+        ],
+        "dimension_reviews": {
+            field: {
+                "source_status": str((dimension_realization.get(field) or {}).get("status") or ""),
+                "preserved": None,
+                "target_node_ids": [],
+                "target_realization": "",
+            }
+            for field in SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS
+        },
+        "human_confirmed": False,
+    }
+
+
+def empty_fidelity_reviews(
+    source: dict[str, Any],
+    mappings: dict[str, list[dict[str, Any]]],
+    nodes: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    node_by_id = {str(item["target_id"]): item for item in nodes}
+    emotion_targets = {
+        str(item["source_id"]): str(item["target_id"])
+        for item in mappings["emotion_beats"]
+    }
+    layer_targets = {
+        str(item["source_id"]): [str(value) for value in item["target_node_ids"]]
+        for item in mappings["layers"]
+    }
+    emotions = [
+        _empty_emotion_fidelity(item, emotion_targets[item["beat_id"]], node_by_id)
+        for item in source.get("emotion_beats") or []
+    ]
+    layers = [
+        _empty_layer_fidelity(item, layer_targets[item["layer_id"]], node_by_id)
+        for item in source.get("layers") or []
+    ]
+    return emotions, layers
+
+
 def create_target_map(
     project_dir: Path,
     source_path: Path,
@@ -589,6 +694,9 @@ def create_target_map(
     config_path = project_dir / "写作资产" / "项目写作配置.json"
     config = read_object(config_path, "项目写作配置")
     mappings = explicit_source_ref_mappings(target_nodes, source)
+    emotion_fidelity, layer_fidelity = empty_fidelity_reviews(
+        source, mappings, target_nodes
+    )
     payload: dict[str, Any] = {
         "schema_version": TARGET_SCHEMA,
         "project": project_dir.name,
@@ -603,9 +711,13 @@ def create_target_map(
         "event_shell_replacements": [
             _empty_replacement(item) for item in source["plot_beats"]
         ],
+        "emotion_fidelity_reviews": emotion_fidelity,
+        "layer_fidelity_reviews": layer_fidelity,
         "manual_confirmation": {
             "mapping_complete": True,
             "event_shell_replacements_confirmed": False,
+            "emotion_fidelity_confirmed": False,
+            "layer_fidelity_confirmed": False,
             "note": "P/E/SF/来源层映射已由细纲 source-map 声明确认并确定性派生。",
         },
         "incremental_state": {"invalidated": []},
@@ -658,6 +770,159 @@ def _validate_mapping_collection(
                 unknown = [value for value in values if value not in target_ids]
                 if unknown:
                     errors.append(f"{source_id}.{field} 引用未知目标节点: {unknown}")
+    return errors
+
+
+def _validate_fidelity_detail(
+    value: Any, label: str, errors: list[str]
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} 必须是对象")
+        return
+    if value.get("preserved") is not True:
+        errors.append(f"{label}.preserved 尚未人工确认 true")
+    if len(str(value.get("target_realization") or "").strip()) < 8:
+        errors.append(f"{label}.target_realization 必须写本节点具体实现")
+
+
+def _validate_fidelity_target_ids(
+    value: Any,
+    allowed: list[str],
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, list) or not value:
+        errors.append(f"{label}.target_node_ids 必须是非空数组")
+        return
+    normalized = [str(item) for item in value]
+    if len(normalized) != len(set(normalized)):
+        errors.append(f"{label}.target_node_ids 不得重复")
+    unknown = [item for item in normalized if item not in allowed]
+    if unknown:
+        errors.append(f"{label}.target_node_ids 越出本层绑定: {unknown}")
+    positions = [allowed.index(item) for item in normalized if item in allowed]
+    if positions != sorted(positions):
+        errors.append(f"{label}.target_node_ids 必须保持本层目标顺序")
+
+
+def validate_prewrite_fidelity(
+    payload: dict[str, Any],
+    source: dict[str, Any],
+    nodes: list[dict[str, Any]],
+    mappings: dict[str, Any],
+) -> list[str]:
+    errors: list[str] = []
+    node_by_id = {str(item["target_id"]): item for item in nodes}
+    emotion_sources = {item["beat_id"]: item for item in source.get("emotion_beats") or []}
+    emotion_targets = {
+        str(item["source_id"]): str(item["target_id"])
+        for item in mappings.get("emotion_beats") or []
+        if isinstance(item, dict)
+    }
+    emotion_reviews = payload.get("emotion_fidelity_reviews")
+    expected_emotions = list(emotion_sources)
+    if not isinstance(emotion_reviews, list) or [
+        item.get("source_id") for item in emotion_reviews if isinstance(item, dict)
+    ] != expected_emotions:
+        errors.append("emotion_fidelity_reviews 必须与来源 E 拍同序全量对应")
+    else:
+        for review in emotion_reviews:
+            source_id = str(review["source_id"])
+            source_item = emotion_sources[source_id]
+            target_id = emotion_targets.get(source_id, "")
+            if review.get("source_content_sha256") != source_item.get("content_sha256"):
+                errors.append(f"{source_id} 写前 E 拍来源哈希已失效")
+            if review.get("target_id") != target_id:
+                errors.append(f"{source_id} 写前 E 拍目标节点与映射不一致")
+            if target_id in node_by_id and review.get("target_node_content_sha256") != node_by_id[target_id].get("content_sha256"):
+                errors.append(f"{source_id} 写前 E 拍目标节点内容已变化")
+            if review.get("whole_beat_in_one_node") is not True:
+                errors.append(f"{source_id} 必须确认整拍未拆散或顺移")
+            field_reviews = review.get("field_reviews")
+            if not isinstance(field_reviews, dict) or set(field_reviews) != set(EMOTION_FIDELITY_FIELDS):
+                errors.append(f"{source_id}.field_reviews 必须逐项覆盖 E 拍五字段")
+            else:
+                for field in EMOTION_FIDELITY_FIELDS:
+                    _validate_fidelity_detail(
+                        field_reviews.get(field), f"{source_id}.field_reviews.{field}", errors
+                    )
+            if review.get("human_confirmed") is not True:
+                errors.append(f"{source_id} 写前 E 拍语义保真尚未人工确认")
+
+    layer_sources = {item["layer_id"]: item for item in source.get("layers") or []}
+    layer_targets = {
+        str(item["source_id"]): [str(value) for value in item["target_node_ids"]]
+        for item in mappings.get("layers") or []
+        if isinstance(item, dict)
+    }
+    layer_reviews = payload.get("layer_fidelity_reviews")
+    expected_layers = list(layer_sources)
+    if not isinstance(layer_reviews, list) or [
+        item.get("source_id") for item in layer_reviews if isinstance(item, dict)
+    ] != expected_layers:
+        errors.append("layer_fidelity_reviews 必须与来源文字层同序全量对应")
+    else:
+        for review in layer_reviews:
+            source_id = str(review["source_id"])
+            source_item = layer_sources[source_id]
+            target_ids = layer_targets.get(source_id, [])
+            if review.get("source_content_sha256") != source_item.get("content_sha256"):
+                errors.append(f"{source_id} 写前文字层来源哈希已失效")
+            if review.get("target_node_ids") != target_ids:
+                errors.append(f"{source_id} 写前文字层目标节点与映射不一致")
+            expected_hashes = [
+                node_by_id[target_id]["content_sha256"]
+                for target_id in target_ids
+                if target_id in node_by_id
+            ]
+            if review.get("target_node_content_sha256s") != expected_hashes:
+                errors.append(f"{source_id} 写前文字层目标节点内容已变化")
+            if review.get("no_function_shift") is not True:
+                errors.append(f"{source_id} 必须确认无跨层功能顺移")
+            topology = review.get("topology_reviews")
+            if not isinstance(topology, dict) or set(topology) != set(LAYER_TOPOLOGY_FIELDS):
+                errors.append(f"{source_id}.topology_reviews 必须逐项覆盖层型与进出关系")
+            else:
+                for field in LAYER_TOPOLOGY_FIELDS:
+                    _validate_fidelity_detail(
+                        topology.get(field), f"{source_id}.topology_reviews.{field}", errors
+                    )
+            rule_reviews = review.get("preserve_rule_reviews")
+            source_rules = source_item.get("must_preserve_in_target") or []
+            if not isinstance(rule_reviews, list) or [
+                item.get("rule_index") for item in rule_reviews if isinstance(item, dict)
+            ] != list(range(1, len(source_rules) + 1)):
+                errors.append(f"{source_id}.preserve_rule_reviews 必须逐条覆盖来源保留规则")
+            else:
+                for item in rule_reviews:
+                    label = f"{source_id}.preserve_rule_reviews[{item['rule_index']}]"
+                    if item.get("preserved") is not True:
+                        errors.append(f"{label}.preserved 尚未人工确认 true")
+                    _validate_fidelity_target_ids(item.get("target_node_ids"), target_ids, label, errors)
+                    if len(str(item.get("target_realization") or "").strip()) < 8:
+                        errors.append(f"{label}.target_realization 必须写具体承载")
+            dimension_reviews = review.get("dimension_reviews")
+            expected_dimensions = list(SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS)
+            if not isinstance(dimension_reviews, dict) or set(dimension_reviews) != set(expected_dimensions):
+                errors.append(f"{source_id}.dimension_reviews 必须逐项覆盖来源六维")
+            else:
+                source_dimensions = source_item.get("dimension_realization") or {}
+                for field in expected_dimensions:
+                    detail = dimension_reviews.get(field)
+                    label = f"{source_id}.dimension_reviews.{field}"
+                    if not isinstance(detail, dict):
+                        errors.append(f"{label} 必须是对象")
+                        continue
+                    expected_status = str((source_dimensions.get(field) or {}).get("status") or "")
+                    if detail.get("source_status") != expected_status:
+                        errors.append(f"{label}.source_status 与来源层不一致")
+                    if detail.get("preserved") is not True:
+                        errors.append(f"{label}.preserved 尚未人工确认 true")
+                    _validate_fidelity_target_ids(detail.get("target_node_ids"), target_ids, label, errors)
+                    if len(str(detail.get("target_realization") or "").strip()) < 8:
+                        errors.append(f"{label}.target_realization 必须写具体协同或缺席方式")
+            if review.get("human_confirmed") is not True:
+                errors.append(f"{source_id} 写前文字层保真尚未人工确认")
     return errors
 
 
@@ -731,6 +996,7 @@ def validate_target_map(
             ("target_id",),
         )
     )
+    errors.extend(validate_prewrite_fidelity(payload, source, nodes, mappings))
     for label in ("plot_beats", "emotion_beats"):
         items = mappings.get(label)
         if not isinstance(items, list):
@@ -853,6 +1119,10 @@ def validate_target_map(
             errors.append("manual_confirmation.mapping_complete 尚未确认")
         if confirmation.get("event_shell_replacements_confirmed") is not True:
             errors.append("manual_confirmation.event_shell_replacements_confirmed 尚未确认")
+        if confirmation.get("emotion_fidelity_confirmed") is not True:
+            errors.append("manual_confirmation.emotion_fidelity_confirmed 尚未确认")
+        if confirmation.get("layer_fidelity_confirmed") is not True:
+            errors.append("manual_confirmation.layer_fidelity_confirmed 尚未确认")
         if len(str(confirmation.get("note") or "").strip()) < 8:
             errors.append("manual_confirmation.note 必须记录本书专属人工判断")
     if payload.get("incremental_state", {}).get("invalidated"):
@@ -975,6 +1245,52 @@ def rebind_target_map(
         (),
     )
     explicit_mappings = explicit_source_ref_mappings(target_nodes, source)
+    empty_emotion_reviews, empty_layer_reviews = empty_fidelity_reviews(
+        source, explicit_mappings, target_nodes
+    )
+
+    def preserve_fidelity(
+        empty_reviews: list[dict[str, Any]],
+        old_reviews: Any,
+        identity_fields: tuple[str, ...],
+        invalidation_suffix: str,
+    ) -> list[dict[str, Any]]:
+        old_by_id = {
+            str(item.get("source_id") or ""): item
+            for item in old_reviews or []
+            if isinstance(item, dict)
+        }
+        result = []
+        for empty in empty_reviews:
+            source_id = str(empty["source_id"])
+            old = old_by_id.get(source_id)
+            if old and all(old.get(field) == empty.get(field) for field in identity_fields):
+                result.append(old)
+            else:
+                result.append(empty)
+                invalidated.append(f"{source_id}.{invalidation_suffix}")
+        return result
+
+    emotion_fidelity = preserve_fidelity(
+        empty_emotion_reviews,
+        payload.get("emotion_fidelity_reviews"),
+        (
+            "source_content_sha256",
+            "target_id",
+            "target_node_content_sha256",
+        ),
+        "emotion_fidelity",
+    )
+    layer_fidelity = preserve_fidelity(
+        empty_layer_reviews,
+        payload.get("layer_fidelity_reviews"),
+        (
+            "source_content_sha256",
+            "target_node_ids",
+            "target_node_content_sha256s",
+        ),
+        "layer_fidelity",
+    )
     old_plot_targets = {
         str(item.get("source_id") or ""): str(item.get("target_id") or "")
         for item in mappings.get("plot_beats") or []
@@ -1010,6 +1326,7 @@ def rebind_target_map(
             )
             replacement_by_id[source_id].update(_empty_replacement(source_item))
             invalidated.append(f"{source_id}.event_shell_replacement")
+    payload["schema_version"] = TARGET_SCHEMA
     payload["source_map"] = {
         **binding(source_path),
         "content_sha256": source["content_sha256"],
@@ -1018,6 +1335,8 @@ def rebind_target_map(
     payload["target_nodes"] = target_nodes
     payload["mappings"] = explicit_mappings
     payload["event_shell_replacements"] = replacements
+    payload["emotion_fidelity_reviews"] = emotion_fidelity
+    payload["layer_fidelity_reviews"] = layer_fidelity
     plot_source_ids = {
         str(item["beat_id"]) for item in source.get("plot_beats") or []
     }
@@ -1031,12 +1350,59 @@ def rebind_target_map(
         for item in invalidated
         if str(item) in plot_source_ids
     )
-    payload["incremental_state"] = {
-        "invalidated": sorted(event_shell_invalidations)
+    fidelity_invalidations = {
+        str(item)
+        for item in invalidated
+        if str(item).endswith(".emotion_fidelity")
+        or str(item).endswith(".layer_fidelity")
     }
+    payload["incremental_state"] = {
+        "invalidated": sorted(event_shell_invalidations | fidelity_invalidations)
+    }
+    confirmation = payload.setdefault("manual_confirmation", {})
+    confirmation["mapping_complete"] = True
+    confirmation["emotion_fidelity_confirmed"] = all(
+        item.get("human_confirmed") is True for item in emotion_fidelity
+    )
+    confirmation["layer_fidelity_confirmed"] = all(
+        item.get("human_confirmed") is True for item in layer_fidelity
+    )
     payload["gate_status"] = "pending"
     payload["content_sha256"] = content_hash(payload)
     return payload
+
+
+def _validate_audit_detail(
+    value: Any, label: str, allowed_text: str, errors: list[str]
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} 必须是对象")
+        return
+    if value.get("preserved") is not True:
+        errors.append(f"{label}.preserved 尚未显式确认 true")
+    quotes = value.get("evidence_quotes")
+    if not isinstance(quotes, list) or not quotes:
+        errors.append(f"{label} 缺少专属正文引句")
+    else:
+        for quote in quotes:
+            if not isinstance(quote, str) or not quote.strip() or quote not in allowed_text:
+                errors.append(f"{label} 引句不在绑定正文区域内: {quote!r}")
+    if len(str(value.get("conclusion") or "").strip()) < 8:
+        errors.append(f"{label}.conclusion 必须写本字段专属判断")
+
+
+def _validate_audit_field_reviews(
+    value: Any,
+    fields: tuple[str, ...],
+    label: str,
+    allowed_text: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, dict) or set(value) != set(fields):
+        errors.append(f"{label} 必须按固定字段逐项提交")
+        return
+    for field in fields:
+        _validate_audit_detail(value.get(field), f"{label}.{field}", allowed_text, errors)
 
 
 def split_draft_regions(text: str) -> dict[str, str]:
@@ -1062,6 +1428,31 @@ def audit_draft_regions(text: str) -> dict[str, str]:
         last_region = max(numeric)[1]
         regions["epilogue"] = regions[last_region]
     return regions
+
+
+def _empty_audit_field_reviews(fields: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    return {
+        field: {"preserved": None, "evidence_quotes": [], "conclusion": ""}
+        for field in fields
+    }
+
+
+def _all_detail_quotes(details: Any) -> list[str]:
+    result: list[str] = []
+    values = (
+        details.values()
+        if isinstance(details, dict)
+        else details
+        if isinstance(details, list)
+        else []
+    )
+    for detail in values:
+        if not isinstance(detail, dict):
+            continue
+        for quote in detail.get("evidence_quotes") or []:
+            if isinstance(quote, str) and quote not in result:
+                result.append(quote)
+    return result
 
 
 def create_audit(
@@ -1096,6 +1487,11 @@ def create_audit(
         for item in (existing or {}).get("plot_reviews") or []
         if isinstance(item, dict)
     }
+    old_emotion_reviews = {
+        item.get("source_emotion_id"): item
+        for item in (existing or {}).get("emotion_reviews") or []
+        if isinstance(item, dict)
+    }
     layer_mapping = {
         item["source_id"]: item for item in target["mappings"]["layers"]
     }
@@ -1111,6 +1507,30 @@ def create_audit(
             "target_regions": target_regions,
             "realized": None,
             "topology_preserved": None,
+            "topology_reviews": _empty_audit_field_reviews(
+                LAYER_AUDIT_TOPOLOGY_FIELDS
+            ),
+            "preserve_rule_reviews": [
+                {
+                    "rule_index": index,
+                    "preserved": None,
+                    "evidence_quotes": [],
+                    "conclusion": "",
+                }
+                for index, _ in enumerate(layer.get("must_preserve_in_target") or [], 1)
+            ],
+            "dimension_reviews": {
+                field: {
+                    "source_status": str(
+                        ((layer.get("dimension_realization") or {}).get(field) or {}).get("status")
+                        or ""
+                    ),
+                    "preserved": None,
+                    "evidence_quotes": [],
+                    "conclusion": "",
+                }
+                for field in SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS
+            },
             "evidence_quotes": [],
             "conclusion": "",
         }
@@ -1128,7 +1548,15 @@ def create_audit(
                 for quote in old_quotes
             )
         ):
-            for field in ("realized", "topology_preserved", "evidence_quotes", "conclusion"):
+            for field in (
+                "realized",
+                "topology_preserved",
+                "topology_reviews",
+                "preserve_rule_reviews",
+                "dimension_reviews",
+                "evidence_quotes",
+                "conclusion",
+            ):
                 base[field] = old.get(field)
         reviews.append(base)
     node_reviews: list[dict[str, Any]] = []
@@ -1184,6 +1612,7 @@ def create_audit(
             "control_change_preserved": None,
             "information_change_preserved": None,
             "consequence_preserved": None,
+            "field_reviews": _empty_audit_field_reviews(PLOT_AUDIT_FIELDS),
             "evidence_quotes": [],
             "conclusion": "",
         }
@@ -1208,11 +1637,63 @@ def create_audit(
                 "control_change_preserved",
                 "information_change_preserved",
                 "consequence_preserved",
+                "field_reviews",
                 "evidence_quotes",
                 "conclusion",
             ):
                 base[field] = old.get(field)
         plot_reviews.append(base)
+    emotion_mapping = {
+        item["source_id"]: item for item in target["mappings"]["emotion_beats"]
+    }
+    emotion_reviews: list[dict[str, Any]] = []
+    for beat in source["emotion_beats"]:
+        beat_id = beat["beat_id"]
+        target_id = emotion_mapping[beat_id]["target_id"]
+        region_id = node_regions[target_id]
+        base = {
+            "source_emotion_id": beat_id,
+            "source_content_sha256": beat["content_sha256"],
+            "target_node_id": target_id,
+            "target_region": region_id,
+            "content_preserved": None,
+            "trigger_preserved": None,
+            "relationship_position_change_preserved": None,
+            "reader_effect_preserved": None,
+            "intensity_preserved": None,
+            "whole_beat_in_one_node": None,
+            "field_reviews": _empty_audit_field_reviews(EMOTION_AUDIT_FIELDS),
+            "evidence_quotes": [],
+            "conclusion": "",
+        }
+        old = old_emotion_reviews.get(beat_id)
+        old_quotes = old.get("evidence_quotes") if isinstance(old, dict) else None
+        allowed_text = regions.get(region_id, "")
+        if (
+            old
+            and old.get("source_content_sha256") == base["source_content_sha256"]
+            and old.get("target_node_id") == target_id
+            and old.get("target_region") == region_id
+            and isinstance(old_quotes, list)
+            and bool(old_quotes)
+            and all(
+                isinstance(quote, str) and quote and quote in allowed_text
+                for quote in old_quotes
+            )
+        ):
+            for field in (
+                "content_preserved",
+                "trigger_preserved",
+                "relationship_position_change_preserved",
+                "reader_effect_preserved",
+                "intensity_preserved",
+                "whole_beat_in_one_node",
+                "field_reviews",
+                "evidence_quotes",
+                "conclusion",
+            ):
+                base[field] = old.get(field)
+        emotion_reviews.append(base)
     region_coverage = []
     for region_id in regions:
         layer_ids = [
@@ -1236,6 +1717,7 @@ def create_audit(
         "layer_reviews": reviews,
         "node_reviews": node_reviews,
         "plot_reviews": plot_reviews,
+        "emotion_reviews": emotion_reviews,
         "exceptions": list((existing or {}).get("exceptions") or []),
         "gate_status": "pending",
     }
@@ -1280,8 +1762,12 @@ def validate_audit(
     }
     target_nodes = {item["target_id"]: item for item in target["target_nodes"]}
     source_plots = {item["beat_id"]: item for item in source.get("plot_beats") or []}
+    source_emotions = {item["beat_id"]: item for item in source.get("emotion_beats") or []}
     plot_mapping = {
         item["source_id"]: item for item in target["mappings"]["plot_beats"]
+    }
+    emotion_mapping = {
+        item["source_id"]: item for item in target["mappings"]["emotion_beats"]
     }
     reviews = payload.get("layer_reviews")
     if not isinstance(reviews, list) or [
@@ -1308,16 +1794,64 @@ def validate_audit(
                 errors.append(f"{layer_id} 尚未确认 realized=true")
             if item.get("topology_preserved") is not True:
                 errors.append(f"{layer_id} 尚未确认 topology_preserved=true")
+            allowed_text = "\n".join(
+                regions.get(region_id, "") for region_id in item.get("target_regions") or []
+            )
+            _validate_audit_field_reviews(
+                item.get("topology_reviews"),
+                LAYER_AUDIT_TOPOLOGY_FIELDS,
+                f"{layer_id}.topology_reviews",
+                allowed_text,
+                errors,
+            )
+            source_rules = source_layers[layer_id].get("must_preserve_in_target") or []
+            rule_reviews = item.get("preserve_rule_reviews")
+            if not isinstance(rule_reviews, list) or [
+                value.get("rule_index") for value in rule_reviews if isinstance(value, dict)
+            ] != list(range(1, len(source_rules) + 1)):
+                errors.append(f"{layer_id}.preserve_rule_reviews 必须逐条覆盖来源保留规则")
+            else:
+                for value in rule_reviews:
+                    _validate_audit_detail(
+                        value,
+                        f"{layer_id}.preserve_rule_reviews[{value['rule_index']}]",
+                        allowed_text,
+                        errors,
+                    )
+            dimension_reviews = item.get("dimension_reviews")
+            dimension_fields = tuple(SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS)
+            if not isinstance(dimension_reviews, dict) or set(dimension_reviews) != set(dimension_fields):
+                errors.append(f"{layer_id}.dimension_reviews 必须逐项覆盖来源六维")
+            else:
+                source_dimensions = source_layers[layer_id].get("dimension_realization") or {}
+                for field in dimension_fields:
+                    value = dimension_reviews[field]
+                    expected_status = str((source_dimensions.get(field) or {}).get("status") or "")
+                    if not isinstance(value, dict) or value.get("source_status") != expected_status:
+                        errors.append(f"{layer_id}.dimension_reviews.{field}.source_status 与来源不一致")
+                    _validate_audit_detail(
+                        value,
+                        f"{layer_id}.dimension_reviews.{field}",
+                        allowed_text,
+                        errors,
+                    )
             quotes = item.get("evidence_quotes")
             if not isinstance(quotes, list) or not quotes:
                 errors.append(f"{layer_id} 缺少正文逐字引句")
             else:
-                allowed_text = "\n".join(
-                    regions.get(region_id, "") for region_id in item.get("target_regions") or []
-                )
                 for quote in quotes:
                     if not isinstance(quote, str) or not quote.strip() or quote not in allowed_text:
                         errors.append(f"{layer_id} 引句不在绑定的正文区域内: {quote!r}")
+            detail_quotes = _all_detail_quotes(item.get("topology_reviews"))
+            for value in item.get("preserve_rule_reviews") or []:
+                for quote in _all_detail_quotes([value]):
+                    if quote not in detail_quotes:
+                        detail_quotes.append(quote)
+            for quote in _all_detail_quotes(item.get("dimension_reviews")):
+                if quote not in detail_quotes:
+                    detail_quotes.append(quote)
+            if quotes != detail_quotes:
+                errors.append(f"{layer_id}.evidence_quotes 必须由逐项层审证据确定性汇总")
             if len(str(item.get("conclusion") or "").strip()) < 12:
                 errors.append(f"{layer_id} 人工结论不足 12 字")
     node_reviews = payload.get("node_reviews")
@@ -1374,16 +1908,61 @@ def validate_audit(
             ):
                 if item.get(field) is not True:
                     errors.append(f"{beat_id} 尚未确认 {label} 保真")
+            allowed_text = regions.get(expected_region, "")
+            _validate_audit_field_reviews(
+                item.get("field_reviews"),
+                PLOT_AUDIT_FIELDS,
+                f"{beat_id}.field_reviews",
+                allowed_text,
+                errors,
+            )
             quotes = item.get("evidence_quotes")
             if not isinstance(quotes, list) or not quotes:
                 errors.append(f"{beat_id} 缺少正文逐字引句")
             else:
-                allowed_text = regions.get(expected_region, "")
                 for quote in quotes:
                     if not isinstance(quote, str) or not quote.strip() or quote not in allowed_text:
                         errors.append(f"{beat_id} 引句不在绑定正文区域内: {quote!r}")
+            if quotes != _all_detail_quotes(item.get("field_reviews")):
+                errors.append(f"{beat_id}.evidence_quotes 必须由四项 P 拍证据确定性汇总")
             if len(str(item.get("conclusion") or "").strip()) < 12:
                 errors.append(f"{beat_id} P 拍功能结论不足 12 字")
+    emotion_reviews = payload.get("emotion_reviews")
+    expected_emotion_ids = list(source_emotions)
+    if not isinstance(emotion_reviews, list) or [
+        item.get("source_emotion_id") for item in emotion_reviews if isinstance(item, dict)
+    ] != expected_emotion_ids:
+        errors.append("emotion_reviews 必须与来源 E 拍同序全量对应")
+    else:
+        for item in emotion_reviews:
+            beat_id = item["source_emotion_id"]
+            expected_target = emotion_mapping[beat_id]["target_id"]
+            expected_region = node_regions[expected_target]
+            if item.get("source_content_sha256") != source_emotions[beat_id]["content_sha256"]:
+                errors.append(f"{beat_id} 来源 E 拍内容哈希已失效")
+            if item.get("target_node_id") != expected_target:
+                errors.append(f"{beat_id} E 拍目标节点绑定已变化")
+            if item.get("target_region") != expected_region:
+                errors.append(f"{beat_id} E 拍目标区域与目标节点不一致")
+            for field in EMOTION_AUDIT_FIELDS:
+                flag = f"{field}_preserved"
+                if item.get(flag) is not True:
+                    errors.append(f"{beat_id} 尚未确认 {field} 保真")
+            if item.get("whole_beat_in_one_node") is not True:
+                errors.append(f"{beat_id} 尚未确认整拍未拆散或顺移")
+            allowed_text = regions.get(expected_region, "")
+            _validate_audit_field_reviews(
+                item.get("field_reviews"),
+                EMOTION_AUDIT_FIELDS,
+                f"{beat_id}.field_reviews",
+                allowed_text,
+                errors,
+            )
+            quotes = item.get("evidence_quotes")
+            if quotes != _all_detail_quotes(item.get("field_reviews")):
+                errors.append(f"{beat_id}.evidence_quotes 必须由五项 E 拍证据确定性汇总")
+            if len(str(item.get("conclusion") or "").strip()) < 12:
+                errors.append(f"{beat_id} E 拍功能结论不足 12 字")
     if payload.get("exceptions") != []:
         errors.append("正文覆盖回执仍有缺失、倒序或层型错配异常")
     region_coverage = payload.get("region_coverage")
@@ -1539,6 +2118,159 @@ def _parse_json_argument(value: str, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{label} 顶层必须是对象")
     return payload
+
+
+def _confirmed_fidelity_detail(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("preserved") is not True:
+        raise ValueError(f"{label} 必须显式提交 preserved=true")
+    realization = str(value.get("target_realization") or "").strip()
+    if len(realization) < 8:
+        raise ValueError(f"{label}.target_realization 必须写本书具体实现")
+    return {"preserved": True, "target_realization": realization}
+
+
+def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
+    project = Path(args.project_dir).resolve()
+    path = Path(args.input).resolve() if args.input else default_target_path(project)
+    payload = read_object(path, "目标成文脑图")
+    source_path = Path(str((payload.get("source_map") or {}).get("path") or ""))
+    source = read_object(source_path, "来源成文脑图")
+    nodes = payload.get("target_nodes") or []
+    expected_mappings = explicit_source_ref_mappings(nodes, source)
+    if payload.get("mappings") != expected_mappings:
+        raise ValueError("目标脑图映射与细纲 source-map 声明不一致，必须先正式 rebind")
+    emotion_inputs = _parse_json_argument(args.emotion_reviews_json, "emotion-reviews-json")
+    layer_inputs = _parse_json_argument(args.layer_reviews_json, "layer-reviews-json")
+    if not emotion_inputs and not layer_inputs:
+        raise ValueError("confirm-fidelity 至少提交一个 E 拍或文字层复核")
+
+    emotion_by_id = {
+        str(item.get("source_id") or ""): item
+        for item in payload.get("emotion_fidelity_reviews") or []
+        if isinstance(item, dict)
+    }
+    unknown_emotions = [source_id for source_id in emotion_inputs if source_id not in emotion_by_id]
+    if unknown_emotions:
+        raise ValueError(f"emotion-reviews-json 包含未知 E 拍: {unknown_emotions}")
+    for source_id, raw in emotion_inputs.items():
+        if not isinstance(raw, dict) or raw.get("whole_beat_in_one_node") is not True:
+            raise ValueError(f"{source_id} 必须显式确认 whole_beat_in_one_node=true")
+        field_inputs = raw.get("field_reviews")
+        if not isinstance(field_inputs, dict) or set(field_inputs) != set(EMOTION_FIDELITY_FIELDS):
+            raise ValueError(f"{source_id}.field_reviews 必须按固定五字段完整提交")
+        item = emotion_by_id[source_id]
+        item["whole_beat_in_one_node"] = True
+        item["field_reviews"] = {
+            field: _confirmed_fidelity_detail(
+                field_inputs[field], f"{source_id}.field_reviews.{field}"
+            )
+            for field in EMOTION_FIDELITY_FIELDS
+        }
+        item["human_confirmed"] = True
+
+    layer_by_id = {
+        str(item.get("source_id") or ""): item
+        for item in payload.get("layer_fidelity_reviews") or []
+        if isinstance(item, dict)
+    }
+    unknown_layers = [source_id for source_id in layer_inputs if source_id not in layer_by_id]
+    if unknown_layers:
+        raise ValueError(f"layer-reviews-json 包含未知文字层: {unknown_layers}")
+    for source_id, raw in layer_inputs.items():
+        if not isinstance(raw, dict) or raw.get("no_function_shift") is not True:
+            raise ValueError(f"{source_id} 必须显式确认 no_function_shift=true")
+        item = layer_by_id[source_id]
+        allowed_targets = [str(value) for value in item["target_node_ids"]]
+        topology_inputs = raw.get("topology_reviews")
+        if not isinstance(topology_inputs, dict) or set(topology_inputs) != set(LAYER_TOPOLOGY_FIELDS):
+            raise ValueError(f"{source_id}.topology_reviews 必须按固定字段完整提交")
+        rule_inputs = raw.get("preserve_rule_reviews")
+        expected_rule_indexes = [
+            value["rule_index"] for value in item["preserve_rule_reviews"]
+        ]
+        if not isinstance(rule_inputs, list) or [
+            value.get("rule_index") for value in rule_inputs if isinstance(value, dict)
+        ] != expected_rule_indexes:
+            raise ValueError(f"{source_id}.preserve_rule_reviews 必须逐条同序提交")
+        dimension_inputs = raw.get("dimension_reviews")
+        expected_dimensions = list(SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS)
+        if not isinstance(dimension_inputs, dict) or set(dimension_inputs) != set(expected_dimensions):
+            raise ValueError(f"{source_id}.dimension_reviews 必须逐项提交来源六维")
+        item["no_function_shift"] = True
+        item["topology_reviews"] = {
+            field: _confirmed_fidelity_detail(
+                topology_inputs[field], f"{source_id}.topology_reviews.{field}"
+            )
+            for field in LAYER_TOPOLOGY_FIELDS
+        }
+        confirmed_rules = []
+        for raw_rule in rule_inputs:
+            label = f"{source_id}.preserve_rule_reviews[{raw_rule['rule_index']}]"
+            if raw_rule.get("preserved") is not True:
+                raise ValueError(f"{label} 必须显式提交 preserved=true")
+            target_ids = [str(value) for value in raw_rule.get("target_node_ids") or []]
+            check_errors: list[str] = []
+            _validate_fidelity_target_ids(target_ids, allowed_targets, label, check_errors)
+            if check_errors:
+                raise ValueError(" / ".join(check_errors))
+            realization = str(raw_rule.get("target_realization") or "").strip()
+            if len(realization) < 8:
+                raise ValueError(f"{label}.target_realization 必须写具体承载")
+            confirmed_rules.append(
+                {
+                    "rule_index": raw_rule["rule_index"],
+                    "preserved": True,
+                    "target_node_ids": target_ids,
+                    "target_realization": realization,
+                }
+            )
+        item["preserve_rule_reviews"] = confirmed_rules
+        confirmed_dimensions = {}
+        for field in expected_dimensions:
+            raw_dimension = dimension_inputs[field]
+            label = f"{source_id}.dimension_reviews.{field}"
+            if not isinstance(raw_dimension, dict) or raw_dimension.get("preserved") is not True:
+                raise ValueError(f"{label} 必须显式提交 preserved=true")
+            target_ids = [str(value) for value in raw_dimension.get("target_node_ids") or []]
+            check_errors = []
+            _validate_fidelity_target_ids(target_ids, allowed_targets, label, check_errors)
+            if check_errors:
+                raise ValueError(" / ".join(check_errors))
+            realization = str(raw_dimension.get("target_realization") or "").strip()
+            if len(realization) < 8:
+                raise ValueError(f"{label}.target_realization 必须写具体协同或缺席方式")
+            confirmed_dimensions[field] = {
+                "source_status": item["dimension_reviews"][field]["source_status"],
+                "preserved": True,
+                "target_node_ids": target_ids,
+                "target_realization": realization,
+            }
+        item["dimension_reviews"] = confirmed_dimensions
+        item["human_confirmed"] = True
+
+    confirmation = payload.setdefault("manual_confirmation", {})
+    confirmation["mapping_complete"] = True
+    confirmation["emotion_fidelity_confirmed"] = all(
+        item.get("human_confirmed") is True
+        for item in payload.get("emotion_fidelity_reviews") or []
+    )
+    confirmation["layer_fidelity_confirmed"] = all(
+        item.get("human_confirmed") is True
+        for item in payload.get("layer_fidelity_reviews") or []
+    )
+    invalidated = (payload.get("incremental_state") or {}).get("invalidated") or []
+    confirmed_ids = set(emotion_inputs) | set(layer_inputs)
+    payload["incremental_state"] = {
+        "invalidated": [
+            value
+            for value in invalidated
+            if str(value).split(".", 1)[0] not in confirmed_ids
+        ]
+    }
+    payload["gate_status"] = "pending"
+    payload["content_sha256"] = content_hash(payload)
+    write_json(path, payload)
+    return payload, []
 
 
 def _apply_legacy_binding_overrides(
@@ -1743,6 +2475,138 @@ def command_audit_init(args: argparse.Namespace) -> tuple[dict[str, Any], list[s
     return payload, []
 
 
+def _confirmed_audit_detail(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("preserved") is not True:
+        raise ValueError(f"{label} 必须显式提交 preserved=true")
+    quotes = value.get("evidence_quotes")
+    conclusion = str(value.get("conclusion") or "").strip()
+    if not isinstance(quotes, list) or not quotes or any(
+        not isinstance(quote, str) or not quote.strip() for quote in quotes
+    ):
+        raise ValueError(f"{label} 缺少本字段专属正文逐字引句")
+    if len(conclusion) < 8:
+        raise ValueError(f"{label}.conclusion 必须写本字段专属判断")
+    return {
+        "preserved": True,
+        "evidence_quotes": [quote.strip() for quote in quotes],
+        "conclusion": conclusion,
+    }
+
+
+def _confirmed_audit_field_reviews(
+    value: Any, fields: tuple[str, ...], label: str
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(value, dict) or set(value) != set(fields):
+        raise ValueError(f"{label} 必须按固定字段逐项完整提交")
+    return {
+        field: _confirmed_audit_detail(value[field], f"{label}.{field}")
+        for field in fields
+    }
+
+
+def _apply_layer_audit_review(item: dict[str, Any], review: Any) -> None:
+    layer_id = str(item["source_layer_id"])
+    if not isinstance(review, dict):
+        raise ValueError(f"{layer_id} 人工复核必须是对象")
+    if review.get("realized") is not True or review.get("topology_preserved") is not True:
+        raise ValueError(f"{layer_id} 必须显式提交 realized=true 与 topology_preserved=true")
+    topology = _confirmed_audit_field_reviews(
+        review.get("topology_reviews"),
+        LAYER_AUDIT_TOPOLOGY_FIELDS,
+        f"{layer_id}.topology_reviews",
+    )
+    raw_rules = review.get("preserve_rule_reviews")
+    expected_indexes = [value["rule_index"] for value in item["preserve_rule_reviews"]]
+    if not isinstance(raw_rules, list) or [
+        value.get("rule_index") for value in raw_rules if isinstance(value, dict)
+    ] != expected_indexes:
+        raise ValueError(f"{layer_id}.preserve_rule_reviews 必须逐条同序提交")
+    rules = []
+    for raw in raw_rules:
+        confirmed = _confirmed_audit_detail(
+            raw, f"{layer_id}.preserve_rule_reviews[{raw['rule_index']}]"
+        )
+        rules.append({"rule_index": raw["rule_index"], **confirmed})
+    raw_dimensions = review.get("dimension_reviews")
+    expected_dimensions = tuple(SOURCE_MAP_VALIDATOR.DIMENSION_FIELDS)
+    if not isinstance(raw_dimensions, dict) or set(raw_dimensions) != set(expected_dimensions):
+        raise ValueError(f"{layer_id}.dimension_reviews 必须逐项提交来源六维")
+    dimensions = {}
+    for field in expected_dimensions:
+        confirmed = _confirmed_audit_detail(
+            raw_dimensions[field], f"{layer_id}.dimension_reviews.{field}"
+        )
+        dimensions[field] = {
+            "source_status": item["dimension_reviews"][field]["source_status"],
+            **confirmed,
+        }
+    conclusion = str(review.get("conclusion") or "").strip()
+    if len(conclusion) < 12:
+        raise ValueError(f"{layer_id} 人工结论不足 12 字")
+    item["realized"] = True
+    item["topology_preserved"] = True
+    item["topology_reviews"] = topology
+    item["preserve_rule_reviews"] = rules
+    item["dimension_reviews"] = dimensions
+    quotes = _all_detail_quotes(topology)
+    for detail in rules:
+        for quote in detail["evidence_quotes"]:
+            if quote not in quotes:
+                quotes.append(quote)
+    for quote in _all_detail_quotes(dimensions):
+        if quote not in quotes:
+            quotes.append(quote)
+    item["evidence_quotes"] = quotes
+    item["conclusion"] = conclusion
+
+
+def _apply_plot_audit_review(item: dict[str, Any], review: Any) -> None:
+    beat_id = str(item["source_plot_id"])
+    required_flags = (
+        "function_preserved",
+        "action_preserved",
+        "control_change_preserved",
+        "information_change_preserved",
+        "consequence_preserved",
+    )
+    if not isinstance(review, dict) or any(review.get(field) is not True for field in required_flags):
+        raise ValueError(f"{beat_id} 必须显式逐项提交五个 P 拍保真布尔")
+    details = _confirmed_audit_field_reviews(
+        review.get("field_reviews"), PLOT_AUDIT_FIELDS, f"{beat_id}.field_reviews"
+    )
+    conclusion = str(review.get("conclusion") or "").strip()
+    if len(conclusion) < 12:
+        raise ValueError(f"{beat_id} P 拍功能结论不足 12 字")
+    for field in required_flags:
+        item[field] = True
+    item["field_reviews"] = details
+    item["evidence_quotes"] = _all_detail_quotes(details)
+    item["conclusion"] = conclusion
+
+
+def _apply_emotion_audit_review(item: dict[str, Any], review: Any) -> None:
+    beat_id = str(item["source_emotion_id"])
+    required_flags = tuple(f"{field}_preserved" for field in EMOTION_AUDIT_FIELDS)
+    if (
+        not isinstance(review, dict)
+        or any(review.get(field) is not True for field in required_flags)
+        or review.get("whole_beat_in_one_node") is not True
+    ):
+        raise ValueError(f"{beat_id} 必须显式提交 E 拍五字段保真及 whole_beat_in_one_node=true")
+    details = _confirmed_audit_field_reviews(
+        review.get("field_reviews"), EMOTION_AUDIT_FIELDS, f"{beat_id}.field_reviews"
+    )
+    conclusion = str(review.get("conclusion") or "").strip()
+    if len(conclusion) < 12:
+        raise ValueError(f"{beat_id} E 拍功能结论不足 12 字")
+    for field in required_flags:
+        item[field] = True
+    item["whole_beat_in_one_node"] = True
+    item["field_reviews"] = details
+    item["evidence_quotes"] = _all_detail_quotes(details)
+    item["conclusion"] = conclusion
+
+
 def command_audit_confirm(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
@@ -1754,21 +2618,7 @@ def command_audit_confirm(args: argparse.Namespace) -> tuple[dict[str, Any], lis
         raise ValueError("reviews-json 必须与来源层同序全量对应")
     for item in audit_reviews:
         layer_id = str(item["source_layer_id"])
-        review = reviews[layer_id]
-        if not isinstance(review, dict):
-            raise ValueError(f"{layer_id} 人工复核必须是对象")
-        quotes = review.get("evidence_quotes")
-        conclusion = str(review.get("conclusion") or "").strip()
-        if not isinstance(quotes, list) or not quotes or any(
-            not isinstance(quote, str) or not quote.strip() for quote in quotes
-        ):
-            raise ValueError(f"{layer_id} 缺少人工逐字引句")
-        if len(conclusion) < 12:
-            raise ValueError(f"{layer_id} 人工结论不足 12 字")
-        item["realized"] = True
-        item["topology_preserved"] = True
-        item["evidence_quotes"] = [quote.strip() for quote in quotes]
-        item["conclusion"] = conclusion
+        _apply_layer_audit_review(item, reviews[layer_id])
     node_reviews_json = getattr(args, "node_reviews_json", None)
     if node_reviews_json:
         node_reviews = _parse_json_argument(node_reviews_json, "node-reviews-json")
@@ -1854,21 +2704,8 @@ def command_audit_confirm_layers(args: argparse.Namespace) -> tuple[dict[str, An
     if not reviews:
         raise ValueError("reviews-json 至少包含一个来源层")
     for layer_id, review in reviews.items():
-        if not isinstance(review, dict):
-            raise ValueError(f"{layer_id} 人工复核必须是对象")
-        quotes = review.get("evidence_quotes")
-        conclusion = str(review.get("conclusion") or "").strip()
-        if not isinstance(quotes, list) or not quotes or any(
-            not isinstance(quote, str) or not quote.strip() for quote in quotes
-        ):
-            raise ValueError(f"{layer_id} 缺少人工逐字引句")
-        if len(conclusion) < 12:
-            raise ValueError(f"{layer_id} 人工结论不足 12 字")
         item = by_id[layer_id]
-        item["realized"] = True
-        item["topology_preserved"] = True
-        item["evidence_quotes"] = [quote.strip() for quote in quotes]
-        item["conclusion"] = conclusion
+        _apply_layer_audit_review(item, review)
     payload["gate_status"] = "pending"
     payload["content_sha256"] = content_hash(payload)
     write_json(path, payload)
@@ -1892,24 +2729,32 @@ def command_audit_confirm_plots(args: argparse.Namespace) -> tuple[dict[str, Any
     if not reviews:
         raise ValueError("reviews-json 至少包含一个来源 P 拍")
     for beat_id, review in reviews.items():
-        if not isinstance(review, dict):
-            raise ValueError(f"{beat_id} P 拍复核必须是对象")
-        quotes = review.get("evidence_quotes")
-        conclusion = str(review.get("conclusion") or "").strip()
-        if not isinstance(quotes, list) or not quotes or any(
-            not isinstance(quote, str) or not quote.strip() for quote in quotes
-        ):
-            raise ValueError(f"{beat_id} 缺少人工逐字引句")
-        if len(conclusion) < 12:
-            raise ValueError(f"{beat_id} P 拍功能结论不足 12 字")
         item = by_id[beat_id]
-        item["function_preserved"] = True
-        item["action_preserved"] = True
-        item["control_change_preserved"] = True
-        item["information_change_preserved"] = True
-        item["consequence_preserved"] = True
-        item["evidence_quotes"] = [quote.strip() for quote in quotes]
-        item["conclusion"] = conclusion
+        _apply_plot_audit_review(item, review)
+    payload["gate_status"] = "pending"
+    payload["content_sha256"] = content_hash(payload)
+    write_json(path, payload)
+    return payload, []
+
+
+def command_audit_confirm_emotions(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
+    project = Path(args.project_dir).resolve()
+    path = Path(args.input).resolve() if args.input else default_audit_path(project)
+    payload = read_object(path, "正文覆盖回执")
+    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    audit_emotions = payload.get("emotion_reviews") or []
+    by_id = {
+        str(item.get("source_emotion_id") or ""): item
+        for item in audit_emotions
+        if isinstance(item, dict)
+    }
+    unknown = [beat_id for beat_id in reviews if beat_id not in by_id]
+    if unknown:
+        raise ValueError(f"reviews-json 包含未知来源 E 拍: {unknown}")
+    if not reviews:
+        raise ValueError("reviews-json 至少包含一个来源 E 拍")
+    for beat_id, review in reviews.items():
+        _apply_emotion_audit_review(by_id[beat_id], review)
     payload["gate_status"] = "pending"
     payload["content_sha256"] = content_hash(payload)
     write_json(path, payload)
@@ -1959,6 +2804,14 @@ def main() -> int:
     confirm_shells.add_argument("--input")
     confirm_shells.add_argument("--dimensions", required=True)
     confirm_shells.add_argument("--confirmation-note", required=True)
+    confirm_fidelity = subparsers.add_parser(
+        "confirm-fidelity",
+        help="在正文前逐 E 拍和逐文字层确认完整语义与拓扑保真",
+    )
+    confirm_fidelity.add_argument("--project-dir", required=True)
+    confirm_fidelity.add_argument("--input")
+    confirm_fidelity.add_argument("--emotion-reviews-json", default="{}")
+    confirm_fidelity.add_argument("--layer-reviews-json", default="{}")
     migrate_legacy = subparsers.add_parser(
         "migrate-legacy-source-refs",
         help="仅将修复前已启动项目的人工旧绑定迁入细纲 source-map 声明",
@@ -2003,6 +2856,13 @@ def main() -> int:
     audit_confirm_plots.add_argument("--project-dir", required=True)
     audit_confirm_plots.add_argument("--input", help="正文覆盖回执路径")
     audit_confirm_plots.add_argument("--reviews-json", required=True)
+    audit_confirm_emotions = subparsers.add_parser(
+        "audit-confirm-emotions",
+        help="增量应用人工逐 E 拍五字段语义保真结论",
+    )
+    audit_confirm_emotions.add_argument("--project-dir", required=True)
+    audit_confirm_emotions.add_argument("--input", help="正文覆盖回执路径")
+    audit_confirm_emotions.add_argument("--reviews-json", required=True)
     audit_seal = subparsers.add_parser("audit-seal", help="校验并封存紧凑正文覆盖回执")
     audit_seal.add_argument("--project-dir", required=True)
     audit_seal.add_argument("--input", help="正文覆盖回执路径")
@@ -2013,12 +2873,14 @@ def main() -> int:
         "validate": command_validate,
         "rebind": command_rebind,
         "confirm-event-shells": command_confirm_event_shells,
+        "confirm-fidelity": command_confirm_fidelity,
         "migrate-legacy-source-refs": command_migrate_legacy_source_refs,
         "audit-init": command_audit_init,
         "audit-confirm": command_audit_confirm,
         "audit-confirm-nodes": command_audit_confirm_nodes,
         "audit-confirm-layers": command_audit_confirm_layers,
         "audit-confirm-plots": command_audit_confirm_plots,
+        "audit-confirm-emotions": command_audit_confirm_emotions,
         "audit-seal": command_audit_seal,
     }
     try:

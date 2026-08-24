@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "story-short-analyze.source-prose-map.v1"
+SCHEMA_VERSION = "story-short-analyze.source-prose-map.v2"
 RANGE_RE = re.compile(r"^L(\d+)(?:-L?(\d+))?$")
-SECTION_MARKER_RE = re.compile(r"^\s*\d+(?:[.、．])?\s*$")
+SECTION_MARKER_RE = re.compile(
+    r"^\s*(?:\d+(?:[.、．])?|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇])\s*$"
+)
 DIMENSION_FIELDS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -35,6 +37,185 @@ LAYER_MODES = {
     "rumor_afterword",
     "cold_afterword",
 }
+PLOT_SEGMENT_KINDS = {"plot_bearing", "non_plot_support", "structural_marker"}
+EMOTION_SEGMENT_KINDS = {
+    "emotion_bearing",
+    "non_emotional_support",
+    "structural_marker",
+}
+
+
+def validate_plot_candidate_coverage(
+    plot_ledger: dict[str, Any], source_lines: list[str]
+) -> list[str]:
+    errors: list[str] = []
+    segments = plot_ledger.get("coverage_segments")
+    candidates = plot_ledger.get("source_plot_candidate_audit")
+    if not isinstance(segments, list) or not segments:
+        return ["coverage_segments 必须逐行覆盖原文"]
+    if not isinstance(candidates, list) or not candidates:
+        return ["source_plot_candidate_audit 必须包含源文候选反查"]
+    candidate_ranges: dict[str, tuple[int, int]] = {}
+    for index, candidate in enumerate(candidates, 1):
+        if not isinstance(candidate, dict):
+            continue
+        candidate_id = str(candidate.get("candidate_id") or "").strip()
+        source_span = candidate.get("source_range")
+        if not candidate_id or not isinstance(source_span, dict):
+            continue
+        start = source_span.get("start_line")
+        end = source_span.get("end_line")
+        if isinstance(start, int) and isinstance(end, int) and 1 <= start <= end <= len(source_lines):
+            candidate_ranges[candidate_id] = (start, end)
+
+    expected_line = 1
+    listed_candidate_ids: list[str] = []
+    for index, segment in enumerate(segments, 1):
+        label = f"coverage_segments[{index}]"
+        if not isinstance(segment, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        start = segment.get("start_line")
+        end = segment.get("end_line")
+        kind = str(segment.get("kind") or "").strip()
+        raw_ids = segment.get("candidate_ids")
+        if not isinstance(start, int) or not isinstance(end, int) or not (1 <= start <= end <= len(source_lines)):
+            errors.append(f"{label} 行范围非法")
+            continue
+        if start != expected_line:
+            errors.append(f"{label} 行覆盖不连续：应从 L{expected_line} 开始，实际从 L{start} 开始")
+        expected_line = end + 1
+        if kind not in PLOT_SEGMENT_KINDS:
+            errors.append(f"{label} kind 非法: {kind}")
+        candidate_ids = [str(value).strip() for value in raw_ids or [] if str(value).strip()]
+        listed_candidate_ids.extend(candidate_ids)
+        window = source_lines[start - 1 : end]
+        structural_lines = [
+            start + offset
+            for offset, line in enumerate(window)
+            if SECTION_MARKER_RE.fullmatch(line.strip())
+        ]
+        if kind == "structural_marker":
+            non_structural = [
+                start + offset
+                for offset, line in enumerate(window)
+                if line.strip() and not SECTION_MARKER_RE.fullmatch(line.strip())
+            ]
+            if non_structural:
+                errors.append(f"{label} structural_marker 混入正文行: {non_structural}")
+        elif structural_lines:
+            errors.append(
+                f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
+            )
+        ranges = [candidate_ranges[value] for value in candidate_ids if value in candidate_ranges]
+        for candidate_id in candidate_ids:
+            span = candidate_ranges.get(candidate_id)
+            if span and (span[0] < start or span[1] > end):
+                errors.append(f"{label} 引用的 {candidate_id} 行域越出当前 coverage segment")
+        if kind == "plot_bearing":
+            uncovered = [
+                line_number
+                for line_number in range(start, end + 1)
+                if source_lines[line_number - 1].strip()
+                and not SECTION_MARKER_RE.fullmatch(source_lines[line_number - 1].strip())
+                and not any(span[0] <= line_number <= span[1] for span in ranges)
+            ]
+            if uncovered:
+                errors.append(f"{label} 情节承载正文行未进入任何源文候选行域: {uncovered}")
+    if expected_line != len(source_lines) + 1:
+        errors.append(f"coverage_segments 未覆盖到原文末行 L{len(source_lines)}")
+    candidate_ids = [
+        str(item.get("candidate_id") or "").strip()
+        for item in candidates
+        if isinstance(item, dict)
+    ]
+    if listed_candidate_ids != candidate_ids:
+        errors.append("coverage_segments 引用的 candidate_id 必须与源文候选全集同序相等")
+    return errors
+
+
+def validate_emotion_candidate_coverage(
+    emotion_ledger: dict[str, Any], source_lines: list[str]
+) -> list[str]:
+    errors: list[str] = []
+    segments = emotion_ledger.get("coverage_segments")
+    candidates = emotion_ledger.get("source_emotion_candidate_audit")
+    if not isinstance(segments, list) or not segments:
+        return ["coverage_segments 必须逐行覆盖原文"]
+    if not isinstance(candidates, list) or not candidates:
+        return ["source_emotion_candidate_audit 必须包含源文情绪候选反查"]
+    candidate_data = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        source_span = candidate.get("source_range")
+        if not isinstance(source_span, dict):
+            continue
+        start = source_span.get("start_line")
+        end = source_span.get("end_line")
+        if not isinstance(start, int) or not isinstance(end, int) or not (1 <= start <= end <= len(source_lines)):
+            continue
+        candidate_data.append(
+            (
+                [str(value) for value in candidate.get("bound_beat_ids") or []],
+                (start, end),
+            )
+        )
+    expected_line = 1
+    for index, segment in enumerate(segments, 1):
+        label = f"coverage_segments[{index}]"
+        if not isinstance(segment, dict):
+            errors.append(f"{label} 不是对象")
+            continue
+        start = segment.get("start_line")
+        end = segment.get("end_line")
+        kind = str(segment.get("kind") or "").strip()
+        beat_ids = [str(value) for value in segment.get("beat_ids") or []]
+        if not isinstance(start, int) or not isinstance(end, int) or not (1 <= start <= end <= len(source_lines)):
+            errors.append(f"{label} 行范围非法")
+            continue
+        if start != expected_line:
+            errors.append(f"{label} 行覆盖不连续：应从 L{expected_line} 开始，实际从 L{start} 开始")
+        expected_line = end + 1
+        if kind not in EMOTION_SEGMENT_KINDS:
+            errors.append(f"{label} kind 非法: {kind}")
+        window = source_lines[start - 1 : end]
+        structural_lines = [
+            start + offset
+            for offset, line in enumerate(window)
+            if SECTION_MARKER_RE.fullmatch(line.strip())
+        ]
+        if kind == "structural_marker":
+            non_structural = [
+                start + offset
+                for offset, line in enumerate(window)
+                if line.strip() and not SECTION_MARKER_RE.fullmatch(line.strip())
+            ]
+            if non_structural:
+                errors.append(f"{label} structural_marker 混入正文行: {non_structural}")
+        elif structural_lines:
+            errors.append(
+                f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
+            )
+        if kind != "emotion_bearing":
+            continue
+        ranges = [
+            span
+            for bound_ids, span in candidate_data
+            if any(beat_id in beat_ids for beat_id in bound_ids)
+        ]
+        uncovered = [
+            line_number
+            for line_number in range(start, end + 1)
+            if source_lines[line_number - 1].strip()
+            and not SECTION_MARKER_RE.fullmatch(source_lines[line_number - 1].strip())
+            and not any(span[0] <= line_number <= span[1] for span in ranges)
+        ]
+        if uncovered:
+            errors.append(f"{label} 情绪承载正文行未进入任何源文情绪候选行域: {uncovered}")
+    if expected_line != len(source_lines) + 1:
+        errors.append(f"coverage_segments 未覆盖到原文末行 L{len(source_lines)}")
+    return errors
 
 
 def sha256_bytes(value: bytes) -> str:
@@ -189,6 +370,15 @@ def compile_source_map(root: Path) -> dict[str, Any]:
     layer_rows = read_jsonl(layer_path, "子流程层次索引")
     profile = read_object(profile_path, "book.profile.json")
     lines = original.read_text(encoding="utf-8").splitlines()
+
+    coverage_errors = validate_plot_candidate_coverage(plot, lines)
+    if coverage_errors:
+        raise ValueError("全文情节候选覆盖未通过: " + " / ".join(coverage_errors))
+    emotion_coverage_errors = validate_emotion_candidate_coverage(emotion, lines)
+    if emotion_coverage_errors:
+        raise ValueError(
+            "全文情绪候选覆盖未通过: " + " / ".join(emotion_coverage_errors)
+        )
 
     plot_beats = [_beat_copy(item, "plot", lines) for item in plot.get("beats", [])]
     emotion_beats = [_beat_copy(item, "emotion", lines) for item in emotion.get("beats", [])]

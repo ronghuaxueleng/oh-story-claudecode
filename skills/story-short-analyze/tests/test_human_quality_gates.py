@@ -121,6 +121,30 @@ class HumanQualityGateTest(unittest.TestCase):
                             "beat_ids": ["E-02"],
                         },
                     ],
+                    "source_emotion_candidate_audit": [
+                        {
+                            "candidate_id": "EC-001",
+                            "change_axis": "关系位置与读者预期",
+                            "before_state": "主角仍被默认处在旧关系中。",
+                            "after_state": "主角被确认已经遭到关系伤害。",
+                            "source_range": {"start_line": 1, "end_line": 1},
+                            "source_evidence": "导语里的刺痛。",
+                            "decision": "independent_beat",
+                            "bound_beat_ids": ["E-01"],
+                            "manual_judgment": "这句改变关系位置与读者预期，需要独立登记为情绪拍。",
+                        },
+                        {
+                            "candidate_id": "EC-002",
+                            "change_axis": "行动冲动与尾声余痛",
+                            "before_state": "旧关系仍可能要求主角回头。",
+                            "after_state": "主角完成离场且不再回头。",
+                            "source_range": {"start_line": 3, "end_line": 3},
+                            "source_evidence": "尾声仍然没有回头。",
+                            "decision": "independent_beat",
+                            "bound_beat_ids": ["E-02"],
+                            "manual_judgment": "这句改变行动冲动并形成尾声余痛，需要独立登记。",
+                        },
+                    ],
                     "beats": [
                         {
                             "beat_id": "E-01",
@@ -161,6 +185,9 @@ class HumanQualityGateTest(unittest.TestCase):
                         "bid_derived_after_full_inventory": True,
                         "reviewed_by_current_model": True,
                         "automation_used_for_semantic_judgment": False,
+                        "forward_expectation_scan_completed": True,
+                        "reverse_afterpain_scan_completed": True,
+                        "all_source_emotion_candidates_adjudicated": True,
                         "split_basis": "逐行读取后，按期待、关系位置、行动冲动和读者预期的每次变化分别切拍。",
                     },
                 },
@@ -258,6 +285,55 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertEqual([], errors)
 
+    def test_full_plot_ledger_rejects_all_book_plot_bucket_with_structural_marker(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        source_lines[1] = "1"
+        original = self.root / "原文" / "测试.txt"
+        original.write_text("\n".join(source_lines), encoding="utf-8")
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source"].update(
+            {
+                "sha1": hashlib.sha1(original.read_bytes()).hexdigest(),
+                "sha256": hashlib.sha256(original.read_bytes()).hexdigest(),
+            }
+        )
+        data["coverage_segments"] = [
+            {
+                "segment_id": "PSEG-ALL",
+                "start_line": 1,
+                "end_line": 3,
+                "kind": "plot_bearing",
+                "candidate_ids": ["PC-001", "PC-002"],
+            }
+        ]
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+
+        self.assertTrue(any("必须单列 structural_marker" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_plot_line_outside_candidate_ranges(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["coverage_segments"][1] = {
+            "segment_id": "PSEG-02",
+            "start_line": 2,
+            "end_line": 2,
+            "kind": "plot_bearing",
+            "candidate_ids": [],
+        }
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+
+        self.assertTrue(any("未进入任何源文候选行域" in error for error in errors), errors)
+
     def test_full_plot_ledger_rejects_emotion_id_reuse(self) -> None:
         source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
         data = json.loads(ledger.read_text(encoding="utf-8"))
@@ -310,6 +386,24 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
         self.assertTrue(any("行覆盖不连续" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_emotion_line_outside_candidate_ranges(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["coverage_segments"][1] = {
+            "segment_id": "SEG-02",
+            "start_line": 2,
+            "end_line": 2,
+            "kind": "emotion_bearing",
+            "beat_ids": ["E-01"],
+            "reason": "本行被声明为情绪承载行，必须有候选行域实际承接。",
+        }
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+
+        self.assertTrue(any("未进入任何源文情绪候选行域" in error for error in errors), errors)
 
     def test_full_emotion_ledger_rejects_dropped_non_bid_beat(self) -> None:
         source_lines, ledger = self._write_full_emotion_ledger()

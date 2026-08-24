@@ -29,6 +29,35 @@ class SourceProseMapTest(unittest.TestCase):
         write_json(
             assets / "全文情节微拍总账.json",
             {
+                "coverage_segments": [
+                    {
+                        "segment_id": "PSEG-001",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "kind": "plot_bearing",
+                        "candidate_ids": ["PC-001"],
+                    },
+                    {
+                        "segment_id": "PSEG-002",
+                        "start_line": 3,
+                        "end_line": 3,
+                        "kind": "non_plot_support",
+                        "candidate_ids": [],
+                        "reason": "本行只负责已有冲突的收束措辞，不新增动作或控制变化。",
+                    },
+                ],
+                "source_plot_candidate_audit": [
+                    {
+                        "candidate_id": "PC-001",
+                        "candidate_type": "独立进场动作",
+                        "actor": "甲",
+                        "source_range": {"start_line": 1, "end_line": 2},
+                        "source_evidence": "开场。",
+                        "decision": "independent_beat",
+                        "bound_beat_ids": ["P-001"],
+                        "manual_judgment": "推门和被看见共同完成一次不可拆的进场动作。",
+                    }
+                ],
                 "beats": [
                     {
                         "beat_id": "P-001",
@@ -49,6 +78,29 @@ class SourceProseMapTest(unittest.TestCase):
         write_json(
             assets / "全文情绪颗粒总账.json",
             {
+                "coverage_segments": [
+                    {
+                        "segment_id": "SEG-001",
+                        "start_line": 1,
+                        "end_line": 3,
+                        "kind": "emotion_bearing",
+                        "beat_ids": ["E-001"],
+                        "reason": "三行共同完成压迫关系建立与冲突落锤。",
+                    }
+                ],
+                "source_emotion_candidate_audit": [
+                    {
+                        "candidate_id": "EC-001",
+                        "change_axis": "关系位置变化",
+                        "before_state": "乙尚未面对甲的进入压力。",
+                        "after_state": "甲进场并迫使乙进入冲突。",
+                        "source_range": {"start_line": 1, "end_line": 3},
+                        "source_evidence": "动作。",
+                        "decision": "independent_beat",
+                        "bound_beat_ids": ["E-001"],
+                        "manual_judgment": "三行共同改变关系位置和读者冲突预期。",
+                    }
+                ],
                 "beats": [
                     {
                         "beat_id": "E-001",
@@ -136,6 +188,40 @@ class SourceProseMapTest(unittest.TestCase):
             ],
         )
         self.assertEqual([], validation_errors)
+
+    def test_legacy_v1_source_map_is_blocked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "样书"
+            self.build_fixture(root)
+            payload = MODULE.compile_source_map(root)
+            payload["schema_version"] = "story-short-analyze.source-prose-map.v1"
+            payload["content_sha256"] = MODULE.canonical_sha256(
+                {key: value for key, value in payload.items() if key != "content_sha256"}
+            )
+
+            errors = MODULE.validate_source_map(payload)
+
+        self.assertTrue(any("schema_version" in item for item in errors), errors)
+
+    def test_compiler_blocks_candidate_coverage_before_writing_v2_map(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "样书"
+            self.build_fixture(root)
+            path = root / "写作资产" / "全文情节微拍总账.json"
+            ledger = json.loads(path.read_text(encoding="utf-8"))
+            ledger["coverage_segments"] = [
+                {
+                    "segment_id": "PSEG-ALL",
+                    "start_line": 1,
+                    "end_line": 3,
+                    "kind": "plot_bearing",
+                    "candidate_ids": ["PC-001"],
+                }
+            ]
+            write_json(path, ledger)
+
+            with self.assertRaisesRegex(ValueError, "未进入任何源文候选行域"):
+                MODULE.compile_source_map(root)
 
     def test_item_hash_supports_incremental_invalidation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

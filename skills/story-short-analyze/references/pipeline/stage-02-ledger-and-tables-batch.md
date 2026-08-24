@@ -20,6 +20,10 @@
 3. 每项裁决为 `independent_beat / merged_same_atomic_chain / non_plot`。`independent_beat` 只能绑定一个独占 P 拍；`merged_same_atomic_chain` 必须点明所并入 P 拍和不可拆理由；`non_plot` 不得绑定 P 拍，必须解释为何不改变外部事实。
 4. 先按 `L1 -> EOF` 扫施事者与动作，再按 `EOF -> L1` 反扫后果、接招和旁观秩序。两轮发现数、增补数与人工结论写入 `completeness_review`。
 
+首写时先划 `coverage_segments` 和候选，再决定候选绑定哪个 P 拍，禁止从已写 P 拍反向生成同编号候选。数字章节行逐行单列 `structural_marker`；`plot_bearing` 内每个非空正文行都必须落入实际候选行域。若一句即时判词、旁观反应或微动作不构成独立 P，也必须被候选审计明确裁决，不能因为 SF/E 另有记录就从 P 候选反查中消失。整本只有一个 `plot_bearing` 段、候选数与 P 数完全相等且全部 `independent_beat` 时，必须先按结构标记、非情节支持和遗漏行重切，禁止直接送 validator。
+
+情绪轨同样要求 `emotion_bearing` 的每个非空正文行进入该段 E 拍所绑定候选的实际行域。省略号、纯换场或没有期待/关系位置/行动冲动变化的句子必须单列 `non_emotional_support` 并写理由，不能留在情绪承载段内却没有候选承接。
+
 不得用最低拍数、行数比例或脚本词表代替语义抽取。validator 只验证逐行覆盖、绑定和裁决结构，候选是否真的拆全仍由当前模型逐段对原文负责。
 
 ## 子流程来源层次拓扑
