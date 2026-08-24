@@ -322,6 +322,10 @@ class TargetProseMapTest(unittest.TestCase):
             }
             review["human_confirmed"] = True
         for review in payload["layer_fidelity_reviews"]:
+            review["source_range_read"] = True
+            review["source_anchor_quotes"] = [
+                "甲推门" if review["source_id"] == "SF-01-L01" else "乙拒绝"
+            ]
             review["no_function_shift"] = True
             review["topology_reviews"] = {
                 field: {
@@ -366,10 +370,17 @@ class TargetProseMapTest(unittest.TestCase):
         mappings["layers"][0]["target_node_ids"] = ["T-1"]
         mappings["layers"][1]["target_node_ids"] = ["T-2"]
         for replacement in payload["event_shell_replacements"]:
+            source_id = replacement["source_id"]
             replacement.update(
                 {
                     "dimensions_changed": ["actor", "setting", "object"],
-                    "adaptation_decision": "已换人物、场域与承压物。",
+                    "function_reviews": {
+                        "action": f"{source_id} 的目标动作已独立换芯落地。",
+                        "control_change": f"{source_id} 的目标控制权变化已明确落地。",
+                        "information_change": f"{source_id} 的目标信息新增已明确落地。",
+                        "consequence": f"{source_id} 的目标现实后果已明确落地。",
+                    },
+                    "adaptation_decision": f"{source_id} 已换人物、场域与承压物并保留承重功能。",
                     "human_confirmed": True,
                 }
             )
@@ -435,6 +446,8 @@ class TargetProseMapTest(unittest.TestCase):
         layer_item = payload["layer_fidelity_reviews"][0]
         layer_review = {
             "SF-01-L01": {
+                "source_range_read": True,
+                "source_anchor_quotes": ["甲推门"],
                 "no_function_shift": True,
                 "topology_reviews": {
                     field: {
@@ -580,8 +593,33 @@ class TargetProseMapTest(unittest.TestCase):
             SimpleNamespace(
                 project_dir=str(self.project),
                 input=str(self.target_path),
-                dimensions="actor,setting,object",
-                confirmation_note="已人工逐 P 拍确认人物、场域和核心物件均已完成换芯。",
+                reviews_json=json.dumps(
+                    {
+                        "P-001": {
+                            "target_id": "T-1",
+                            "dimensions_changed": ["actor", "setting", "object"],
+                            "function_reviews": {
+                                "action": "甲改为刷卡进入目标录音棚。",
+                                "control_change": "甲取得目标录音棚的现场入口权。",
+                                "information_change": "乙从门禁提示得知甲已经到场。",
+                                "consequence": "乙必须在录音棚内当面回应甲。",
+                            },
+                            "adaptation_decision": "改用声纹门禁争夺替换原进门事件壳。",
+                        },
+                        "P-002": {
+                            "target_id": "T-2",
+                            "dimensions_changed": ["actor", "relationship", "setting"],
+                            "function_reviews": {
+                                "action": "乙当面注销甲的录音棚权限。",
+                                "control_change": "乙收回甲刚取得的现场入口权。",
+                                "information_change": "甲确认乙拒绝继续共享工作空间。",
+                                "consequence": "双方合作在录音棚现场正式中止。",
+                            },
+                            "adaptation_decision": "改用声纹权限注销完成拒绝与落锤。",
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
             )
         )
 
@@ -590,6 +628,182 @@ class TargetProseMapTest(unittest.TestCase):
         self.assertTrue(
             all(item["human_confirmed"] for item in updated["event_shell_replacements"])
         )
+
+    def test_confirm_fidelity_rejects_anchor_outside_source_layer(self) -> None:
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+        layer_item = payload["layer_fidelity_reviews"][0]
+        layer_review = {
+            "SF-01-L01": {
+                "source_range_read": True,
+                "source_anchor_quotes": ["乙拒绝"],
+                "no_function_shift": True,
+                "topology_reviews": {
+                    field: {
+                        "preserved": True,
+                        "target_realization": f"{field} 在甲推门节点具体落地。",
+                    }
+                    for field in MODULE.LAYER_TOPOLOGY_FIELDS
+                },
+                "preserve_rule_reviews": [
+                    {
+                        "rule_index": 1,
+                        "preserved": True,
+                        "target_node_ids": ["T-1"],
+                        "target_realization": "甲推门动作独立位于第一目标节点。",
+                    }
+                ],
+                "dimension_reviews": {
+                    field: {
+                        "preserved": True,
+                        "target_node_ids": ["T-1"],
+                        "target_realization": f"{field} 在甲推门现场按来源状态落实。",
+                    }
+                    for field in layer_item["dimension_reviews"]
+                },
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "不在对应来源层原文行域内"):
+            MODULE.command_confirm_fidelity(
+                SimpleNamespace(
+                    project_dir=str(self.project),
+                    input=str(self.target_path),
+                    emotion_reviews_json="{}",
+                    layer_reviews_json=json.dumps(layer_review, ensure_ascii=False),
+                )
+            )
+
+    def test_compact_layer_anchors_expand_explicit_outline_mapping(self) -> None:
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+
+        confirmed, errors = MODULE.command_confirm_fidelity(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(self.target_path),
+                emotion_reviews_json="{}",
+                layer_reviews_json="{}",
+                layer_anchors_json=json.dumps(
+                    {"SF-01-L01": ["甲推门"]}, ensure_ascii=False
+                ),
+            )
+        )
+
+        self.assertEqual([], errors)
+        review = confirmed["layer_fidelity_reviews"][0]
+        self.assertTrue(review["source_range_read"])
+        self.assertEqual(["甲推门"], review["source_anchor_quotes"])
+        self.assertTrue(review["no_function_shift"])
+        self.assertTrue(review["human_confirmed"])
+        self.assertTrue(
+            all(item["preserved"] for item in review["topology_reviews"].values())
+        )
+        self.assertTrue(
+            all(item["preserved"] for item in review["dimension_reviews"].values())
+        )
+
+    def test_emotion_reviews_can_expand_from_explicit_outline_mapping(self) -> None:
+        mind_map = json.loads(self.mind_map.read_text(encoding="utf-8"))
+        mind_map["nodes"][0]["content"] = "甲刷卡推门进入录音棚并取得现场入口权限"
+        mind_map["nodes"][1]["content"] = "乙当面拒绝甲并注销双方共享工作空间权限"
+        write_json(self.mind_map, mind_map)
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+
+        confirmed, errors = MODULE.command_confirm_fidelity(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(self.target_path),
+                emotion_reviews_json="{}",
+                layer_reviews_json="{}",
+                layer_anchors_json="{}",
+                derive_emotions_from_outline=True,
+            )
+        )
+
+        self.assertEqual([], errors)
+        review = confirmed["emotion_fidelity_reviews"][0]
+        self.assertTrue(review["whole_beat_in_one_node"])
+        self.assertTrue(review["human_confirmed"])
+        self.assertTrue(
+            all(item["preserved"] for item in review["field_reviews"].values())
+        )
+
+    def test_plot_reviews_can_expand_from_dimension_declarations(self) -> None:
+        mind_map = json.loads(self.mind_map.read_text(encoding="utf-8"))
+        mind_map["nodes"][0]["content"] = "甲刷卡推门进入录音棚并取得现场入口权限"
+        mind_map["nodes"][1]["content"] = "乙当面拒绝甲并注销双方共享工作空间权限"
+        write_json(self.mind_map, mind_map)
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+
+        confirmed, errors = MODULE.command_confirm_event_shells(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(self.target_path),
+                reviews_json="{}",
+                dimensions_json=json.dumps(
+                    {"P-001": ["actor", "setting", "object"]},
+                    ensure_ascii=False,
+                ),
+            )
+        )
+
+        self.assertEqual([], errors)
+        replacement = confirmed["event_shell_replacements"][0]
+        self.assertTrue(replacement["human_confirmed"])
+        self.assertEqual(
+            ["actor", "setting", "object"], replacement["dimensions_changed"]
+        )
+        self.assertTrue(
+            all(replacement["function_reviews"][field] for field in MODULE.PLOT_AUDIT_FIELDS)
+        )
+
+    def test_unknown_replacement_dimension_suggests_canonical_name(self) -> None:
+        target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+        payload = MODULE.create_target_map(
+            self.project, self.source_path, self.source, target_input, nodes
+        )
+        MODULE.write_json(self.target_path, payload)
+        reviews = {
+            "P-001": {
+                "target_id": "T-1",
+                "dimensions_changed": [
+                    "actor",
+                    "setting",
+                    "control_mechanism",
+                ],
+                "function_reviews": {
+                    "action": "甲改为刷卡进入目标录音棚。",
+                    "control_change": "甲取得目标录音棚的现场入口权。",
+                    "information_change": "乙从门禁提示得知甲已经到场。",
+                    "consequence": "乙必须在录音棚内当面回应甲。",
+                },
+                "adaptation_decision": "改用声纹门禁争夺替换原进门事件壳。",
+            }
+        }
+
+        with self.assertRaisesRegex(ValueError, "control_mechanism -> conflict_mechanism"):
+            MODULE.command_confirm_event_shells(
+                SimpleNamespace(
+                    project_dir=str(self.project),
+                    input=str(self.target_path),
+                    reviews_json=json.dumps(reviews, ensure_ascii=False),
+                )
+            )
 
     def test_legacy_migration_materializes_existing_reviewed_bindings(self) -> None:
         target_input, nodes = MODULE.load_target_nodes(self.project, self.mind_map)

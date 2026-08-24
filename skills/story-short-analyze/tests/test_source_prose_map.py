@@ -311,6 +311,32 @@ class SourceProseMapTest(unittest.TestCase):
 
         self.assertTrue(any("SF-01.layer_ids" in item for item in errors), errors)
 
+    def test_subflows_and_layers_must_cover_every_prose_line(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "样书"
+            self.build_fixture(root)
+            assets = root / "写作资产"
+            subflow_path = assets / "子流程索引.jsonl"
+            subflow = json.loads(subflow_path.read_text(encoding="utf-8"))
+            subflow["source_range"] = "L1-L2"
+            subflow_path.write_text(
+                json.dumps(subflow, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            layer_path = assets / "子流程层次索引.jsonl"
+            layer = json.loads(layer_path.read_text(encoding="utf-8"))
+            layer["layer"]["source_range"] = "L1-L2"
+            layer_path.write_text(
+                json.dumps(layer, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+
+            payload = MODULE.compile_source_map(root)
+            errors = MODULE.validate_source_map(payload)
+
+        self.assertTrue(
+            any("SF/文字层联合漏覆盖原文有效行" in item for item in errors),
+            errors,
+        )
+
     def test_subflow_parent_bridge_must_match_overlapping_beats(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "样书"

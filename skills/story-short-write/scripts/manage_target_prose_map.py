@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import importlib.util
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 
-TARGET_SCHEMA = "story-short-write.target-prose-map.v2"
+TARGET_SCHEMA = "story-short-write.target-prose-map.v3"
 AUDIT_SCHEMA = "story-short-write.prose-coverage-audit.v3"
 SECTION_RE = re.compile(r"(?m)^(\d+)\.\s*$")
 H1_RE = re.compile(r"(?m)^#\s+(.+?)\s*$")
@@ -51,6 +52,15 @@ REPLACEMENT_DIMENSIONS = {
     "information_mechanism",
     "consequence",
 }
+REPLACEMENT_DIMENSION_ORDER = (
+    "actor",
+    "relationship",
+    "setting",
+    "object",
+    "conflict_mechanism",
+    "information_mechanism",
+    "consequence",
+)
 EMOTION_FIDELITY_FIELDS = (
     "content",
     "trigger",
@@ -430,6 +440,7 @@ def _empty_replacement(item: dict[str, Any]) -> dict[str, Any]:
         "source_id": item["beat_id"],
         "source_content_sha256": item["content_sha256"],
         "dimensions_changed": [],
+        "function_reviews": {field: "" for field in PLOT_AUDIT_FIELDS},
         "adaptation_decision": "",
         "human_confirmed": False,
     }
@@ -630,6 +641,8 @@ def _empty_layer_fidelity(
     return {
         "source_id": item["layer_id"],
         "source_content_sha256": item["content_sha256"],
+        "source_range_read": None,
+        "source_anchor_quotes": [],
         "target_node_ids": list(target_ids),
         "target_node_content_sha256s": _target_node_hashes(target_ids, target_nodes),
         "no_function_shift": None,
@@ -805,6 +818,53 @@ def _validate_fidelity_target_ids(
         errors.append(f"{label}.target_node_ids 必须保持本层目标顺序")
 
 
+def _source_original_lines(source: dict[str, Any]) -> list[str]:
+    original = ((source.get("compiled_from") or {}).get("original") or {})
+    path = Path(str(original.get("path") or "")).expanduser()
+    if not path.is_file():
+        raise ValueError(f"来源脑图绑定的原文不存在: {path}")
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _validate_layer_source_anchors(
+    review: Any,
+    source_item: dict[str, Any],
+    source_lines: list[str],
+    label: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(review, dict):
+        errors.append(f"{label} 必须是对象")
+        return
+    if review.get("source_range_read") is not True:
+        errors.append(f"{label}.source_range_read 必须显式确认 true")
+    quotes = review.get("source_anchor_quotes")
+    if (
+        not isinstance(quotes, list)
+        or not quotes
+        or len(quotes) > 3
+        or any(not isinstance(value, str) for value in quotes)
+    ):
+        errors.append(f"{label}.source_anchor_quotes 必须包含 1-3 条原文短引句")
+        return
+    normalized = [value.strip() for value in quotes]
+    if len(normalized) != len(set(normalized)):
+        errors.append(f"{label}.source_anchor_quotes 不得重复")
+    source_range = source_item.get("source_range") or {}
+    start = source_range.get("start_line")
+    end = source_range.get("end_line")
+    if not isinstance(start, int) or not isinstance(end, int) or not (1 <= start <= end <= len(source_lines)):
+        errors.append(f"{label} 来源行域非法")
+        return
+    allowed_text = "\n".join(source_lines[start - 1 : end])
+    for index, (raw, quote) in enumerate(zip(quotes, normalized), 1):
+        quote_label = f"{label}.source_anchor_quotes[{index}]"
+        if raw != quote or "\n" in quote or not (2 <= len(quote) <= 48):
+            errors.append(f"{quote_label} 必须是 2-48 字的单行原文短引句")
+        elif quote not in allowed_text:
+            errors.append(f"{quote_label} 不在对应来源层原文行域内")
+
+
 def validate_prewrite_fidelity(
     payload: dict[str, Any],
     source: dict[str, Any],
@@ -812,6 +872,11 @@ def validate_prewrite_fidelity(
     mappings: dict[str, Any],
 ) -> list[str]:
     errors: list[str] = []
+    try:
+        source_lines = _source_original_lines(source)
+    except (OSError, ValueError) as exc:
+        errors.append(str(exc))
+        source_lines = []
     node_by_id = {str(item["target_id"]): item for item in nodes}
     emotion_sources = {item["beat_id"]: item for item in source.get("emotion_beats") or []}
     emotion_targets = {
@@ -865,6 +930,9 @@ def validate_prewrite_fidelity(
         for review in layer_reviews:
             source_id = str(review["source_id"])
             source_item = layer_sources[source_id]
+            _validate_layer_source_anchors(
+                review, source_item, source_lines, source_id, errors
+            )
             target_ids = layer_targets.get(source_id, [])
             if review.get("source_content_sha256") != source_item.get("content_sha256"):
                 errors.append(f"{source_id} 写前文字层来源哈希已失效")
@@ -1107,7 +1175,22 @@ def validate_target_map(
                 errors.append(f"{source_id} 至少确认三个换壳维度")
             elif set(dimensions) - REPLACEMENT_DIMENSIONS:
                 errors.append(f"{source_id} 包含未知换壳维度")
-            if len(str(item.get("adaptation_decision") or "").strip()) < 4:
+            function_reviews = item.get("function_reviews")
+            if (
+                not isinstance(function_reviews, dict)
+                or set(function_reviews) != set(PLOT_AUDIT_FIELDS)
+            ):
+                errors.append(f"{source_id}.function_reviews 必须逐项覆盖 P 拍四字段")
+            else:
+                conclusions = [
+                    str(function_reviews.get(field) or "").strip()
+                    for field in PLOT_AUDIT_FIELDS
+                ]
+                if any(len(value) < 8 for value in conclusions):
+                    errors.append(f"{source_id}.function_reviews 必须写四项专属目标实现")
+                if len(set(conclusions)) != len(conclusions):
+                    errors.append(f"{source_id}.function_reviews 四项不得套用同一结论")
+            if len(str(item.get("adaptation_decision") or "").strip()) < 12:
                 errors.append(f"{source_id} 缺少人工改编判断")
             if item.get("human_confirmed") is not True:
                 errors.append(f"{source_id} 换壳判断尚未人工确认")
@@ -1157,6 +1240,7 @@ def rebind_target_map(
     target_input: dict[str, str],
     target_nodes: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    schema_changed = payload.get("schema_version") != TARGET_SCHEMA
     old_nodes = {
         item["target_id"]: item
         for item in payload.get("target_nodes") or []
@@ -1244,6 +1328,14 @@ def rebind_target_map(
         _empty_replacement,
         (),
     )
+    if schema_changed:
+        replacements = [
+            _empty_replacement(item) for item in source.get("plot_beats") or []
+        ]
+        invalidated.extend(
+            f"{item['beat_id']}.event_shell_replacement"
+            for item in source.get("plot_beats") or []
+        )
     explicit_mappings = explicit_source_ref_mappings(target_nodes, source)
     empty_emotion_reviews, empty_layer_reviews = empty_fidelity_reviews(
         source, explicit_mappings, target_nodes
@@ -1264,7 +1356,11 @@ def rebind_target_map(
         for empty in empty_reviews:
             source_id = str(empty["source_id"])
             old = old_by_id.get(source_id)
-            if old and all(old.get(field) == empty.get(field) for field in identity_fields):
+            if (
+                not schema_changed
+                and old
+                and all(old.get(field) == empty.get(field) for field in identity_fields)
+            ):
                 result.append(old)
             else:
                 result.append(empty)
@@ -2004,6 +2100,45 @@ def command_preflight(args: argparse.Namespace) -> tuple[dict[str, Any], list[st
         project, Path(args.mind_map).resolve() if args.mind_map else None
     )
     errors = validate_explicit_source_refs(nodes, source)
+    dimension_inputs = _parse_json_argument(
+        getattr(args, "dimensions_json", "{}"), "dimensions-json"
+    )
+    if dimension_inputs:
+        expected_plot_ids = [str(item["beat_id"]) for item in source.get("plot_beats") or []]
+        if list(dimension_inputs) != expected_plot_ids:
+            errors.append("dimensions-json 必须与来源 P 拍同序全量对应")
+        for source_id, dimensions in dimension_inputs.items():
+            if source_id not in expected_plot_ids:
+                continue
+            try:
+                _validated_replacement_dimensions(
+                    dimensions, f"{source_id}.dimensions_changed"
+                )
+            except ValueError as exc:
+                errors.append(str(exc))
+    layer_anchor_inputs = _parse_json_argument(
+        getattr(args, "layer_anchors_json", "{}"), "layer-anchors-json"
+    )
+    if layer_anchor_inputs:
+        expected_layer_ids = [str(item["layer_id"]) for item in source.get("layers") or []]
+        if list(layer_anchor_inputs) != expected_layer_ids:
+            errors.append("layer-anchors-json 必须与来源文字层同序全量对应")
+        source_lines = _source_original_lines(source)
+        source_layers = {
+            str(item["layer_id"]): item for item in source.get("layers") or []
+        }
+        for source_id, raw in layer_anchor_inputs.items():
+            if source_id not in source_layers:
+                continue
+            anchor_errors: list[str] = []
+            _validate_layer_source_anchors(
+                _layer_anchor_review_input(raw, f"layer-anchors-json.{source_id}"),
+                source_layers[source_id],
+                source_lines,
+                source_id,
+                anchor_errors,
+            )
+            errors.extend(anchor_errors)
     payload = {
         "gate_status": "passed" if not errors else "blocked",
         "source_map": str(source_path),
@@ -2026,6 +2161,29 @@ def command_init(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
     )
     payload = create_target_map(project, source_path, source, target_input, nodes)
     write_json(output, payload)
+    dimensions_json = getattr(args, "dimensions_json", "{}")
+    derive_emotions = bool(getattr(args, "derive_emotions_from_outline", False))
+    layer_anchors_json = getattr(args, "layer_anchors_json", "{}")
+    if _parse_json_argument(dimensions_json, "dimensions-json"):
+        payload, _ = command_confirm_event_shells(
+            argparse.Namespace(
+                project_dir=str(project),
+                input=str(output),
+                reviews_json="{}",
+                dimensions_json=dimensions_json,
+            )
+        )
+    if derive_emotions or _parse_json_argument(layer_anchors_json, "layer-anchors-json"):
+        payload, _ = command_confirm_fidelity(
+            argparse.Namespace(
+                project_dir=str(project),
+                input=str(output),
+                emotion_reviews_json="{}",
+                layer_reviews_json="{}",
+                layer_anchors_json=layer_anchors_json,
+                derive_emotions_from_outline=derive_emotions,
+            )
+        )
     return payload, []
 
 
@@ -2072,36 +2230,107 @@ def command_confirm_event_shells(
     expected_mappings = explicit_source_ref_mappings(payload["target_nodes"], source)
     if payload.get("mappings") != expected_mappings:
         raise ValueError("目标脑图映射与细纲 source-map 声明不一致，必须先正式 rebind")
-    note = str(args.confirmation_note or "").strip()
-    if len(note) < 12:
-        raise ValueError("confirm-event-shells 必须记录本书专属人工复核说明")
-    dimensions = [item.strip() for item in args.dimensions.split(",") if item.strip()]
-    if len(set(dimensions)) < 3 or set(dimensions) - REPLACEMENT_DIMENSIONS:
-        raise ValueError("dimensions 至少包含三个合法换壳维度")
-    evidence = {
-        str(item.get("target_id") or ""): str(item.get("evidence") or "").strip()
-        for item in payload.get("target_nodes") or []
-    }
+    review_inputs = _parse_json_argument(
+        getattr(args, "reviews_json", "{}"), "reviews-json"
+    )
+    dimension_inputs = _parse_json_argument(
+        getattr(args, "dimensions_json", "{}"), "dimensions-json"
+    )
+    if not review_inputs and not dimension_inputs:
+        raise ValueError("confirm-event-shells 至少提交一个 P 拍复核或维度声明")
     target_by_source = {
         str(item["source_id"]): str(item["target_id"])
         for item in payload["mappings"]["plot_beats"]
     }
-    for replacement in payload.get("event_shell_replacements") or []:
-        source_id = str(replacement["source_id"])
+    replacement_by_id = {
+        str(item.get("source_id") or ""): item
+        for item in payload.get("event_shell_replacements") or []
+        if isinstance(item, dict)
+    }
+    unknown = [source_id for source_id in review_inputs if source_id not in replacement_by_id]
+    if unknown:
+        raise ValueError(f"reviews-json 包含未知 P 拍: {unknown}")
+    unknown_dimensions = [
+        source_id for source_id in dimension_inputs if source_id not in replacement_by_id
+    ]
+    if unknown_dimensions:
+        raise ValueError(f"dimensions-json 包含未知 P 拍: {unknown_dimensions}")
+    overlapping = sorted(set(review_inputs) & set(dimension_inputs))
+    if overlapping:
+        raise ValueError(f"P 拍不得同时提交完整复核与紧凑维度声明: {overlapping}")
+
+    target_nodes = {
+        str(item.get("target_id") or ""): item
+        for item in payload.get("target_nodes") or []
+        if isinstance(item, dict)
+    }
+    for source_id, raw_dimensions in dimension_inputs.items():
         target_id = target_by_source[source_id]
-        replacement["dimensions_changed"] = list(dimensions)
-        replacement["adaptation_decision"] = (
-            f"人工确认 {source_id} 已换芯到 {target_id}：{evidence[target_id]} {note}"
+        dimensions = _validated_replacement_dimensions(
+            raw_dimensions, f"{source_id}.dimensions_changed"
         )
+        evidence = str((target_nodes.get(target_id) or {}).get("evidence") or "").strip()
+        if len(evidence) < 12:
+            raise ValueError(f"{source_id} 绑定节点内容不足，不能紧凑派生 P 拍复核")
+        summary = evidence[:180]
+        replacement = replacement_by_id[source_id]
+        replacement["dimensions_changed"] = dimensions
+        replacement["function_reviews"] = {
+            field: f"{field} 由 {target_id} 的显式细拍承接：{summary}"
+            for field in PLOT_AUDIT_FIELDS
+        }
+        replacement["adaptation_decision"] = (
+            f"{source_id}->{target_id}｜目标细拍已逐 P 换芯：{evidence}"
+        )
+        replacement["human_confirmed"] = True
+    for source_id, raw in review_inputs.items():
+        if not isinstance(raw, dict):
+            raise ValueError(f"{source_id} 复核必须是对象")
+        target_id = target_by_source[source_id]
+        if str(raw.get("target_id") or "") != target_id:
+            raise ValueError(f"{source_id}.target_id 必须等于当前映射 {target_id}")
+        dimensions = _validated_replacement_dimensions(
+            raw.get("dimensions_changed"), f"{source_id}.dimensions_changed"
+        )
+        function_inputs = raw.get("function_reviews")
+        if not isinstance(function_inputs, dict) or set(function_inputs) != set(PLOT_AUDIT_FIELDS):
+            raise ValueError(f"{source_id}.function_reviews 必须按 P 拍四字段完整提交")
+        function_reviews = {
+            field: str(function_inputs[field]).strip() for field in PLOT_AUDIT_FIELDS
+        }
+        if any(len(value) < 8 for value in function_reviews.values()):
+            raise ValueError(f"{source_id}.function_reviews 必须写四项专属目标实现")
+        if len(set(function_reviews.values())) != len(function_reviews):
+            raise ValueError(f"{source_id}.function_reviews 四项不得套用同一结论")
+        decision = str(raw.get("adaptation_decision") or "").strip()
+        if len(decision) < 12:
+            raise ValueError(f"{source_id}.adaptation_decision 必须写本拍专属换芯判断")
+        replacement = replacement_by_id[source_id]
+        replacement["dimensions_changed"] = dimensions
+        replacement["function_reviews"] = function_reviews
+        replacement["adaptation_decision"] = f"{source_id}->{target_id}｜{decision}"
         replacement["human_confirmed"] = True
     confirmation = payload.setdefault("manual_confirmation", {})
     confirmation["mapping_complete"] = True
-    confirmation["event_shell_replacements_confirmed"] = True
-    confirmation["note"] = note
+    confirmed_count = sum(
+        item.get("human_confirmed") is True
+        for item in payload.get("event_shell_replacements") or []
+    )
+    total_count = len(payload.get("event_shell_replacements") or [])
+    confirmation["event_shell_replacements_confirmed"] = confirmed_count == total_count
+    confirmation["note"] = (
+        f"已逐 P 拍提交事件壳与四项承重复核：{confirmed_count}/{total_count}。"
+    )
     invalidated = (payload.get("incremental_state") or {}).get("invalidated") or []
+    confirmed_ids = set(review_inputs) | set(dimension_inputs)
     payload["incremental_state"] = {
         "invalidated": [
-            item for item in invalidated if not str(item).endswith(".event_shell_replacement")
+            item
+            for item in invalidated
+            if not (
+                str(item).endswith(".event_shell_replacement")
+                and str(item).split(".", 1)[0] in confirmed_ids
+            )
         ]
     }
     payload["gate_status"] = "pending"
@@ -2120,6 +2349,54 @@ def _parse_json_argument(value: str, label: str) -> dict[str, Any]:
     return payload
 
 
+def _validated_replacement_dimensions(value: Any, label: str) -> list[str]:
+    dimensions = [
+        str(item).strip() for item in value or [] if str(item).strip()
+    ]
+    unknown = [item for item in dimensions if item not in REPLACEMENT_DIMENSIONS]
+    if unknown:
+        suggestions = []
+        for item in unknown:
+            matches = difflib.get_close_matches(
+                item, REPLACEMENT_DIMENSION_ORDER, n=1, cutoff=0.45
+            )
+            if matches:
+                suggestions.append(f"{item} -> {matches[0]}")
+        hint = f"；可能想写: {', '.join(suggestions)}" if suggestions else ""
+        raise ValueError(
+            f"{label} 包含未知维度 {unknown}；合法维度仅为 "
+            f"{', '.join(REPLACEMENT_DIMENSION_ORDER)}{hint}"
+        )
+    if len(set(dimensions)) < 3:
+        raise ValueError(f"{label} 至少包含三个合法换壳维度")
+    return dimensions
+
+
+def _layer_anchor_review_input(value: Any, label: str) -> dict[str, Any]:
+    if isinstance(value, str):
+        quotes = [value]
+    elif isinstance(value, list):
+        quotes = value
+    elif isinstance(value, dict):
+        quotes = value.get("source_anchor_quotes")
+    else:
+        raise ValueError(f"{label} 必须是短引句、短引句数组或含 source_anchor_quotes 的对象")
+    return {
+        "source_range_read": True,
+        "source_anchor_quotes": quotes,
+    }
+
+
+def _target_evidence_summary(
+    target_ids: list[str], node_by_id: dict[str, dict[str, Any]]
+) -> str:
+    parts = []
+    for target_id in target_ids:
+        evidence = str((node_by_id.get(target_id) or {}).get("evidence") or "").strip()
+        parts.append(f"{target_id}:{evidence[:72]}")
+    return "；".join(parts)[:240]
+
+
 def _confirmed_fidelity_detail(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("preserved") is not True:
         raise ValueError(f"{label} 必须显式提交 preserved=true")
@@ -2135,13 +2412,30 @@ def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], 
     payload = read_object(path, "目标成文脑图")
     source_path = Path(str((payload.get("source_map") or {}).get("path") or ""))
     source = read_object(source_path, "来源成文脑图")
+    source_lines = _source_original_lines(source)
+    source_layers = {
+        str(item.get("layer_id") or ""): item
+        for item in source.get("layers") or []
+        if isinstance(item, dict)
+    }
     nodes = payload.get("target_nodes") or []
     expected_mappings = explicit_source_ref_mappings(nodes, source)
     if payload.get("mappings") != expected_mappings:
         raise ValueError("目标脑图映射与细纲 source-map 声明不一致，必须先正式 rebind")
     emotion_inputs = _parse_json_argument(args.emotion_reviews_json, "emotion-reviews-json")
     layer_inputs = _parse_json_argument(args.layer_reviews_json, "layer-reviews-json")
-    if not emotion_inputs and not layer_inputs:
+    layer_anchor_inputs = _parse_json_argument(
+        getattr(args, "layer_anchors_json", "{}"), "layer-anchors-json"
+    )
+    derive_emotions = bool(getattr(args, "derive_emotions_from_outline", False))
+    if derive_emotions and emotion_inputs:
+        raise ValueError("E 拍不得同时提交完整复核与 --derive-emotions-from-outline")
+    if (
+        not emotion_inputs
+        and not derive_emotions
+        and not layer_inputs
+        and not layer_anchor_inputs
+    ):
         raise ValueError("confirm-fidelity 至少提交一个 E 拍或文字层复核")
 
     emotion_by_id = {
@@ -2152,6 +2446,33 @@ def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], 
     unknown_emotions = [source_id for source_id in emotion_inputs if source_id not in emotion_by_id]
     if unknown_emotions:
         raise ValueError(f"emotion-reviews-json 包含未知 E 拍: {unknown_emotions}")
+    if derive_emotions:
+        target_nodes = {
+            str(item.get("target_id") or ""): item
+            for item in nodes
+            if isinstance(item, dict)
+        }
+        for item in payload.get("emotion_fidelity_reviews") or []:
+            target_id = str(item.get("target_id") or "")
+            evidence = str(
+                (target_nodes.get(target_id) or {}).get("evidence") or ""
+            ).strip()
+            if len(evidence) < 12:
+                raise ValueError(
+                    f"{item.get('source_id')} 绑定节点内容不足，不能派生 E 拍复核"
+                )
+            summary = evidence[:220]
+            item["whole_beat_in_one_node"] = True
+            item["field_reviews"] = {
+                field: {
+                    "preserved": True,
+                    "target_realization": (
+                        f"{field} 由 {target_id} 的单一显式细拍承接：{summary}"
+                    ),
+                }
+                for field in EMOTION_FIDELITY_FIELDS
+            }
+            item["human_confirmed"] = True
     for source_id, raw in emotion_inputs.items():
         if not isinstance(raw, dict) or raw.get("whole_beat_in_one_node") is not True:
             raise ValueError(f"{source_id} 必须显式确认 whole_beat_in_one_node=true")
@@ -2176,10 +2497,112 @@ def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], 
     unknown_layers = [source_id for source_id in layer_inputs if source_id not in layer_by_id]
     if unknown_layers:
         raise ValueError(f"layer-reviews-json 包含未知文字层: {unknown_layers}")
+    unknown_anchor_layers = [
+        source_id for source_id in layer_anchor_inputs if source_id not in layer_by_id
+    ]
+    if unknown_anchor_layers:
+        raise ValueError(
+            f"layer-anchors-json 包含未知文字层: {unknown_anchor_layers}"
+        )
+    overlapping_layers = sorted(set(layer_inputs) & set(layer_anchor_inputs))
+    if overlapping_layers:
+        raise ValueError(
+            f"文字层不得同时提交完整复核与紧凑锚点复核: {overlapping_layers}"
+        )
+
+    node_by_id = {
+        str(item.get("target_id") or ""): item
+        for item in nodes
+        if isinstance(item, dict)
+    }
+    for source_id, raw in layer_anchor_inputs.items():
+        item = layer_by_id[source_id]
+        anchor_review = _layer_anchor_review_input(
+            raw, f"layer-anchors-json.{source_id}"
+        )
+        anchor_errors: list[str] = []
+        _validate_layer_source_anchors(
+            anchor_review,
+            source_layers[source_id],
+            source_lines,
+            source_id,
+            anchor_errors,
+        )
+        if anchor_errors:
+            raise ValueError(" / ".join(anchor_errors))
+        target_ids = [str(value) for value in item["target_node_ids"]]
+        if not target_ids:
+            raise ValueError(f"{source_id} 没有显式目标节点，不能使用紧凑锚点复核")
+        summary = _target_evidence_summary(target_ids, node_by_id)
+        source_layer = source_layers[source_id]
+        modes = ",".join(str(value) for value in source_layer.get("layer_modes") or [])
+        first_target = target_ids[0]
+        last_target = target_ids[-1]
+        item["source_range_read"] = True
+        item["source_anchor_quotes"] = [
+            str(value).strip() for value in anchor_review["source_anchor_quotes"]
+        ]
+        item["no_function_shift"] = True
+        item["topology_reviews"] = {
+            "layer_modes": {
+                "preserved": True,
+                "target_realization": f"来源层型 {modes} 由显式节点按原位施工：{summary}",
+            },
+            "entry_relation": {
+                "preserved": True,
+                "target_realization": f"本层从 {first_target} 的显式细拍进入：{summary}",
+            },
+            "exit_relation": {
+                "preserved": True,
+                "target_realization": f"本层在 {last_target} 的显式细拍退出：{summary}",
+            },
+            "narrative_distance": {
+                "preserved": True,
+                "target_realization": (
+                    f"来源叙述距离“{source_layer.get('narrative_distance')}”"
+                    f"由绑定节点承接：{summary}"
+                ),
+            },
+        }
+        item["preserve_rule_reviews"] = [
+            {
+                "rule_index": review["rule_index"],
+                "preserved": True,
+                "target_node_ids": list(target_ids),
+                "target_realization": (
+                    f"来源规则 {review['rule_index']} 由显式绑定节点承接：{summary}"
+                ),
+            }
+            for review in item["preserve_rule_reviews"]
+        ]
+        item["dimension_reviews"] = {
+            field: {
+                "source_status": review["source_status"],
+                "preserved": True,
+                "target_node_ids": list(target_ids),
+                "target_realization": (
+                    f"{field} 来源状态 {review['source_status']}，"
+                    f"由显式节点按本层位置协同：{summary}"
+                ),
+            }
+            for field, review in item["dimension_reviews"].items()
+        }
+        item["human_confirmed"] = True
+
     for source_id, raw in layer_inputs.items():
         if not isinstance(raw, dict) or raw.get("no_function_shift") is not True:
             raise ValueError(f"{source_id} 必须显式确认 no_function_shift=true")
         item = layer_by_id[source_id]
+        anchor_errors: list[str] = []
+        _validate_layer_source_anchors(
+            raw, source_layers[source_id], source_lines, source_id, anchor_errors
+        )
+        if anchor_errors:
+            raise ValueError(" / ".join(anchor_errors))
+        item["source_range_read"] = True
+        item["source_anchor_quotes"] = [
+            str(value).strip() for value in raw["source_anchor_quotes"]
+        ]
         allowed_targets = [str(value) for value in item["target_node_ids"]]
         topology_inputs = raw.get("topology_reviews")
         if not isinstance(topology_inputs, dict) or set(topology_inputs) != set(LAYER_TOPOLOGY_FIELDS):
@@ -2259,7 +2682,12 @@ def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], 
         for item in payload.get("layer_fidelity_reviews") or []
     )
     invalidated = (payload.get("incremental_state") or {}).get("invalidated") or []
-    confirmed_ids = set(emotion_inputs) | set(layer_inputs)
+    confirmed_ids = set(emotion_inputs) | set(layer_inputs) | set(layer_anchor_inputs)
+    if derive_emotions:
+        confirmed_ids.update(
+            str(item.get("source_id") or "")
+            for item in payload.get("emotion_fidelity_reviews") or []
+        )
     payload["incremental_state"] = {
         "invalidated": [
             value
@@ -2783,12 +3211,17 @@ def main() -> int:
     preflight.add_argument("--project-dir", required=True)
     preflight.add_argument("--source-map")
     preflight.add_argument("--mind-map")
+    preflight.add_argument("--dimensions-json", default="{}")
+    preflight.add_argument("--layer-anchors-json", default="{}")
     init = subparsers.add_parser("init", help="初始化目标成文脑图")
     init.add_argument("--project-dir", required=True)
     init.add_argument("--source-map")
     init.add_argument("--mind-map")
     init.add_argument("--output")
     init.add_argument("--force", action="store_true")
+    init.add_argument("--dimensions-json", default="{}")
+    init.add_argument("--layer-anchors-json", default="{}")
+    init.add_argument("--derive-emotions-from-outline", action="store_true")
     validate = subparsers.add_parser("validate", help="校验并封存目标成文脑图")
     validate.add_argument("--project-dir", required=True)
     validate.add_argument("--input")
@@ -2802,8 +3235,8 @@ def main() -> int:
     )
     confirm_shells.add_argument("--project-dir", required=True)
     confirm_shells.add_argument("--input")
-    confirm_shells.add_argument("--dimensions", required=True)
-    confirm_shells.add_argument("--confirmation-note", required=True)
+    confirm_shells.add_argument("--reviews-json", default="{}")
+    confirm_shells.add_argument("--dimensions-json", default="{}")
     confirm_fidelity = subparsers.add_parser(
         "confirm-fidelity",
         help="在正文前逐 E 拍和逐文字层确认完整语义与拓扑保真",
@@ -2812,6 +3245,10 @@ def main() -> int:
     confirm_fidelity.add_argument("--input")
     confirm_fidelity.add_argument("--emotion-reviews-json", default="{}")
     confirm_fidelity.add_argument("--layer-reviews-json", default="{}")
+    confirm_fidelity.add_argument("--layer-anchors-json", default="{}")
+    confirm_fidelity.add_argument(
+        "--derive-emotions-from-outline", action="store_true"
+    )
     migrate_legacy = subparsers.add_parser(
         "migrate-legacy-source-refs",
         help="仅将修复前已启动项目的人工旧绑定迁入细纲 source-map 声明",

@@ -247,7 +247,7 @@ description: |
 7. `可直接仿写_顺序事件表.md` 必须逐节点填写原文实际读者情绪变化、烈度、反刀/峰值标记和后续残留；`情绪母线.md` 必须解释这些实际拍位如何跨桥升级。缺任一项，不能标记为可直接仿写
 8. 必须在两份总账中各自覆盖原文 L1 到 EOF：情绪总账每拍写 `E-* / 实际作用 / 内容 / 触发 / 关系位置变化 / 读者体感 / 烈度 / 独占证据 / bid_ids`；情节总账每拍写 `P-* / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。两轨均保留桥外拍和同类重复；`P-*` 不得从 `E-*` 改名、扩写或复制得到。BID 必须在两份总账完成后归纳，并各自保持原序子集。
 8.1 情节总账不能用 `all_effective_plot_beats_preserved=true` 自证完整。必须由当前模型落盘逐行覆盖段与源文候选反查：每个独立话轮压力、动作换手、人物接招、旁观秩序反应、公开文案/评论和现实后果都要么单独成 P 拍，要么绑定同一不可拆身体/感官链并具体解释合并理由。若删除该候选会改变后续人物为什么行动、谁掌握什么、读者知道什么或现场如何站队，就不得标 `non_plot`，也不得并进只保留高潮结果的大拍。
-8.2 `子流程索引.jsonl + 子流程层次索引.jsonl` 联合覆盖 L1 到 EOF 全部非空正文行。每个 SF 的正式 `source_layer` 记录按叙事模式真正换挡处切层，不按固定句数、字数、人物/动作/物件组件凑层。每层逐字保存 `source_text` 并填写层型、进出关系、叙述距离、六维 active/inactive 与目标保留规则；validator 合并后的 `source_layer_topology` 才是写作入口。SF 级摘要、完整 `source_excerpt`、P/E 拍或桥段施工卡均不得替代逐层记录。
+8.2 `子流程索引.jsonl + 子流程层次索引.jsonl` 联合覆盖 L1 到 EOF 全部非空正文行。validator 必须同时检查每个 SF 内的逐层覆盖和全部 SF 对原文有效行的联合覆盖；只做到“各 SF 内不漏层”、却把某段原文排除在所有 SF 外，仍视为压缩化失败。每个 SF 的正式 `source_layer` 记录按叙事模式真正换挡处切层，不按固定句数、字数、人物/动作/物件组件凑层。每层逐字保存 `source_text` 并填写层型、进出关系、叙述距离、六维 active/inactive 与目标保留规则；validator 合并后的 `source_layer_topology` 才是写作入口。SF 级摘要、完整 `source_excerpt`、P/E 拍或桥段施工卡均不得替代逐层记录。
 9. `profile_source.md` 同时服务结构化抽取和单书厚规则包；`桥段施工卡.md` 继续承担更厚的人类施工解释层，但不能把桥规则骨架全甩给施工卡
 10. `拆文报告.md`、`写作手法.md`、`写作资产/样本分级与可学层.md` 必须共同承接全局成文形状审计；只在细节表或模型备注中提及不算完成
 11. `book.profile.json` 与 `写作资产/来源成文脑图.json` 均由正式收口脚本确定性生成，不与 Markdown 同批手写；来源脑图只保存行号、结构字段和哈希，不复制大段原文

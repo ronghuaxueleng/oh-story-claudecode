@@ -798,7 +798,9 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
             if sf_range and not (sf_range[0] <= layer_range[0] <= layer_range[1] <= sf_range[1]):
                 errors.append(f"{layer_id} 越出所属 {sf_id} 的 source_range")
         if source_lines:
+            covered_by_subflows: set[int] = set()
             for sf_id, sf_range in subflow_ranges.items():
+                covered_by_subflows.update(prose_lines(*sf_range))
                 owned = sorted(
                     (layer_ranges[item.get("layer_id")] for item in layers
                      if isinstance(item, dict) and item.get("subflow_id") == sf_id
@@ -820,6 +822,18 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
                         errors.append(f"{sf_id} 文字层漏覆盖原文行: {missing[:12]}")
                     if extra:
                         errors.append(f"{sf_id} 文字层越界覆盖原文行: {extra[:12]}")
+            expected_source_lines = prose_lines(1, len(source_lines))
+            if covered_by_subflows != expected_source_lines:
+                missing = sorted(expected_source_lines - covered_by_subflows)
+                extra = sorted(covered_by_subflows - expected_source_lines)
+                if missing:
+                    errors.append(
+                        f"SF/文字层联合漏覆盖原文有效行: {missing[:12]}"
+                    )
+                if extra:
+                    errors.append(
+                        f"SF/文字层联合越界覆盖原文有效行: {extra[:12]}"
+                    )
 
         plot_beats = [item for item in payload.get("plot_beats") or [] if isinstance(item, dict)]
         emotion_beats = [item for item in payload.get("emotion_beats") or [] if isinstance(item, dict)]

@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.90.0
+  version: 1.92.0
 ---
 
 # story-short-write：短篇网文写作
@@ -119,6 +119,8 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。
 
+同一次核对只额外保留两类紧凑输入：每个 P 拍选择至少三个合法换壳维度；每个来源层选 1-3 条行域内原文短引句。合法 P 维度固定只有 `actor / relationship / setting / object / conflict_mechanism / information_mechanism / consequence`。禁止自造 `control_mechanism` 等近义字段；正式脚本会在 preflight 阶段给出最接近的合法字段提示。E 五字段、P 四项承重以及层拓扑/规则/六维的目标实现都已存在于当前细拍与显式绑定中，后续只允许确定性展开，不再人工重复抄写。
+
 ```md
 - 细拍拆分：目标现场施工内容 <!-- source-map: P=P-001; E=E-001; SF=SF-00A#1; L=SF-00A-L01 -->
 ```
@@ -150,30 +152,34 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 1. 主体全部 P 拍和 E 拍的一对一目标节点。
 2. 每个 SF 全部必经步骤的目标表演链。
 3. 每个来源文字层的目标节点，并保持层序、层型、进出关系和叙述距离。
-4. 与 P 拍同序的事件壳替换判断；每拍至少确认人物、关系、场域、物件、冲突机制、信息机制、后果中的三个替换维度。
+4. 与 P 拍同序的事件壳替换判断；每拍至少确认人物、关系、场域、物件、冲突机制、信息机制、后果中的三个替换维度，并分别填写 `action / control_change / information_change / consequence` 的目标实现。禁止用一组维度和一条总评批量确认全书 P 拍。
 
-先做只读预检，再初始化。`init` 只把细纲中的人工来源声明确定性编译进目标脑图，不按行号、字数、相邻 P 拍或区域范围猜测 E/SF/层语义：
+先做只读预检，再初始化。默认紧凑主链把全量 P 维度和全量来源层短引句同时交给 `preflight`；它在目标脑图创建前完成字段名、全量同序和引句行域校验。`init` 复用同一紧凑输入，把细纲中的人工来源声明、P 维度、E 单节点确认和层引句确定性编译进目标脑图，不按行号、字数、相邻 P 拍或区域范围猜测语义：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
-  --project-dir "{项目目录}"
+  --project-dir "{项目目录}" \
+  --dimensions-json '{与来源 P 拍同序全量对应的维度数组 JSON}' \
+  --layer-anchors-json '{与来源层同序全量对应的 1-3 条原文短引句 JSON}'
 
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" init \
-  --project-dir "{项目目录}"
+  --project-dir "{项目目录}" \
+  --dimensions-json '{同一份 P 维度 JSON}' \
+  --layer-anchors-json '{同一份来源层短引句 JSON}' \
+  --derive-emotions-from-outline
 
 # 用户提供 JSON 脑图时改用：--mind-map "{脑图.json}"
 ```
 
-初始化后，P/E/SF/层映射不得在 JSON 中另维护一套版本。Phase 2 只逐 P 拍人工确认事件壳至少三个替换维度，正式脚本把该确认写入同一目标脑图，但不改来源绑定：
+初始化后，P/E/SF/层映射不得在 JSON 中另维护一套版本。默认主链到此不再设置一次逐字段人工复核；P 四项承重、E 五字段以及层拓扑/规则/六维都由大纲的显式单节点绑定、当前细拍内容、P 维度和来源层短引句确定性展开。只有旧项目续跑或局部人工推翻默认展开时，才使用下面两个增量覆盖接口：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" confirm-event-shells \
   --project-dir "{项目目录}" \
-  --dimensions "actor,relationship,setting,object,conflict_mechanism,information_mechanism,consequence" \
-  --confirmation-note "{已逐 P 拍核对的本书换壳与热点边界}"
+  --reviews-json '{"P-001":{"target_id":"T-opening-001","dimensions_changed":["actor","setting","object"],"function_reviews":{"action":"本拍目标动作的具体实现","control_change":"本拍控制变化的具体实现","information_change":"本拍信息变化的具体实现","consequence":"本拍现实后果的具体实现"},"adaptation_decision":"本拍专属换壳与热点事实边界"}}'
 ```
 
-随后在同一 `目标成文脑图.json` 内完成写前保真确认。`emotion-reviews-json` 可按连续区域增量提交，每个 E 必须显式确认整拍在同一节点，并分别填写五字段的 `preserved=true + target_realization`；`layer-reviews-json` 每层必须显式确认 `no_function_shift=true`，分别填写层型/进入/退出/距离、全部来源保留规则和六维的目标节点及具体实现。脚本不生成这些人工判断，也不接受一条总评代替逐字段判断：
+完整覆盖接口仍接受逐 E、逐层人工复核；紧凑覆盖接口则只接受 `--dimensions-json`、`--derive-emotions-from-outline` 和 `--layer-anchors-json`。紧凑展开的人工真源是已经逐字段核对后才落下的当前细拍与 `source-map` 绑定，脚本只改变数据形状，不生成新语义判断。短引句只证明已回读该层，不能替代完整行域：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" confirm-fidelity \
@@ -198,7 +204,7 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" rebind \
 
 仅对本规则生效前已经初始化、尚未封存的旧项目，可一次使用 `migrate-legacy-source-refs`。它读取旧项目已人工复核的绑定及审阅者明确覆盖，先按新合同全量校验，再原子写回细纲隐藏声明并立即 rebind；新项目、已封存项目和存在未知绑定的项目禁止使用。该迁移不是正常写作阶段，不得用于绕过 `preflight`。
 
-P/E 不得漏拍、并拍或倒序；E 五字段不得拆散或顺移；SF 表演链不得漏步；文字层不得漏层、换序、功能顺移或越出 SF 连续承载范围。任一写前保真确认缺失、目标节点内容哈希变化或仍用宽泛说明代替具体实现，`validate` 必须阻断。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
+P/E 不得漏拍、并拍或倒序；P 四项承重不得用同一句结论批量套写；E 五字段不得拆散或顺移；SF 表演链不得漏步；来源全部有效正文行必须进入 SF/文字层联合覆盖，文字层不得漏层、换序、功能顺移或越出 SF 连续承载范围。任一来源层没有行域内短引句、写前保真确认缺失、目标节点内容哈希变化或仍用宽泛说明代替具体实现，`validate` 必须阻断。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
 
 ### Phase 3：正文放行与直接写作
 
@@ -213,7 +219,7 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 通过后直接写入 `正文.md`：首行用 `# 《书名》`，随后写导语，再按 `1.`、`2.` 直到 `N.` 的知乎纯数字分节顺序写正文，尾声并入最后一个数字节。可以分批编辑文件，但不得为每节创建“开始/暂存/验收/提交”行政流程。
 
-写每个区域前，只从目标脑图读取本区域的 P/E、SF 步骤和层 ID，再按层 ID 回查来源脑图及原文行号。按来源层顺序施工，只替换事件壳：现场仍是现场，概述仍是概述，插嘴仍放在对应层间，急刹和冷尾不得扩写或提前。目标节点无法承载某层时，先修目标节点并正式 `rebind`；不得临场把缺层改成流程总结。一个 SF 跨多个区域时，从首个落点到最后落点视为同一连续写作单元。检查发生在正文上，不另建逐节证明。
+写每个区域前，只从目标脑图读取本区域的 P/E、SF 步骤和层 ID，先核对该层写前复核里的原文短引句，再按层 ID 回查来源脑图并完整读取对应原文行域；不得把短引句当成该层全部内容。按来源层顺序施工，只替换事件壳：现场仍是现场，概述仍是概述，插嘴仍放在对应层间，急刹和冷尾不得扩写或提前。目标节点无法承载某层时，先修目标节点并正式 `rebind`；不得临场把缺层改成流程总结。一个 SF 跨多个区域时，从首个落点到最后落点视为同一连续写作单元。检查发生在正文上，不另建逐节证明。
 
 ### Phase 4：紧凑正文覆盖终审
 
