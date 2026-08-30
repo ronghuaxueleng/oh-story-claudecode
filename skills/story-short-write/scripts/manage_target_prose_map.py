@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -33,6 +34,8 @@ SOURCE_REF_KEYS = {
 REQUIRED_OUTLINE_FIELDS = (
     "主事件",
     "子事件",
+    "入场状态",
+    "离场状态",
     "细拍拆分",
     "情绪",
     "读者新获知什么",
@@ -235,7 +238,9 @@ def normalize_source_refs(value: Any) -> dict[str, list[str]]:
     return refs
 
 
-def parse_outline(outline_path: Path) -> dict[str, Any]:
+def parse_outline(
+    outline_path: Path, allow_partial: bool = False
+) -> dict[str, Any]:
     text = outline_path.read_text(encoding="utf-8")
     matches = list(OUTLINE_HEADING_RE.finditer(text))
     regions: list[dict[str, Any]] = []
@@ -305,20 +310,27 @@ def parse_outline(outline_path: Path) -> dict[str, Any]:
                 "target_beats": target_beats,
             }
         )
+    actual = [item["region_id"] for item in regions]
     numeric_count = sum(
         1 for item in regions if item["region_id"].startswith("section:")
     )
-    expected = ["opening"] + [
+    expected_prefix = ["opening"] + [
         f"section:{index}" for index in range(1, numeric_count + 1)
-    ] + ["epilogue"]
-    actual = [item["region_id"] for item in regions]
-    if actual != expected:
-        errors.append(f"细纲区域必须为导语、连续数字节、尾声: {actual}")
+    ]
+    if allow_partial:
+        if actual not in (expected_prefix, expected_prefix + ["epilogue"]):
+            errors.append(f"批次细纲区域必须从导语开始并保持数字节连续: {actual}")
+    else:
+        expected = expected_prefix + ["epilogue"]
+        if actual != expected:
+            errors.append(f"细纲区域必须为导语、连续数字节、尾声: {actual}")
     return {"regions": regions, "errors": errors}
 
 
-def _outline_nodes(outline: Path) -> list[dict[str, Any]]:
-    catalog = parse_outline(outline)
+def _outline_nodes(
+    outline: Path, allow_partial: bool = False
+) -> list[dict[str, Any]]:
+    catalog = parse_outline(outline, allow_partial=allow_partial)
     errors = catalog.get("errors") or []
     if errors:
         raise ValueError("小节大纲无法解析: " + " / ".join(str(item) for item in errors))
@@ -391,12 +403,18 @@ def _mind_map_nodes(path: Path) -> list[dict[str, Any]]:
     return flattened
 
 
-def load_target_nodes(project_dir: Path, mind_map: Path | None) -> tuple[dict[str, str], list[dict[str, Any]]]:
+def load_target_nodes(
+    project_dir: Path,
+    mind_map: Path | None,
+    allow_partial: bool = False,
+) -> tuple[dict[str, str], list[dict[str, Any]]]:
     if mind_map is not None:
         path = mind_map.expanduser().resolve()
         return {"kind": "mind_map", **binding(path)}, _mind_map_nodes(path)
     path = project_dir / "小节大纲.md"
-    return {"kind": "outline", **binding(path)}, _outline_nodes(path)
+    return {"kind": "outline", **binding(path)}, _outline_nodes(
+        path, allow_partial=allow_partial
+    )
 
 
 def _empty_plot_mapping(item: dict[str, Any]) -> dict[str, Any]:
@@ -447,7 +465,9 @@ def _empty_replacement(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_explicit_source_refs(
-    target_nodes: list[dict[str, Any]], source: dict[str, Any]
+    target_nodes: list[dict[str, Any]],
+    source: dict[str, Any],
+    partial: bool = False,
 ) -> list[str]:
     errors: list[str] = []
     for node in target_nodes:
@@ -473,16 +493,32 @@ def validate_explicit_source_refs(
         for node in target_nodes
         for source_id in normalize_source_refs(node.get("source_refs"))["emotion_beat_ids"]
     ]
-    if actual_plot != expected_plot:
-        errors.append(
-            "细纲 P 拍声明必须与来源全量同序一对一: "
-            f"expected={','.join(expected_plot)}, actual={','.join(actual_plot)}"
-        )
-    if actual_emotion != expected_emotion:
-        errors.append(
-            "细纲 E 拍声明必须与来源全量同序一对一: "
-            f"expected={','.join(expected_emotion)}, actual={','.join(actual_emotion)}"
-        )
+    if partial:
+        if len(actual_plot) != len(set(actual_plot)):
+            errors.append("细纲批次 P 拍不得重复承接")
+        if actual_plot != expected_plot[: len(actual_plot)]:
+            errors.append(
+                "细纲批次 P 拍必须是来源账连续前缀: "
+                f"expected_prefix={expected_plot[:len(actual_plot)]}, actual={actual_plot}"
+            )
+        if len(actual_emotion) != len(set(actual_emotion)):
+            errors.append("细纲批次 E 拍不得重复承接")
+        if actual_emotion != expected_emotion[: len(actual_emotion)]:
+            errors.append(
+                "细纲批次 E 拍必须是来源账连续前缀: "
+                f"expected_prefix={expected_emotion[:len(actual_emotion)]}, actual={actual_emotion}"
+            )
+    else:
+        if actual_plot != expected_plot:
+            errors.append(
+                "细纲 P 拍声明必须与来源全量同序一对一: "
+                f"expected={','.join(expected_plot)}, actual={','.join(actual_plot)}"
+            )
+        if actual_emotion != expected_emotion:
+            errors.append(
+                "细纲 E 拍声明必须与来源全量同序一对一: "
+                f"expected={','.join(expected_emotion)}, actual={','.join(actual_emotion)}"
+            )
 
     expected_steps = [
         f"{item['subflow_id']}#{index}"
@@ -502,7 +538,13 @@ def validate_explicit_source_refs(
     ]
     if unknown_steps:
         errors.append(f"细纲引用未知 SF 步骤: {unknown_steps}")
-    if missing_steps:
+    if partial:
+        if actual_step_positions != list(range(len(actual_step_positions))):
+            errors.append(
+                "细纲批次 SF 步骤必须是来源账连续前缀: "
+                f"expected_prefix={expected_steps[:len(actual_steps)]}, actual={actual_steps}"
+            )
+    elif missing_steps:
         errors.append(f"细纲漏掉 SF 步骤: {missing_steps}")
     if actual_step_positions != sorted(actual_step_positions):
         first = next(
@@ -533,7 +575,14 @@ def validate_explicit_source_refs(
     ]
     if unknown_layers:
         errors.append(f"细纲引用未知来源层: {unknown_layers}")
-    if missing_layers:
+    if partial:
+        unique_layers = list(dict.fromkeys(actual_layers))
+        if unique_layers != expected_layers[: len(unique_layers)]:
+            errors.append(
+                "细纲批次来源层必须覆盖来源账连续前缀: "
+                f"expected_prefix={expected_layers[:len(unique_layers)]}, actual={unique_layers}"
+            )
+    elif missing_layers:
         errors.append(f"细纲漏掉来源层: {missing_layers}")
     if actual_layer_positions != sorted(actual_layer_positions):
         first = next(
@@ -1849,6 +1898,15 @@ def validate_audit(
     if target_errors:
         return errors
     regions = audit_draft_regions(draft_text)
+    if payload.get("audit_mode") == "compact_v1":
+        errors.extend(
+            validate_compact_audit_payload(
+                payload, project_dir, source, target, draft_text, regions
+            )
+        )
+        if require_gate and payload.get("gate_status") != "passed":
+            errors.append("正文覆盖回执 gate_status 未 passed")
+        return errors
     source_layers = {item["layer_id"]: item for item in source.get("layers") or []}
     layer_mapping = {
         item["source_id"]: item for item in target["mappings"]["layers"]
@@ -2083,6 +2141,123 @@ def validate_audit(
     return errors
 
 
+def _validate_compact_evidence(
+    value: Any, label: str, allowed_text: str, errors: list[str]
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"{label} 必须是对象")
+        return
+    quotes = value.get("evidence_quotes")
+    if not isinstance(quotes, list) or not quotes:
+        errors.append(f"{label} 缺少正文逐字引句")
+    else:
+        for quote in quotes:
+            if not isinstance(quote, str) or not quote.strip() or quote not in allowed_text:
+                errors.append(f"{label} 引句不在绑定正文区域内: {quote!r}")
+    if len(str(value.get("conclusion") or "").strip()) < 12:
+        errors.append(f"{label}.conclusion 不足 12 字")
+
+
+def validate_compact_audit_payload(
+    payload: dict[str, Any],
+    project_dir: Path,
+    source: dict[str, Any],
+    target: dict[str, Any],
+    draft_text: str,
+    regions: dict[str, str],
+) -> list[str]:
+    """Validate one concise realization review without duplicating field audits."""
+    errors: list[str] = []
+    source_layers = {
+        str(item["layer_id"]): item
+        for item in source.get("layers") or []
+        if isinstance(item, dict)
+    }
+    target_nodes = {
+        str(item["target_id"]): item
+        for item in target.get("target_nodes") or []
+        if isinstance(item, dict)
+    }
+    layer_mapping = {
+        str(item["source_id"]): item
+        for item in target.get("mappings", {}).get("layers") or []
+        if isinstance(item, dict)
+    }
+    compact_layers = payload.get("layer_reviews")
+    expected_layers = list(source_layers)
+    if not isinstance(compact_layers, list) or [
+        item.get("source_layer_id") for item in compact_layers if isinstance(item, dict)
+    ] != expected_layers:
+        errors.append("compact layer_reviews 必须与来源文字层同序全量对应")
+    else:
+        for item in compact_layers:
+            layer_id = str(item["source_layer_id"])
+            mapping = layer_mapping[layer_id]
+            target_ids = [str(value) for value in mapping["target_node_ids"]]
+            target_regions = list(
+                dict.fromkeys(
+                    target_nodes[value]["region_id"]
+                    for value in target_ids
+                    if value in target_nodes
+                )
+            )
+            if item.get("source_content_sha256") != source_layers[layer_id]["content_sha256"]:
+                errors.append(f"{layer_id} 来源层内容哈希已失效")
+            if item.get("target_node_ids") != target_ids:
+                errors.append(f"{layer_id} 目标节点绑定已变化")
+            if item.get("target_regions") != target_regions:
+                errors.append(f"{layer_id} 目标区域绑定已变化")
+            if item.get("realized") is not True:
+                errors.append(f"{layer_id} 尚未确认 realized=true")
+            if item.get("topology_preserved") is not True:
+                errors.append(f"{layer_id} 尚未确认 topology_preserved=true")
+            allowed_text = "\n".join(regions.get(value, "") for value in target_regions)
+            _validate_compact_evidence(item, layer_id, allowed_text, errors)
+
+    compact_nodes = payload.get("node_reviews")
+    expected_nodes = list(target_nodes)
+    if not isinstance(compact_nodes, list) or [
+        item.get("target_node_id") for item in compact_nodes if isinstance(item, dict)
+    ] != expected_nodes:
+        errors.append("compact node_reviews 必须与目标节点同序全量对应")
+    else:
+        for item in compact_nodes:
+            target_id = str(item["target_node_id"])
+            node = target_nodes[target_id]
+            if item.get("source_refs") != node.get("source_refs"):
+                errors.append(f"{target_id} source_refs 与目标脑图不一致")
+            if item.get("target_region") != node.get("region_id"):
+                errors.append(f"{target_id} target_region 与目标脑图不一致")
+            if item.get("realized") is not True:
+                errors.append(f"{target_id} 尚未确认 realized=true")
+            if item.get("granularity_preserved") is not True:
+                errors.append(f"{target_id} 尚未确认 granularity_preserved=true")
+            _validate_compact_evidence(
+                item,
+                target_id,
+                regions.get(str(item.get("target_region") or ""), ""),
+                errors,
+            )
+
+    layer_reviews = compact_layers if isinstance(compact_layers, list) else []
+    expected_coverage = []
+    for region_id in regions:
+        layer_ids = [
+            item.get("source_layer_id")
+            for item in layer_reviews
+            if isinstance(item, dict) and region_id in (item.get("target_regions") or [])
+        ]
+        if layer_ids:
+            expected_coverage.append(
+                {"region_id": region_id, "source_layer_ids": layer_ids}
+            )
+    if payload.get("region_coverage") != expected_coverage:
+        errors.append("compact region_coverage 与逐层目标区域派生结果不一致")
+    if payload.get("exceptions") != []:
+        errors.append("正文覆盖回执仍有未清零异常")
+    return errors
+
+
 def default_target_path(project_dir: Path) -> Path:
     return project_dir / "写作资产" / "目标成文脑图.json"
 
@@ -2093,13 +2268,16 @@ def default_audit_path(project_dir: Path) -> Path:
 
 def command_preflight(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
     project = Path(args.project_dir).resolve()
+    allow_partial = bool(getattr(args, "allow_partial", False))
     source_path, source = resolve_source_map(
         project, Path(args.source_map).resolve() if args.source_map else None
     )
     target_input, nodes = load_target_nodes(
-        project, Path(args.mind_map).resolve() if args.mind_map else None
+        project,
+        Path(args.mind_map).resolve() if args.mind_map else None,
+        allow_partial=allow_partial,
     )
-    errors = validate_explicit_source_refs(nodes, source)
+    errors = validate_explicit_source_refs(nodes, source, partial=allow_partial)
     dimension_inputs = _parse_json_argument(
         getattr(args, "dimensions_json", "{}"), "dimensions-json"
     )
@@ -2347,6 +2525,25 @@ def _parse_json_argument(value: str, label: str) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"{label} 顶层必须是对象")
     return payload
+
+
+def _parse_json_argument_or_file(
+    value: str, file_value: str | None, label: str
+) -> dict[str, Any]:
+    if file_value:
+        try:
+            raw = (
+                sys.stdin.read()
+                if file_value == "/dev/stdin"
+                else Path(file_value).read_text(encoding="utf-8")
+            )
+            payload = json.loads(raw)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{label} 文件输入不是合法 JSON: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"{label} 顶层必须是对象")
+        return payload
+    return _parse_json_argument(value, label)
 
 
 def _validated_replacement_dimensions(value: Any, label: str) -> list[str]:
@@ -3189,6 +3386,184 @@ def command_audit_confirm_emotions(args: argparse.Namespace) -> tuple[dict[str, 
     return payload, []
 
 
+def command_audit_confirm_compact(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], list[str]]:
+    project = Path(args.project_dir).resolve()
+    path = Path(args.input).resolve() if args.input else default_audit_path(project)
+    payload = read_object(path, "正文覆盖回执")
+    bindings = payload.get("bindings") or {}
+    source = read_object(Path(bindings["source_map"]["path"]), "来源成文脑图")
+    target = read_object(Path(bindings["target_map"]["path"]), "目标成文脑图")
+    draft_text = (project / "正文.md").read_text(encoding="utf-8")
+    regions = audit_draft_regions(draft_text)
+    source_layers = {
+        str(item["layer_id"]): item
+        for item in source.get("layers") or []
+        if isinstance(item, dict)
+    }
+    target_nodes = {
+        str(item["target_id"]): item
+        for item in target.get("target_nodes") or []
+        if isinstance(item, dict)
+    }
+    layer_mapping = {
+        str(item["source_id"]): item
+        for item in target.get("mappings", {}).get("layers") or []
+        if isinstance(item, dict)
+    }
+
+    region_reviews = _parse_json_argument_or_file(
+        getattr(args, "region_reviews_json", "{}"),
+        getattr(args, "region_reviews_json_file", None),
+        "region-reviews-json",
+    )
+    full_reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "compact-reviews-json",
+    )
+    if region_reviews and full_reviews:
+        raise ValueError("不得同时提交 region-reviews-json 和 compact-reviews-json")
+
+    if region_reviews:
+        expected_regions = list(
+            dict.fromkeys(
+                [str(item["region_id"]) for item in target.get("target_nodes") or []]
+                + [
+                    str(region_id)
+                    for item in target.get("mappings", {}).get("layers") or []
+                    for target_id in item.get("target_node_ids") or []
+                    for region_id in [
+                        next(
+                            (
+                                str(node["region_id"])
+                                for node in target.get("target_nodes") or []
+                                if str(node.get("target_id")) == str(target_id)
+                            ),
+                            "",
+                        )
+                    ]
+                ]
+            )
+        )
+        if list(region_reviews) != expected_regions:
+            raise ValueError(
+                "region-reviews-json 必须覆盖目标脑图出现的全部区域并保持首次出现顺序"
+            )
+        for region_id, raw in region_reviews.items():
+            if not isinstance(raw, dict):
+                raise ValueError(f"{region_id} 区域复核必须是对象")
+            allowed_text = regions.get(region_id, "")
+            region_errors: list[str] = []
+            _validate_compact_evidence(
+                raw, region_id, allowed_text, region_errors
+            )
+            if region_errors:
+                raise ValueError(" / ".join(region_errors))
+        node_inputs = {}
+        for target_id, node in target_nodes.items():
+            region_id = str(node["region_id"])
+            raw = region_reviews[region_id]
+            node_inputs[target_id] = {
+                "realized": True,
+                "granularity_preserved": True,
+                "evidence_quotes": list(raw["evidence_quotes"]),
+                "conclusion": f"{target_id} 在 {region_id} 的正文区域中完成目标节点承接：{raw['conclusion']}",
+            }
+        layer_inputs = {}
+        for layer_id, mapping in layer_mapping.items():
+            target_regions = list(
+                dict.fromkeys(
+                    target_nodes[target_id]["region_id"]
+                    for target_id in mapping["target_node_ids"]
+                    if target_id in target_nodes
+                )
+            )
+            quotes = []
+            conclusions = []
+            for region_id in target_regions:
+                raw = region_reviews[region_id]
+                for quote in raw["evidence_quotes"]:
+                    if quote not in quotes:
+                        quotes.append(quote)
+                conclusions.append(str(raw["conclusion"]).strip())
+            layer_inputs[layer_id] = {
+                "realized": True,
+                "topology_preserved": True,
+                "evidence_quotes": quotes,
+                "conclusion": f"{layer_id} 按来源层序和目标区域连续承接：{'；'.join(conclusions)}",
+            }
+        full_reviews = {"layers": layer_inputs, "nodes": node_inputs}
+
+    reviews = full_reviews
+    if set(reviews) != {"layers", "nodes"}:
+        raise ValueError("compact-reviews-json 顶层必须只有 layers 和 nodes")
+
+    layer_inputs = reviews["layers"]
+    if not isinstance(layer_inputs, dict) or list(layer_inputs) != list(source_layers):
+        raise ValueError("compact layers 必须与来源文字层同序全量对应")
+    compact_layers = []
+    for layer_id, raw in layer_inputs.items():
+        if not isinstance(raw, dict):
+            raise ValueError(f"{layer_id} compact 复核必须是对象")
+        mapping = layer_mapping[layer_id]
+        target_ids = [str(value) for value in mapping["target_node_ids"]]
+        target_regions = list(
+            dict.fromkeys(
+                target_nodes[value]["region_id"]
+                for value in target_ids
+                if value in target_nodes
+            )
+        )
+        item = {
+            "source_layer_id": layer_id,
+            "source_content_sha256": source_layers[layer_id]["content_sha256"],
+            "target_node_ids": target_ids,
+            "target_regions": target_regions,
+            "realized": raw.get("realized"),
+            "topology_preserved": raw.get("topology_preserved"),
+            "evidence_quotes": raw.get("evidence_quotes"),
+            "conclusion": str(raw.get("conclusion") or "").strip(),
+        }
+        compact_layers.append(item)
+
+    node_inputs = reviews["nodes"]
+    if not isinstance(node_inputs, dict) or list(node_inputs) != list(target_nodes):
+        raise ValueError("compact nodes 必须与目标节点同序全量对应")
+    compact_nodes = []
+    for target_id, raw in node_inputs.items():
+        if not isinstance(raw, dict):
+            raise ValueError(f"{target_id} compact 复核必须是对象")
+        node = target_nodes[target_id]
+        compact_nodes.append(
+            {
+                "target_node_id": target_id,
+                "source_refs": node["source_refs"],
+                "target_region": node["region_id"],
+                "realized": raw.get("realized"),
+                "granularity_preserved": raw.get("granularity_preserved"),
+                "evidence_quotes": raw.get("evidence_quotes"),
+                "conclusion": str(raw.get("conclusion") or "").strip(),
+            }
+        )
+
+    payload["audit_mode"] = "compact_v1"
+    payload["layer_reviews"] = compact_layers
+    payload["node_reviews"] = compact_nodes
+    payload["plot_reviews"] = []
+    payload["emotion_reviews"] = []
+    payload["gate_status"] = "pending"
+    payload["content_sha256"] = content_hash(payload)
+    errors = validate_compact_audit_payload(
+        payload, project, source, target, draft_text, regions
+    )
+    if errors:
+        return payload, errors
+    write_json(path, payload)
+    return payload, []
+
+
 def command_audit_seal(args: argparse.Namespace) -> tuple[dict[str, Any], list[str]]:
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
@@ -3211,6 +3586,11 @@ def main() -> int:
     preflight.add_argument("--project-dir", required=True)
     preflight.add_argument("--source-map")
     preflight.add_argument("--mind-map")
+    preflight.add_argument(
+        "--allow-partial",
+        action="store_true",
+        help="只校验当前已落盘来源连续前缀，缺少后续来源项不阻断",
+    )
     preflight.add_argument("--dimensions-json", default="{}")
     preflight.add_argument("--layer-anchors-json", default="{}")
     init = subparsers.add_parser("init", help="初始化目标成文脑图")
@@ -3300,6 +3680,22 @@ def main() -> int:
     audit_confirm_emotions.add_argument("--project-dir", required=True)
     audit_confirm_emotions.add_argument("--input", help="正文覆盖回执路径")
     audit_confirm_emotions.add_argument("--reviews-json", required=True)
+    audit_confirm_compact = subparsers.add_parser(
+        "audit-confirm-compact",
+        help="应用逐节点与逐来源层的紧凑正文证据",
+    )
+    audit_confirm_compact.add_argument("--project-dir", required=True)
+    audit_confirm_compact.add_argument("--input", help="正文覆盖回执路径")
+    audit_confirm_compact.add_argument("--reviews-json", default="{}")
+    audit_confirm_compact.add_argument(
+        "--reviews-json-file",
+        help="从文件或 /dev/stdin 读取 compact reviews JSON",
+    )
+    audit_confirm_compact.add_argument("--region-reviews-json", default="{}")
+    audit_confirm_compact.add_argument(
+        "--region-reviews-json-file",
+        help="从文件或 /dev/stdin 读取逐区域正文证据 JSON",
+    )
     audit_seal = subparsers.add_parser("audit-seal", help="校验并封存紧凑正文覆盖回执")
     audit_seal.add_argument("--project-dir", required=True)
     audit_seal.add_argument("--input", help="正文覆盖回执路径")
@@ -3318,6 +3714,7 @@ def main() -> int:
         "audit-confirm-layers": command_audit_confirm_layers,
         "audit-confirm-plots": command_audit_confirm_plots,
         "audit-confirm-emotions": command_audit_confirm_emotions,
+        "audit-confirm-compact": command_audit_confirm_compact,
         "audit-seal": command_audit_seal,
     }
     try:

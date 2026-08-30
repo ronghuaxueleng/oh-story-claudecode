@@ -100,7 +100,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
             ROOT / "references" / "governance" / "p-beat-hot-news-replacement.md"
         ).read_text(encoding="utf-8")
         combined = skill + "\n" + workflow + "\n" + hot_news_rule
-        self.assertIn("每批连续 3-5 个区域直接写入同一个正式文件", skill)
+        self.assertIn("每批 1-2 个相邻区域直接写入同一个正式文件", skill)
         self.assertIn("禁止退化成每个区域一次独立编辑", skill)
         self.assertIn("不得每写一个区域就重读全书账本", skill)
         self.assertIn("隐藏的来源覆盖注释", skill)
@@ -119,6 +119,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         self.assertIn("content / trigger / relationship_position_change / reader_effect / intensity", combined)
         self.assertIn("无功能顺移", combined)
         self.assertIn("audit-confirm-emotions", combined)
+        self.assertIn("audit-confirm-compact", combined)
         self.assertIn("脚本不得自动判真", combined)
 
     def test_profile_prefix_can_derive_appended_ledger_bridges(self) -> None:

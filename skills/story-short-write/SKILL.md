@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.92.0
+  version: 1.94.0
 ---
 
 # story-short-write：短篇网文写作
@@ -113,9 +113,9 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 ### Phase 1：设定与细纲
 
-顺序完成 `设定.md` 和 `小节大纲.md`。设定完成后逐拍重建目标 P 拍；只有用户明确要求热点时，才在定稿细纲前按 BID/E 压力机制检索热点并注入目标事件。`小节大纲.md` 必须按导语、连续数字节、尾声的正式区域顺序，按每批连续 3-5 个区域直接写入同一个正式文件；不足一批时写完剩余区域。禁止退化成每个区域一次独立编辑，也禁止在文件外先攒完整本 P/E 重映射后首次落盘；禁止创建分节草稿、临时细纲或临时合并脚本。
+顺序完成 `设定.md` 和 `小节大纲.md`。设定完成后逐拍重建目标 P 拍；只有用户明确要求热点时，才在定稿细纲前按 BID/E 压力机制检索热点并注入目标事件。`小节大纲.md` 必须按导语、连续数字节、尾声的正式区域顺序，按每批 1-2 个相邻区域直接写入同一个正式文件；不足一批时写完剩余区域。每个区域除主事件和细拍外，必须写清 `入场状态` 与 `离场状态`：只记录人物位置、关系站位、关键物件/权限、已知信息和未闭合压力的变化，不重复抄写设定。批次只用于锁定已落盘真源和控制上下文，不得把一个区域拆成多个行政阶段，禁止退化成每个区域一次独立编辑，更不得在文件外累计第二套完整本 P/E 重映射；禁止创建分节草稿、临时细纲或临时合并脚本。
 
-每批只读取该批实际承接的 BID/E/P/SF/来源层区间和已锁定热点机制，不得每写一个区域就重读全书账本、profile、主体原文或热点页面。每条 `细拍拆分` 首次落盘时必须在行尾写隐藏的来源覆盖注释，注释只登记 ID，不重抄来源内容：
+每批直接在正式大纲文件中落盘，不以内存候选、临时文件或复制文本作为真源；落盘后立即运行官方 `preflight --allow-partial`，只核对当前已落盘区域的结构、状态字段、来源连续前缀、顺序和绑定完整性。下一批只读取当前区域所需的主体原文行域、来源层、上一批离场状态和当前设定，不得每写一个区域就重读全书账本、profile、主体原文或热点页面。每条 `细拍拆分` 首次落盘时必须在行尾写隐藏的来源覆盖注释，注释只登记 ID，不重抄来源内容：
 
 每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。
 
@@ -131,7 +131,15 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 - 某目标节点不承接 P 或 E 时可省略对应字段，但每个目标节点至少承接 P/E/SF步骤/来源层中的一项。
 - 注释不进入目标节点正文证据，不写入最终正文，也不算新增侧车或第二人工真源；Phase 2 映射只能由这些注释确定性派生。
 
-完整细纲落盘后必须先运行正式 `preflight`。任何漏拍、一个节点并多个 P/E、SF 漏步、来源层漏层或倒序都要回到当前细纲批次修复；`preflight` 通过前禁止 `init`。细纲必须包含导语、连续数字节和尾声；每个区域至少写清：
+每个批次先运行：
+
+```bash
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
+  --project-dir "{项目目录}" \
+  --allow-partial
+```
+
+批次预检只允许当前已落盘内容构成主体来源账的连续前缀，不得跳拍、并拍、倒序或提前写入后续来源。全部导语、数字节和尾声落盘后，再运行不带 `--allow-partial` 的完整 `preflight`；`preflight` 通过前禁止 `init`。任何漏拍、一个节点并多个 P/E、SF 漏步、来源层漏层、状态缺失或倒序都回到当前正式文件修复，不另起内存版本。细纲必须包含导语、连续数字节和尾声；每个区域至少写清：
 
 - 主事件、子事件和逐条细拍。
 - 情绪变化、读者新增信息、钩子、物件。
@@ -234,6 +242,12 @@ python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-init \
   --project-dir "{项目目录}"
 
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm-compact \
+  --project-dir "{项目目录}" \
+  --reviews-json-file /dev/stdin \
+  <<< '{逐来源层和逐目标节点的正文证据 JSON}'
+
+# 高风险项目如需逐字段复核，再使用以下旧接口；不得与紧凑终审重复维护两套回执
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-confirm \
   --project-dir "{项目目录}" \
   --reviews-json '{逐层显式布尔、拓扑、保留规则与六维专属引句 JSON}' \

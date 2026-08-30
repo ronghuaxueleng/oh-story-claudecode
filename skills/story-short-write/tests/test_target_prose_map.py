@@ -494,6 +494,8 @@ class TargetProseMapTest(unittest.TestCase):
         fields = (
             "- 主事件：事件\n"
             "- 子事件：子事件\n"
+            "- 入场状态：进入\n"
+            "- 离场状态：离开\n"
             "- 细拍拆分：细拍 <!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->\n"
             "- 情绪：压迫\n"
             "- 读者新获知什么：新信息\n"
@@ -555,11 +557,24 @@ class TargetProseMapTest(unittest.TestCase):
         self.assertTrue(any("同时承载多个 P 拍" in item for item in errors))
         self.assertTrue(any("漏掉来源层" in item for item in errors))
 
+    def test_partial_source_refs_accept_only_a_continuous_prefix(self) -> None:
+        _, nodes = MODULE.load_target_nodes(self.project, self.mind_map)
+
+        partial_errors = MODULE.validate_explicit_source_refs(
+            nodes[:1], self.source, partial=True
+        )
+        full_errors = MODULE.validate_explicit_source_refs(nodes[:1], self.source)
+
+        self.assertEqual([], partial_errors)
+        self.assertTrue(any("漏掉来源" in item for item in full_errors))
+
     def test_preflight_rejects_legacy_outline_without_source_map_comments(self) -> None:
         outline = self.project / "小节大纲.md"
         fields = (
             "- 主事件：事件\n"
             "- 子事件：子事件\n"
+            "- 入场状态：进入\n"
+            "- 离场状态：离开\n"
             "- 细拍拆分：没有声明的旧式细拍\n"
             "- 情绪：压迫\n"
             "- 读者新获知什么：新信息\n"
@@ -1164,6 +1179,90 @@ class TargetProseMapTest(unittest.TestCase):
                     ),
                 )
             )
+
+    def test_compact_audit_confirms_all_nodes_and_layers_without_field_duplication(self) -> None:
+        target = self.create_target()
+        draft = self.project / "正文.md"
+        draft.write_text("# 测试项目\n\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
+        audit = MODULE.create_audit(self.project, self.target_path, target)
+        audit_path = self.assets / "正文覆盖回执.json"
+        MODULE.write_json(audit_path, audit)
+        reviews = {
+            "layers": {
+                "SF-01-L01": {
+                    "realized": True,
+                    "topology_preserved": True,
+                    "evidence_quotes": ["甲推门。"],
+                    "conclusion": "第一层现场动作和进入关系已在正文中落实。",
+                },
+                "SF-01-L02": {
+                    "realized": True,
+                    "topology_preserved": True,
+                    "evidence_quotes": ["乙拒绝。"],
+                    "conclusion": "第二层拒绝动作和退出关系已在正文中落实。",
+                },
+            },
+            "nodes": {
+                "T-1": {
+                    "realized": True,
+                    "granularity_preserved": True,
+                    "evidence_quotes": ["甲推门。"],
+                    "conclusion": "目标节点的动作和控制变化均已落到正文。",
+                },
+                "T-2": {
+                    "realized": True,
+                    "granularity_preserved": True,
+                    "evidence_quotes": ["乙拒绝。"],
+                    "conclusion": "目标节点的拒绝和关系后果均已落到正文。",
+                },
+            },
+        }
+
+        confirmed, errors = MODULE.command_audit_confirm_compact(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(audit_path),
+                reviews_json=json.dumps(reviews, ensure_ascii=False),
+                reviews_json_file=None,
+            )
+        )
+
+        self.assertEqual([], errors)
+        self.assertEqual("compact_v1", confirmed["audit_mode"])
+        self.assertEqual([], MODULE.validate_audit(confirmed, self.project, require_gate=False))
+        self.assertEqual([], confirmed["plot_reviews"])
+        self.assertEqual([], confirmed["emotion_reviews"])
+
+    def test_compact_audit_can_expand_one_review_per_region(self) -> None:
+        target = self.create_target()
+        draft = self.project / "正文.md"
+        draft.write_text("# 测试项目\n\n1.\n甲推门。乙拒绝。\n", encoding="utf-8")
+        audit = MODULE.create_audit(self.project, self.target_path, target)
+        audit_path = self.assets / "正文覆盖回执.json"
+        MODULE.write_json(audit_path, audit)
+        region_reviews = {
+            "section:1": {
+                "evidence_quotes": ["甲推门。", "乙拒绝。"],
+                "conclusion": "这一节的目标动作、关系变化和层序均已在正文中连续落地。",
+            }
+        }
+
+        confirmed, errors = MODULE.command_audit_confirm_compact(
+            SimpleNamespace(
+                project_dir=str(self.project),
+                input=str(audit_path),
+                reviews_json="{}",
+                reviews_json_file=None,
+                region_reviews_json=json.dumps(
+                    region_reviews, ensure_ascii=False
+                ),
+                region_reviews_json_file=None,
+            )
+        )
+
+        self.assertEqual([], errors)
+        self.assertEqual("compact_v1", confirmed["audit_mode"])
+        self.assertEqual([], MODULE.validate_audit(confirmed, self.project, require_gate=False))
 
     def test_audit_confirm_emotions_requires_five_fields_in_one_node(self) -> None:
         target = self.create_target()
