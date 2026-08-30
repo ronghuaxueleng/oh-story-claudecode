@@ -539,10 +539,16 @@ def validate_explicit_source_refs(
     if unknown_steps:
         errors.append(f"细纲引用未知 SF 步骤: {unknown_steps}")
     if partial:
-        if actual_step_positions != list(range(len(actual_step_positions))):
+        unique_steps = list(dict.fromkeys(actual_steps))
+        if unique_steps != expected_steps[: len(unique_steps)]:
             errors.append(
                 "细纲批次 SF 步骤必须是来源账连续前缀: "
-                f"expected_prefix={expected_steps[:len(actual_steps)]}, actual={actual_steps}"
+                f"expected_prefix={expected_steps[:len(unique_steps)]}, actual={unique_steps}"
+            )
+        if actual_step_positions != sorted(actual_step_positions):
+            errors.append(
+                "细纲批次 SF 步骤重复承接只能保持来源原序: "
+                f"actual={actual_steps}"
             )
     elif missing_steps:
         errors.append(f"细纲漏掉 SF 步骤: {missing_steps}")
@@ -2239,6 +2245,116 @@ def validate_compact_audit_payload(
                 errors,
             )
 
+    compact_plots = payload.get("plot_reviews")
+    source_plots = {
+        str(item["beat_id"]): item
+        for item in source.get("plot_beats") or []
+        if isinstance(item, dict)
+    }
+    plot_mapping = {
+        str(item["source_id"]): item
+        for item in target.get("mappings", {}).get("plot_beats") or []
+        if isinstance(item, dict)
+    }
+    expected_plots = list(source_plots)
+    if not isinstance(compact_plots, list) or [
+        item.get("source_plot_id") for item in compact_plots if isinstance(item, dict)
+    ] != expected_plots:
+        errors.append("compact plot_reviews 必须与来源 P 拍同序全量对应")
+    else:
+        for item in compact_plots:
+            beat_id = str(item["source_plot_id"])
+            expected_target = str(plot_mapping[beat_id]["target_id"])
+            expected_region = str(target_nodes[expected_target]["region_id"])
+            if item.get("source_content_sha256") != source_plots[beat_id]["content_sha256"]:
+                errors.append(f"{beat_id} 来源 P 拍内容哈希已失效")
+            if item.get("target_node_id") != expected_target:
+                errors.append(f"{beat_id} P 拍目标节点绑定已变化")
+            if item.get("target_region") != expected_region:
+                errors.append(f"{beat_id} P 拍目标区域已变化")
+            required_flags = (
+                "function_preserved",
+                "action_preserved",
+                "control_change_preserved",
+                "information_change_preserved",
+                "consequence_preserved",
+            )
+            if any(item.get(field) is not True for field in required_flags):
+                errors.append(f"{beat_id} compact P 拍必须逐项确认五个保真布尔")
+            allowed_text = regions.get(expected_region, "")
+            _validate_audit_field_reviews(
+                item.get("field_reviews"),
+                PLOT_AUDIT_FIELDS,
+                f"{beat_id}.field_reviews",
+                allowed_text,
+                errors,
+            )
+            quotes = item.get("evidence_quotes")
+            if not isinstance(quotes, list) or not quotes:
+                errors.append(f"{beat_id} compact P 拍缺少正文引句")
+            elif any(
+                not isinstance(quote, str) or not quote.strip() or quote not in allowed_text
+                for quote in quotes
+            ):
+                errors.append(f"{beat_id} compact P 拍存在无效正文引句")
+            if quotes != _all_detail_quotes(item.get("field_reviews")):
+                errors.append(f"{beat_id} compact P 拍引句未由四项字段证据确定性汇总")
+            if len(str(item.get("conclusion") or "").strip()) < 12:
+                errors.append(f"{beat_id} compact P 拍结论不足 12 字")
+
+    compact_emotions = payload.get("emotion_reviews")
+    source_emotions = {
+        str(item["beat_id"]): item
+        for item in source.get("emotion_beats") or []
+        if isinstance(item, dict)
+    }
+    emotion_mapping = {
+        str(item["source_id"]): item
+        for item in target.get("mappings", {}).get("emotion_beats") or []
+        if isinstance(item, dict)
+    }
+    expected_emotions = list(source_emotions)
+    if not isinstance(compact_emotions, list) or [
+        item.get("source_emotion_id") for item in compact_emotions if isinstance(item, dict)
+    ] != expected_emotions:
+        errors.append("compact emotion_reviews 必须与来源 E 拍同序全量对应")
+    else:
+        for item in compact_emotions:
+            beat_id = str(item["source_emotion_id"])
+            expected_target = str(emotion_mapping[beat_id]["target_id"])
+            expected_region = str(target_nodes[expected_target]["region_id"])
+            if item.get("source_content_sha256") != source_emotions[beat_id]["content_sha256"]:
+                errors.append(f"{beat_id} 来源 E 拍内容哈希已失效")
+            if item.get("target_node_id") != expected_target:
+                errors.append(f"{beat_id} E 拍目标节点绑定已变化")
+            if item.get("target_region") != expected_region:
+                errors.append(f"{beat_id} E 拍目标区域已变化")
+            required_flags = tuple(f"{field}_preserved" for field in EMOTION_AUDIT_FIELDS)
+            if any(item.get(field) is not True for field in required_flags):
+                errors.append(f"{beat_id} compact E 拍必须逐项确认五个保真布尔")
+            if item.get("whole_beat_in_one_node") is not True:
+                errors.append(f"{beat_id} compact E 拍必须确认整拍同节点")
+            allowed_text = regions.get(expected_region, "")
+            _validate_audit_field_reviews(
+                item.get("field_reviews"),
+                EMOTION_AUDIT_FIELDS,
+                f"{beat_id}.field_reviews",
+                allowed_text,
+                errors,
+            )
+            quotes = item.get("evidence_quotes")
+            if not isinstance(quotes, list) or not quotes:
+                errors.append(f"{beat_id} compact E 拍缺少正文引句")
+            elif any(
+                not isinstance(quote, str) or not quote.strip() or quote not in allowed_text
+                for quote in quotes
+            ):
+                errors.append(f"{beat_id} compact E 拍存在无效正文引句")
+            if quotes != _all_detail_quotes(item.get("field_reviews")):
+                errors.append(f"{beat_id} compact E 拍引句未由五项字段证据确定性汇总")
+            if len(str(item.get("conclusion") or "").strip()) < 12:
+                errors.append(f"{beat_id} compact E 拍结论不足 12 字")
+
     layer_reviews = compact_layers if isinstance(compact_layers, list) else []
     expected_coverage = []
     for region_id in regions:
@@ -3236,7 +3352,11 @@ def command_audit_confirm(args: argparse.Namespace) -> tuple[dict[str, Any], lis
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
     payload = read_object(path, "正文覆盖回执")
-    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "reviews-json",
+    )
     audit_reviews = payload.get("layer_reviews") or []
     expected_ids = [str(item.get("source_layer_id") or "") for item in audit_reviews]
     if list(reviews) != expected_ids:
@@ -3244,9 +3364,13 @@ def command_audit_confirm(args: argparse.Namespace) -> tuple[dict[str, Any], lis
     for item in audit_reviews:
         layer_id = str(item["source_layer_id"])
         _apply_layer_audit_review(item, reviews[layer_id])
-    node_reviews_json = getattr(args, "node_reviews_json", None)
-    if node_reviews_json:
-        node_reviews = _parse_json_argument(node_reviews_json, "node-reviews-json")
+    node_reviews_json = getattr(args, "node_reviews_json", "{}")
+    node_reviews = _parse_json_argument_or_file(
+        node_reviews_json,
+        getattr(args, "node_reviews_json_file", None),
+        "node-reviews-json",
+    )
+    if node_reviews:
         audit_nodes = payload.get("node_reviews") or []
         expected_node_ids = [str(item.get("target_node_id") or "") for item in audit_nodes]
         if list(node_reviews) != expected_node_ids:
@@ -3278,7 +3402,11 @@ def command_audit_confirm_nodes(args: argparse.Namespace) -> tuple[dict[str, Any
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
     payload = read_object(path, "正文覆盖回执")
-    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "reviews-json",
+    )
     audit_nodes = payload.get("node_reviews") or []
     by_id = {
         str(item.get("target_node_id") or ""): item
@@ -3316,7 +3444,11 @@ def command_audit_confirm_layers(args: argparse.Namespace) -> tuple[dict[str, An
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
     payload = read_object(path, "正文覆盖回执")
-    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "reviews-json",
+    )
     audit_layers = payload.get("layer_reviews") or []
     by_id = {
         str(item.get("source_layer_id") or ""): item
@@ -3341,7 +3473,11 @@ def command_audit_confirm_plots(args: argparse.Namespace) -> tuple[dict[str, Any
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
     payload = read_object(path, "正文覆盖回执")
-    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "reviews-json",
+    )
     audit_plots = payload.get("plot_reviews") or []
     by_id = {
         str(item.get("source_plot_id") or ""): item
@@ -3366,7 +3502,11 @@ def command_audit_confirm_emotions(args: argparse.Namespace) -> tuple[dict[str, 
     project = Path(args.project_dir).resolve()
     path = Path(args.input).resolve() if args.input else default_audit_path(project)
     payload = read_object(path, "正文覆盖回执")
-    reviews = _parse_json_argument(args.reviews_json, "reviews-json")
+    reviews = _parse_json_argument_or_file(
+        args.reviews_json,
+        getattr(args, "reviews_json_file", None),
+        "reviews-json",
+    )
     audit_emotions = payload.get("emotion_reviews") or []
     by_id = {
         str(item.get("source_emotion_id") or ""): item
@@ -3497,8 +3637,10 @@ def command_audit_confirm_compact(
         full_reviews = {"layers": layer_inputs, "nodes": node_inputs}
 
     reviews = full_reviews
-    if set(reviews) != {"layers", "nodes"}:
-        raise ValueError("compact-reviews-json 顶层必须只有 layers 和 nodes")
+    if set(reviews) != {"layers", "nodes", "plots", "emotions"}:
+        raise ValueError(
+            "compact-reviews-json 顶层必须只有 layers、nodes、plots 和 emotions"
+        )
 
     layer_inputs = reviews["layers"]
     if not isinstance(layer_inputs, dict) or list(layer_inputs) != list(source_layers):
@@ -3548,11 +3690,33 @@ def command_audit_confirm_compact(
             }
         )
 
+    plot_inputs = reviews["plots"]
+    audit_plots = payload.get("plot_reviews") or []
+    plot_by_id = {
+        str(item.get("source_plot_id") or ""): item
+        for item in audit_plots
+        if isinstance(item, dict)
+    }
+    if not isinstance(plot_inputs, dict) or list(plot_inputs) != list(plot_by_id):
+        raise ValueError("compact plots 必须与来源 P 拍同序全量对应")
+    for beat_id, review in plot_inputs.items():
+        _apply_plot_audit_review(plot_by_id[beat_id], review)
+
+    emotion_inputs = reviews["emotions"]
+    audit_emotions = payload.get("emotion_reviews") or []
+    emotion_by_id = {
+        str(item.get("source_emotion_id") or ""): item
+        for item in audit_emotions
+        if isinstance(item, dict)
+    }
+    if not isinstance(emotion_inputs, dict) or list(emotion_inputs) != list(emotion_by_id):
+        raise ValueError("compact emotions 必须与来源 E 拍同序全量对应")
+    for beat_id, review in emotion_inputs.items():
+        _apply_emotion_audit_review(emotion_by_id[beat_id], review)
+
     payload["audit_mode"] = "compact_v1"
     payload["layer_reviews"] = compact_layers
     payload["node_reviews"] = compact_nodes
-    payload["plot_reviews"] = []
-    payload["emotion_reviews"] = []
     payload["gate_status"] = "pending"
     payload["content_sha256"] = content_hash(payload)
     errors = validate_compact_audit_payload(
@@ -3649,10 +3813,18 @@ def main() -> int:
     )
     audit_confirm.add_argument("--project-dir", required=True)
     audit_confirm.add_argument("--input", help="正文覆盖回执路径")
-    audit_confirm.add_argument("--reviews-json", required=True)
+    audit_confirm.add_argument("--reviews-json", default="{}")
+    audit_confirm.add_argument(
+        "--reviews-json-file",
+        help="从文件或 /dev/stdin 读取逐层正文复核 JSON",
+    )
     audit_confirm.add_argument(
         "--node-reviews-json",
         help="按目标节点顺序提供逐节点正文引句与颗粒度结论",
+    )
+    audit_confirm.add_argument(
+        "--node-reviews-json-file",
+        help="从文件或 /dev/stdin 读取逐节点正文复核 JSON",
     )
     audit_confirm_nodes = subparsers.add_parser(
         "audit-confirm-nodes", help="增量应用人工明确提供的目标节点正文引句与颗粒度结论"
@@ -3672,14 +3844,22 @@ def main() -> int:
     )
     audit_confirm_plots.add_argument("--project-dir", required=True)
     audit_confirm_plots.add_argument("--input", help="正文覆盖回执路径")
-    audit_confirm_plots.add_argument("--reviews-json", required=True)
+    audit_confirm_plots.add_argument("--reviews-json", default="{}")
+    audit_confirm_plots.add_argument(
+        "--reviews-json-file",
+        help="从文件或 /dev/stdin 读取逐 P 拍复核 JSON",
+    )
     audit_confirm_emotions = subparsers.add_parser(
         "audit-confirm-emotions",
         help="增量应用人工逐 E 拍五字段语义保真结论",
     )
     audit_confirm_emotions.add_argument("--project-dir", required=True)
     audit_confirm_emotions.add_argument("--input", help="正文覆盖回执路径")
-    audit_confirm_emotions.add_argument("--reviews-json", required=True)
+    audit_confirm_emotions.add_argument("--reviews-json", default="{}")
+    audit_confirm_emotions.add_argument(
+        "--reviews-json-file",
+        help="从文件或 /dev/stdin 读取逐 E 拍复核 JSON",
+    )
     audit_confirm_compact = subparsers.add_parser(
         "audit-confirm-compact",
         help="应用逐节点与逐来源层的紧凑正文证据",
