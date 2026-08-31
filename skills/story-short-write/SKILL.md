@@ -123,6 +123,8 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 每个区域直接在正式大纲文件中落盘，不以内存候选、临时文件或复制文本作为真源；当前区域落盘后立即运行官方 `preflight --allow-partial`，只核对当前区域及此前已通过区域的结构、状态字段、来源连续前缀、顺序和绑定完整性。下一区域只读取其所需的主体原文行域、来源层、上一整区域离场状态和当前设定，不得为方便生成而一次性读取并重写全书。每条 `细拍拆分` 首次落盘时必须在行尾写隐藏的来源覆盖注释，注释只登记 ID，不重抄来源内容：
 
+区域级施工字段（`主事件`、`情绪`、`钩子`、`伏笔/物件`、`场面单元`）必须针对当前区域独立填写；不得把同一组通用模板复制到多个区域。正式 `preflight` 会对这些字段做完全重复拦截；命中后必须回到当前正式文件逐区重写，不能用改标题、改数字或保留重复字段继续下游。
+
 每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。
 
 同一次核对只额外保留两类紧凑输入：每个 P 拍选择至少三个合法换壳维度；每个来源层选 1-3 条行域内原文短引句。合法 P 维度固定只有 `actor / relationship / setting / object / conflict_mechanism / information_mechanism / consequence`。禁止自造 `control_mechanism` 等近义字段；正式脚本会在 preflight 阶段给出最接近的合法字段提示。E 五字段、P 四项承重以及层拓扑/规则/六维的目标实现都已存在于当前细拍与显式绑定中，后续只允许确定性展开，不再人工重复抄写。
@@ -266,6 +268,10 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" prepare-section 
 人物读取流水、病历、名单、门禁、合同和其他结构化记录时，必须先写她实际看见的字段与值，再允许下判断。不得用审计结论、流程摘要或资金路径概述代替人物看数据；如果一句话只能由写大纲、做审计或解释规则的人说，当前人物就不会这样想。
 
 候选完成后切换到独立 critic 任务，不再沿用写作者的解释意图。critic 只接收最终候选、当前句法包的可核验规则引用和项目已记录用户反馈，先作诊断、不直接改写：逐句引用最可疑短语，检查朗读、物理动作、人物注意力和结构化记录；按连续动作链、话轮组与段落转接指出 weakest link。初稿至少一个真实 weakest link 必须先被定点修掉；最终候选的失败码必须清零。失败类型由 critic 针对当前问题动态命名，不使用固定词表；每条 finding 必须引用当前 `规则执行台账.json.groups[].cases` 的真实 `rule_id:line`，脚本只校验引用和结构，不替模型判语义。
+
+`precommit-section` 在盲审结构校验前，必须对当前数字节候选执行 `length_policy.min_section_ratio` 的主体锚定量检查；候选非空字符低于对应主体数字节最低量时直接阻断，不得先写入 `正文.md` 再等待全书放行发现。该检查只针对当前候选，不以相邻区域字数补足，也不允许用导语或尾声字符抵扣。
+
+每节形成候选前，模型必须先读取当前主体数字节的精确非空字符数并计算 `required_min=ceil(primary_section_chars*min_section_ratio)`；候选施工目标不得贴着最低线写，至少预留 `max(40字, required_min*0.05)` 的缓冲。提交前必须明确核对并记录 `candidate_chars / required_min / buffer`，避免用试探性短稿反复撞门。
 
 用户指出的自然度失败不写进公共 skill 固定词表；使用正式 `record-feedback` 将原句、问题和修复方向存入当前项目台账。后续 `prepare-section` 自动带出本项目全部反馈案例，precommit 必须显式全量消费其 ID。
 

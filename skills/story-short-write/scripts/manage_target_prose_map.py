@@ -310,6 +310,28 @@ def parse_outline(
                 "target_beats": target_beats,
             }
         )
+    # Exact reuse of region-level施工字段 is a placeholder pattern, not a valid
+    # full-granularity outline. Catch it before any target mind-map is initialized.
+    uniqueness_fields = (
+        ("主事件", "main_event"),
+        ("情绪", "emotion"),
+        ("钩子", "hook"),
+        ("伏笔/物件", "objects"),
+        ("场面单元", "scene_summary"),
+    )
+    for label, key in uniqueness_fields:
+        seen: dict[str, str] = {}
+        for region in regions:
+            value = str(region.get(key) or "").strip()
+            if not value:
+                continue
+            prior = seen.get(value)
+            if prior:
+                errors.append(
+                    f"区域字段{label}不得与{prior}完全重复: {region['region_id']}"
+                )
+            else:
+                seen[value] = str(region.get("region_id") or "")
     actual = [item["region_id"] for item in regions]
     numeric_count = sum(
         1 for item in regions if item["region_id"].startswith("section:")

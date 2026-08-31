@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -46,6 +47,66 @@ def sha256(path: Path) -> str:
 
 def text_sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def source_numeric_sections(text: str) -> list[str]:
+    lines = text.splitlines()
+    markers: list[tuple[int, int]] = []
+    for index, line in enumerate(lines):
+        match = re.fullmatch(r"\s*(\d+)(?:[.、．])?\s*", line)
+        if match:
+            markers.append((index, int(match.group(1))))
+    numbers = [number for _, number in markers]
+    if not numbers or numbers != list(range(1, len(numbers) + 1)):
+        return []
+    return [
+        "\n".join(
+            lines[start + 1 : markers[pos + 1][0] if pos + 1 < len(markers) else len(lines)]
+        )
+        for pos, (start, _) in enumerate(markers)
+    ]
+
+
+def nonspace_count(text: str) -> int:
+    return len(re.sub(r"\s+", "", text))
+
+
+def validate_candidate_section_length(
+    ledger_path: Path, region_id: str, candidate_text: str
+) -> list[str]:
+    """Block an under-length numeric candidate before it can be precommitted."""
+    if not region_id.startswith("section:"):
+        return []
+    try:
+        section_number = int(region_id.split(":", 1)[1])
+        project_dir = ledger_path.parent.parent
+        config_path = project_dir / "写作资产" / "项目写作配置.json"
+        config = load(config_path)
+        primary = config.get("primary") or {}
+        original_path = resolve_config_path(
+            config_path, str(primary.get("original_path") or "")
+        )
+        source_sections = source_numeric_sections(
+            original_path.read_text(encoding="utf-8")
+        )
+        raw_policy = config.get("length_policy") or {}
+        min_ratio = float(raw_policy.get("min_section_ratio", 0.90))
+    except (OSError, ValueError, TypeError, IndexError, json.JSONDecodeError) as exc:
+        return [f"无法执行候选分节锚定量校验: {exc}"]
+    if not source_sections or section_number < 1 or section_number > len(source_sections):
+        return [
+            f"候选分节锚定量校验缺少主体第 {section_number} 节来源"
+        ]
+    source_chars = nonspace_count(source_sections[section_number - 1])
+    candidate_chars = nonspace_count(candidate_text)
+    required = math.ceil(source_chars * min_ratio)
+    if candidate_chars < required:
+        return [
+            f"候选正文第 {section_number} 节低于主体分节最低锚定量: "
+            f"candidate={candidate_chars}, required_min={required}, "
+            f"primary={source_chars}, min_ratio={min_ratio:.2f}"
+        ]
+    return []
 
 
 def read_text(path: Path) -> str:
@@ -1066,6 +1127,9 @@ def precommit_section_candidate(
     candidate_text = candidate_text.strip()
     if not candidate_text:
         return ["precommit 候选正文为空"]
+    errors.extend(validate_candidate_section_length(ledger_path, region_id, candidate_text))
+    if errors:
+        return errors
     errors.extend(validate_precommit_review(review, candidate_text, data))
     if errors:
         return errors
