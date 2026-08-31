@@ -12,6 +12,7 @@ ALLOWED_SCRIPTS = {
     "generate_story_profile.py",
     "init_project_writing_assets.py",
     "manage_target_prose_map.py",
+    "validate_rule_execution_ledger.py",
     "validate_continuation_gate.py",
     "validate_project_directory_name.py",
     "validate_streamlined_write_release.py",
@@ -25,6 +26,7 @@ ALLOWED_PRODUCTS = {
     "正文.md",
     "目标成文脑图.json",
     "正文覆盖回执.json",
+    "规则执行台账.json",
 }
 
 
@@ -91,7 +93,7 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         self.assertIn("social_heat_signal", combined)
         self.assertNotIn("浏览器/CDP 可用时优先", combined)
 
-    def test_outline_is_persisted_in_bounded_batches_without_global_rebuild(self) -> None:
+    def test_outline_and_draft_are_persisted_one_region_at_a_time(self) -> None:
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
         workflow = (
             ROOT / "references" / "workflow" / "writing-workflow.md"
@@ -100,14 +102,18 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
             ROOT / "references" / "governance" / "p-beat-hot-news-replacement.md"
         ).read_text(encoding="utf-8")
         combined = skill + "\n" + workflow + "\n" + hot_news_rule
-        self.assertIn("每批 1-2 个相邻区域直接写入同一个正式文件", skill)
-        self.assertIn("禁止退化成每个区域一次独立编辑", skill)
-        self.assertIn("不得每写一个区域就重读全书账本", skill)
+        self.assertIn("一次只写入一个正式区域", skill)
+        self.assertIn("当前区域通过预检后", skill)
+        self.assertIn("下一区域只读取其所需的主体原文行域", skill)
         self.assertIn("隐藏的来源覆盖注释", skill)
         self.assertIn("不算新增侧车或第二人工真源", skill)
-        self.assertIn("`preflight` 通过前禁止 `init`", skill)
+        self.assertIn("完整预检通过前禁止 `init`", skill)
         self.assertIn("不得根据来源行号、字数或相邻 P 拍自动猜测", workflow)
         self.assertIn("禁止创建分节草稿、临时细纲或临时合并脚本", skill)
+        self.assertIn("prepare-section", skill)
+        self.assertIn("confirm-section", skill)
+        self.assertIn("全部真实句子", workflow)
+        self.assertIn("连续句链", workflow)
         self.assertIn("达到最低两条合格材料后立即停止扩搜", hot_news_rule)
         self.assertIn("只调整实际绑定的目标 P 拍", combined)
         self.assertIn("不得借热点重推全书 P/E 映射或延迟细纲落盘", skill)

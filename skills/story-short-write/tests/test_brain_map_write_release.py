@@ -79,7 +79,7 @@ class BrainMapWriteReleaseDensityTest(unittest.TestCase):
         self.assertEqual(2, len(oversized))
         self.assertEqual([], within_limit)
 
-    def test_draft_uses_only_global_upper_bound(self) -> None:
+    def test_draft_enforces_source_anchored_minimum_and_upper_bound(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             original = Path(directory) / "主体.txt"
             original.write_text("字" * 10_000, encoding="utf-8")
@@ -94,7 +94,7 @@ class BrainMapWriteReleaseDensityTest(unittest.TestCase):
                 "字" * 1_000, original, config
             )
         self.assertEqual([], at_limit)
-        self.assertEqual([], short_draft)
+        self.assertIn("required_min", short_draft[0])
         self.assertIn("draft=12501", over_limit[0])
 
     def test_expansion_requires_explicit_user_authorization(self) -> None:

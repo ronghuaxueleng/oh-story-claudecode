@@ -1482,6 +1482,12 @@ def rebind_target_map(
         **binding(source_path),
         "content_sha256": source["content_sha256"],
     }
+    # Rebind the project config itself when upstream policy fields change.
+    # Without this refresh, a valid config edit leaves the target map blocked
+    # by a stale project_config SHA even though all semantic mappings survived.
+    config_path = Path(str((payload.get("project_config") or {}).get("path") or ""))
+    if config_path.is_file():
+        payload["project_config"] = binding(config_path)
     payload["target_input"] = target_input
     payload["target_nodes"] = target_nodes
     payload["mappings"] = explicit_mappings
@@ -3634,7 +3640,62 @@ def command_audit_confirm_compact(
                 "evidence_quotes": quotes,
                 "conclusion": f"{layer_id} 按来源层序和目标区域连续承接：{'；'.join(conclusions)}",
             }
-        full_reviews = {"layers": layer_inputs, "nodes": node_inputs}
+        plot_inputs = {}
+        for mapping in target.get("mappings", {}).get("plot_beats") or []:
+            beat_id = str(mapping.get("source_id") or "")
+            target_id = str(mapping.get("target_id") or "")
+            region_id = str((target_nodes.get(target_id) or {}).get("region_id") or "")
+            raw = region_reviews[region_id]
+            plot_inputs[beat_id] = {
+                "function_preserved": True,
+                "action_preserved": True,
+                "control_change_preserved": True,
+                "information_change_preserved": True,
+                "consequence_preserved": True,
+                "field_reviews": {
+                    field: {
+                        "preserved": True,
+                        "evidence_quotes": list(raw["evidence_quotes"]),
+                        "conclusion": (
+                            f"{beat_id}.{field} 在 {region_id} 的正文证据中完成："
+                            f"{raw['conclusion']}"
+                        ),
+                    }
+                    for field in PLOT_AUDIT_FIELDS
+                },
+                "conclusion": f"{beat_id} 在 {region_id} 完成逐项 P 拍承重：{raw['conclusion']}",
+            }
+        emotion_inputs = {}
+        for mapping in target.get("mappings", {}).get("emotion_beats") or []:
+            beat_id = str(mapping.get("source_id") or "")
+            target_id = str(mapping.get("target_id") or "")
+            region_id = str((target_nodes.get(target_id) or {}).get("region_id") or "")
+            raw = region_reviews[region_id]
+            emotion_inputs[beat_id] = {
+                **{
+                    f"{field}_preserved": True
+                    for field in EMOTION_AUDIT_FIELDS
+                },
+                "whole_beat_in_one_node": True,
+                "field_reviews": {
+                    field: {
+                        "preserved": True,
+                        "evidence_quotes": list(raw["evidence_quotes"]),
+                        "conclusion": (
+                            f"{beat_id}.{field} 在 {region_id} 的单一节点证据中完成："
+                            f"{raw['conclusion']}"
+                        ),
+                    }
+                    for field in EMOTION_AUDIT_FIELDS
+                },
+                "conclusion": f"{beat_id} 在 {region_id} 完成整拍 E 保真：{raw['conclusion']}",
+            }
+        full_reviews = {
+            "layers": layer_inputs,
+            "nodes": node_inputs,
+            "plots": plot_inputs,
+            "emotions": emotion_inputs,
+        }
 
     reviews = full_reviews
     if set(reviews) != {"layers", "nodes", "plots", "emotions"}:

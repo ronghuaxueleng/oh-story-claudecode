@@ -1216,6 +1216,43 @@ class TargetProseMapTest(unittest.TestCase):
                     "conclusion": "目标节点的拒绝和关系后果均已落到正文。",
                 },
             },
+            "plots": {
+                "P-001": {
+                    "function_preserved": True,
+                    "action_preserved": True,
+                    "control_change_preserved": True,
+                    "information_change_preserved": True,
+                    "consequence_preserved": True,
+                    "field_reviews": self.audit_details(
+                        MODULE.PLOT_AUDIT_FIELDS, "甲推门。"
+                    ),
+                    "conclusion": "第一条 P 拍的进入动作和后续承重均已完整落地。",
+                },
+                "P-002": {
+                    "function_preserved": True,
+                    "action_preserved": True,
+                    "control_change_preserved": True,
+                    "information_change_preserved": True,
+                    "consequence_preserved": True,
+                    "field_reviews": self.audit_details(
+                        MODULE.PLOT_AUDIT_FIELDS, "乙拒绝。"
+                    ),
+                    "conclusion": "第二条 P 拍的拒绝动作和关系后果均已完整落地。",
+                },
+            },
+            "emotions": {
+                "E-001": {
+                    **{
+                        f"{field}_preserved": True
+                        for field in MODULE.EMOTION_AUDIT_FIELDS
+                    },
+                    "whole_beat_in_one_node": True,
+                    "field_reviews": self.audit_details(
+                        MODULE.EMOTION_AUDIT_FIELDS, "乙拒绝。"
+                    ),
+                    "conclusion": "拒绝情绪的五项语义在同一节点完整落地。",
+                }
+            },
         }
 
         confirmed, errors = MODULE.command_audit_confirm_compact(
@@ -1230,8 +1267,8 @@ class TargetProseMapTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual("compact_v1", confirmed["audit_mode"])
         self.assertEqual([], MODULE.validate_audit(confirmed, self.project, require_gate=False))
-        self.assertEqual([], confirmed["plot_reviews"])
-        self.assertEqual([], confirmed["emotion_reviews"])
+        self.assertEqual(2, len(confirmed["plot_reviews"]))
+        self.assertEqual(1, len(confirmed["emotion_reviews"]))
 
     def test_compact_audit_can_expand_one_review_per_region(self) -> None:
         target = self.create_target()

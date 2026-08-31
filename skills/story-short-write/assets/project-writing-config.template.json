@@ -4,6 +4,8 @@
   "profile_path": "../profiles/{project_name}.project.profile.json",
   "length_policy": {
     "mode": "source_anchored",
+    "min_total_ratio": 0.90,
+    "min_section_ratio": 0.90,
     "max_total_ratio": 1.25,
     "max_section_ratio": 1.25
   },

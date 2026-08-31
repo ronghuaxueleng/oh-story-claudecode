@@ -21,7 +21,17 @@ def _load_target_map_module():
     return module
 
 
+def _load_rule_ledger_module():
+    path = Path(__file__).with_name("validate_rule_execution_ledger.py")
+    spec = importlib.util.spec_from_file_location("story_short_write_rule_ledger", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 TARGET_MAP = _load_target_map_module()
+RULE_LEDGER = _load_rule_ledger_module()
 
 PROSE_GUIDANCE_FIELDS = (
     "sentence_motion",
@@ -58,6 +68,8 @@ MAX_SECTION_DENSITY_EXPANSION = 1.6
 MIN_REASONABLE_SECTION_CHARS = 800
 DEFAULT_MAX_TOTAL_RATIO = 1.25
 DEFAULT_MAX_SECTION_RATIO = 1.25
+DEFAULT_MIN_TOTAL_RATIO = 0.90
+DEFAULT_MIN_SECTION_RATIO = 0.90
 MAX_SOURCE_ANCHORED_RATIO = 1.25
 
 
@@ -130,12 +142,18 @@ def resolve_length_policy(config: dict[str, Any]) -> tuple[dict[str, Any], list[
     if mode not in {"source_anchored", "explicit_expansion"}:
         return {}, ["length_policy.mode 只能是 source_anchored 或 explicit_expansion"]
     try:
+        min_total_ratio = float(raw.get("min_total_ratio", DEFAULT_MIN_TOTAL_RATIO))
+        min_section_ratio = float(raw.get("min_section_ratio", DEFAULT_MIN_SECTION_RATIO))
         max_total_ratio = float(raw.get("max_total_ratio", DEFAULT_MAX_TOTAL_RATIO))
         max_section_ratio = float(raw.get("max_section_ratio", DEFAULT_MAX_SECTION_RATIO))
     except (TypeError, ValueError):
         return {}, ["length_policy 的比例必须是数字"]
-    if max_total_ratio <= 0 or max_section_ratio <= 0:
+    if min_total_ratio <= 0 or min_section_ratio <= 0 or max_total_ratio <= 0 or max_section_ratio <= 0:
         errors.append("length_policy 的比例必须大于 0")
+    if min_total_ratio > max_total_ratio:
+        errors.append("length_policy.min_total_ratio 不得大于 max_total_ratio")
+    if min_section_ratio > max_section_ratio:
+        errors.append("length_policy.min_section_ratio 不得大于 max_section_ratio")
     if mode == "source_anchored" and (
         max_total_ratio > MAX_SOURCE_ANCHORED_RATIO
         or max_section_ratio > MAX_SOURCE_ANCHORED_RATIO
@@ -148,6 +166,8 @@ def resolve_length_policy(config: dict[str, Any]) -> tuple[dict[str, Any], list[
             errors.append("explicit_expansion 必须记录用户明确扩写要求")
     return {
         "mode": mode,
+        "min_total_ratio": min_total_ratio,
+        "min_section_ratio": min_section_ratio,
         "max_total_ratio": max_total_ratio,
         "max_section_ratio": max_section_ratio,
     }, errors
@@ -198,6 +218,14 @@ def validate_source_anchored_draft(
         return errors
     source_chars = nonspace_count(primary_original.read_text(encoding="utf-8"))
     draft_chars = nonspace_count(draft_text)
+    min_chars = math.ceil(source_chars * policy["min_total_ratio"])
+    if draft_chars < min_chars:
+        errors.append(
+            "正文整体篇幅低于主体原文初稿最低锚定量: "
+            f"draft={draft_chars}, required_min={min_chars}, "
+            f"primary_chars={source_chars}, min_ratio={policy['min_total_ratio']:.2f}, "
+            f"mode={policy['mode']}"
+        )
     max_chars = math.floor(source_chars * policy["max_total_ratio"])
     if draft_chars > max_chars:
         errors.append(
@@ -205,6 +233,29 @@ def validate_source_anchored_draft(
             f"draft={draft_chars}, allowed_max={max_chars}, "
             f"primary_chars={source_chars}, mode={policy['mode']}"
         )
+    source_sections = source_numeric_sections(primary_original.read_text(encoding="utf-8"))
+    draft_sections = source_numeric_sections(draft_text)
+    if len(draft_sections) != len(source_sections):
+        errors.append(
+            "正文数字节数量必须与主体原文一致，才能执行逐节锚定校验: "
+            f"draft_sections={len(draft_sections)}, primary_sections={len(source_sections)}"
+        )
+    else:
+        for index, (source_section, draft_section) in enumerate(
+            zip(source_sections, draft_sections), start=1
+        ):
+            source_section_chars = nonspace_count(source_section)
+            draft_section_chars = nonspace_count(draft_section)
+            required_section_chars = math.ceil(
+                source_section_chars * policy["min_section_ratio"]
+            )
+            if draft_section_chars < required_section_chars:
+                errors.append(
+                    f"正文第 {index} 节低于主体分节最低锚定量: "
+                    f"draft={draft_section_chars}, required_min={required_section_chars}, "
+                    f"primary={source_section_chars}, "
+                    f"min_ratio={policy['min_section_ratio']:.2f}"
+                )
     return errors
 
 
@@ -267,6 +318,11 @@ def validate_release(project_dir: Path) -> list[str]:
     config_path = project_dir / "写作资产" / "项目写作配置.json"
     outline_path = project_dir / "小节大纲.md"
     target_map_path = project_dir / "写作资产" / "目标成文脑图.json"
+    ledger_path = project_dir / "写作资产" / "规则执行台账.json"
+    if not ledger_path.is_file():
+        errors.append(f"缺少写前规则执行台账: {ledger_path}")
+    else:
+        errors.extend(RULE_LEDGER.validate_prewrite_ledger(ledger_path))
     try:
         config = read_json(config_path, "项目写作配置")
         if config.get("project_name") != project:
@@ -352,6 +408,23 @@ def validate_release(project_dir: Path) -> list[str]:
                     config,
                 )
             )
+            draft_path = project_dir / "正文.md"
+            if draft_path.is_file():
+                errors.extend(
+                    validate_source_anchored_draft(
+                        draft_path.read_text(encoding="utf-8"),
+                        primary_original,
+                        config,
+                    )
+                )
+                errors.extend(
+                    RULE_LEDGER.validate_draft_review_state(
+                        ledger_path,
+                        draft_path,
+                        require_complete=True,
+                        validate_prewrite_first=False,
+                    )
+                )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         errors.append(str(exc))
     return errors
