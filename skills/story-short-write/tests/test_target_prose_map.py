@@ -491,23 +491,24 @@ class TargetProseMapTest(unittest.TestCase):
 
     def test_outline_parser_is_owned_by_brain_map_script(self) -> None:
         outline = self.project / "小节大纲.md"
-        fields = (
-            "- 主事件：事件\n"
-            "- 子事件：子事件\n"
-            "- 入场状态：进入\n"
-            "- 离场状态：离开\n"
+        def fields(region: str) -> str:
+            return (
+            f"- 主事件：{region}事件\n"
+            f"- 子事件：{region}子事件\n"
+            f"- 入场状态：{region}进入\n"
+            f"- 离场状态：{region}离开\n"
             "- 细拍拆分：细拍 <!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->\n"
-            "- 情绪：压迫\n"
-            "- 读者新获知什么：新信息\n"
-            "- 钩子：钩子\n"
-            "- 伏笔/物件：物件\n"
-            "- 动静：动\n"
+            f"- 情绪：{region}压迫\n"
+            f"- 读者新获知什么：{region}新信息\n"
+            f"- 钩子：{region}钩子\n"
+            f"- 伏笔/物件：{region}物件\n"
+            f"- 动静：{region}动\n"
             "- 对话密度：中\n"
             "- 目标字数：100-200字\n"
-            "- 场面单元：现场\n"
-        )
+            f"- 场面单元：{region}现场\n"
+            )
         outline.write_text(
-            f"## 导语\n{fields}\n## 1.\n{fields}\n## 尾声\n{fields}",
+            f"## 导语\n{fields('导语')}\n## 1.\n{fields('第一节')}\n## 尾声\n{fields('尾声')}",
             encoding="utf-8",
         )
 
@@ -570,23 +571,24 @@ class TargetProseMapTest(unittest.TestCase):
 
     def test_preflight_rejects_legacy_outline_without_source_map_comments(self) -> None:
         outline = self.project / "小节大纲.md"
-        fields = (
-            "- 主事件：事件\n"
-            "- 子事件：子事件\n"
-            "- 入场状态：进入\n"
-            "- 离场状态：离开\n"
+        def fields(region: str) -> str:
+            return (
+            f"- 主事件：{region}事件\n"
+            f"- 子事件：{region}子事件\n"
+            f"- 入场状态：{region}进入\n"
+            f"- 离场状态：{region}离开\n"
             "- 细拍拆分：没有声明的旧式细拍\n"
-            "- 情绪：压迫\n"
-            "- 读者新获知什么：新信息\n"
-            "- 钩子：钩子\n"
-            "- 伏笔/物件：物件\n"
-            "- 动静：动\n"
+            f"- 情绪：{region}压迫\n"
+            f"- 读者新获知什么：{region}新信息\n"
+            f"- 钩子：{region}钩子\n"
+            f"- 伏笔/物件：{region}物件\n"
+            f"- 动静：{region}动\n"
             "- 对话密度：中\n"
             "- 目标字数：100-200字\n"
-            "- 场面单元：现场\n"
-        )
+            f"- 场面单元：{region}现场\n"
+            )
         outline.write_text(
-            f"## 导语\n{fields}\n## 1.\n{fields}\n## 尾声\n{fields}",
+            f"## 导语\n{fields('导语')}\n## 1.\n{fields('第一节')}\n## 尾声\n{fields('尾声')}",
             encoding="utf-8",
         )
         _, nodes = MODULE.load_target_nodes(self.project, None)

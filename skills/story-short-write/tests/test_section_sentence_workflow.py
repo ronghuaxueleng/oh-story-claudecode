@@ -41,7 +41,6 @@ def review_for(text: str, *, single_chain: bool = True) -> dict:
         "template_repetition_judgment": "当前区域没有复用事件句加固定旁白的批量拼接结构。",
         "explanatory_inference_review": "当前区域的判断都有眼前动作和物件后果支撑，没有作者代判。",
         "manual_judgment": "当前区域的活动作、感知和停顿都属于人物此刻正在经历的现场。",
-        "human_writer_counterfactual_review": "逐句和逐组反向检查后，当前动作可执行、人物会注意这些词，话轮也能由真人直接说出。",
         "region_judgment": "当前区域全部句子已逐项复核，可以冻结后进入下一区域。",
     }
 
@@ -74,7 +73,7 @@ def precommit_review_for(text: str, *, feedback_ids: list[str] | None = None) ->
                 "pov_attention_verdict": "pass",
                 "structured_record_verdict": "not_applicable",
                 "failure_codes": [],
-                "adversarial_judgment": f"第{index + 1}句先默认失败后重读，当前措辞和人物注意力均有文本内依据。",
+                "judgment": f"第{index + 1}句的朗读、动作和人物注意力检查均有文本内依据。",
             }
             for index, sentence in enumerate(sentences)
         ],
@@ -84,11 +83,55 @@ def precommit_review_for(text: str, *, feedback_ids: list[str] | None = None) ->
                 "quotes": [sentences[0]],
                 "weakest_point": "段落转接是否依赖作者解释",
                 "verdict": "pass",
-                "adversarial_judgment": "当前组由句内动作和结果直接连接，不需要创作意图或段外解释才能成立。",
+                "judgment": "当前组由句内动作和结果直接连接，不需要创作意图或段外解释才能成立。",
             }
         ],
         "final_verdict": "pass",
         "final_judgment": "盲审先记录并修复初稿 weakest link，最终候选逐句与逐组失败码均已清零。",
+    }
+
+
+def design_review_for(
+    ledger_data: dict,
+    candidate: str,
+    artifact: str,
+    region_id: str,
+    source_refs: list,
+) -> dict:
+    first_group = ledger_data["groups"][0]
+    rule_ref = f"{first_group['rule_id']}:{first_group['cases'][0]['line']}"
+    evidence = candidate.strip().splitlines()[-1]
+    axes = LEDGER.DESIGN_REVIEW_AXES[artifact]
+    return {
+        "artifact": artifact,
+        "region_id": region_id,
+        "critic_context_isolated": True,
+        "diagnostic_only_first_pass": True,
+        "author_intent_ignored": True,
+        "model_read_final_candidate": True,
+        "rule_refs_considered": [rule_ref],
+        "source_refs_considered": source_refs,
+        "draft_findings": [
+            {
+                "original_quote": "初稿里存在一个需要提前修正的具体设计问题。",
+                "failure_code": "CURRENT_DESIGN_FAILURE",
+                "rule_refs": [rule_ref],
+                "diagnosis": "初稿的事实、动作或来源承载仍需要依靠作者解释才能成立。",
+                "rewrite_direction": "改为候选内可直接核验的事实、动作、状态或来源声明。",
+                "resolved_in_final_quote": evidence,
+            }
+        ],
+        "axis_checks": {
+            axis: {
+                "verdict": "pass",
+                "evidence_quotes": [evidence],
+                "failure_codes": [],
+                "judgment": f"{axis} 已按当前候选的事实、动作与来源证据反向复核并清零。",
+            }
+            for axis in axes
+        },
+        "final_verdict": "pass",
+        "final_judgment": "隔离 critic 已先诊断初稿 weakest link，最终候选的设定或大纲维度均有逐字证据且失败码清零。",
     }
 
 
@@ -208,6 +251,183 @@ class SectionSentenceWorkflowTest(unittest.TestCase):
         (self.project / "写作资产" / "项目写作配置.json").write_text(
             json.dumps({"profile_path": str(profile)}, ensure_ascii=False),
             encoding="utf-8",
+        )
+
+    def install_design_ledger(self) -> dict:
+        config = self.project / "写作资产" / "项目写作配置.json"
+        config.write_text('{"project_name":"测试书"}', encoding="utf-8")
+        data = LEDGER.build_ledger(self.project, ROOT)
+        self.ledger.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        return data
+
+    def setting_source_refs(self) -> list[dict]:
+        config = self.project / "写作资产" / "项目写作配置.json"
+        return [{"path": str(config), "sha256": LEDGER.sha256(config)}]
+
+    def approve_setting_design(self) -> None:
+        data = json.loads(self.ledger.read_text(encoding="utf-8"))
+        candidate = "# 《测试书》设定\n\n## 现实规则\n当前人物只能使用已经建立的权限。"
+        review = design_review_for(
+            data,
+            candidate,
+            "setting",
+            "setting",
+            self.setting_source_refs(),
+        )
+        self.assertEqual(
+            [],
+            LEDGER.precommit_design_candidate(
+                self.ledger, "setting", candidate, review
+            ),
+        )
+        setting = self.project / "设定.md"
+        setting.write_text(candidate, encoding="utf-8")
+        self.assertEqual(
+            [],
+            LEDGER.confirm_design_candidate(
+                self.ledger, "setting", setting
+            ),
+        )
+
+    def test_setting_design_critic_runs_before_first_formal_write(self) -> None:
+        data = self.install_design_ledger()
+        candidate = "# 《测试书》设定\n\n## 现实规则\n当前人物只能使用已经建立的权限。"
+        review = design_review_for(
+            data,
+            candidate,
+            "setting",
+            "setting",
+            self.setting_source_refs(),
+        )
+
+        errors = LEDGER.precommit_design_candidate(
+            self.ledger, "setting", candidate, review
+        )
+
+        self.assertEqual([], errors)
+        state = json.loads(self.ledger.read_text(encoding="utf-8"))[
+            "design_review_state"
+        ]
+        self.assertEqual("setting", state["pending"]["artifact"])
+        self.assertIsNone(state["setting"])
+
+    def test_setting_design_precommit_blocks_text_already_written(self) -> None:
+        data = self.install_design_ledger()
+        candidate = "# 《测试书》设定\n\n## 现实规则\n当前人物只能使用已经建立的权限。"
+        (self.project / "设定.md").write_text(candidate, encoding="utf-8")
+        review = design_review_for(
+            data,
+            candidate,
+            "setting",
+            "setting",
+            self.setting_source_refs(),
+        )
+
+        errors = LEDGER.precommit_design_candidate(
+            self.ledger, "setting", candidate, review
+        )
+
+        self.assertTrue(any("提前写入" in error for error in errors))
+
+    def test_outline_design_requires_exact_source_refs_and_preflight(self) -> None:
+        self.install_design_ledger()
+        self.approve_setting_design()
+        candidate = (
+            "## 导语\n\n"
+            "- 入场状态：人物尚未获得目标权限。\n"
+            "- 离场状态：人物失去原有位置。\n"
+            "- 细拍拆分：当前动作改变现场站位。 "
+            "<!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->"
+        )
+        data = json.loads(self.ledger.read_text(encoding="utf-8"))
+        refs = LEDGER.outline_source_refs(candidate)
+        review = design_review_for(data, candidate, "outline", "opening", refs)
+
+        self.assertEqual(
+            [],
+            LEDGER.precommit_design_candidate(
+                self.ledger,
+                "outline",
+                candidate,
+                review,
+                region_id="opening",
+            ),
+        )
+        outline = self.project / "小节大纲.md"
+        outline.write_text(f"# 测试书大纲\n\n{candidate}", encoding="utf-8")
+        blocked = LEDGER.confirm_design_candidate(
+            self.ledger,
+            "outline",
+            outline,
+            region_id="opening",
+            preflight_passed=False,
+        )
+        self.assertTrue(any("preflight --allow-partial" in error for error in blocked))
+        self.assertEqual(
+            [],
+            LEDGER.confirm_design_candidate(
+                self.ledger,
+                "outline",
+                outline,
+                region_id="opening",
+                preflight_passed=True,
+            ),
+        )
+
+    def test_outline_design_blocks_missing_source_ref_consumption(self) -> None:
+        self.install_design_ledger()
+        self.approve_setting_design()
+        candidate = (
+            "## 导语\n\n"
+            "- 入场状态：人物尚未获得目标权限。\n"
+            "- 离场状态：人物失去原有位置。\n"
+            "- 细拍拆分：当前动作改变现场站位。 "
+            "<!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->"
+        )
+        data = json.loads(self.ledger.read_text(encoding="utf-8"))
+        review = design_review_for(
+            data, candidate, "outline", "opening", ["P=P-001"]
+        )
+
+        errors = LEDGER.precommit_design_candidate(
+            self.ledger,
+            "outline",
+            candidate,
+            review,
+            region_id="opening",
+        )
+
+        self.assertTrue(any("source-map" in error for error in errors))
+
+    def test_refresh_migrates_existing_project_as_legacy_sha_binding(self) -> None:
+        data = self.install_design_ledger()
+        data.pop("design_review_state")
+        self.ledger.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+        setting = self.project / "设定.md"
+        outline = self.project / "小节大纲.md"
+        setting.write_text("既有设定。", encoding="utf-8")
+        outline.write_text("## 导语\n\n- 既有区域。", encoding="utf-8")
+
+        LEDGER.refresh_rule_sources(self.ledger)
+        migrated = json.loads(self.ledger.read_text(encoding="utf-8"))
+        state = migrated["design_review_state"]
+
+        self.assertEqual("legacy_existing", state["mode"])
+        self.assertEqual(
+            [], LEDGER.validate_design_gate(migrated, self.project, ["opening"])
+        )
+        setting.write_text("既有设定被改。", encoding="utf-8")
+        self.assertTrue(
+            any(
+                "SHA 已变化" in error
+                for error in LEDGER.validate_design_gate(
+                    migrated, self.project, ["opening"]
+                )
+            )
         )
 
     def test_expected_regions_follow_source_section_count(self) -> None:

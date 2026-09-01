@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import math
 import re
@@ -25,6 +26,28 @@ SENTENCE_RE = re.compile(r"[^。！？!?\n]+[。！？!?](?:[”」』])?|[^。�
 DIRECT_DIALOGUE_RE = re.compile(
     r"「[^」]*」(?:[^「」\n]{0,40}「[^」]*」)*|“[^”]*”(?:[^“”\n]{0,40}“[^”]*”)*"
 )
+OUTLINE_REGION_RE = re.compile(r"(?m)^##[ \t]+(导语|尾声|(\d+)\.)[ \t]*$")
+SOURCE_MAP_RE = re.compile(r"<!--\s*source-map:\s*([^>]+?)\s*-->")
+DESIGN_REVIEW_AXES = {
+    "setting": (
+        "title_promise",
+        "fact_and_permission",
+        "character_motivation",
+        "real_world_operation",
+        "causal_continuity",
+        "source_boundary",
+    ),
+    "outline": (
+        "entry_exit_state",
+        "plot_emotion_whole_beat",
+        "source_layer_mode",
+        "information_acquisition",
+        "physical_action_chain",
+        "real_world_operation",
+        "dialogue_plain_speech_risk",
+        "future_region_leak",
+    ),
+}
 RULE_HINTS = (
     "必须", "不得", "禁止", "不能", "至少", "检查", "确认", "保留",
     "回炉", "声线", "自然度", "指代", "首屏", "动作", "物件", "对白",
@@ -100,13 +123,44 @@ def validate_candidate_section_length(
     source_chars = nonspace_count(source_sections[section_number - 1])
     candidate_chars = nonspace_count(candidate_text)
     required = math.ceil(source_chars * min_ratio)
-    if candidate_chars < required:
+    buffer = max(40, math.ceil(required * 0.05))
+    target_floor = required + buffer
+    if candidate_chars < target_floor:
         return [
-            f"候选正文第 {section_number} 节低于主体分节最低锚定量: "
-            f"candidate={candidate_chars}, required_min={required}, "
-            f"primary={source_chars}, min_ratio={min_ratio:.2f}"
+            f"候选正文第 {section_number} 节低于主体分节施工下限: "
+            f"candidate={candidate_chars}, required_min={required}, buffer={buffer}, "
+            f"target_floor={target_floor}, primary={source_chars}, min_ratio={min_ratio:.2f}"
         ]
     return []
+
+
+def section_length_metrics(
+    ledger_path: Path, region_id: str
+) -> dict[str, int | float] | None:
+    if not region_id.startswith("section:"):
+        return None
+    section_number = int(region_id.split(":", 1)[1])
+    project_dir = ledger_path.parent.parent
+    config_path = project_dir / "写作资产" / "项目写作配置.json"
+    config = load(config_path)
+    primary = config.get("primary") or {}
+    original_path = resolve_config_path(
+        config_path, str(primary.get("original_path") or "")
+    )
+    sections = source_numeric_sections(original_path.read_text(encoding="utf-8"))
+    if not sections or not (1 <= section_number <= len(sections)):
+        return None
+    source_chars = nonspace_count(sections[section_number - 1])
+    min_ratio = float((config.get("length_policy") or {}).get("min_section_ratio", 0.90))
+    required = math.ceil(source_chars * min_ratio)
+    buffer = max(40, math.ceil(required * 0.05))
+    return {
+        "source_section_chars": source_chars,
+        "required_min": required,
+        "buffer": buffer,
+        "target_floor": required + buffer,
+        "min_ratio": min_ratio,
+    }
 
 
 def read_text(path: Path) -> str:
@@ -166,6 +220,110 @@ def split_draft_regions(text: str) -> tuple[dict[str, str], list[str]]:
     return regions, order
 
 
+def outline_region_id(label: str, number: str | None) -> str:
+    if label == "导语":
+        return "opening"
+    if label == "尾声":
+        return "epilogue"
+    return f"section:{int(number or '0')}"
+
+
+def split_outline_regions(
+    text: str, *, allow_single_region: bool = False
+) -> tuple[dict[str, str], list[str], str]:
+    markers = list(OUTLINE_REGION_RE.finditer(text))
+    prefix = text[: markers[0].start()] if markers else text
+    regions: dict[str, str] = {}
+    order: list[str] = []
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else len(text)
+        region_id = outline_region_id(marker.group(1), marker.group(2))
+        if region_id in regions:
+            raise ValueError(f"小节大纲区域重复: {region_id}")
+        regions[region_id] = text[marker.start() : end].strip()
+        order.append(region_id)
+    numeric = [value for value in order if value.startswith("section:")]
+    expected_numeric = [f"section:{index}" for index in range(1, len(numeric) + 1)]
+    if not (allow_single_region and len(order) == 1) and numeric != expected_numeric:
+        raise ValueError(f"小节大纲数字区域必须从 section:1 连续排列: {numeric}")
+    if order and order[0] != "opening" and not (allow_single_region and len(order) == 1):
+        raise ValueError("小节大纲首个区域必须是 opening")
+    if "epilogue" in order and order[-1] != "epilogue":
+        raise ValueError("小节大纲 epilogue 后不得再出现其他区域")
+    return regions, order, prefix.strip()
+
+
+def outline_source_refs(text: str) -> list[str]:
+    refs: list[str] = []
+    for match in SOURCE_MAP_RE.finditer(text):
+        for field in match.group(1).split(";"):
+            if "=" not in field:
+                continue
+            key, raw_values = field.split("=", 1)
+            for value in raw_values.split(","):
+                normalized = f"{key.strip()}={value.strip()}"
+                if value.strip():
+                    refs.append(normalized)
+    return refs
+
+
+def next_outline_region(approved_ids: list[str], requested: str) -> bool:
+    if not approved_ids:
+        return requested == "opening"
+    last = approved_ids[-1]
+    if last == "opening":
+        return requested == "section:1"
+    if last == "epilogue" or not last.startswith("section:"):
+        return False
+    next_number = int(last.split(":", 1)[1]) + 1
+    return requested in {f"section:{next_number}", "epilogue"}
+
+
+def preflight_outline_candidate(
+    project_dir: Path,
+    existing_outline_text: str,
+    candidate_text: str,
+    approved_ids: list[str],
+    current_order: list[str],
+) -> list[str]:
+    """Run the official in-memory outline preflight before accepting a candidate."""
+    config_path = project_dir / "写作资产" / "项目写作配置.json"
+    try:
+        config = load(config_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(config.get("primary"), dict):
+        # Legacy unit-test fixtures and pre-contract projects have no source map;
+        # their existing critic checks remain authoritative.
+        return []
+    if current_order == approved_ids:
+        prefix_text = existing_outline_text.rstrip()
+    elif current_order == approved_ids + [current_order[-1]] and current_order[-1] not in approved_ids:
+        markers = list(OUTLINE_REGION_RE.finditer(existing_outline_text))
+        if len(markers) != len(current_order):
+            return ["无法从正式大纲定位当前未确认区域"]
+        prefix_text = existing_outline_text[: markers[len(approved_ids)].start()].rstrip()
+    else:
+        return ["正式大纲区域顺序不适合候选内存预检"]
+    combined = f"{prefix_text}\n{candidate_text.strip()}" if prefix_text else candidate_text.strip()
+    skill_root = Path(__file__).resolve().parents[1]
+    module_path = skill_root / "scripts" / "manage_target_prose_map.py"
+    spec = importlib.util.spec_from_file_location(
+        "story_short_write_target_prose_map", module_path
+    )
+    if spec is None or spec.loader is None:
+        return [f"无法加载正式目标脑图预检脚本: {module_path}"]
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    try:
+        _, errors = module.preflight_outline_text(
+            project_dir, combined, allow_partial=True
+        )
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [f"候选大纲内存预检失败: {exc}"]
+    return [str(item) for item in errors]
+
+
 def extract_sentences(text: str) -> list[str]:
     return [match.group(0).strip() for match in SENTENCE_RE.finditer(text) if match.group(0).strip()]
 
@@ -206,6 +364,42 @@ def liveliness_group(data: dict[str, Any]) -> dict[str, Any]:
         ),
         {},
     )
+
+
+def empty_design_review_state() -> dict[str, Any]:
+    return {
+        "mode": "enforced",
+        "setting": None,
+        "outline_regions": [],
+        "pending": None,
+    }
+
+
+def ensure_design_review_state(
+    data: dict[str, Any], project_dir: Path
+) -> dict[str, Any]:
+    state = data.get("design_review_state")
+    if isinstance(state, dict):
+        return state
+    setting_path = project_dir / "设定.md"
+    outline_path = project_dir / "小节大纲.md"
+    if setting_path.is_file() and outline_path.is_file():
+        state = {
+            "mode": "legacy_existing",
+            "setting": {
+                "path": str(setting_path.resolve()),
+                "sha256": sha256(setting_path),
+            },
+            "outline": {
+                "path": str(outline_path.resolve()),
+                "sha256": sha256(outline_path),
+            },
+            "pending": None,
+        }
+    else:
+        state = empty_design_review_state()
+    data["design_review_state"] = state
+    return state
 
 
 def build_ledger(project: Path, skill_root: Path) -> dict[str, Any]:
@@ -250,6 +444,7 @@ def build_ledger(project: Path, skill_root: Path) -> dict[str, Any]:
             "synopsis_gate_confirmed": False,
             "judgment": "",
         },
+        "design_review_state": empty_design_review_state(),
         "draft_review_state": {
             "expected_regions": [],
             "approved_regions": [],
@@ -408,6 +603,9 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
             expected_draft_regions = plan_regions[:-1]
             if state.get("expected_regions") != expected_draft_regions:
                 errors.append("draft_review_state.expected_regions 与逐区计划不一致")
+            errors.extend(
+                validate_design_gate(data, path.parent.parent, plan_regions)
+            )
         approved = state.get("approved_regions")
         if not isinstance(approved, list):
             errors.append("draft_review_state.approved_regions 必须是数组")
@@ -458,6 +656,12 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
                     errors.append("draft_review_state.precommit_region 缺少 candidate_sha256")
                 if not isinstance(precommit.get("review"), dict):
                     errors.append("draft_review_state.precommit_region 缺少盲审 review")
+                if str(precommit.get("region_id") or "").startswith("section:"):
+                    length_check = precommit.get("length_check")
+                    if not isinstance(length_check, dict) or not all(
+                        key in length_check for key in ("candidate_chars", "required_min", "buffer", "target_floor")
+                    ):
+                        errors.append("draft_review_state.precommit_region 缺少候选锚定量与缓冲记录")
     return errors
 
 
@@ -547,6 +751,7 @@ def refresh_rule_sources(path: Path) -> None:
         groups[rule_id]["cases"] = extract_cases(source_path)
         source_files.append({"path": str(source_path), "sha256": sha256(source_path)})
     data["source_files"] = source_files
+    ensure_design_review_state(data, path.parent.parent)
     data["gate_status"] = "pending"
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
@@ -592,6 +797,376 @@ def parse_review_input(value: str, file_value: str | None) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("review JSON 顶层必须是对象")
     return payload
+
+
+def validate_design_critic_review(
+    review: dict[str, Any],
+    candidate_text: str,
+    ledger_data: dict[str, Any],
+    artifact: str,
+    region_id: str,
+) -> list[str]:
+    errors: list[str] = []
+    valid_rule_refs = {
+        f"{group.get('rule_id')}:{case.get('line')}"
+        for group in ledger_data.get("groups") or []
+        if isinstance(group, dict)
+        for case in group.get("cases") or []
+        if isinstance(case, dict)
+    }
+    if review.get("artifact") != artifact:
+        errors.append(f"design_review.artifact 必须为 {artifact}")
+    if review.get("region_id") != region_id:
+        errors.append(f"design_review.region_id 必须为 {region_id}")
+    for field in (
+        "critic_context_isolated",
+        "diagnostic_only_first_pass",
+        "author_intent_ignored",
+        "model_read_final_candidate",
+    ):
+        if review.get(field) is not True:
+            errors.append(f"design_review.{field} 必须显式为 true")
+    rule_refs = review.get("rule_refs_considered")
+    if (
+        not isinstance(rule_refs, list)
+        or not rule_refs
+        or any(str(value) not in valid_rule_refs for value in rule_refs)
+    ):
+        errors.append("design_review.rule_refs_considered 必须引用当前台账真实规则 case")
+    source_refs = review.get("source_refs_considered")
+    if artifact == "outline":
+        expected_refs = outline_source_refs(candidate_text)
+        if not expected_refs:
+            errors.append("大纲区域候选必须包含 source-map 来源声明")
+        if source_refs != expected_refs:
+            errors.append(
+                "design_review.source_refs_considered 必须全量同序覆盖当前区域 source-map 声明"
+            )
+    elif not isinstance(source_refs, list) or not source_refs:
+        errors.append("设定 critic 必须列出实际消费的项目配置或来源资产引用")
+    else:
+        for index, source_ref in enumerate(source_refs, 1):
+            label = f"design_review.source_refs_considered[{index}]"
+            if not isinstance(source_ref, dict):
+                errors.append(f"{label} 必须是包含 path 与 sha256 的对象")
+                continue
+            source_path = Path(str(source_ref.get("path") or "")).expanduser()
+            if not source_path.is_file():
+                errors.append(f"{label}.path 不是实际文件: {source_path}")
+            elif source_ref.get("sha256") != sha256(source_path):
+                errors.append(f"{label}.sha256 与当前文件不一致")
+
+    findings = review.get("draft_findings")
+    if not isinstance(findings, list) or not findings:
+        errors.append("design_review.draft_findings 至少需要一个初稿 weakest-link 修复")
+    else:
+        for index, finding in enumerate(findings, 1):
+            label = f"design_review.draft_findings[{index}]"
+            if not isinstance(finding, dict):
+                errors.append(f"{label} 必须是对象")
+                continue
+            code = str(finding.get("failure_code") or "")
+            if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", code):
+                errors.append(f"{label}.failure_code 必须由 critic 动态生成 UPPER_SNAKE_CASE")
+            refs = finding.get("rule_refs")
+            if (
+                not isinstance(refs, list)
+                or not refs
+                or any(str(value) not in valid_rule_refs for value in refs)
+            ):
+                errors.append(f"{label}.rule_refs 必须引用当前台账真实规则 case")
+            for field in (
+                "original_quote",
+                "diagnosis",
+                "rewrite_direction",
+                "resolved_in_final_quote",
+            ):
+                if len(str(finding.get(field) or "").strip()) < 6:
+                    errors.append(f"{label}.{field} 必须写具体问题与修复")
+            resolved = str(finding.get("resolved_in_final_quote") or "").strip()
+            if resolved and resolved not in candidate_text:
+                errors.append(f"{label}.resolved_in_final_quote 不在最终候选中")
+
+    axis_checks = review.get("axis_checks")
+    required_axes = DESIGN_REVIEW_AXES[artifact]
+    if not isinstance(axis_checks, dict) or set(axis_checks) != set(required_axes):
+        errors.append(
+            "design_review.axis_checks 必须完整覆盖: " + ", ".join(required_axes)
+        )
+        axis_checks = axis_checks if isinstance(axis_checks, dict) else {}
+    judgments: list[str] = []
+    for axis in required_axes:
+        item = axis_checks.get(axis)
+        label = f"design_review.axis_checks.{axis}"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        if item.get("verdict") != "pass":
+            errors.append(f"{label}.verdict 必须为 pass")
+        quotes = item.get("evidence_quotes")
+        if not isinstance(quotes, list) or not quotes or any(
+            not isinstance(quote, str) or not quote.strip() or quote not in candidate_text
+            for quote in quotes
+        ):
+            errors.append(f"{label}.evidence_quotes 必须逐字引用最终候选")
+        if item.get("failure_codes") != []:
+            errors.append(f"{label}.failure_codes 必须在最终候选中清零")
+        judgment = str(item.get("judgment") or "").strip()
+        if len(judgment) < 20:
+            errors.append(f"{label}.judgment 必须写当前维度专属反向裁决")
+        judgments.append(judgment)
+    if len(set(judgments)) != len(judgments):
+        errors.append("design_review.axis_checks 不得批量套用相同判断")
+    if review.get("final_verdict") != "pass":
+        errors.append("design_review.final_verdict 必须为 pass")
+    if len(str(review.get("final_judgment") or "").strip()) < 30:
+        errors.append("design_review.final_judgment 必须写写前 critic 总体放行理由")
+    return errors
+
+
+def precommit_design_candidate(
+    ledger_path: Path,
+    artifact: str,
+    candidate_text: str,
+    review: dict[str, Any],
+    *,
+    region_id: str = "",
+) -> list[str]:
+    errors: list[str] = []
+    data = load(ledger_path)
+    project_dir = ledger_path.parent.parent
+    state = ensure_design_review_state(data, project_dir)
+    if state.get("mode") != "enforced":
+        return ["legacy_existing 项目不得补做写前设计 critic 冒充首写门禁"]
+    if (data.get("draft_review_state") or {}).get("approved_regions"):
+        return ["正文已有批准区域，不得回填写前设计 critic"]
+    candidate_text = candidate_text.strip()
+    if len(candidate_text) < 20:
+        return ["设计候选内容过短"]
+    setting_path = project_dir / "设定.md"
+    outline_path = project_dir / "小节大纲.md"
+    pending = state.get("pending")
+
+    if artifact == "setting":
+        actual_region = "setting"
+        if state.get("setting") is not None:
+            return ["设定已通过写前 critic 并冻结"]
+        if setting_path.is_file() and setting_path.read_text(encoding="utf-8").strip() and not (
+            isinstance(pending, dict) and pending.get("artifact") == "setting"
+        ):
+            return ["设定候选已经提前写入正式文件，必须先通过 precommit-design"]
+        base_sha = sha256(setting_path) if setting_path.is_file() else ""
+    elif artifact == "outline":
+        actual_region = region_id
+        setting = state.get("setting")
+        if not isinstance(setting, dict) or not setting_path.is_file():
+            return ["设定尚未通过 confirm-design，禁止预提交大纲区域"]
+        if setting.get("content_sha256") != text_sha256(
+            setting_path.read_text(encoding="utf-8").strip()
+        ):
+            return ["已批准设定文本 SHA 已变化"]
+        try:
+            candidate_regions, candidate_order, candidate_prefix = split_outline_regions(
+                candidate_text, allow_single_region=True
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        if candidate_prefix or candidate_order != [region_id]:
+            return ["大纲候选必须只包含当前一个完整区域标题与内容"]
+        approved = state.get("outline_regions") or []
+        approved_ids = [str(item.get("region_id") or "") for item in approved]
+        if not next_outline_region(approved_ids, region_id):
+            return [f"大纲区域不是当前唯一后继: approved={approved_ids}, requested={region_id}"]
+        outline_text = outline_path.read_text(encoding="utf-8") if outline_path.is_file() else ""
+        try:
+            actual_regions, actual_order, _ = split_outline_regions(outline_text)
+        except ValueError as exc:
+            return [str(exc)]
+        allowed_orders = [approved_ids, approved_ids + [region_id]]
+        if actual_order not in allowed_orders:
+            return [
+                "大纲正式文件只能包含已批准区域和当前一个可替换未批准区域: "
+                f"approved={approved_ids}, actual={actual_order}"
+            ]
+        for item in approved:
+            approved_id = str(item.get("region_id") or "")
+            if item.get("content_sha256") != text_sha256(actual_regions.get(approved_id, "")):
+                errors.append(f"已批准大纲区域 {approved_id} 文本 SHA 已变化")
+        if errors:
+            return errors
+        candidate_region_text = candidate_regions[region_id]
+        errors.extend(
+            preflight_outline_candidate(
+                project_dir,
+                outline_text,
+                candidate_region_text,
+                approved_ids,
+                actual_order,
+            )
+        )
+        if errors:
+            return errors
+        candidate_text = candidate_region_text
+        base_sha = sha256(outline_path) if outline_path.is_file() else ""
+    else:
+        return ["artifact 只能是 setting 或 outline"]
+
+    errors.extend(
+        validate_design_critic_review(
+            review, candidate_text, data, artifact, actual_region
+        )
+    )
+    if errors:
+        return errors
+    state["pending"] = {
+        "artifact": artifact,
+        "region_id": actual_region,
+        "candidate_sha256": text_sha256(candidate_text),
+        "base_artifact_sha256": base_sha,
+        "review": review,
+    }
+    data["gate_status"] = "pending"
+    ledger_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return []
+
+
+def confirm_design_candidate(
+    ledger_path: Path,
+    artifact: str,
+    artifact_path: Path,
+    *,
+    region_id: str = "",
+    preflight_passed: bool = False,
+) -> list[str]:
+    data = load(ledger_path)
+    project_dir = ledger_path.parent.parent
+    state = ensure_design_review_state(data, project_dir)
+    if state.get("mode") != "enforced":
+        return ["legacy_existing 项目没有可确认的写前设计候选"]
+    pending = state.get("pending")
+    expected_region = "setting" if artifact == "setting" else region_id
+    if (
+        not isinstance(pending, dict)
+        or pending.get("artifact") != artifact
+        or pending.get("region_id") != expected_region
+    ):
+        return [f"当前没有匹配的 {artifact} 写前 precommit"]
+    if not artifact_path.is_file():
+        return [f"正式设计文件不存在: {artifact_path}"]
+
+    if artifact == "setting":
+        current_text = artifact_path.read_text(encoding="utf-8").strip()
+        if pending.get("candidate_sha256") != text_sha256(current_text):
+            return ["设定正式文件与 precommit 最终候选 SHA 不一致"]
+        state["setting"] = {
+            "path": str(artifact_path.resolve()),
+            "content_sha256": text_sha256(current_text),
+            "review": pending.get("review"),
+        }
+    elif artifact == "outline":
+        if not preflight_passed:
+            return ["大纲区域必须先通过 preflight --allow-partial"]
+        try:
+            regions, actual_order, _ = split_outline_regions(
+                artifact_path.read_text(encoding="utf-8")
+            )
+        except ValueError as exc:
+            return [str(exc)]
+        approved = state.get("outline_regions") or []
+        approved_ids = [str(item.get("region_id") or "") for item in approved]
+        if actual_order != approved_ids + [region_id]:
+            return [
+                "确认大纲时正式文件必须只新增当前区域: "
+                f"expected={approved_ids + [region_id]}, actual={actual_order}"
+            ]
+        for item in approved:
+            approved_id = str(item.get("region_id") or "")
+            if item.get("content_sha256") != text_sha256(regions.get(approved_id, "")):
+                return [f"已批准大纲区域 {approved_id} 文本 SHA 已变化"]
+        current_text = regions.get(region_id, "")
+        if pending.get("candidate_sha256") != text_sha256(current_text):
+            return ["大纲正式区域与 precommit 最终候选 SHA 不一致"]
+        approved.append(
+            {
+                "region_id": region_id,
+                "content_sha256": text_sha256(current_text),
+                "review": pending.get("review"),
+            }
+        )
+        state["outline_regions"] = approved
+    else:
+        return ["artifact 只能是 setting 或 outline"]
+    state["pending"] = None
+    data["gate_status"] = "pending"
+    ledger_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return []
+
+
+def validate_design_gate(
+    data: dict[str, Any], project_dir: Path, expected_outline_regions: list[str]
+) -> list[str]:
+    errors: list[str] = []
+    state = data.get("design_review_state")
+    if not isinstance(state, dict):
+        return ["缺少 design_review_state，必须 refresh-rules 或重新 init"]
+    if state.get("pending") is not None:
+        errors.append("design_review_state 仍有未 confirm 的写前候选")
+    mode = state.get("mode")
+    if mode == "legacy_existing":
+        for field in ("setting", "outline"):
+            binding = state.get(field)
+            if not isinstance(binding, dict):
+                errors.append(f"legacy design_review_state.{field} 缺少绑定")
+                continue
+            path = Path(str(binding.get("path") or ""))
+            if not path.is_file() or binding.get("sha256") != sha256(path):
+                errors.append(f"legacy design_review_state.{field} SHA 已变化")
+        return errors
+    if mode != "enforced":
+        return ["design_review_state.mode 非法"]
+    setting_path = project_dir / "设定.md"
+    setting = state.get("setting")
+    if not isinstance(setting, dict) or not setting_path.is_file():
+        errors.append("设定尚未通过写前 critic 与 confirm-design")
+    elif setting.get("content_sha256") != text_sha256(
+        setting_path.read_text(encoding="utf-8").strip()
+    ):
+        errors.append("已批准设定文本 SHA 已变化")
+    outline_path = project_dir / "小节大纲.md"
+    approved = state.get("outline_regions")
+    approved_ids = [
+        str(item.get("region_id") or "")
+        for item in approved or []
+        if isinstance(item, dict)
+    ]
+    if approved_ids != expected_outline_regions:
+        errors.append(
+            "大纲写前 critic 尚未逐区域完成: "
+            f"expected={expected_outline_regions}, approved={approved_ids}"
+        )
+    if outline_path.is_file():
+        try:
+            regions, actual_order, _ = split_outline_regions(
+                outline_path.read_text(encoding="utf-8")
+            )
+        except ValueError as exc:
+            errors.append(str(exc))
+            regions, actual_order = {}, []
+        if actual_order != approved_ids:
+            errors.append("小节大纲正式区域与 design_review_state 不一致")
+        for item in approved or []:
+            if not isinstance(item, dict):
+                continue
+            approved_id = str(item.get("region_id") or "")
+            if item.get("content_sha256") != text_sha256(regions.get(approved_id, "")):
+                errors.append(f"已批准大纲区域 {approved_id} 文本 SHA 已变化")
+    else:
+        errors.append("小节大纲正式文件不存在")
+    return errors
 
 
 def resolve_config_path(config_path: Path, raw: str) -> Path:
@@ -734,6 +1309,7 @@ def prepare_section_context(
         return {}, [f"当前区域 {next_region} 缺少 section_generation_plans 写前计划"]
     if not contract.get("sentence_motion"):
         return {}, ["项目 profile 缺少 prose_style_contract.sentence_motion"]
+    length_metrics = section_length_metrics(ledger_path, next_region)
     previous_tail = extract_sentences("\n".join(regions.get(value, "") for value in approved_ids))[-6:]
     packet: dict[str, Any] = {
         "schema_version": "story-short-write.section-generation-context.v1",
@@ -748,6 +1324,27 @@ def prepare_section_context(
         "primary_sentence_motion": contract.get("sentence_motion") or [],
         "primary_narrator_voice": contract.get("narrator_voice") or [],
         "primary_dialogue_voice": contract.get("dialogue_and_character_voice") or [],
+        "length_metrics": length_metrics,
+        "particle_contract": {
+            "source_layer_ids": [item["layer_id"] for item in layer_packets],
+            "source_layer_sentence_counts": {
+                item["layer_id"]: len(item["source_sentence_chain"])
+                for item in layer_packets
+            },
+            "target_node_ids": [str(item["target_id"]) for item in nodes],
+            "required_fields": [
+                "source_layer_id",
+                "target_node_ids",
+                "source_sentence_count",
+                "target_sentence_count",
+                "action_chain",
+                "object_and_force",
+                "pov_attention",
+                "dialogue_or_silence",
+                "result_and_cut",
+                "judgment",
+            ],
+        },
         "previous_region_tail_sentences": previous_tail,
         "user_feedback_cases": data.get("draft_review_state", {}).get("feedback_cases") or [],
         "generation_contract": [
@@ -755,10 +1352,7 @@ def prepare_section_context(
             "逐层消费 source_excerpt 的连续句链，迁移句间机制，不复制人物、物件或原句。",
             "按 sentence_relation_and_rhythm 与 paragraph_breath_and_cut_points 安排长短句；短判断只落在来源本来有落锤的位置。",
             "单一身体、感官或同一话轮链可保留长句；多动作、多信息或视线换主必须在自然换气点拆开。",
-            "每句写入前即时问人物是否真会这样注意、受力、停顿或说话；每组连续动作/话轮完成后再问真人作家是否会这样连接，答不实先改再写。",
-            "真人反事实闸服从主体口语毛边、残句、粗口、插嘴和骤断，不得把真人感误解成更书面、更工整。",
             "全部直接对白落盘前必须朗读并剥离细纲腔；角色不得复述职业标签、关系位置、资源排序、控制权或信息机制，只说当前人会直接说的事实与命令。",
-            "真人反事实先默认不通过，强制找最可疑成分，再过朗读像人话、物理做得到、人物真会注意并使用这些词三项；不能用逻辑可解释顺向自证。",
             "盲审 critic 不得读取或复述写作者的创作理由，只引用候选原句、提交失败码和最小修复方向；至少修掉一个初稿 weakest link，再对最终候选逐句复验。",
             "读取流水、病历、名单、门禁和合同时，人物只能先看见金额、备注、收款方、诊断、姓名、时间或状态；流程摘要不得进入最终候选。",
             "禁止用‘目标事件句 + 固定旁白句’批量拼接节点，禁止复用 previous_region_tail_sentences 的句面。",
@@ -774,6 +1368,8 @@ def prepare_section_context(
         "base_draft_sha256": sha256(draft_path) if draft_path.is_file() else "",
         "approved_region_hashes": [str(item.get("content_sha256") or "") for item in approved],
         "source_layer_ids": [item["layer_id"] for item in layer_packets],
+        "length_metrics": length_metrics,
+        "particle_contract": packet["particle_contract"],
     }
     state["precommit_region"] = None
     state["status"] = "prepared"
@@ -937,7 +1533,6 @@ def validate_region_review(
         "template_repetition_judgment",
         "explanatory_inference_review",
         "manual_judgment",
-        "human_writer_counterfactual_review",
         "region_judgment",
     )
     current_summary = []
@@ -1051,12 +1646,12 @@ def validate_precommit_review(
             errors.append(f"{label}.structured_record_verdict 非法")
         if item.get("failure_codes") != []:
             errors.append(f"{label}.failure_codes 必须在最终候选中清零")
-        judgment = str(item.get("adversarial_judgment") or "").strip()
+        judgment = str(item.get("judgment") or "").strip()
         if len(judgment) < 20:
-            errors.append(f"{label}.adversarial_judgment 必须写反向放行依据")
+            errors.append(f"{label}.judgment 必须写当前句专属检查依据")
         judgments.append(judgment)
     if len(judgments) >= 4 and max((judgments.count(value) for value in set(judgments)), default=0) > 2:
-        errors.append("precommit.sentence_checks 疑似批量套用相同反向判断")
+        errors.append("precommit.sentence_checks 疑似批量套用相同判断")
 
     groups = review.get("group_checks")
     if not isinstance(groups, list) or not groups:
@@ -1079,14 +1674,143 @@ def validate_precommit_review(
                 errors.append(f"{label}.weakest_point 必须指出本组最可疑处")
             if item.get("verdict") != "pass":
                 errors.append(f"{label}.verdict 必须为 pass")
-            if len(str(item.get("adversarial_judgment") or "").strip()) < 20:
-                errors.append(f"{label}.adversarial_judgment 必须写真人连接依据")
+            if len(str(item.get("judgment") or "").strip()) < 20:
+                errors.append(f"{label}.judgment 必须写当前组连接依据")
 
     if review.get("final_verdict") != "pass":
         errors.append("precommit.final_verdict 必须为 pass")
     if len(str(review.get("final_judgment") or "").strip()) < 30:
         errors.append("precommit.final_judgment 必须写盲审后的总体放行理由")
     return errors
+
+
+def validate_particle_coverage(
+    review: dict[str, Any], prepared: dict[str, Any], candidate_text: str
+) -> list[str]:
+    """Require explicit per-layer/per-node particle coverage before first write."""
+    contract = prepared.get("particle_contract")
+    if not isinstance(contract, dict):
+        # Keep legacy fixtures/projects compatible; new prepare-section packets
+        # always include the contract and therefore take the strict path below.
+        return []
+    raw = review.get("particle_coverage")
+    if not isinstance(raw, list):
+        return ["precommit.particle_coverage 必须逐来源层提交颗粒覆盖"]
+    expected_layers = [str(value) for value in contract.get("source_layer_ids") or []]
+    actual_layers = [str(item.get("source_layer_id") or "") for item in raw if isinstance(item, dict)]
+    if actual_layers != expected_layers:
+        return [
+            "precommit.particle_coverage 必须与当前句法包来源层同序全量对应: "
+            f"expected={expected_layers}, actual={actual_layers}"
+        ]
+    errors: list[str] = []
+    expected_nodes = [str(value) for value in contract.get("target_node_ids") or []]
+    required_fields = [str(value) for value in contract.get("required_fields") or []]
+    expected_counts = contract.get("source_layer_sentence_counts") or {}
+    for index, item in enumerate(raw, 1):
+        label = f"precommit.particle_coverage[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        targets = item.get("target_node_ids")
+        if not isinstance(targets, list) or not targets or any(str(value) not in expected_nodes for value in targets):
+            errors.append(f"{label}.target_node_ids 必须引用当前区域目标节点")
+        if targets and [expected_nodes.index(str(value)) for value in targets] != sorted(set(expected_nodes.index(str(value)) for value in targets)):
+            errors.append(f"{label}.target_node_ids 必须保持目标节点原序且不重复")
+        expected_count = int(expected_counts.get(str(item.get("source_layer_id") or ""), 0))
+        for field in required_fields:
+            value = str(item.get(field) or "").strip()
+            if field in {"source_layer_id", "target_node_ids", "source_sentence_count", "target_sentence_count"}:
+                continue
+            if len(value) < 8:
+                errors.append(f"{label}.{field} 必须写当前来源层的具体颗粒判断")
+        source_count = item.get("source_sentence_count")
+        target_count = item.get("target_sentence_count")
+        if source_count != expected_count or not isinstance(target_count, int) or target_count < 1:
+            errors.append(
+                f"{label} 句链数量不完整: source_sentence_count={source_count}, "
+                f"expected={expected_count}, target_sentence_count={target_count}"
+            )
+        quotes = item.get("evidence_quotes")
+        if not isinstance(quotes, list) or not quotes or any(not isinstance(q, str) or not q.strip() or q not in candidate_text for q in quotes):
+            errors.append(f"{label}.evidence_quotes 必须提供正文逐字引句")
+    return errors
+
+
+def validate_particle_plan(
+    plan: dict[str, Any], prepared: dict[str, Any]
+) -> list[str]:
+    contract = prepared.get("particle_contract")
+    if not isinstance(contract, dict):
+        return ["当前句法包缺少 particle_contract，必须重新 prepare-section"]
+    if str(plan.get("region_id") or "") != str(prepared.get("region_id") or ""):
+        return ["particle_plan.region_id 必须与当前 prepared_region 一致"]
+    expected_layers = [str(value) for value in contract.get("source_layer_ids") or []]
+    expected_counts = contract.get("source_layer_sentence_counts") or {}
+    layer_plans = plan.get("source_layer_plans")
+    if not isinstance(layer_plans, list) or [str(item.get("source_layer_id") or "") for item in layer_plans if isinstance(item, dict)] != expected_layers:
+        return ["particle_plan.source_layer_plans 必须与当前来源层同序全量对应"]
+    expected_nodes = [str(value) for value in contract.get("target_node_ids") or []]
+    node_plans = plan.get("target_node_plans")
+    if not isinstance(node_plans, list) or [str(item.get("target_node_id") or "") for item in node_plans if isinstance(item, dict)] != expected_nodes:
+        return ["particle_plan.target_node_plans 必须与当前目标节点同序全量对应"]
+    errors: list[str] = []
+    required_fields = ("action_chain", "object_and_force", "pov_attention", "dialogue_or_silence", "result_and_cut", "judgment")
+    for index, item in enumerate(layer_plans, 1):
+        label = f"particle_plan.source_layer_plans[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        targets = item.get("target_node_ids")
+        if not isinstance(targets, list) or not targets or any(str(value) not in expected_nodes for value in targets):
+            errors.append(f"{label}.target_node_ids 必须引用当前目标节点")
+        expected_count = int(expected_counts.get(str(item.get("source_layer_id") or ""), 0))
+        units = item.get("unit_plan")
+        if not isinstance(units, list) or len(units) != expected_count:
+            errors.append(f"{label}.unit_plan 必须逐来源句链提交 {expected_count} 项")
+            units = units if isinstance(units, list) else []
+        for unit_index, unit in enumerate(units, 1):
+            unit_label = f"{label}.unit_plan[{unit_index}]"
+            if not isinstance(unit, dict) or unit.get("source_sentence_index") != unit_index:
+                errors.append(f"{unit_label} 必须按来源句序编号")
+                continue
+            if str(unit.get("target_node_id") or "") not in expected_nodes:
+                errors.append(f"{unit_label}.target_node_id 必须引用当前目标节点")
+            for field in required_fields:
+                if len(str(unit.get(field) or "").strip()) < 8:
+                    errors.append(f"{unit_label}.{field} 必须写具体落笔计划")
+    for index, item in enumerate(node_plans, 1):
+        label = f"particle_plan.target_node_plans[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        for field in required_fields:
+            if len(str(item.get(field) or "").strip()) < 8:
+                errors.append(f"{label}.{field} 必须写本节点专属施工判断")
+    return errors
+
+
+def record_particle_plan(ledger_path: Path, region_id: str, plan: dict[str, Any]) -> list[str]:
+    data = load(ledger_path)
+    prepared = (data.get("draft_review_state") or {}).get("prepared_region")
+    if not isinstance(prepared, dict) or prepared.get("region_id") != region_id:
+        return [f"当前区域 {region_id} 尚未通过 prepare-section"]
+    errors = validate_particle_plan(plan, prepared)
+    if errors:
+        return errors
+    state = data["draft_review_state"]
+    canonical = json.dumps(plan, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    state["prepared_region"]["particle_plan_sha256"] = text_sha256(canonical)
+    state["prepared_region"]["particle_plan_target_node_ids"] = list(
+        (prepared.get("particle_contract") or {}).get("target_node_ids") or []
+    )
+    state["prepared_region"]["particle_plan_source_layer_ids"] = list(
+        (prepared.get("particle_contract") or {}).get("source_layer_ids") or []
+    )
+    state["status"] = "particle_planned"
+    data["gate_status"] = "pending"
+    ledger_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return []
 
 
 def precommit_section_candidate(
@@ -1124,10 +1848,18 @@ def precommit_section_candidate(
             "precommit 前正文只能包含已通过区域，当前候选不得提前落盘: "
             f"approved={approved_ids}, actual={actual_order}"
         ]
+    if prepared.get("particle_contract") and not str(prepared.get("particle_plan_sha256") or ""):
+        return ["当前区域尚未完成 plan-section 写前颗粒施工计划"]
     candidate_text = candidate_text.strip()
     if not candidate_text:
         return ["precommit 候选正文为空"]
     errors.extend(validate_candidate_section_length(ledger_path, region_id, candidate_text))
+    if errors:
+        return errors
+    length_metrics = section_length_metrics(ledger_path, region_id)
+    if region_id.startswith("section:") and not length_metrics:
+        return [f"无法记录正文 {region_id} 的主体锚定量"]
+    errors.extend(validate_particle_coverage(review, prepared, candidate_text))
     if errors:
         return errors
     errors.extend(validate_precommit_review(review, candidate_text, data))
@@ -1137,6 +1869,10 @@ def precommit_section_candidate(
         "region_id": region_id,
         "candidate_sha256": text_sha256(candidate_text),
         "generation_context_sha256": str(prepared.get("context_sha256") or ""),
+        "length_check": {
+            **(length_metrics or {}),
+            "candidate_chars": nonspace_count(candidate_text),
+        },
         "review": review,
     }
     state["status"] = "precommitted"
@@ -1329,6 +2065,19 @@ def main() -> int:
     confirm.add_argument("--reviews-json", required=True)
     refresh = sub.add_parser("refresh-rules")
     refresh.add_argument("--ledger", required=True)
+    precommit_design = sub.add_parser("precommit-design")
+    precommit_design.add_argument("--ledger", required=True)
+    precommit_design.add_argument("--artifact", required=True, choices=("setting", "outline"))
+    precommit_design.add_argument("--region", default="")
+    precommit_design.add_argument("--candidate-json", required=True)
+    precommit_design.add_argument("--review-json", default="{}")
+    precommit_design.add_argument("--review-json-file")
+    confirm_design = sub.add_parser("confirm-design")
+    confirm_design.add_argument("--ledger", required=True)
+    confirm_design.add_argument("--artifact", required=True, choices=("setting", "outline"))
+    confirm_design.add_argument("--region", default="")
+    confirm_design.add_argument("--path", required=True)
+    confirm_design.add_argument("--preflight-passed", action="store_true")
     record_feedback = sub.add_parser("record-feedback")
     record_feedback.add_argument("--ledger", required=True)
     record_feedback.add_argument("--feedback-json", required=True)
@@ -1336,6 +2085,10 @@ def main() -> int:
     prepare_section.add_argument("--ledger", required=True)
     prepare_section.add_argument("--project-dir", required=True)
     prepare_section.add_argument("--draft")
+    plan_section = sub.add_parser("plan-section")
+    plan_section.add_argument("--ledger", required=True)
+    plan_section.add_argument("--region", required=True)
+    plan_section.add_argument("--plan-json", required=True)
     confirm_section = sub.add_parser("confirm-section")
     confirm_section.add_argument("--ledger", required=True)
     confirm_section.add_argument("--draft", required=True)
@@ -1383,6 +2136,52 @@ def main() -> int:
             return 2
         print("rule_execution_ledger: refreshed")
         return 0
+    if args.command == "precommit-design":
+        try:
+            candidate = json.loads(args.candidate_json)
+            if not isinstance(candidate, str):
+                raise ValueError("candidate-json 必须是 JSON 字符串")
+            review = parse_review_input(args.review_json, args.review_json_file)
+            errors = precommit_design_candidate(
+                ledger_path,
+                args.artifact,
+                candidate,
+                review,
+                region_id=args.region,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors = [str(exc)]
+        if errors:
+            print("design_precommit: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("design_precommit: passed")
+        print(f"artifact: {args.artifact}")
+        if args.region:
+            print(f"region: {args.region}")
+        return 0
+    if args.command == "confirm-design":
+        try:
+            errors = confirm_design_candidate(
+                ledger_path,
+                args.artifact,
+                Path(args.path).resolve(),
+                region_id=args.region,
+                preflight_passed=args.preflight_passed,
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors = [str(exc)]
+        if errors:
+            print("design_confirm: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("design_confirm: passed")
+        print(f"artifact: {args.artifact}")
+        if args.region:
+            print(f"region: {args.region}")
+        return 0
     if args.command == "record-feedback":
         try:
             payload = json.loads(args.feedback_json)
@@ -1424,6 +2223,22 @@ def main() -> int:
             return 2
         print(json.dumps(packet, ensure_ascii=False, indent=2))
         print("section_generation_context: passed")
+        return 0
+    if args.command == "plan-section":
+        try:
+            plan = json.loads(args.plan_json)
+            if not isinstance(plan, dict):
+                raise ValueError("plan-json 顶层必须是对象")
+            errors = record_particle_plan(ledger_path, args.region, plan)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors = [str(exc)]
+        if errors:
+            print("section_particle_plan: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("section_particle_plan: passed")
+        print(f"region: {args.region}")
         return 0
     if args.command == "precommit-section":
         try:

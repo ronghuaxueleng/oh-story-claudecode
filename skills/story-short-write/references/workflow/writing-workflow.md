@@ -2,11 +2,54 @@
 
 ## Phase 1：隔离、选源、锁名
 
-列出允许读取的主体原文、同名拆文资产和最小辅助集合。主体独占正文声线并供应完整 P/E、SF 和文字层；辅助只供应明确选中的 P 拍机制。锁名后创建未占用的同名目录，将来源角色、路径、SHA 和 profile 写入项目配置。
+列出允许读取的主体原文、同名拆文资产和最小辅助集合。主体独占正文声线并供应完整 P/E、SF 和文字层；辅助只供应明确选中的 P 拍机制。锁名后创建未占用的同名目录，将来源角色、路径、SHA 和 profile 写入项目配置，并在创建 `设定.md` 前初始化 `规则执行台账.json`。
+
+设定先在当前工作上下文形成候选，不落临时文件。独立 critic 只看候选、项目配置、来源资产和当前台账规则 case，先诊断事实权限、人物动机、现实操作、因果与题面风险；writer 定点修复后，critic 对最终候选的六个审查轴清零。`precommit-design --artifact setting` 通过后才第一次写入 `设定.md`，随后 `confirm-design` 只核对正式文件与候选 SHA。
 
 ## Phase 2：目标骨架与目标脑图
 
-先写 `设定.md`，再逐拍替换主体 P 拍事件壳并完成 `小节大纲.md`；用户已给 JSON 脑图时，先归一化脑图目标节点，再补足分节施工信息。细纲按导语、连续数字节、尾声顺序，每次只把一个区域写入同一个正式文件；每个区域必须同时写入入场状态和离场状态，落盘后立即运行 `preflight --allow-partial`，通过后才允许下一区域。每条细拍首次落盘前，先分别核对 P 的动作/控制/信息/后果，E 的内容/触发/关系位置/读者效果/烈度，以及层型、进出关系、保留规则和六维；整条 E 必须由单一节点完整承接。核对后才在行尾登记隐藏 `source-map`，禁止按相邻 ID 机械分配、把 E 拆给前后节点或先写概述占位。
+设定冻结后，再逐拍替换主体 P 拍事件壳并完成 `小节大纲.md`；用户已给 JSON 脑图时，先归一化脑图目标节点，再补足分节施工信息。细纲按导语、连续数字节、尾声顺序，每次只在工作上下文形成一个完整区域候选。每个区域必须同时写入入场状态和离场状态；每条细拍进入候选前，分别核对 P 的动作/控制/信息/后果，E 的内容/触发/关系位置/读者效果/烈度，以及层型、进出关系、保留规则和六维，整条 E 必须由单一节点完整承接。核对后才在行尾登记隐藏 `source-map`，禁止按相邻 ID 机械分配、把 E 拆给前后节点或先写概述占位。
+
+区域候选交给独立大纲 critic。critic 不写正文，只检查 `entry_exit_state / plot_emotion_whole_beat / source_layer_mode / information_acquisition / physical_action_chain / real_world_operation / dialogue_plain_speech_risk / future_region_leak`。其中 `dialogue_plain_speech_risk` 要在施工层识别“人物未来只能复述岗位标签、流程字段或关系分析才能完成细拍”的节点，要求大纲改成可由人物说具体事实、短命令或错答来承载；它不能提前替正文写一句固定对白。
+
+`precommit-design --artifact outline` 通过后才把同一候选第一次追加到正式大纲。随后先运行 `preflight --allow-partial`；脚本预检通过后再运行带 `--preflight-passed` 的 `confirm-design` 冻结区域 SHA，才允许下一区域。preflight 失败时，只重做当前未批准区域的 critic 和 precommit；不得先确认、不得写未来区域。
+
+设定/大纲 critic JSON 使用同一形状，失败类型仍由当前 critic 动态命名：
+
+```json
+{
+  "artifact": "setting 或 outline",
+  "region_id": "setting、opening、section:N 或 epilogue",
+  "critic_context_isolated": true,
+  "diagnostic_only_first_pass": true,
+  "author_intent_ignored": true,
+  "model_read_final_candidate": true,
+  "rule_refs_considered": ["rule_id:line"],
+  "source_refs_considered": ["设定时使用含真实 path/sha256 的对象；大纲时必须逐项同序写 P=...、E=...、SF=...、L=..."],
+  "draft_findings": [
+    {
+      "original_quote": "初稿逐字引句",
+      "failure_code": "<critic 针对当前问题动态命名>",
+      "rule_refs": ["rule_id:line"],
+      "diagnosis": "为什么候选自身不能成立",
+      "rewrite_direction": "最小修复方向",
+      "resolved_in_final_quote": "最终候选逐字引句"
+    }
+  ],
+  "axis_checks": {
+    "当前阶段要求的每一个轴": {
+      "verdict": "pass",
+      "evidence_quotes": ["最终候选逐字引句"],
+      "failure_codes": [],
+      "judgment": "只用候选内事实、动作、状态和来源作反向裁决"
+    }
+  },
+  "final_verdict": "pass",
+  "final_judgment": "初稿 weakest link 已修复且全部设计轴失败码清零"
+}
+```
+
+设定轴固定为 `title_promise / fact_and_permission / character_motivation / real_world_operation / causal_continuity / source_boundary`。设定 `source_refs_considered` 的每项必须是实际读取文件的 `{"path":"绝对或可解析路径","sha256":"当前 SHA"}`，脚本逐项核验文件存在与哈希。大纲轴固定为上段八项。大纲 `source_refs_considered` 必须与当前区域所有 `source-map` 中的字段和值逐项同序一致；同一来源跨多个节点重复出现时也保留重复项，不能去重。脚本只校验结构、引用、顺序与 SHA，不替 critic 生成结论。
 
 全部区域逐一落盘后才运行不带 `--allow-partial` 的完整 `manage_target_prose_map.py preflight`；在此之前，每个区域落盘后都必须先运行带 `--allow-partial` 的局部预检，同时提交全量同序 P 维度 JSON 与来源层短引句 JSON。preflight 在目标脑图创建前拦截 P/E 漏拍并拍倒序、SF 漏步、来源层漏层换序、非法 P 维度名和不属于对应行域的引句；通过前禁止初始化目标脑图。脚本不得根据来源行号、字数或相邻 P 拍自动猜测 E/SF/层语义。
 
@@ -32,11 +75,7 @@
 
 当前区域先在工作上下文形成候选，不落临时文件。切换到 diagnostic-only critic，忽略写作者辩护，只引用候选原句和当前台账规则 case：找 weakest link、提交动态失败码与最小修复方向；定点重写后，对最终候选逐句执行朗读、物理、人物注意力和结构化记录检查，并对连续动作/话轮/段落组复验。`precommit-section` 通过并记录候选 SHA 后，才把同一文本第一次追加到 `正文.md`，随后立即运行 `confirm-section`。逐句复核 JSON 固定形状如下，所有句子和对白必须来自当前区域真实文本，不得由脚本生成语义字段：
 
-实时落笔同样设置真人作家反事实闸：每句写入前确认当前人物是否真会注意、动作、停顿或这样说；每完成一组连续动作链或同一话轮组，确认真人作家是否会这样连接。答不实就先在写入前改，不能依赖写后复核兜底；但不得借此抹掉主体原文的口语毛边、残句、粗口、插嘴和骤断。
-
 直接对白还要单独朗读，剥掉从细纲带入的行政与分析标签。角色不能在争执中复述岗位标签、合同身份、关系位置、资源排序、控制变化等施工语言；需要讲职业事实时，只说名单、合同、名字、钱、门禁和谁拿了什么等真人能直接说出口的内容。朗读后仍像作者借人物分析关系，先改再写。
-
-即时反问采用反向放行：先假定句子不像真人写的，找出最可疑的词或动作，再过“朗读像人话 / 物理上做得到 / 当前人物真会注意和用这些词”三项。不能因为情节逻辑能解释就放行；需要在句外补操作结构、象征含义或行业分析时，说明句子本身失败，改成更直接的人话与动作。
 
 critic 与 writer 必须任务隔离：critic 不接受“我为什么这样写”的解释，只看页面文本、当前规则 case 和项目反馈案例。失败码由当前问题动态命名；finding 必须引用原句、规则 `rule_id:line`、诊断与最小方向。用户纠错通过 `record-feedback` 进入项目台账，不能写成公共 skill 的特定短语黑名单。precommit 只保存候选 SHA 和审查，不保存第二份正文。
 
@@ -71,7 +110,7 @@ critic 与 writer 必须任务隔离：critic 不接受“我为什么这样写�
       "pov_attention_verdict": "pass",
       "structured_record_verdict": "pass 或 not_applicable",
       "failure_codes": [],
-      "adversarial_judgment": "反向放行的当前句专属依据"
+      "judgment": "当前句各项检查通过的具体依据"
     }
   ],
   "group_checks": [
@@ -80,7 +119,7 @@ critic 与 writer 必须任务隔离：critic 不接受“我为什么这样写�
       "quotes": ["最终候选逐字引句"],
       "weakest_point": "本组最可疑处",
       "verdict": "pass",
-      "adversarial_judgment": "真人作家为何会这样连接本组"
+      "judgment": "本组动作、话轮或段落连接成立的具体依据"
     }
   ],
   "final_verdict": "pass",
@@ -124,14 +163,11 @@ critic 与 writer 必须任务隔离：critic 不接受“我为什么这样写�
   "template_repetition_judgment": "说明没有使用事件句加固定旁白的批量模板",
   "explanatory_inference_review": "逐条裁决叙述者代判和解释性比喻",
   "manual_judgment": "说明当前区域的活动作、身体、对白和物件为何像人物正在过事",
-  "human_writer_counterfactual_review": "逐句并按连续动作/话轮组回答：这像真实的人写的吗，真人作家会这么写吗；列出具体口语、受力、注意力、停顿、话轮或物件依据，空泛回答必须回炉",
   "region_judgment": "说明当前区域为何可以冻结并进入下一区域"
 }
 ```
 
 `sentence_reviews` 必须与当前区域的全部句子逐字、同序、等数；`direct_dialogue_reviews` 对全部直接对白执行同样要求。一个句子含多个独立动作或信息单元且不是同一身体、感官或话轮链时，必须先把 `decision` 写成 `split/revise`，回正文修改后重新提交，不能直接写 `keep`。重复句必须完整进入 `repeated_sentence_reviews`；只有能说明当前独有功能时才可保留。
-
-`human_writer_counterfactual_review` 必须在逐句与逐对白复核完成后再写：逐句、再按连续动作链和话轮组追问“这段中的每一句、每一组话像真实的人写的吗？真人作家会这么写吗？”，并用当前文本中的口语停顿、人物注意力、动作受力、话轮失接、物件后果或来源连续句链作答。只写“是、很自然、很有画面”不得放行；无法给出具体依据的句组先回正文修改。
 
 `confirm-section` 通过后，台账冻结当前区域 SHA 并清除已领取句法包，才允许下一次 `prepare-section`。一次追加两个区域、跳节、旧区域被改、漏句、漏对白、重复使用同一人工判断或没有先领取句法包都会阻断。现场、概述、插嘴、跳时、急刹和余尾保持各自层型与连接，跨区域 SF 仍作为一个连续写作单元。
 

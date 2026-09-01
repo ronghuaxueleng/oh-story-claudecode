@@ -103,6 +103,12 @@ class SkillDocumentedCommandsTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         combined = skill + "\n" + workflow + "\n" + hot_news_rule
         self.assertIn("一次只写入一个正式区域", skill)
+        self.assertIn("precommit-design", skill)
+        self.assertIn("--artifact setting", skill)
+        self.assertIn("--artifact outline", skill)
+        self.assertIn("--preflight-passed", skill)
+        self.assertIn("对白人话风险", skill)
+        self.assertIn("不提前代写正文措辞", skill)
         self.assertIn("当前区域通过预检后", skill)
         self.assertIn("下一区域只读取其所需的主体原文行域", skill)
         self.assertIn("隐藏的来源覆盖注释", skill)

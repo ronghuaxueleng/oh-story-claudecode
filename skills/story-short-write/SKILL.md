@@ -4,7 +4,7 @@ description: |
   短篇网文写作。辅助短篇小说创作，从起盘、搭骨架到正文和回炉，重点抓冲突、情绪、高潮和值得付费的后果。
   触发方式：/story-short-write、/写短篇、「帮我写一篇短篇」「写个盐言故事」
 metadata:
-  version: 1.99.0
+  version: 2.0.0
 ---
 
 # story-short-write：短篇网文写作
@@ -119,9 +119,61 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 ### Phase 1：设定与细纲
 
-顺序完成 `设定.md` 和 `小节大纲.md`。设定完成后逐拍重建目标 P 拍；只有用户明确要求热点时，才在定稿细纲前按 BID/E 压力机制检索热点并注入目标事件。`小节大纲.md` 必须按导语、连续数字节、尾声的正式区域顺序，**一次只写入一个正式区域**；当前区域通过预检后，才允许落盘下一个区域。区域标题固定使用 `## 导语`、`## 1.`、`## 2.` ... `## N.`、`## 尾声`，数字标题后的句点不可省略。每个区域除主事件和细拍外，必须写清 `入场状态` 与 `离场状态`：只记录人物位置、关系站位、关键物件/权限、已知信息和未闭合压力的变化，不重复抄写设定。不得把一个区域拆成多个行政阶段，也不得在文件外累计第二套完整本 P/E 重映射；禁止创建分节草稿、临时细纲或临时合并脚本。
+项目配置与来源边界确定后、创建 `设定.md` 前，先初始化唯一规则台账。该台账贯穿设定、大纲和正文，不新增设计回执：
 
-每个区域直接在正式大纲文件中落盘，不以内存候选、临时文件或复制文本作为真源；当前区域落盘后立即运行官方 `preflight --allow-partial`，只核对当前区域及此前已通过区域的结构、状态字段、来源连续前缀、顺序和绑定完整性。下一区域只读取其所需的主体原文行域、来源层、上一整区域离场状态和当前设定，不得为方便生成而一次性读取并重写全书。每条 `细拍拆分` 首次落盘时必须在行尾写隐藏的来源覆盖注释，注释只登记 ID，不重抄来源内容：
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" init \
+  --project-dir "{项目目录}" \
+  --skill-root "$SKILL_ROOT"
+```
+
+顺序完成 `设定.md` 和 `小节大纲.md`。两个阶段都先在当前工作上下文形成**未落盘候选**，交给独立 diagnostic-only critic；critic 不接收写作者辩护，只看候选、当前规则 case、项目配置和实际来源资产。至少指出一个初稿 weakest link，writer 只定点修复 finding，最终候选按当前阶段的全部审查轴清零后，才运行 `precommit-design`。候选和初稿不写临时文件；台账只保存最终候选 SHA、动态失败码、逐字证据和裁决，不保存第二份设定或大纲。
+
+设定 critic 必须检查题面兑现、事实与权限、人物动机、现实操作、因果连续和来源边界。通过后先 precommit，再把同一候选第一次写入 `设定.md`，最后确认正式文件 SHA：
+
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" precommit-design \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact setting \
+  --candidate-json '"{最终设定候选 JSON 字符串}"' \
+  --review-json-file /dev/stdin
+
+# 只在 design_precommit: passed 后写入同一候选
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-design \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact setting \
+  --path "{项目目录}/设定.md"
+```
+
+设定完成后逐拍重建目标 P 拍；只有用户明确要求热点时，才在定稿细纲前按 BID/E 压力机制检索热点并注入目标事件。`小节大纲.md` 必须按导语、连续数字节、尾声顺序，**一次只写入一个正式区域**；但每个区域第一次写入正式文件前，先形成只含当前 `##` 区域的候选并交给大纲 critic。critic 必须检查入场/离场状态、P/E 整拍、来源层型、信息取得、物理受力、现实操作、未来对白人话风险和未来区域泄漏；它只拦施工层风险，不提前代写正文措辞。
+
+大纲候选通过 `precommit-design` 后才允许第一次追加到 `小节大纲.md`。追加后立即运行官方 `preflight --allow-partial`；当前区域通过预检后，才能带 `--preflight-passed` 运行 `confirm-design` 冻结当前区域。若局部 preflight 失败，留在当前区域重新 critic、precommit 和定点改写，不得确认或进入下一区域：
+
+`precommit-design --artifact outline` 会在记录候选 SHA 前，将当前候选与已冻结大纲前缀在内存中合并，调用正式 `manage_target_prose_map.py` 解析与预检。该候选预检必须先拦截区域字段重复、单区候选被完整大纲规则误判、P/E/SF/来源层漏拍或倒序；不得等候选追加到 `小节大纲.md` 后才发现这些确定性错误。候选中 E 拍数量可以多于 P 拍；多出的 E 拍必须由独立 E-only 目标节点承接，并保持来源 E 拍原序，不得并入相邻 P 拍或遗漏。
+
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" precommit-design \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact outline \
+  --region "{opening、section:N 或 epilogue}" \
+  --candidate-json '"{当前完整大纲区域 JSON 字符串}"' \
+  --review-json-file /dev/stdin
+
+python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
+  --project-dir "{项目目录}" \
+  --allow-partial
+
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-design \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --artifact outline \
+  --region "{同一区域}" \
+  --path "{项目目录}/小节大纲.md" \
+  --preflight-passed
+```
+
+区域标题固定使用 `## 导语`、`## 1.`、`## 2.` ... `## N.`、`## 尾声`，数字标题后的句点不可省略。每个区域除主事件和细拍外，必须写清 `入场状态` 与 `离场状态`：只记录人物位置、关系站位、关键物件/权限、已知信息和未闭合压力的变化，不重复抄写设定。不得把一个区域拆成多个行政阶段，也不得在文件外累计第二套完整本 P/E 重映射；禁止创建分节草稿、临时细纲或临时合并脚本。
+
+下一区域只读取其所需的主体原文行域、来源层、上一整区域离场状态和当前设定，不得为方便生成而一次性读取并重写全书。每条 `细拍拆分` 首次写入候选时必须在行尾写隐藏的来源覆盖注释；大纲 critic 的 `source_refs_considered` 必须与当前候选全部声明逐项同序一致。注释只登记 ID，不重抄来源内容：
 
 区域级施工字段（`主事件`、`情绪`、`钩子`、`伏笔/物件`、`场面单元`）必须针对当前区域独立填写；不得把同一组通用模板复制到多个区域。正式 `preflight` 会对这些字段做完全重复拦截；命中后必须回到当前正式文件逐区重写，不能用改标题、改数字或保留重复字段继续下游。
 
@@ -139,7 +191,7 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 - 某目标节点不承接 P 或 E 时可省略对应字段，但每个目标节点至少承接 P/E/SF步骤/来源层中的一项。
 - 注释不进入目标节点正文证据，不写入最终正文，也不算新增侧车或第二人工真源；Phase 2 映射只能由这些注释确定性派生。
 
-每个区域先运行：
+每个区域正式写入后运行：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
@@ -226,13 +278,9 @@ P/E 不得漏拍、并拍或倒序；P 四项承重不得用同一句结论批�
 
 主体声线直接由主体原文、主体 profile 和来源脑图的逐层颗粒约束；情绪由目标脑图的 E 拍映射约束；可见事件只来自已经换芯的目标 P 拍。目标脑图不存在、未封存或已失效时，正文放行必须阻断。
 
-正文前先抽取并确认规则台账，再运行正文放行：
+规则台账已经在设定前初始化。正文前逐组确认完整写作规则，再运行正文放行：
 
 ```bash
-python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" init \
-  --project-dir "{项目目录}" \
-  --skill-root "$SKILL_ROOT"
-
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" validate-prewrite \
   --ledger "{项目目录}/写作资产/规则执行台账.json"
 ```
@@ -250,6 +298,8 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 写每个区域前必须先运行 `prepare-section`。脚本只输出当前区域绑定的目标节点、P/E、全部来源层完整原文行域、连续来源句链、`sentence_relation_and_rhythm`、`paragraph_breath_and_cut_points`、主体 `sentence_motion` 和上一节尾句；输出直接作为当前区域写作上下文，不落新文件。未领取写前句法包时禁止写当前区域；正文已经提前出现当前区域或未来区域时，命令必须阻断。
 
+领取句法包后必须先运行 `plan-section`，在正文落笔前逐来源层、逐来源句链和逐目标节点写出颗粒施工计划。该命令只把计划 SHA、来源层 ID 和目标节点 ID 写入 `规则执行台账.json`，不保存第二份正文；没有通过 `plan-section` 的当前区域，`precommit-section` 必须阻断。
+
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" prepare-section \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
@@ -257,21 +307,28 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" prepare-section 
   --draft "{项目目录}/正文.md"
 ```
 
+```bash
+python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" plan-section \
+  --ledger "{项目目录}/写作资产/规则执行台账.json" \
+  --region "{opening 或 section:N}" \
+  --plan-json '"{当前区域颗粒施工计划 JSON 字符串}"'
+```
+
 只按句法包的来源层顺序形成当前区域候选：现场仍是现场，概述仍是概述，插嘴仍放在对应层间，急刹和冷尾不得扩写或提前。必须迁移连续来源句链中的长短交替、短判断落点和段落气口；禁止把细拍逐条改写成“目标事件句 + 固定旁白句”，禁止预生成后续区域。单一身体、感官或同一话轮链可保留长句，多动作、多信息或视线换主必须在自然换气点拆开。
 
-每个句子进入 `正文.md` 前必须即时问：“这个人物在当前压力下，真的会先注意这个、做这个动作、用这个停顿或说这句话吗？这像真实的人写的吗？”每完成一组连续动作链或同一话轮组，再问：“真人作家会把这组句子这样连起来吗？”若只能用作者解释、抽象主题、无受力动作或完整标准答案为句组辩护，先在落笔前改写；不得以“写后还会回检”为由先写入污染句。即时反问服从主体原文已有的粗口、残句、突然插嘴、骤断和不体面念头，不等于把句子润色得更书面、更整齐。
-
 直接对白必须额外朗读一遍并去掉细纲腔：人物若在嘴里复述组织标签、分析机制、流程字段或关系结论，即使意思正确也不得落盘。先改成当事人在当前场合会说的日常句子、具体事实、指责或短命令；职业争议确实需要合同时，也只说人物眼前可确认的合同、名单、名字、钱或权限事实，不得把施工语言塞进角色嘴里。
-
-真人反事实不得用“能解释所以通过”的顺向自证。每句与每组话先默认不通过，强制指出一处最可疑成分，再依次做三项反证：一，出声朗读是否像人物会说或叙述者会想；二，动作、物件、受力和空间关系是否能由真人实际完成；三，当前人物是否真的会注意并使用这些词，而不是作者替她调用细纲术语。任一项需要额外解释才能成立，先改成更直接的动作、物件事实或人话；禁止靠“意思能懂”放行。
 
 人物读取流水、病历、名单、门禁、合同和其他结构化记录时，必须先写她实际看见的字段与值，再允许下判断。不得用审计结论、流程摘要或资金路径概述代替人物看数据；如果一句话只能由写大纲、做审计或解释规则的人说，当前人物就不会这样想。
 
 候选完成后切换到独立 critic 任务，不再沿用写作者的解释意图。critic 只接收最终候选、当前句法包的可核验规则引用和项目已记录用户反馈，先作诊断、不直接改写：逐句引用最可疑短语，检查朗读、物理动作、人物注意力和结构化记录；按连续动作链、话轮组与段落转接指出 weakest link。初稿至少一个真实 weakest link 必须先被定点修掉；最终候选的失败码必须清零。失败类型由 critic 针对当前问题动态命名，不使用固定词表；每条 finding 必须引用当前 `规则执行台账.json.groups[].cases` 的真实 `rule_id:line`，脚本只校验引用和结构，不替模型判语义。
 
+正文首写另设颗粒覆盖硬闸：候选不得只提交“P/E 已出现”或总字数结论，必须按当前 `prepare-section` 输出的 `particle_contract`，逐来源层提交来源句链数量、目标句数量、目标节点、动作链、物件与受力、人物注意力、对白/静默、结果与断口以及专属判断，并提供正文逐字引句。任一来源层或目标节点缺项、来源句链数量未承接、动作/物件/话轮被合并成抽象总结时，`precommit-section` 直接阻断，先回当前候选补齐颗粒，不得以增加空泛字数代替。
+
 `precommit-section` 在盲审结构校验前，必须对当前数字节候选执行 `length_policy.min_section_ratio` 的主体锚定量检查；候选非空字符低于对应主体数字节最低量时直接阻断，不得先写入 `正文.md` 再等待全书放行发现。该检查只针对当前候选，不以相邻区域字数补足，也不允许用导语或尾声字符抵扣。
 
 每节形成候选前，模型必须先读取当前主体数字节的精确非空字符数并计算 `required_min=ceil(primary_section_chars*min_section_ratio)`；候选施工目标不得贴着最低线写，至少预留 `max(40字, required_min*0.05)` 的缓冲。提交前必须明确核对并记录 `candidate_chars / required_min / buffer`，避免用试探性短稿反复撞门。
+
+正式 `prepare-section` 现在直接返回并写入台账 `length_metrics`（主体节字符数、`required_min`、`buffer`、`target_floor`）。`precommit-section` 要求 `candidate_chars >= target_floor`，并记录同一组指标；这不是用空洞补字凑数，而是要求回到当前来源层的动作、受力、感官、视线、话轮和物件颗粒，把被压缩的成文链补完整。
 
 用户指出的自然度失败不写进公共 skill 固定词表；使用正式 `record-feedback` 将原句、问题和修复方向存入当前项目台账。后续 `prepare-section` 自动带出本项目全部反馈案例，precommit 必须显式全量消费其 ID。
 
@@ -293,8 +350,6 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" precommit-sectio
 最新已通过区域被用户定点指出语言问题时，只修改该片段及必要标点，然后用 `reconfirm-approved-section` 提交更新后的完整区域复核并原子刷新 SHA。该命令只接受当前最新 approved 区域；更早区域的修改会影响后续重复句和上下文，不得借此接口绕过重绑。
 
 当前区域落盘后，模型必须完整通读该区域全部真实句子，逐句同序填写 `sentence_reviews`，并逐字同序填写全部直接对白；与前文或本区重复的句子必须逐条裁决。`split / revise` 尚未改回正文、旧区域 SHA 变化、一次追加两个区域、漏句、漏对白或批量套用相同判断时，`confirm-section` 必须阻断。通过前不得调用下一次 `prepare-section`：
-
-逐句字段完成后还必须做一次真人作家反事实回检：先逐句，再按连续动作链、同一话轮组和相邻段落问“这段中的每一句、每一组话像真实的人写的吗？真人作家会这么写吗？”。回答必须指出当前句组的口语停顿、人物注意力、真实受力、话轮失接、物件后果或主体原文连续句链依据；只能回答“通顺、自然、有画面、像人写的”而没有可核验依据时，必须判 `revise` 并先改回正文。该反问不能替代 `sentence_reviews`、对白复核或动作—物件检查，也不能成为机械全答“是”的自证仪式。
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-section \

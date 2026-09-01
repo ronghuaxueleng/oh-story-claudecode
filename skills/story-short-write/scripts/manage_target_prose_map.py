@@ -239,9 +239,13 @@ def normalize_source_refs(value: Any) -> dict[str, list[str]]:
 
 
 def parse_outline(
-    outline_path: Path, allow_partial: bool = False
+    outline_path: Path,
+    allow_partial: bool = False,
+    *,
+    text: str | None = None,
 ) -> dict[str, Any]:
-    text = outline_path.read_text(encoding="utf-8")
+    if text is None:
+        text = outline_path.read_text(encoding="utf-8")
     matches = list(OUTLINE_HEADING_RE.finditer(text))
     regions: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -350,9 +354,12 @@ def parse_outline(
 
 
 def _outline_nodes(
-    outline: Path, allow_partial: bool = False
+    outline: Path,
+    allow_partial: bool = False,
+    *,
+    text: str | None = None,
 ) -> list[dict[str, Any]]:
-    catalog = parse_outline(outline, allow_partial=allow_partial)
+    catalog = parse_outline(outline, allow_partial=allow_partial, text=text)
     errors = catalog.get("errors") or []
     if errors:
         raise ValueError("小节大纲无法解析: " + " / ".join(str(item) for item in errors))
@@ -437,6 +444,26 @@ def load_target_nodes(
     return {"kind": "outline", **binding(path)}, _outline_nodes(
         path, allow_partial=allow_partial
     )
+
+
+def preflight_outline_text(
+    project_dir: Path, outline_text: str, *, allow_partial: bool = True
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate an outline candidate without writing it to a side file."""
+    source_path, source = resolve_source_map(project_dir)
+    outline_path = project_dir / "小节大纲.md"
+    catalog = parse_outline(outline_path, allow_partial=allow_partial, text=outline_text)
+    errors = [str(item) for item in catalog.get("errors") or []]
+    nodes: list[dict[str, Any]] = []
+    if not errors:
+        nodes = _outline_nodes(outline_path, allow_partial=allow_partial, text=outline_text)
+        errors.extend(validate_explicit_source_refs(nodes, source, partial=allow_partial))
+    return {
+        "gate_status": "passed" if not errors else "blocked",
+        "source_map": str(source_path),
+        "target_input": {"kind": "outline-candidate"},
+        "target_node_count": len(nodes),
+    }, errors
 
 
 def _empty_plot_mapping(item: dict[str, Any]) -> dict[str, Any]:
