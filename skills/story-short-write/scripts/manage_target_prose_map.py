@@ -31,6 +31,25 @@ SOURCE_REF_KEYS = {
     "SF": "subflow_steps",
     "L": "layer_ids",
 }
+# A source-map line is a construction contract, not a plot label.  These
+# phrases are the exact failure mode where a node appears mapped but cannot be
+# written as a scene.  Reject them before mappings are initialized.
+GENERIC_BEAT_PATTERNS = (
+    re.compile(r"完成第\s*\d+\s*个控制变化"),
+    re.compile(r"获得或失去一项可见信息"),
+    re.compile(r"物件与动作形成现实后果"),
+    re.compile(r"围绕.+推进当前区域"),
+    re.compile(r"当前关系现场完成"),
+)
+CONCRETE_ACTION_HINTS = re.compile(
+    r"(递|拿|握|抓|推|拉|扯|摔|踹|按|拽|夹|打开|关闭|签|删|发|看|盯|转身|走|坐|站|撞|抱|吻|递交|拨|挂|撕|撬|锁)"
+)
+CONCRETE_OBJECT_HINTS = re.compile(
+    r"(门禁|手机|短信|照片|病历|病历袋|合同|协议|撤诉书|授权|戒指|录音|硬盘|签收|回执|检查单|版权|登记证|保全|分成|流水|封条|案卷|听证|麦克风|公告|更正稿|剪辑盘|维修单|名单|钥匙|文件|相册|电话|手术|钱|票|桌|门|车|医院|会议室|舞台|墓碑)"
+)
+ABSTRACT_BEAT_HINTS = re.compile(
+    r"(控制变化|可见信息|关系位置|当前区域|关系因此|完成这一步|推进|处理完|最终解决|抽象后果)"
+)
 REQUIRED_OUTLINE_FIELDS = (
     "主事件",
     "子事件",
@@ -46,6 +65,23 @@ REQUIRED_OUTLINE_FIELDS = (
     "目标字数",
     "场面单元",
 )
+
+
+def _unknown_word_scene_fallback(value: str) -> bool:
+    """Allow new-domain words when the sentence is structurally enacted.
+
+    The hint regexes above are only high-confidence accelerators.  A new
+    object or action must not be rejected merely because it is absent from a
+    closed vocabulary.  Require a sufficiently long, multi-clause sentence
+    with visible Chinese content and reject abstract workflow summaries.
+    """
+    text = str(value or "").strip()
+    if len(re.sub(r"\s+", "", text)) < 18:
+        return False
+    if ABSTRACT_BEAT_HINTS.search(text):
+        return False
+    chinese = re.findall(r"[\u4e00-\u9fff]", text)
+    return len(chinese) >= 12 and bool(re.search(r"[，；。！？]", text))
 REPLACEMENT_DIMENSIONS = {
     "actor",
     "relationship",
@@ -179,7 +215,16 @@ def resolve_source_map(
                     "项目写作配置 primary 缺少 source_prose_map_path 或 profile_path"
                 )
             profile_path = resolve_path(profile_raw, config_path.parent)
-            path = profile_path.parent / "写作资产" / "来源成文脑图.json"
+            # Project profiles are generated under the new project and do not
+            # carry a copied source brain map. Prefer an explicit source path
+            # embedded in the profile when available, then retain the legacy
+            # co-located lookup for older projects.
+            profile = read_object(profile_path, "项目 profile")
+            embedded_source = str(profile.get("source_prose_map_path") or "").strip()
+            if embedded_source:
+                path = resolve_path(embedded_source, profile_path.parent)
+            else:
+                path = profile_path.parent / "写作资产" / "来源成文脑图.json"
     payload = read_object(path, "来源成文脑图")
     source_errors = SOURCE_MAP_VALIDATOR.validate_source_map(payload, path)
     if source_errors:
@@ -279,6 +324,22 @@ def parse_outline(
             except ValueError as exc:
                 errors.append(f"{region_id} 第 {beat_index} 条细拍 source-map 无效: {exc}")
                 evidence, source_refs = raw_evidence.strip(), empty_source_refs()
+            # Do this at outline preflight time.  A complete source-map is not
+            # sufficient when the visible construction text is still a generic
+            # synopsis; letting it through merely defers an inevitable rewrite
+            # until prose review.
+            if any(pattern.search(evidence) for pattern in GENERIC_BEAT_PATTERNS):
+                errors.append(
+                    f"{region_id} 第 {beat_index} 条细拍仍是概括/模板句，必须写出具体动作、物件承载和可见后果"
+                )
+            if not CONCRETE_ACTION_HINTS.search(evidence) and not _unknown_word_scene_fallback(evidence):
+                errors.append(
+                    f"{region_id} 第 {beat_index} 条细拍缺少可落笔动作，且未满足未知词结构化现场兜底；不能只写关系或信息结论"
+                )
+            if not CONCRETE_OBJECT_HINTS.search(evidence) and not _unknown_word_scene_fallback(evidence):
+                errors.append(
+                    f"{region_id} 第 {beat_index} 条细拍缺少具体物件/场域承载，且未满足未知词结构化现场兜底；不能只写抽象后果"
+                )
             target_id = f"T-{prefix}-{beat_index:03d}"
             if target_id in target_ids:
                 errors.append(f"细纲目标拍 ID 重复: {target_id}")
@@ -306,9 +367,13 @@ def parse_outline(
                 "region_id": region_id,
                 "heading": title,
                 "main_event": (fields.get("主事件") or [""])[0],
+                "sub_event": (fields.get("子事件") or [""])[0],
                 "emotion": (fields.get("情绪") or [""])[0],
+                "reader_info": (fields.get("读者新获知什么") or [""])[0],
                 "hook": (fields.get("钩子") or [""])[0],
                 "objects": (fields.get("伏笔/物件") or [""])[0],
+                "motion": (fields.get("动静") or [""])[0],
+                "dialogue_density": (fields.get("对话密度") or [""])[0],
                 "scene_summary": (fields.get("场面单元") or [""])[0],
                 "target_chars": {"min": char_min, "max": char_max},
                 "target_beats": target_beats,
@@ -336,6 +401,28 @@ def parse_outline(
                 )
             else:
                 seen[value] = str(region.get("region_id") or "")
+    # Reject template-only region fields that differ only by numbering or
+    # boilerplate markers. Genuine regions must carry distinct construction
+    # information, not the same sentence with a section index appended.
+    normalized_seen: dict[tuple[str, str], str] = {}
+    for label, key in uniqueness_fields:
+        for region in regions:
+            value = str(region.get(key) or "").strip()
+            if not value:
+                continue
+            normalized = re.sub(r"区域编号?\s*\d+", "", value)
+            normalized = re.sub(r"区域\s*\d+", "", normalized)
+            normalized = re.sub(r"\d+", "", normalized)
+            normalized = re.sub(r"[\s、，。；：:（）()【】\[\]—-]+", "", normalized)
+            marker = (label, normalized)
+            prior = normalized_seen.get(marker)
+            if prior and prior != str(region.get("region_id") or ""):
+                errors.append(
+                    f"区域字段{label}疑似仅替换编号的模板复用: "
+                    f"{region.get('region_id')} 与 {prior}"
+                )
+            else:
+                normalized_seen[marker] = str(region.get("region_id") or "")
     actual = [item["region_id"] for item in regions]
     numeric_count = sum(
         1 for item in regions if item["region_id"].startswith("section:")
@@ -454,6 +541,39 @@ def preflight_outline_text(
     outline_path = project_dir / "小节大纲.md"
     catalog = parse_outline(outline_path, allow_partial=allow_partial, text=outline_text)
     errors = [str(item) for item in catalog.get("errors") or []]
+    errors.extend(_validate_outline_semantic_distinctness(catalog.get("regions") or []))
+    # A target outline must not leak the primary source's named character
+    # shell back into visible construction text.  Source names are allowed in
+    # the hidden source-map IDs only; the target evidence must use its own
+    # character set and event shell.
+    source_name_tokens: set[str] = set()
+    # Actor fields also contain generic relationship/role nouns (for example
+    # "夫妻", "经纪人", "医院"). They are not source character names and
+    # must not trigger the named-shell return check.
+    generic_actor_tokens = {
+        "夫妻", "丈夫", "妻子", "朋友", "经纪人", "医院", "医生",
+        "网友", "同学", "女同学", "旧爱", "家人", "母亲", "姐姐",
+        "人员", "镜头", "名单", "位置", "现场", "身份",
+    }
+    for beat in source.get("plot_beats") or []:
+        actor = str(beat.get("actor") or "")
+        for part in re.split(r"[与和及、，, ]+", actor):
+            part = part.strip()
+            if 2 <= len(part) <= 4 and part not in generic_actor_tokens and "女同" not in part:
+                source_name_tokens.add(part)
+        source_name_tokens.update(
+            token for token in re.findall(r"[\u4e00-\u9fff]{2,4}", actor)
+            if token not in generic_actor_tokens and "女同" not in token
+        )
+    if source_name_tokens:
+        for region in catalog.get("regions") or []:
+            for beat in region.get("target_beats") or []:
+                evidence = str(beat.get("evidence") or "")
+                leaked = sorted(name for name in source_name_tokens if name in evidence)
+                if leaked:
+                    errors.append(
+                        f"{region.get('region_id')} {beat.get('target_id')} 细拍回流主体角色名 {leaked}，必须完成目标人物换壳"
+                    )
     nodes: list[dict[str, Any]] = []
     if not errors:
         nodes = _outline_nodes(outline_path, allow_partial=allow_partial, text=outline_text)
@@ -464,6 +584,52 @@ def preflight_outline_text(
         "target_input": {"kind": "outline-candidate"},
         "target_node_count": len(nodes),
     }, errors
+
+
+def _validate_outline_semantic_distinctness(regions: list[dict[str, Any]]) -> list[str]:
+    """Restore codex-main's anti-template gate without reviving old sidecars."""
+    errors: list[str] = []
+    fields = (
+        ("主事件", "main_event"), ("子事件", "sub_event"),
+        ("情绪", "emotion"), ("读者新获知什么", "reader_info"),
+        ("钩子", "hook"), ("伏笔/物件", "objects"),
+        ("动静", "motion"), ("对话密度", "dialogue_density"),
+        ("场面单元", "scene_summary"),
+    )
+    seen: dict[str, list[tuple[str, str]]] = {}
+    for label, key in fields:
+        for region in regions:
+            value = str(region.get(key) or "").strip()
+            if not value:
+                continue
+            semantic = re.sub(r"第\s*\d+\s*区", "", value)
+            semantic = re.sub(r"（[^（）]*）|\([^()]*\)", "", semantic)
+            semantic = re.sub(r"(?:下|本|当前)一?区(?:域)?", "", semantic)
+            semantic = re.sub(r"\d+", "", semantic)
+            semantic = re.sub(r"[\s、，。；：:【】\[\]—\-]+", "", semantic)
+            if len(semantic) < 12:
+                continue
+            for prior, prior_region in seen.setdefault(label, []):
+                ratio = difflib.SequenceMatcher(None, semantic, prior).ratio()
+                if ratio >= 0.88:
+                    errors.append(
+                        f"区域字段{label}语义高度重复（相似度 {ratio:.2f}），不能靠编号或尾缀伪造独立施工: {region.get('region_id')} 与 {prior_region}"
+                    )
+                    break
+            seen[label].append((semantic, str(region.get("region_id") or "")))
+    stop = set(re.findall(r"(?:本区|下一区|当前区域?)", "".join(str(region.get("region_id") or "") for region in regions)))
+    anchored = {key for _, key in fields if key not in {"motion", "dialogue_density", "reader_info"}}
+    for region in regions:
+        evidence = "".join(str(item.get("evidence") or "") for item in region.get("target_beats") or [])
+        grams = {evidence[i:i + 2] for i in range(max(0, len(evidence) - 1)) if evidence[i:i + 2] not in stop}
+        for label, key in fields:
+            if key not in anchored:
+                continue
+            value = str(region.get(key) or "")
+            own = {value[i:i + 2] for i in range(max(0, len(value) - 1)) if value[i:i + 2] not in stop}
+            if len(own & grams) < 2:
+                errors.append(f"区域字段{label}缺少本区细拍语义锚点，不能用通用模板代替真实施工: {region.get('region_id')}")
+    return errors
 
 
 def _empty_plot_mapping(item: dict[str, Any]) -> dict[str, Any]:
@@ -2449,6 +2615,11 @@ def command_preflight(args: argparse.Namespace) -> tuple[dict[str, Any], list[st
         allow_partial=allow_partial,
     )
     errors = validate_explicit_source_refs(nodes, source, partial=allow_partial)
+    if target_input.get("kind") == "outline":
+        outline_catalog = parse_outline(
+            project / "小节大纲.md", allow_partial=allow_partial
+        )
+        errors.extend(_validate_outline_semantic_distinctness(outline_catalog.get("regions") or []))
     dimension_inputs = _parse_json_argument(
         getattr(args, "dimensions_json", "{}"), "dimensions-json"
     )

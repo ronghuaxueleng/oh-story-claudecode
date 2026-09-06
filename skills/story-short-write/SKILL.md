@@ -151,6 +151,12 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-design \
 
 `precommit-design --artifact outline` 会在记录候选 SHA 前，将当前候选与已冻结大纲前缀在内存中合并，调用正式 `manage_target_prose_map.py` 解析与预检。该候选预检必须先拦截区域字段重复、单区候选被完整大纲规则误判、P/E/SF/来源层漏拍或倒序；不得等候选追加到 `小节大纲.md` 后才发现这些确定性错误。候选中 E 拍数量可以多于 P 拍；多出的 E 拍必须由独立 E-only 目标节点承接，并保持来源 E 拍原序，不得并入相邻 P 拍或遗漏。
 
+区域级字段的独立性不得靠编号、括号尾缀、情绪标签或“本区/下一区”替换伪造。生成候选后，必须先删除区域编号、括号说明和流程套话，再对 `主事件 / 子事件 / 情绪 / 读者新获知什么 / 钩子 / 伏笔/物件 / 动静 / 对话密度 / 场面单元` 做语义去重；任一字段与其他区域高度相似，必须回到对应 P/E/SF/L 重新施工。细拍正文中的主体人物姓名、核心关系壳和专属物件也必须全部换壳；隐藏 `source-map` 只能登记 ID，不能把主体专名带回目标证据。官方 `preflight` 会同时执行语义近重复和主体专名回流检查，检查失败不得确认区域。
+
+禁止用临时脚本、固定数组、场景词库、物件词库、对白密度表、编号循环、上一节复制或字符串替换批量生成 `设定.md`、`小节大纲.md`、目标细拍或任何人工语义字段。脚本只能做确定性解析、来源绑定、哈希、顺序校验和反模板检测；不得替当前模型决定某区的场景、物件、情绪转折、读者新增信息、钩子、对白密度或动作链。每个区域必须在当前工作上下文单独读取所需来源行域、上一节离场状态和当前设定，由模型形成候选并逐区提交 critic、precommit、preflight、confirm；任何“先用模板批量铺满，再靠预检修正”的流程均视为流程污染，必须从未污染的新项目重新起盘。
+
+动作和物件提示词表只能作为高置信加速器，不能作为封闭枚举硬闸。遇到新职业、新物件、新动作或新题材词时，若细拍已经具备足够长度的多分句现场、明确施事与受事、具体承载、信息变化和可见结果，必须走结构化未知词兜底，不得因词不在表内误杀；只有抽象标签、流程播报、关系结论或短词占位同时缺少结构化现场时才阻断。任何新增提示词都应先补反误判测试，不得把词表无限扩成新的硬编码真源。
+
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" precommit-design \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
@@ -177,7 +183,9 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-design \
 
 区域级施工字段（`主事件`、`情绪`、`钩子`、`伏笔/物件`、`场面单元`）必须针对当前区域独立填写；不得把同一组通用模板复制到多个区域。正式 `preflight` 会对这些字段做完全重复拦截；命中后必须回到当前正式文件逐区重写，不能用改标题、改数字或保留重复字段继续下游。
 
-每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。
+每个细拍首次写入前先完成同节点语义对照，禁止写完全文后再靠审计猜回：P 拍逐项核对 `action / control_change / information_change / consequence`；E 拍逐项核对 `content / trigger / relationship_position_change / reader_effect / intensity`，来源一整拍必须由当前单一目标节点完整承接，不得按相邻序号顺手分配、拆给前后节点或只保留情绪名；来源层逐项核对层型、进出关系、叙述距离、每条 `must_preserve_in_target` 和六维 active/inactive。目标节点写不下整拍或整层时，当场拆改目标施工内容再落 `source-map`，不得先登记 ID 占位。 
+
+细拍不是剧情标签或审计结论。每条 `细拍拆分` 必须能直接转成连续正文句子，至少写出一个可执行动作、一个具体物件或场域承载、人物当下注意力/受力方向、信息变化和现实后果；`完成控制变化`、`获得或失去可见信息`、`物件与动作形成现实后果`、`围绕本区推进` 等泛化模板句一律视为施工失败。正式 `manage_target_prose_map.py preflight` 会在目标脑图初始化前拦截这类概括句以及缺少动作或物件承载的细拍；修复必须回到当前正式区域重新 critic、precommit 和确认。
 
 同一次核对只额外保留两类紧凑输入：每个 P 拍选择至少三个合法换壳维度；每个来源层选 1-3 条行域内原文短引句。合法 P 维度固定只有 `actor / relationship / setting / object / conflict_mechanism / information_mechanism / consequence`。禁止自造 `control_mechanism` 等近义字段；正式脚本会在 preflight 阶段给出最接近的合法字段提示。E 五字段、P 四项承重以及层拓扑/规则/六维的目标实现都已存在于当前细拍与显式绑定中，后续只允许确定性展开，不再人工重复抄写。
 
@@ -208,6 +216,8 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" preflight \
 细拍和场面单元必须能承接主体 SF 的逐层来源拓扑，不能只抄剧情功能。颗粒标准不是“人物 + 动作 + 物件 + 反应”组件清单，也不默认把概述扩成现场：来源层是 `live_scene` 才必须提供可连续落笔的现场载体；来源层是 `summary_transition / public_discourse / institutional_result / rumor_afterword` 时，目标也保留相同叙事距离、粗跳幅度和断口。禁止把多种来源层型统一压成 `某人陆续提交材料 / 经过数月 / 最终承担责任` 的同一种流程说明，也禁止为了显得具体而把原文的一句急刹扩成证据流水账。
 
 数字节密度必须迁移主体原文的段落呼吸。写前放行会读取主体原文的连续裸数字或带点数字节号，以主体节均非空白字符、主体节数和细纲目标字数计算最低合理节数，同时校验全书目标上限与数字节数上限；禁止把主体多个完整翻刀点压进一个超长数字节，也禁止在未获授权时把短篇骨架扩成中篇。
+
+数字节数量与目标字数是细纲阶段的硬合同，不得等正文放行才发现。细纲完整预检后必须立即运行 `validate_streamlined_write_release.py`；若主体数字节数下限未满足、整体/分节上限超出主体锚定比例，必须在细纲阶段重切区域并重新逐区确认，禁止靠正文阶段压缩或补字绕过。
 
 细纲的目标字数只用于写前配重、全书体量上限和分节密度判断，不是正文逐节硬门禁，也不得用于估算是否发生颗粒压缩。终审按 P/E 拍、完整 SF 表演链、局部说明段表演颗粒、六维和声线完整度逐项判断，并只以主体锚定的全书上限拦截失控扩写；不得因实际字数偏离单节目标而补描写、加回忆、重复情绪或删除必要现场。
 
@@ -270,6 +280,8 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" rebind \
   --project-dir "{项目目录}"
 ```
 
+已冻结区域发生颗粒度、动作、物件或目标字数修改时，旧区域 SHA 与相关 P/E/层确认必须自动失效；不得手工改写 `规则执行台账.json` 冒充重审。必须先用当前完整区域候选重新执行 `precommit-design --artifact outline`，再运行局部 `preflight --allow-partial`、`confirm-design --preflight-passed`，最后 `rebind` 并重新提交受影响的显式保真确认。若当前脚本无法接收冻结区域的增量候选，应先扩展正式脚本接口，不能以人工改回执替代门禁。
+
 仅对本规则生效前已经初始化、尚未封存的旧项目，可一次使用 `migrate-legacy-source-refs`。它读取旧项目已人工复核的绑定及审阅者明确覆盖，先按新合同全量校验，再原子写回细纲隐藏声明并立即 rebind；新项目、已封存项目和存在未知绑定的项目禁止使用。该迁移不是正常写作阶段，不得用于绕过 `preflight`。
 
 P/E 不得漏拍、并拍或倒序；P 四项承重不得用同一句结论批量套写；E 五字段不得拆散或顺移；SF 表演链不得漏步；来源全部有效正文行必须进入 SF/文字层联合覆盖，文字层不得漏层、换序、功能顺移或越出 SF 连续承载范围。任一来源层没有行域内短引句、写前保真确认缺失、目标节点内容哈希变化或仍用宽泛说明代替具体实现，`validate` 必须阻断。目标节点仍只是流程描述、结果总结或分析标签时，不能绑定现场层；先把目标节点改成可连续落笔的施工颗粒，再运行 `rebind`。辅助来源只供应已授权 P 拍机制，不接入 E 拍和文字层。
@@ -300,6 +312,8 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 领取句法包后必须先运行 `plan-section`，在正文落笔前逐来源层、逐来源句链和逐目标节点写出颗粒施工计划。该命令只把计划 SHA、来源层 ID 和目标节点 ID 写入 `规则执行台账.json`，不保存第二份正文；没有通过 `plan-section` 的当前区域，`precommit-section` 必须阻断。
 
+`plan-section` 是首写施工门，不是形式回执。每个来源句必须在计划中拥有独立的目标承接句设计，并明确动作/受力、物件、人物注意力、对白或静默、结果与断口；每个目标节点还要有自己的连续动作链和关系后果。计划中出现“概括、总结、随后推进、完成控制变化、获得或失去一项”等流程词，或只写“写出动作/保留现场”而没有本区对象与落点时，脚本必须阻断。只有计划通过后，模型才允许形成正文候选；首写不得先交一版剧情提要再靠盲审补颗粒。
+
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" prepare-section \
   --ledger "{项目目录}/写作资产/规则执行台账.json" \
@@ -323,6 +337,8 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" plan-section \
 候选完成后切换到独立 critic 任务，不再沿用写作者的解释意图。critic 只接收最终候选、当前句法包的可核验规则引用和项目已记录用户反馈，先作诊断、不直接改写：逐句引用最可疑短语，检查朗读、物理动作、人物注意力和结构化记录；按连续动作链、话轮组与段落转接指出 weakest link。初稿至少一个真实 weakest link 必须先被定点修掉；最终候选的失败码必须清零。失败类型由 critic 针对当前问题动态命名，不使用固定词表；每条 finding 必须引用当前 `规则执行台账.json.groups[].cases` 的真实 `rule_id:line`，脚本只校验引用和结构，不替模型判语义。
 
 正文首写另设颗粒覆盖硬闸：候选不得只提交“P/E 已出现”或总字数结论，必须按当前 `prepare-section` 输出的 `particle_contract`，逐来源层提交来源句链数量、目标句数量、目标节点、动作链、物件与受力、人物注意力、对白/静默、结果与断口以及专属判断，并提供正文逐字引句。任一来源层或目标节点缺项、来源句链数量未承接、动作/物件/话轮被合并成抽象总结时，`precommit-section` 直接阻断，先回当前候选补齐颗粒，不得以增加空泛字数代替。
+
+正文颗粒覆盖不是“写到这件事”或“每层有一句引文”就算完成。`live_scene / compressed_scene / memory_exposition` 层默认要求来源连续句链逐句转成目标连续句链，`source_sentence_count` 与 `target_sentence_count` 不得压缩；只有来源本来是 `opening_compression / time_jump / summary_transition / public_discourse / institutional_result / rumor_afterword` 的层，才允许保留原有粗跳，但仍须逐层列出每个来源句的目标承接位置、信息载体和断口。`precommit-section` 会拒绝“随后发生、经过一番、最终两人、关系因此、完成控制变化”等流程播报或总结句；发现命中必须回到当前候选补写动作、受力、感官、视线、话轮、物件和结果，不能留到覆盖终审再补。
 
 `precommit-section` 在盲审结构校验前，必须对当前数字节候选执行 `length_policy.min_section_ratio` 的主体锚定量检查；候选非空字符低于对应主体数字节最低量时直接阻断，不得先写入 `正文.md` 再等待全书放行发现。该检查只针对当前候选，不以相邻区域字数补足，也不允许用导语或尾声字符抵扣。
 

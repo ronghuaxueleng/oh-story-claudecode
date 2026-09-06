@@ -63,6 +63,23 @@ GROUP_SPECS = (
     ("emotion_rules", "references/craft/emotion-and-outcome-library.md", "draft", "情绪变化与现实后果"),
 )
 
+# Prose candidates must contain enacted particles, not a compressed outline
+# wearing prose formatting.  These are deliberately narrow high-signal
+# patterns; normal short sentences remain unrestricted.
+SYNOPSIS_PROSE_PATTERNS = (
+    re.compile(r"随后(?:，|就)?(?:发生|完成|处理|推进)"),
+    re.compile(r"经过一番"),
+    re.compile(r"最终(?:，|就)?(?:他们|两人|双方|事情)"),
+    re.compile(r"两人关系(?:因此|从此)"),
+    re.compile(r"完成(?:了)?(?:这一步|当前区域|控制变化)"),
+    re.compile(r"获得或失去(?:了)?一项"),
+)
+
+PLAN_SYNOPSIS_PATTERNS = (
+    re.compile(r"概括|总结|流程播报|完成控制变化|获得或失去一项"),
+    re.compile(r"随后(?:处理|推进|发生)|最终(?:解决|完成)"),
+)
+
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -975,7 +992,8 @@ def precommit_design_candidate(
             return ["大纲候选必须只包含当前一个完整区域标题与内容"]
         approved = state.get("outline_regions") or []
         approved_ids = [str(item.get("region_id") or "") for item in approved]
-        if not next_outline_region(approved_ids, region_id):
+        replacing_last = bool(approved_ids and region_id == approved_ids[-1])
+        if not next_outline_region(approved_ids, region_id) and not replacing_last:
             return [f"大纲区域不是当前唯一后继: approved={approved_ids}, requested={region_id}"]
         outline_text = outline_path.read_text(encoding="utf-8") if outline_path.is_file() else ""
         try:
@@ -990,18 +1008,27 @@ def precommit_design_candidate(
             ]
         for item in approved:
             approved_id = str(item.get("region_id") or "")
-            if item.get("content_sha256") != text_sha256(actual_regions.get(approved_id, "")):
+            if approved_id != region_id and item.get("content_sha256") != text_sha256(actual_regions.get(approved_id, "")):
                 errors.append(f"已批准大纲区域 {approved_id} 文本 SHA 已变化")
         if errors:
             return errors
         candidate_region_text = candidate_regions[region_id]
+        # When replacing the last frozen region, validate the candidate against
+        # the frozen prefix only. The existing copy of that region (and any
+        # later unapproved tail) must not be duplicated into the in-memory
+        # preflight document.
+        preflight_base = outline_text
+        if replacing_last:
+            markers = list(OUTLINE_REGION_RE.finditer(outline_text))
+            if len(markers) >= len(approved_ids):
+                preflight_base = outline_text[: markers[-1].start()].rstrip()
         errors.extend(
             preflight_outline_candidate(
                 project_dir,
-                outline_text,
+                preflight_base,
                 candidate_region_text,
-                approved_ids,
-                actual_order,
+                approved_ids[:-1] if replacing_last else approved_ids,
+                approved_ids[:-1] if replacing_last else actual_order,
             )
         )
         if errors:
@@ -1076,25 +1103,28 @@ def confirm_design_candidate(
             return [str(exc)]
         approved = state.get("outline_regions") or []
         approved_ids = [str(item.get("region_id") or "") for item in approved]
-        if actual_order != approved_ids + [region_id]:
+        expected_confirm_order = approved_ids if (approved_ids and approved_ids[-1] == region_id) else approved_ids + [region_id]
+        if actual_order != expected_confirm_order:
             return [
                 "确认大纲时正式文件必须只新增当前区域: "
-                f"expected={approved_ids + [region_id]}, actual={actual_order}"
+                f"expected={expected_confirm_order}, actual={actual_order}"
             ]
         for item in approved:
             approved_id = str(item.get("region_id") or "")
-            if item.get("content_sha256") != text_sha256(regions.get(approved_id, "")):
+            if approved_id != region_id and item.get("content_sha256") != text_sha256(regions.get(approved_id, "")):
                 return [f"已批准大纲区域 {approved_id} 文本 SHA 已变化"]
         current_text = regions.get(region_id, "")
         if pending.get("candidate_sha256") != text_sha256(current_text):
             return ["大纲正式区域与 precommit 最终候选 SHA 不一致"]
-        approved.append(
-            {
-                "region_id": region_id,
-                "content_sha256": text_sha256(current_text),
-                "review": pending.get("review"),
-            }
-        )
+        replacement = {
+            "region_id": region_id,
+            "content_sha256": text_sha256(current_text),
+            "review": pending.get("review"),
+        }
+        if approved and approved[-1].get("region_id") == region_id:
+            approved[-1] = replacement
+        else:
+            approved.append(replacement)
         state["outline_regions"] = approved
     else:
         return ["artifact 只能是 setting 或 outline"]
@@ -1356,6 +1386,8 @@ def prepare_section_context(
             "盲审 critic 不得读取或复述写作者的创作理由，只引用候选原句、提交失败码和最小修复方向；至少修掉一个初稿 weakest link，再对最终候选逐句复验。",
             "读取流水、病历、名单、门禁和合同时，人物只能先看见金额、备注、收款方、诊断、姓名、时间或状态；流程摘要不得进入最终候选。",
             "禁止用‘目标事件句 + 固定旁白句’批量拼接节点，禁止复用 previous_region_tail_sentences 的句面。",
+            "首写前必须完成逐来源句的 target_sentence_plan：每个来源句明确目标承接句、动作/受力、物件、人物注意力、对白或静默、结果与断口；任何概括、流程词或空泛判断都会在 plan-section 阶段阻断。",
+            "写作者只能依据已通过的 particle_plan 落笔；不得先写一版概括正文再依赖 precommit 或终审补颗粒。",
             "precommit-section 生成最终候选 SHA 后，只把该候选第一次写入正文；随后完整通读真实句子并运行 confirm-section，通过前不得追加下一区域。",
         ],
     }
@@ -1704,6 +1736,16 @@ def validate_particle_coverage(
             f"expected={expected_layers}, actual={actual_layers}"
         ]
     errors: list[str] = []
+    synopsis_hits = [
+        match.group(0)
+        for pattern in SYNOPSIS_PROSE_PATTERNS
+        for match in pattern.finditer(candidate_text)
+    ]
+    if synopsis_hits:
+        errors.append(
+            "正文候选含概括/流程播报句，必须逐颗粒展开后再提交: "
+            + "、".join(sorted(set(synopsis_hits))[:8])
+        )
     expected_nodes = [str(value) for value in contract.get("target_node_ids") or []]
     required_fields = [str(value) for value in contract.get("required_fields") or []]
     expected_counts = contract.get("source_layer_sentence_counts") or {}
@@ -1726,11 +1768,31 @@ def validate_particle_coverage(
                 errors.append(f"{label}.{field} 必须写当前来源层的具体颗粒判断")
         source_count = item.get("source_sentence_count")
         target_count = item.get("target_sentence_count")
-        if source_count != expected_count or not isinstance(target_count, int) or target_count < 1:
+        # A live source layer cannot collapse into fewer target sentences than
+        # its source chain. Summary/public-discourse layers are allowed to
+        # retain their coarse distance, but they still need an explicit
+        # one-to-one particle accounting entry rather than a total-only claim.
+        layer_mode = str(item.get("layer_mode") or "")
+        minimum_target = 1 if layer_mode in {
+            "opening_compression", "time_jump", "summary_transition",
+            "public_discourse", "institutional_result", "rumor_afterword",
+        } else expected_count
+        if (
+            source_count != expected_count
+            or not isinstance(target_count, int)
+            or target_count < minimum_target
+        ):
             errors.append(
                 f"{label} 句链数量不完整: source_sentence_count={source_count}, "
-                f"expected={expected_count}, target_sentence_count={target_count}"
+                f"expected={expected_count}, minimum_target={minimum_target}, "
+                f"target_sentence_count={target_count}"
             )
+        if layer_mode not in {
+            "", "opening_compression", "time_jump", "summary_transition",
+            "public_discourse", "institutional_result", "rumor_afterword",
+            "live_scene", "compressed_scene", "memory_exposition",
+        }:
+            errors.append(f"{label}.layer_mode 非法")
         quotes = item.get("evidence_quotes")
         if not isinstance(quotes, list) or not quotes or any(not isinstance(q, str) or not q.strip() or q not in candidate_text for q in quotes):
             errors.append(f"{label}.evidence_quotes 必须提供正文逐字引句")
@@ -1779,6 +1841,10 @@ def validate_particle_plan(
             for field in required_fields:
                 if len(str(unit.get(field) or "").strip()) < 8:
                     errors.append(f"{unit_label}.{field} 必须写具体落笔计划")
+                elif any(pattern.search(str(unit.get(field))) for pattern in PLAN_SYNOPSIS_PATTERNS):
+                    errors.append(
+                        f"{unit_label}.{field} 含概括/流程词，必须在首写前改为可执行的动作、物件、注意力或结果"
+                    )
     for index, item in enumerate(node_plans, 1):
         label = f"particle_plan.target_node_plans[{index}]"
         if not isinstance(item, dict):
@@ -1787,6 +1853,10 @@ def validate_particle_plan(
         for field in required_fields:
             if len(str(item.get(field) or "").strip()) < 8:
                 errors.append(f"{label}.{field} 必须写本节点专属施工判断")
+            elif any(pattern.search(str(item.get(field))) for pattern in PLAN_SYNOPSIS_PATTERNS):
+                errors.append(
+                    f"{label}.{field} 含概括/流程词，必须在首写前改为本节点具体施工判断"
+                )
     return errors
 
 

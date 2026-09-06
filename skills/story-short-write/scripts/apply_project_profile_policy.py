@@ -101,6 +101,9 @@ def apply_policy(config_path: Path) -> Path:
         raise ValueError("profile.prose_style_contract 必须是对象")
     style_contract["primary_profile_path"] = str(primary_path)
     style_contract["auxiliary_profiles_supply_prose"] = False
+    source_map_raw = str(primary_config.get("source_prose_map_path") or "").strip()
+    if source_map_raw:
+        profile["source_prose_map_path"] = source_map_raw
 
     auxiliary_policy = []
     for item in auxiliaries:
