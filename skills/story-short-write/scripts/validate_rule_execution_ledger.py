@@ -383,6 +383,21 @@ def liveliness_group(data: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def ledger_plan_regions(data: dict[str, Any], ledger_path: Path) -> tuple[list[str], list[str]]:
+    group = liveliness_group(data)
+    if group.get("planning_policy") != "source_layer_packet":
+        return expected_plan_regions(group.get("section_generation_plans"))
+    outline = ledger_path.parent.parent / "小节大纲.md"
+    if not outline.is_file():
+        return [], [f"逐区计划缺少正式大纲: {outline}"]
+    plans = [
+        {"target_sections": "opening" if match.group(1) == "导语" else
+         "epilogue" if match.group(1) == "尾声" else f"section:{int(match.group(2))}"}
+        for match in OUTLINE_REGION_RE.finditer(outline.read_text(encoding="utf-8"))
+    ]
+    return expected_plan_regions(plans)
+
+
 def empty_design_review_state() -> dict[str, Any]:
     return {
         "mode": "enforced",
@@ -538,7 +553,7 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
             for plan_item in plan:
                 if not isinstance(plan_item, dict) or len(str(plan_item.get("target_sections") or "").strip()) < 2 or len(str(plan_item.get("execution_note") or "").strip()) < 8:
                     errors.append(f"{label}.rule_use_plan 每项必须写目标区域和执行说明")
-        if rule_id == "liveliness_rules":
+        if rule_id == "liveliness_rules" and item.get("planning_policy") != "source_layer_packet":
             assets = item.get("active_assets")
             required_categories = {
                 "active_verb", "embodied_perception", "colloquial_interjection",
@@ -613,9 +628,8 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
     if not isinstance(state, dict):
         errors.append("draft_review_state 必须是对象")
     else:
-        plan_regions, plan_errors = expected_plan_regions(
-            liveliness_group(data).get("section_generation_plans")
-        )
+        plan_regions, plan_errors = ledger_plan_regions(data, path)
+        errors.extend(plan_errors)
         if not plan_errors:
             expected_draft_regions = plan_regions[:-1]
             if state.get("expected_regions") != expected_draft_regions:
@@ -703,11 +717,15 @@ def apply_prewrite_reviews(path: Path, reviews: dict[str, Any]) -> None:
             raise ValueError(f"{rule_id}.rule_use_plan 不能为空")
         item["rule_use_plan"] = plan
         if rule_id == "liveliness_rules":
-            assets = raw.get("active_assets")
+            policy = raw.get("planning_policy", "source_layer_packet")
+            if policy not in {"source_layer_packet", "legacy_full_book"}:
+                raise ValueError("liveliness_rules.planning_policy 非法")
+            item["planning_policy"] = policy
+            assets = raw.get("active_assets", [])
             if not isinstance(assets, list):
                 raise ValueError("liveliness_rules.active_assets 必须是数组")
             item["active_assets"] = assets
-            plans = raw.get("section_generation_plans")
+            plans = raw.get("section_generation_plans", [])
             if not isinstance(plans, list):
                 raise ValueError("liveliness_rules.section_generation_plans 必须是数组")
             item["section_generation_plans"] = plans
@@ -722,9 +740,7 @@ def apply_prewrite_reviews(path: Path, reviews: dict[str, Any]) -> None:
         "synopsis_gate_confirmed": True,
         "judgment": "已逐组阅读全部规则案例；首写禁止梗概污染，只有来源本来是总结/公共传播/机构结果/传闻尾声的层才保留粗跳，辅助书仅提供事件机制，不进入声线。",
     })
-    plan_regions, plan_errors = expected_plan_regions(
-        groups["liveliness_rules"].get("section_generation_plans")
-    )
+    plan_regions, plan_errors = ledger_plan_regions(data, path)
     if plan_errors:
         raise ValueError(" / ".join(plan_errors))
     expected_draft_regions = plan_regions[:-1]
@@ -816,6 +832,129 @@ def parse_review_input(value: str, file_value: str | None) -> dict[str, Any]:
     return payload
 
 
+def validate_weakest_link_review(
+    review: dict[str, Any], candidate_text: str, valid_rule_refs: set[str], label: str
+) -> list[str]:
+    item = review.get("weakest_link_review")
+    if not isinstance(item, dict):
+        return [f"{label} 无真实 finding 时必须提交 weakest_link_review，不能空白放行"]
+    errors: list[str] = []
+    quotes = item.get("evidence_quotes")
+    if not isinstance(quotes, list) or not quotes or any(
+        not isinstance(quote, str) or not quote.strip() or quote not in candidate_text
+        for quote in quotes
+    ):
+        errors.append(f"{label}.weakest_link_review 必须逐字引用候选最弱处")
+    refs = item.get("rule_refs")
+    if not isinstance(refs, list) or not refs or any(str(ref) not in valid_rule_refs for ref in refs):
+        errors.append(f"{label}.weakest_link_review 必须引用真实规则 case")
+    if len(str(item.get("risk_considered") or "").strip()) < 12:
+        errors.append(f"{label}.weakest_link_review 缺少具体风险判断")
+    if len(str(item.get("judgment") or "").strip()) < 30:
+        errors.append(f"{label}.weakest_link_review 必须说明文本为何成立且无需改写")
+    if item.get("verdict") != "pass" or item.get("failure_codes") != [] or item.get("no_rewrite_needed") is not True:
+        errors.append(f"{label}.weakest_link_review 尚未显式确认无未解决问题")
+    return errors
+
+
+def validate_review_identity(review: dict[str, Any], data: dict[str, Any], *, setting: bool = False) -> list[str]:
+    mode = review.get("review_mode", "independent")
+    if mode not in {"independent", "self_check"}:
+        return ["review_mode 必须为 independent 或 self_check"]
+    if mode == "self_check":
+        if setting or (data.get("review_policy") or {}).get("mode") != "checkpoint":
+            return ["当前策略或设定节点不允许 self_check"]
+        if review.get("critic_context_isolated") is not False:
+            return ["self_check 必须如实声明 critic_context_isolated=false"]
+    elif review.get("critic_context_isolated") is not True:
+        return ["independent 必须声明 critic_context_isolated=true"]
+    return []
+
+
+def set_review_policy(path: Path, mode: str, authorization: str, reason: str) -> None:
+    if mode not in {"checkpoint", "per_region"} or not authorization.strip() or not reason.strip():
+        raise ValueError("审查策略必须合法且记录用户授权和修改原因")
+    data = load(path)
+    if (data.get("design_review_state") or {}).get("pending") or any(
+        (data.get("draft_review_state") or {}).get(key)
+        for key in ("prepared_region", "precommit_region")
+    ):
+        raise ValueError("必须先完成当前已领取或待确认区域，再切换审查策略")
+    old = (data.get("review_policy") or {}).get("mode", "per_region")
+    data.setdefault("review_policy_history", []).append({
+        "previous_mode": old, "mode": mode,
+        "user_authorization": authorization, "reason": reason,
+    })
+    data["review_policy"] = {"mode": mode}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def checkpoint_bindings(project: Path, stage: str) -> dict[str, str]:
+    names = ["设定.md", "小节大纲.md", "写作资产/项目写作配置.json"]
+    if stage == "draft_complete":
+        names += ["正文.md", "写作资产/目标成文脑图.json"]
+    return {name: sha256(project / name) for name in names}
+
+
+def validate_checkpoint(data: dict[str, Any], project: Path, stage: str) -> list[str]:
+    if (data.get("review_policy") or {}).get("mode") != "checkpoint":
+        return []
+    receipt = (data.get("review_checkpoints") or {}).get(stage)
+    if not isinstance(receipt, dict):
+        return [f"缺少独立审查节点 {stage}，请运行 record-checkpoint"]
+    try:
+        current = checkpoint_bindings(project, stage)
+    except OSError as exc:
+        return [str(exc)]
+    if receipt.get("bindings") != current:
+        return [f"独立审查节点 {stage} 的正文或上游 SHA 已变化"]
+    return []
+
+
+def record_checkpoint(path: Path, stage: str, review: dict[str, Any]) -> list[str]:
+    if stage not in {"outline_complete", "draft_complete"}:
+        return ["未知审查节点"]
+    data = load(path)
+    project = path.parent.parent
+    if (data.get("review_policy") or {}).get("mode") != "checkpoint":
+        return ["record-checkpoint 只用于 checkpoint 策略"]
+    errors = validate_review_identity(review, data, setting=True)
+    target = project / ("小节大纲.md" if stage == "outline_complete" else "正文.md")
+    content = target.read_text(encoding="utf-8")
+    bindings = checkpoint_bindings(project, stage)
+    if review.get("bindings") != bindings:
+        errors.append("checkpoint.bindings 必须与审查时实际文件 SHA 一致")
+    if review.get("model_read_final_candidate") is not True or review.get("final_verdict") != "pass":
+        errors.append("节点必须完整阅读最终文本且 final_verdict=pass")
+    if review.get("unresolved_findings") != []:
+        errors.append("节点仍有未解决问题或缺少 unresolved_findings")
+    axes = review.get("axis_checks") or {}
+    if not isinstance(axes, dict):
+        return errors + ["checkpoint.axis_checks 必须是对象"]
+    for name in ("causal_continuity", "source_fidelity", "character_and_permission", "voice_and_payoff"):
+        item = axes.get(name) or {}
+        if not isinstance(item, dict):
+            errors.append(f"checkpoint.{name} 必须是对象")
+            continue
+        quotes = item.get("evidence_quotes")
+        if item.get("verdict") != "pass" or len(str(item.get("judgment") or "").strip()) < 30:
+            errors.append(f"checkpoint.{name} 缺少具体通过裁决")
+        if not isinstance(quotes, list) or not quotes or any(not isinstance(q, str) or not q.strip() or q not in content for q in quotes):
+            errors.append(f"checkpoint.{name} 缺少当前文本逐字证据")
+    if stage == "outline_complete":
+        _, order, _ = split_outline_regions(content)
+        if not order or order[-1] != "epilogue":
+            errors.append("完整细纲节点必须包含尾声")
+        errors.extend(validate_design_gate(data, project, order, check_checkpoint=False))
+    else:
+        errors.extend(validate_draft_review_state(path, target, require_complete=True, check_checkpoint=False))
+    if errors:
+        return errors
+    data.setdefault("review_checkpoints", {})[stage] = {"bindings": bindings, "review": review}
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return []
+
+
 def validate_design_critic_review(
     review: dict[str, Any],
     candidate_text: str,
@@ -835,8 +974,8 @@ def validate_design_critic_review(
         errors.append(f"design_review.artifact 必须为 {artifact}")
     if review.get("region_id") != region_id:
         errors.append(f"design_review.region_id 必须为 {region_id}")
+    errors.extend(validate_review_identity(review, ledger_data, setting=artifact == "setting"))
     for field in (
-        "critic_context_isolated",
         "diagnostic_only_first_pass",
         "author_intent_ignored",
         "model_read_final_candidate",
@@ -874,8 +1013,10 @@ def validate_design_critic_review(
                 errors.append(f"{label}.sha256 与当前文件不一致")
 
     findings = review.get("draft_findings")
-    if not isinstance(findings, list) or not findings:
-        errors.append("design_review.draft_findings 至少需要一个初稿 weakest-link 修复")
+    if not isinstance(findings, list):
+        errors.append("design_review.draft_findings 必须是数组")
+    elif not findings:
+        errors.extend(validate_weakest_link_review(review, candidate_text, valid_rule_refs, "design_review"))
     else:
         for index, finding in enumerate(findings, 1):
             label = f"design_review.draft_findings[{index}]"
@@ -968,9 +1109,10 @@ def precommit_design_candidate(
         actual_region = "setting"
         if state.get("setting") is not None:
             return ["设定已通过写前 critic 并冻结"]
+        reopened_setting = bool(state.get("setting_revisions"))
         if setting_path.is_file() and setting_path.read_text(encoding="utf-8").strip() and not (
             isinstance(pending, dict) and pending.get("artifact") == "setting"
-        ):
+        ) and not reopened_setting:
             return ["设定候选已经提前写入正式文件，必须先通过 precommit-design"]
         base_sha = sha256(setting_path) if setting_path.is_file() else ""
     elif artifact == "outline":
@@ -992,8 +1134,8 @@ def precommit_design_candidate(
             return ["大纲候选必须只包含当前一个完整区域标题与内容"]
         approved = state.get("outline_regions") or []
         approved_ids = [str(item.get("region_id") or "") for item in approved]
-        replacing_last = bool(approved_ids and region_id == approved_ids[-1])
-        if not next_outline_region(approved_ids, region_id) and not replacing_last:
+        replacing_existing = region_id in approved_ids
+        if not next_outline_region(approved_ids, region_id) and not replacing_existing:
             return [f"大纲区域不是当前唯一后继: approved={approved_ids}, requested={region_id}"]
         outline_text = outline_path.read_text(encoding="utf-8") if outline_path.is_file() else ""
         try:
@@ -1018,17 +1160,21 @@ def precommit_design_candidate(
         # later unapproved tail) must not be duplicated into the in-memory
         # preflight document.
         preflight_base = outline_text
-        if replacing_last:
+        if replacing_existing:
             markers = list(OUTLINE_REGION_RE.finditer(outline_text))
-            if len(markers) >= len(approved_ids):
-                preflight_base = outline_text[: markers[-1].start()].rstrip()
+            index = approved_ids.index(region_id)
+            start = markers[index].start()
+            end = markers[index + 1].start() if index + 1 < len(markers) else len(outline_text)
+            combined = outline_text[:start] + candidate_region_text + "\n\n" + outline_text[end:]
+            # Validate the complete existing prefix with exactly one replacement.
+            preflight_base = combined
         errors.extend(
             preflight_outline_candidate(
                 project_dir,
                 preflight_base,
-                candidate_region_text,
-                approved_ids[:-1] if replacing_last else approved_ids,
-                approved_ids[:-1] if replacing_last else actual_order,
+                "" if replacing_existing else candidate_region_text,
+                approved_ids,
+                actual_order,
             )
         )
         if errors:
@@ -1052,6 +1198,43 @@ def precommit_design_candidate(
         "base_artifact_sha256": base_sha,
         "review": review,
     }
+    data["gate_status"] = "pending"
+    ledger_path.write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return []
+
+
+def reopen_setting_for_authorized_override(
+    ledger_path: Path, authorization: str, reason: str
+) -> list[str]:
+    """Re-open only a pre-draft setting after an explicit user scope change."""
+    data = load(ledger_path)
+    project_dir = ledger_path.parent.parent
+    state = ensure_design_review_state(data, project_dir)
+    if state.get("mode") != "enforced":
+        return ["legacy_existing 项目不得重开设定"]
+    if not authorization.strip() or not reason.strip():
+        return ["必须记录用户明确授权与重开原因"]
+    if (data.get("draft_review_state") or {}).get("approved_regions"):
+        return ["正文已有批准区域，不能重开设定"]
+    if state.get("outline_regions"):
+        return ["已有冻结大纲区域，必须新建项目而非重开设定"]
+    setting = state.get("setting")
+    setting_path = project_dir / "设定.md"
+    if not isinstance(setting, dict) or not setting_path.is_file():
+        return ["没有已确认设定可重开"]
+    current_sha = text_sha256(setting_path.read_text(encoding="utf-8").strip())
+    if setting.get("content_sha256") != current_sha:
+        return ["已确认设定 SHA 已变化"]
+    history = state.setdefault("setting_revisions", [])
+    history.append({
+        "prior_content_sha256": current_sha,
+        "authorization": authorization.strip(),
+        "reason": reason.strip(),
+    })
+    state["setting"] = None
+    state["pending"] = None
     data["gate_status"] = "pending"
     ledger_path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -1103,7 +1286,7 @@ def confirm_design_candidate(
             return [str(exc)]
         approved = state.get("outline_regions") or []
         approved_ids = [str(item.get("region_id") or "") for item in approved]
-        expected_confirm_order = approved_ids if (approved_ids and approved_ids[-1] == region_id) else approved_ids + [region_id]
+        expected_confirm_order = approved_ids if region_id in approved_ids else approved_ids + [region_id]
         if actual_order != expected_confirm_order:
             return [
                 "确认大纲时正式文件必须只新增当前区域: "
@@ -1121,8 +1304,10 @@ def confirm_design_candidate(
             "content_sha256": text_sha256(current_text),
             "review": pending.get("review"),
         }
-        if approved and approved[-1].get("region_id") == region_id:
-            approved[-1] = replacement
+        if region_id in approved_ids:
+            index = approved_ids.index(region_id)
+            state.setdefault("outline_revisions", []).append(approved[index])
+            approved[index] = replacement
         else:
             approved.append(replacement)
         state["outline_regions"] = approved
@@ -1137,9 +1322,12 @@ def confirm_design_candidate(
 
 
 def validate_design_gate(
-    data: dict[str, Any], project_dir: Path, expected_outline_regions: list[str]
+    data: dict[str, Any], project_dir: Path, expected_outline_regions: list[str],
+    *, check_checkpoint: bool = True,
 ) -> list[str]:
     errors: list[str] = []
+    if check_checkpoint:
+        errors.extend(validate_checkpoint(data, project_dir, "outline_complete"))
     state = data.get("design_review_state")
     if not isinstance(state, dict):
         return ["缺少 design_review_state，必须 refresh-rules 或重新 init"]
@@ -1335,7 +1523,7 @@ def prepare_section_context(
         if isinstance(item, dict) and str(item.get("target_sections") or "") in region_ids
     ]
     contract = (profile.get("prose_style_contract") or {}) if isinstance(profile, dict) else {}
-    if not section_plans:
+    if not section_plans and liveliness_group(data).get("planning_policy") != "source_layer_packet":
         return {}, [f"当前区域 {next_region} 缺少 section_generation_plans 写前计划"]
     if not contract.get("sentence_motion"):
         return {}, ["项目 profile 缺少 prose_style_contract.sentence_motion"]
@@ -1377,13 +1565,14 @@ def prepare_section_context(
         },
         "previous_region_tail_sentences": previous_tail,
         "user_feedback_cases": data.get("draft_review_state", {}).get("feedback_cases") or [],
+        "review_policy": (data.get("review_policy") or {}).get("mode", "per_region"),
         "generation_contract": [
             "只在当前工作上下文形成当前 region_id 的候选；不得预写或输出后续数字节标题，候选通过 precommit-section 前不得写入正文。",
             "逐层消费 source_excerpt 的连续句链，迁移句间机制，不复制人物、物件或原句。",
             "按 sentence_relation_and_rhythm 与 paragraph_breath_and_cut_points 安排长短句；短判断只落在来源本来有落锤的位置。",
             "单一身体、感官或同一话轮链可保留长句；多动作、多信息或视线换主必须在自然换气点拆开。",
             "全部直接对白落盘前必须朗读并剥离细纲腔；角色不得复述职业标签、关系位置、资源排序、控制权或信息机制，只说当前人会直接说的事实与命令。",
-            "盲审 critic 不得读取或复述写作者的创作理由，只引用候选原句、提交失败码和最小修复方向；至少修掉一个初稿 weakest link，再对最终候选逐句复验。",
+            "按 review_policy 调度：checkpoint 当前区域由 writer 自检并声明 review_mode=self_check、critic_context_isolated=false；per_region 使用独立 critic。真实问题定点修复，无错提交 weakest_link_review，不为凑次数改写。",
             "读取流水、病历、名单、门禁和合同时，人物只能先看见金额、备注、收款方、诊断、姓名、时间或状态；流程摘要不得进入最终候选。",
             "禁止用‘目标事件句 + 固定旁白句’批量拼接节点，禁止复用 previous_region_tail_sentences 的句面。",
             "首写前必须完成逐来源句的 target_sentence_plan：每个来源句明确目标承接句、动作/受力、物件、人物注意力、对白或静默、结果与断口；任何概括、流程词或空泛判断都会在 plan-section 阶段阻断。",
@@ -1610,8 +1799,8 @@ def validate_precommit_review(
         errors.append(
             "precommit.feedback_case_ids_considered 必须全量同序消费当前用户反馈案例"
         )
+    errors.extend(validate_review_identity(review, ledger_data))
     for field in (
-        "critic_context_isolated",
         "diagnostic_only_first_pass",
         "author_intent_ignored",
         "model_read_final_candidate",
@@ -1620,8 +1809,10 @@ def validate_precommit_review(
             errors.append(f"precommit.{field} 必须显式为 true")
 
     findings = review.get("draft_findings")
-    if not isinstance(findings, list) or not findings:
-        errors.append("precommit.draft_findings 至少需要一个初稿 weakest-link 修复")
+    if not isinstance(findings, list):
+        errors.append("precommit.draft_findings 必须是数组")
+    elif not findings:
+        errors.extend(validate_weakest_link_review(review, candidate_text, valid_rule_refs, "precommit"))
     else:
         for index, finding in enumerate(findings, 1):
             label = f"precommit.draft_findings[{index}]"
@@ -2080,6 +2271,7 @@ def validate_draft_review_state(
     *,
     require_complete: bool,
     validate_prewrite_first: bool = True,
+    check_checkpoint: bool = True,
 ) -> list[str]:
     errors = validate_prewrite_ledger(ledger_path) if validate_prewrite_first else []
     if errors:
@@ -2111,6 +2303,8 @@ def validate_draft_review_state(
         if not str(item.get("generation_context_sha256") or ""):
             errors.append(f"已通过区域 {region_id} 缺少写前句法包 SHA")
     if require_complete:
+        if check_checkpoint:
+            errors.extend(validate_checkpoint(data, ledger_path.parent.parent, "draft_complete"))
         if approved_ids != expected:
             errors.append(
                 "正文逐区域真实句子复核尚未完成: "
@@ -2135,6 +2329,16 @@ def main() -> int:
     confirm.add_argument("--reviews-json", required=True)
     refresh = sub.add_parser("refresh-rules")
     refresh.add_argument("--ledger", required=True)
+    policy = sub.add_parser("set-review-policy")
+    policy.add_argument("--ledger", required=True)
+    policy.add_argument("--mode", required=True, choices=("checkpoint", "per_region"))
+    policy.add_argument("--user-authorization", required=True)
+    policy.add_argument("--reason", required=True)
+    checkpoint = sub.add_parser("record-checkpoint")
+    checkpoint.add_argument("--ledger", required=True)
+    checkpoint.add_argument("--stage", required=True, choices=("outline_complete", "draft_complete"))
+    checkpoint.add_argument("--review-json", default="{}")
+    checkpoint.add_argument("--review-json-file")
     precommit_design = sub.add_parser("precommit-design")
     precommit_design.add_argument("--ledger", required=True)
     precommit_design.add_argument("--artifact", required=True, choices=("setting", "outline"))
@@ -2148,6 +2352,10 @@ def main() -> int:
     confirm_design.add_argument("--region", default="")
     confirm_design.add_argument("--path", required=True)
     confirm_design.add_argument("--preflight-passed", action="store_true")
+    reopen_setting = sub.add_parser("reopen-setting")
+    reopen_setting.add_argument("--ledger", required=True)
+    reopen_setting.add_argument("--user-authorization", required=True)
+    reopen_setting.add_argument("--reason", required=True)
     record_feedback = sub.add_parser("record-feedback")
     record_feedback.add_argument("--ledger", required=True)
     record_feedback.add_argument("--feedback-json", required=True)
@@ -2197,6 +2405,19 @@ def main() -> int:
         print(f"ledger: {output}")
         return 0
     ledger_path = Path(args.ledger).resolve()
+    if args.command in {"set-review-policy", "record-checkpoint"}:
+        try:
+            if args.command == "set-review-policy":
+                set_review_policy(ledger_path, args.mode, args.user_authorization, args.reason)
+                errors = []
+            else:
+                errors = record_checkpoint(ledger_path, args.stage, parse_review_input(args.review_json, args.review_json_file))
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors = [str(exc)]
+        print("review_policy: blocked" if errors else "review_policy: passed")
+        for error in errors:
+            print(f"- {error}")
+        return 2 if errors else 0
     if args.command == "refresh-rules":
         try:
             refresh_rule_sources(ledger_path)
@@ -2251,6 +2472,20 @@ def main() -> int:
         print(f"artifact: {args.artifact}")
         if args.region:
             print(f"region: {args.region}")
+        return 0
+    if args.command == "reopen-setting":
+        try:
+            errors = reopen_setting_for_authorized_override(
+                ledger_path, args.user_authorization, args.reason
+            )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            errors = [str(exc)]
+        if errors:
+            print("setting_reopen: blocked")
+            for error in errors:
+                print(f"- {error}")
+            return 2
+        print("setting_reopen: passed")
         return 0
     if args.command == "record-feedback":
         try:

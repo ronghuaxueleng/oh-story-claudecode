@@ -93,6 +93,8 @@ class ProjectWritingAssetsTest(unittest.TestCase):
             encoding="utf-8",
         )
         auxiliary.write_text("{}", encoding="utf-8")
+        original = self.root / "auxiliary.txt"
+        original.write_text("辅助原文", encoding="utf-8")
         config = self.root / "config.json"
         config.write_text(
             json.dumps(
@@ -103,6 +105,7 @@ class ProjectWritingAssetsTest(unittest.TestCase):
                         {
                             "name": "辅助",
                             "profile_path": str(auxiliary),
+                            "original_path": str(original),
                             "selected_bids": ["BID-01"],
                         }
                     ],
@@ -118,6 +121,7 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         self.assertFalse(value["prose_style_contract"]["auxiliary_profiles_supply_prose"])
         self.assertEqual(["主体场面"], value["scene_assets"]["public_explosion"])
         self.assertEqual({"source": "主体"}, value["sample_source_buckets"])
+        self.assertEqual(str(original), value["meta"]["source_policy"]["auxiliaries"][0]["original_path"])
 
     def test_profile_policy_initializes_missing_profile_from_primary(self) -> None:
         profile = self.root / "profiles" / "project.profile.json"

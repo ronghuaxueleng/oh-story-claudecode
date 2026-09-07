@@ -312,7 +312,7 @@ def validate_section_density(
     return []
 
 
-def validate_release(project_dir: Path) -> list[str]:
+def validate_release(project_dir: Path, *, outline_only: bool = False) -> list[str]:
     errors: list[str] = []
     project = project_dir.name
     config_path = project_dir / "写作资产" / "项目写作配置.json"
@@ -321,8 +321,10 @@ def validate_release(project_dir: Path) -> list[str]:
     ledger_path = project_dir / "写作资产" / "规则执行台账.json"
     if not ledger_path.is_file():
         errors.append(f"缺少写前规则执行台账: {ledger_path}")
-    else:
+    elif not outline_only:
         errors.extend(RULE_LEDGER.validate_prewrite_ledger(ledger_path))
+    if outline_only and (project_dir / "正文.md").exists():
+        errors.append("细纲验收模式不得用于已存在正文的项目；请运行默认正文放行")
     try:
         config = read_json(config_path, "项目写作配置")
         if config.get("project_name") != project:
@@ -379,19 +381,31 @@ def validate_release(project_dir: Path) -> list[str]:
                             }
                         if profile_data.get(field) != expected:
                             errors.append(f"项目 profile.{field} 必须完全来自主体 profile")
-        target_map = read_json(target_map_path, "目标成文脑图")
-        errors.extend(TARGET_MAP.validate_target_map(target_map, require_gate=True))
-        if target_map.get("project") != project:
-            errors.append("目标成文脑图 project 与项目目录名不一致")
-        source_map_binding = target_map.get("source_map") or {}
-        source_map = read_json(
-            Path(str(source_map_binding.get("path") or "")).resolve(),
-            "来源成文脑图",
-        )
+        if outline_only:
+            _, source_map = TARGET_MAP.resolve_source_map(project_dir)
+            _, outline_errors = TARGET_MAP.preflight_outline_text(
+                project_dir, outline_path.read_text(encoding="utf-8"), allow_partial=False
+            )
+            errors.extend(outline_errors)
+        else:
+            target_map = read_json(target_map_path, "目标成文脑图")
+            errors.extend(TARGET_MAP.validate_target_map(target_map, require_gate=True))
+            if target_map.get("project") != project:
+                errors.append("目标成文脑图 project 与项目目录名不一致")
+            source_map_binding = target_map.get("source_map") or {}
+            source_map = read_json(
+                Path(str(source_map_binding.get("path") or "")).resolve(),
+                "来源成文脑图",
+            )
         original_binding = (source_map.get("compiled_from") or {}).get("original") or {}
         primary_original = Path(str(original_binding.get("path") or "")).resolve()
         outline_catalog = TARGET_MAP.parse_outline(outline_path)
         errors.extend(outline_catalog.get("errors") or [])
+        if outline_only and ledger_path.is_file():
+            errors.extend(RULE_LEDGER.validate_design_gate(
+                read_json(ledger_path, "规则执行台账"), project_dir,
+                [region["region_id"] for region in outline_catalog.get("regions") or []],
+            ))
         if not primary_original.is_file():
             errors.append(f"主体原文不存在: {primary_original}")
         else:
@@ -409,7 +423,7 @@ def validate_release(project_dir: Path) -> list[str]:
                 )
             )
             draft_path = project_dir / "正文.md"
-            if draft_path.is_file():
+            if draft_path.is_file() and not outline_only:
                 errors.extend(
                     validate_source_anchored_draft(
                         draft_path.read_text(encoding="utf-8"),
@@ -433,14 +447,16 @@ def validate_release(project_dir: Path) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--project-dir", required=True)
+    parser.add_argument("--outline-only", action="store_true", help="只验完整细纲及篇幅，不放行正文")
     args = parser.parse_args()
-    errors = validate_release(Path(args.project_dir).resolve())
+    errors = validate_release(Path(args.project_dir).resolve(), outline_only=args.outline_only)
+    label = "outline_write_release" if args.outline_only else "streamlined_write_release"
     if errors:
-        print("streamlined_write_release: blocked")
+        print(f"{label}: blocked")
         for error in errors:
             print(f"- {error}")
         return 2
-    print("streamlined_write_release: passed")
+    print(f"{label}: passed")
     return 0
 
 

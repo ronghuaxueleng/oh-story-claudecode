@@ -1,5 +1,7 @@
 # 短篇写作工作流
 
+审查调用频率与身份以 [节点审查与首写预检](../governance/checkpoint-review-policy.md) 为准。`checkpoint` 下本文逐区域 critic 由 writer 如实自检，原有覆盖和脚本门禁保留；仅设定、整纲与整稿调用独立审查，不另加逐节子代理。
+
 ## Phase 1：隔离、选源、锁名
 
 列出允许读取的主体原文、同名拆文资产和最小辅助集合。主体独占正文声线并供应完整 P/E、SF 和文字层；辅助只供应明确选中的 P 拍机制。锁名后创建未占用的同名目录，将来源角色、路径、SHA 和 profile 写入项目配置，并在创建 `设定.md` 前初始化 `规则执行台账.json`。
@@ -10,7 +12,13 @@
 
 设定冻结后，再逐拍替换主体 P 拍事件壳并完成 `小节大纲.md`；用户已给 JSON 脑图时，先归一化脑图目标节点，再补足分节施工信息。细纲按导语、连续数字节、尾声顺序，每次只在工作上下文形成一个完整区域候选。每个区域必须同时写入入场状态和离场状态；每条细拍进入候选前，分别核对 P 的动作/控制/信息/后果，E 的内容/触发/关系位置/读者效果/烈度，以及层型、进出关系、保留规则和六维，整条 E 必须由单一节点完整承接。核对后才在行尾登记隐藏 `source-map`，禁止按相邻 ID 机械分配、把 E 拆给前后节点或先写概述占位。
 
-区域候选交给独立大纲 critic。critic 不写正文，只检查 `entry_exit_state / plot_emotion_whole_beat / source_layer_mode / information_acquisition / physical_action_chain / real_world_operation / dialogue_plain_speech_risk / future_region_leak`。其中 `dialogue_plain_speech_risk` 要在施工层识别“人物未来只能复述岗位标签、流程字段或关系分析才能完成细拍”的节点，要求大纲改成可由人物说具体事实、短命令或错答来承载；它不能提前替正文写一句固定对白。
+当前区域允许一次形成和提交多条细拍；逐拍核对不等于逐拍单独调用。批量处理的质量边界以 `SKILL.md` 的细拍批量规则为准，不得因拍数多判定无法继续，也不得跨过逐区冻结顺序。
+
+P/E 是独立轨道，来源本身允许共享事实。一项已成立的事实可以分别承担信息取得与后续情绪确认；这不等于事件在正文发生两遍。修复整拍承接时必须同时核对相邻节点的 P 四字段与 E 五字段，禁止为集中 E 而削掉邻接 P 的信息变化或后果，也不能把有来源依据的事实复用误判为拆拍。每个 ID 的唯一、同序绑定规则仍保持不变。
+
+冻结设定锁定题面、关系、人物已知事实、权限和结局边界，不要求穷举所有生活动作、活动和场景。细纲可以首次确定这些具体 P 拍实现；事实冲突 finding 必须引用被违反的具体设定事实、时间约束、权限或来源保留项，不能仅以“设定未列出这项活动”判错。主线持续进行不等于人物每个时刻只能处理主线事务；确有同时性冲突、资源不足或越权时仍须阻断。
+
+区域候选交给独立大纲 critic。critic 不写正文，只检查 `entry_exit_state / plot_emotion_whole_beat / source_layer_mode / information_acquisition / physical_action_chain / real_world_operation / dialogue_plain_speech_risk / future_region_leak`。其中 `dialogue_plain_speech_risk` 要在施工层识别“人物未来只能复述岗位标签、流程字段或关系分析才能完成细拍”的节点，要求大纲改成可由人物说具体事实、短命令或错答来承载；它不能提前替正文写一句固定对白。传给 critic 的规则 case 必须提供完整原文，不得用删掉适用边界的摘要代替；已经明确到人物、对象与具体事实的对白施工，不因尚未写成逐字台词而阻断。来源刻意延迟的答案可以保留为钩子，未在导语回答悬念不等于因果矛盾，须依据来源信息延迟与当前设定判断。
 
 `precommit-design --artifact outline` 通过后才把同一候选第一次追加到正式大纲。随后先运行 `preflight --allow-partial`；脚本预检通过后再运行带 `--preflight-passed` 的 `confirm-design` 冻结区域 SHA，才允许下一区域。preflight 失败时，只重做当前未批准区域的 critic 和 precommit；不得先确认、不得写未来区域。
 
@@ -51,7 +59,9 @@
 
 设定轴固定为 `title_promise / fact_and_permission / character_motivation / real_world_operation / causal_continuity / source_boundary`。设定 `source_refs_considered` 的每项必须是实际读取文件的 `{"path":"绝对或可解析路径","sha256":"当前 SHA"}`，脚本逐项核验文件存在与哈希。大纲轴固定为上段八项。大纲 `source_refs_considered` 必须与当前区域所有 `source-map` 中的字段和值逐项同序一致；同一来源跨多个节点重复出现时也保留重复项，不能去重。脚本只校验结构、引用、顺序与 SHA，不替 critic 生成结论。
 
-全部区域逐一落盘后才运行不带 `--allow-partial` 的完整 `manage_target_prose_map.py preflight`；在此之前，每个区域落盘后都必须先运行带 `--allow-partial` 的局部预检，同时提交全量同序 P 维度 JSON 与来源层短引句 JSON。preflight 在目标脑图创建前拦截 P/E 漏拍并拍倒序、SF 漏步、来源层漏层换序、非法 P 维度名和不属于对应行域的引句；通过前禁止初始化目标脑图。脚本不得根据来源行号、字数或相邻 P 拍自动猜测 E/SF/层语义。
+设定、大纲和正文的 critic 均不以制造一次改写为通过条件。没有实质错误时使用 `draft_findings: []`，同时提交 `weakest_link_review`，字段为：`evidence_quotes`（当前候选逐字引句）、`rule_refs`（真实 case 引用）、`risk_considered`（至少12字，具体说明审查的风险）、`judgment`（至少30字，说明文本如何成立）、`verdict: "pass"`、`failure_codes: []`、`no_rewrite_needed: true`。这只免除无依据的返工，不免除任何设计轴、逐句、话轮或颗粒覆盖审查；已发现的真实错误不得藏进无错声明。
+
+全部区域逐一落盘后才运行不带 `--allow-partial` 的完整 `manage_target_prose_map.py preflight`；在此之前，每个区域落盘后先运行带 `--allow-partial` 的局部预检，只检验当前已形成的连续前缀。全量同序 P 维度 JSON 与来源层短引句 JSON 在全部区域完成后提交，不要求提前读取未来区域或反复提交全书输入。preflight 在目标脑图创建前拦截 P/E 漏拍并拍倒序、SF 漏步、来源层漏层换序、非法 P 维度名和不属于对应行域的引句；通过前禁止初始化目标脑图。脚本不得根据来源行号、字数或相邻 P 拍自动猜测 E/SF/层语义。
 
 随后初始化 `目标成文脑图.json`，P/E/SF/层映射只从细纲显式声明派生，不再人工维护第二套绑定：
 

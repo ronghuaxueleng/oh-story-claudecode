@@ -105,6 +105,13 @@ def apply_policy(config_path: Path) -> Path:
     if source_map_raw:
         profile["source_prose_map_path"] = source_map_raw
 
+    primary_original_raw = str(primary_config.get("original_path") or "").strip()
+    primary_original_path = (
+        resolve(config_path, primary_original_raw) if primary_original_raw else None
+    )
+    if primary_original_path is not None and not primary_original_path.is_file():
+        raise ValueError(f"主体原文不存在: {primary_original_path}")
+
     auxiliary_policy = []
     for item in auxiliaries:
         if not isinstance(item, dict):
@@ -112,10 +119,16 @@ def apply_policy(config_path: Path) -> Path:
         aux_path = resolve(config_path, str(item.get("profile_path") or ""))
         if not aux_path.is_file():
             raise ValueError(f"辅助 profile 不存在: {aux_path}")
+        source_raw = str(item.get("original_path") or "").strip()
+        source_path = resolve(config_path, source_raw) if source_raw else None
+        if source_path is not None and not source_path.is_file():
+            raise ValueError(f"辅助原文不存在: {source_path}")
         auxiliary_policy.append({
             "name": str(item.get("name") or ""),
             "profile_path": str(aux_path),
             "profile_sha256": digest(aux_path),
+            "original_path": str(source_path) if source_path is not None else "",
+            "original_sha256": digest(source_path) if source_path is not None else "",
             "role": str(item.get("role") or "plot_mechanism_only"),
             "selected_bids": list(item.get("selected_bids") or []),
             "supplies_prose_voice": bool(item.get("supplies_prose_voice", False)),
@@ -136,6 +149,8 @@ def apply_policy(config_path: Path) -> Path:
             "name": str(primary_config.get("name") or ""),
             "profile_path": str(primary_path),
             "profile_sha256": digest(primary_path),
+            "original_path": str(primary_original_path) if primary_original_path else "",
+            "original_sha256": digest(primary_original_path) if primary_original_path else "",
             "role": str(primary_config.get("role") or "primary_full_plot_and_emotion"),
             "prose_voice": str(primary_config.get("prose_voice") or "exclusive"),
             "emotion_transfer_policy": str(

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +17,54 @@ SPEC.loader.exec_module(RELEASE)
 
 
 class BrainMapWriteReleaseDensityTest(unittest.TestCase):
+    def run_outline_stage(self, *, outline_only=True, draft=False, preflight_errors=None):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            assets = project / "写作资产"
+            assets.mkdir()
+            original = project / "主体.txt"
+            original.write_text(self.source_text(), encoding="utf-8")
+            (project / "小节大纲.md").write_text("## 导语\n", encoding="utf-8")
+            (assets / "规则执行台账.json").write_text("{}", encoding="utf-8")
+            profile = assets / "book.profile.json"
+            profile.write_text("{}", encoding="utf-8")
+            config = {"project_name": project.name, "profile_path": str(profile), "primary": {
+                "profile_path": str(profile), "prose_voice": "exclusive",
+                "emotion_transfer_policy": "primary_full_emotion",
+            }, "auxiliaries": []}
+            (assets / "项目写作配置.json").write_text(json.dumps(config), encoding="utf-8")
+            if draft:
+                (project / "正文.md").write_text("", encoding="utf-8")
+            source = {"compiled_from": {"original": {"path": str(original)}}}
+            with mock.patch.object(RELEASE, "validate_prose_contract", return_value=[]), \
+                 mock.patch.object(RELEASE.RULE_LEDGER, "validate_prewrite_ledger", return_value=[]) as prewrite, \
+                 mock.patch.object(RELEASE.RULE_LEDGER, "validate_design_gate", return_value=[]) as design, \
+                 mock.patch.object(RELEASE.TARGET_MAP, "resolve_source_map", return_value=(project / "source.json", source)), \
+                 mock.patch.object(RELEASE.TARGET_MAP, "preflight_outline_text", return_value=({}, preflight_errors or [])) as preflight, \
+                 mock.patch.object(RELEASE.TARGET_MAP, "parse_outline", return_value=self.outline_catalog(17, 10_200)):
+                errors = RELEASE.validate_release(project, outline_only=outline_only)
+                return errors, prewrite.call_count, design.call_count, preflight.call_args
+
+    def test_outline_mode_does_not_require_future_brain_map(self):
+        errors, prewrite_calls, design_calls, preflight_call = self.run_outline_stage()
+        self.assertEqual([], errors)
+        self.assertEqual(0, prewrite_calls)
+        self.assertEqual(1, design_calls)
+        self.assertFalse(preflight_call.kwargs["allow_partial"])
+
+    def test_default_mode_still_requires_brain_map(self):
+        errors, prewrite_calls, _, _ = self.run_outline_stage(outline_only=False)
+        self.assertEqual(1, prewrite_calls)
+        self.assertTrue(any("目标成文脑图" in error for error in errors))
+
+    def test_outline_mode_cannot_bypass_existing_draft(self):
+        errors, _, _, _ = self.run_outline_stage(draft=True)
+        self.assertTrue(any("已存在正文" in error for error in errors))
+
+    def test_outline_mode_propagates_full_preflight_failure(self):
+        errors, _, _, _ = self.run_outline_stage(preflight_errors=["缺少来源尾拍"])
+        self.assertIn("缺少来源尾拍", errors)
+
     def source_text(self) -> str:
         body = "字" * 600
         return "导语\n" + "\n".join(

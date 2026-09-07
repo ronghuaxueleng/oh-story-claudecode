@@ -13,6 +13,7 @@
     "name": "",
     "profile_path": "",
     "original_path": "",
+    "source_prose_map_path": "",
     "emotion_ledger_path": "",
     "plot_ledger_path": "",
     "role": "primary_full_plot_and_emotion",

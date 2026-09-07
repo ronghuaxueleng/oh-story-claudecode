@@ -36,7 +36,7 @@ def load_validator_module(path: Path):
     return module
 
 
-def refresh_human_review_receipt(root: Path, validator_module) -> int:
+def refresh_human_review_receipt(root: Path, validator_module, *, local_correction_reason: str = "") -> int:
     path = root / "_finalize_human_review.json"
     if not path.is_file():
         raise FileNotFoundError(f"人工复核回执不存在: {path}")
@@ -44,7 +44,39 @@ def refresh_human_review_receipt(root: Path, validator_module) -> int:
     if not isinstance(payload, dict):
         raise ValueError("人工复核回执顶层必须是对象")
     hashes = validator_module.formal_markdown_sha1s(root)
-    payload["skill_fingerprint"] = validator_module.compute_skill_fingerprint()
+    fingerprint = validator_module.compute_skill_fingerprint()
+    if local_correction_reason:
+        if len(local_correction_reason.strip()) < 12:
+            raise ValueError("局部纠错必须说明具体对象、原因和未改变的范围")
+        if payload.get("formal_markdown_sha1s") != hashes:
+            raise ValueError("正式 Markdown 已变化，不能使用局部指纹刷新")
+        meta_path = root / "_meta.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        if not isinstance(meta, dict) or 6 not in meta.get("stages_completed", []) or meta.get("last_stage_in_progress") is not None:
+            raise ValueError("局部指纹刷新只接受已有完整拆解目录")
+        result = run_command([sys.executable, str(Path(validator_module.__file__).resolve()), str(root), "--json"])
+        check = parse_validator_output(result.stdout)
+        allowed_prefixes = (
+            f"{meta_path} skill_fingerprint 与当前正式 skill 不一致",
+            f"{path} skill_fingerprint 不是当前版本",
+        )
+        remaining = [error for error in check.get("errors", []) if not str(error).startswith(allowed_prefixes)]
+        if result.returncode not in {0, 1, 2} or remaining or (not check.get("ok") and not check.get("errors")):
+            raise ValueError("全量校验仍有非指纹错误，不能局部刷新: " + " / ".join(map(str, remaining)))
+        source_map = root / "写作资产" / "来源成文脑图.json"
+        correction = {
+            "reason": local_correction_reason.strip(),
+            "previous_skill_fingerprint": meta.get("skill_fingerprint"),
+            "skill_fingerprint": fingerprint,
+            "source_map_sha256": hashlib.sha256(source_map.read_bytes()).hexdigest(),
+        }
+        corrections = payload.setdefault("local_corrections", [])
+        if not isinstance(corrections, list):
+            raise ValueError("local_corrections 必须是数组")
+        corrections.append(correction)
+        meta["skill_fingerprint"] = fingerprint
+        meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    payload["skill_fingerprint"] = fingerprint
     payload["formal_markdown_sha1s"] = hashes
     path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
@@ -135,7 +167,10 @@ def main() -> int:
         help="只刷新人工回执的当前 skill 指纹与正式 Markdown SHA，不改人工裁决",
     )
     parser.add_argument("--json", action="store_true", help="输出 JSON")
+    parser.add_argument("--local-correction-reason", default="", help="仅配合 --refresh-review-state，受限刷新已完整目录的局部纠错指纹")
     args = parser.parse_args()
+    if args.local_correction_reason and not args.refresh_review_state:
+        parser.error("--local-correction-reason 必须与 --refresh-review-state 一起使用")
 
     root = Path(args.root).resolve()
     book_name = args.name or root.name
@@ -176,7 +211,9 @@ def main() -> int:
 
     if args.refresh_review_state:
         try:
-            count = refresh_human_review_receipt(root, load_validator_module(validator))
+            count = refresh_human_review_receipt(
+                root, load_validator_module(validator), local_correction_reason=args.local_correction_reason
+            )
         except (OSError, ValueError, RuntimeError, json.JSONDecodeError) as exc:
             payload = {"ok": False, "status": "review-state-refresh-failed", "error": str(exc)}
             print(json.dumps(payload, ensure_ascii=False, indent=2) if args.json else str(exc))

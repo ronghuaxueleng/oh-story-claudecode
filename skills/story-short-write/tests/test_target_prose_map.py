@@ -4,6 +4,7 @@ import importlib.util
 import json
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,6 +26,45 @@ def hashed(value: dict) -> dict:
     result = dict(value)
     result["content_sha256"] = MODULE.canonical_sha256(result)
     return result
+
+
+class SourceActorNameFilterTest(unittest.TestCase):
+    def name_errors(self, actor, evidence):
+        catalog = {"errors": [], "regions": [{"region_id": "opening", "target_beats": [
+            {"target_id": "T-opening-001", "evidence": evidence}
+        ]}]}
+        with mock.patch.object(MODULE, "resolve_source_map", return_value=(Path("source.json"), {"plot_beats": [{"actor": actor}]})), \
+             mock.patch.object(MODULE, "parse_outline", return_value=catalog), \
+             mock.patch.object(MODULE, "_validate_outline_semantic_distinctness", return_value=[]), \
+             mock.patch.object(MODULE, "_outline_nodes", return_value=[]), \
+             mock.patch.object(MODULE, "validate_explicit_source_refs", return_value=[]):
+            _, errors = MODULE.preflight_outline_text(Path("project"), "unused")
+            return errors
+
+    def test_company_is_a_role_not_a_source_person_name(self):
+        self.assertEqual([], self.name_errors("公司", "她走到公司门口，递交退还的钥匙。"))
+
+    def test_actor_description_is_not_a_proper_name_registry(self):
+        self.assertEqual([], self.name_errors("张明与公司", "张明走到公司门口，递交退还的钥匙。"))
+
+    def test_unseen_professions_groups_and_long_actors_need_no_whitelist(self):
+        for actor in ("潜水教练", "船舶检验员", "仲裁庭", "夜班轮机工", "旧船的轮机师与港口调度员"):
+            with self.subTest(actor=actor):
+                self.assertEqual([], self.name_errors(actor, f"{actor}核对记录，确认交接时间。"))
+
+    def test_explicit_source_reference_gate_is_not_removed(self):
+        with mock.patch.object(MODULE, "validate_explicit_source_refs", return_value=["来源绑定漏拍"]) as validate_refs:
+            # This test calls the real preflight while isolating file parsing.
+            with mock.patch.object(MODULE, "resolve_source_map", return_value=(Path("source.json"), {})), \
+                 mock.patch.object(MODULE, "parse_outline", return_value={"errors": [], "regions": []}), \
+                 mock.patch.object(MODULE, "_validate_outline_semantic_distinctness", return_value=[]), \
+                 mock.patch.object(MODULE, "_outline_nodes", return_value=[]):
+                _, errors = MODULE.preflight_outline_text(Path("project"), "unused")
+            self.assertIn("来源绑定漏拍", errors)
+            validate_refs.assert_called_once()
+
+    def test_reporter_is_a_profession_not_a_source_name(self):
+        self.assertEqual([], self.name_errors("记者", "记者核对录音后发表调查报道。"))
 
 
 class TargetProseMapTest(unittest.TestCase):

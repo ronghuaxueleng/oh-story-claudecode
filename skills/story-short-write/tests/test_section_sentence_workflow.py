@@ -784,5 +784,207 @@ class SectionSentenceWorkflowTest(unittest.TestCase):
         self.assertEqual([], errors)
 
 
+class WeakestLinkReviewTests(unittest.TestCase):
+    def clean_review(self):
+        candidate = "我把钥匙放到桌上。"
+        review = precommit_review_for(candidate)
+        review["draft_findings"] = []
+        review["weakest_link_review"] = {
+            "evidence_quotes": [candidate],
+            "rule_refs": ["skill_text_rules:1"],
+            "risk_considered": "钥匙是否被错误当成门禁授权，造成物件与权限混同。",
+            "judgment": "候选只写叙述者将钥匙放在桌面，没有声称钥匙交付会自动解除门禁，动作对象与实际落点一致，无须增加权限叙述。",
+            "verdict": "pass", "failure_codes": [], "no_rewrite_needed": True,
+        }
+        ledger = {"groups": [{"rule_id": "skill_text_rules", "cases": [{"line": 1}]}],
+                  "draft_review_state": {"feedback_cases": []}}
+        return candidate, review, ledger
+
+    def test_clean_candidate_requires_no_fabricated_rewrite(self):
+        candidate, review, ledger = self.clean_review()
+        self.assertEqual([], LEDGER.validate_precommit_review(review, candidate, ledger))
+
+    def test_empty_findings_without_evidence_still_block(self):
+        candidate, review, ledger = self.clean_review()
+        review.pop("weakest_link_review")
+        self.assertTrue(LEDGER.validate_precommit_review(review, candidate, ledger))
+
+    def test_weakest_link_requires_current_quote_and_real_rule(self):
+        candidate, review, ledger = self.clean_review()
+        review["weakest_link_review"]["evidence_quotes"] = ["未出现的句子"]
+        review["weakest_link_review"]["rule_refs"] = ["unknown:999"]
+        errors = LEDGER.validate_precommit_review(review, candidate, ledger)
+        self.assertTrue(any("逐字" in error for error in errors))
+        self.assertTrue(any("真实规则" in error for error in errors))
+
+    def test_remaining_failure_cannot_be_hidden_in_clean_review(self):
+        candidate, review, ledger = self.clean_review()
+        review["weakest_link_review"]["failure_codes"] = ["REAL_FAILURE"]
+        self.assertTrue(LEDGER.validate_precommit_review(review, candidate, ledger))
+
+    def test_clean_design_still_requires_every_axis_to_pass(self):
+        candidate, prose_review, ledger = self.clean_review()
+        review = design_review_for(ledger, candidate, "setting", "setting", [
+            {"path": str(SCRIPT), "sha256": LEDGER.sha256(SCRIPT)}
+        ])
+        review["draft_findings"] = []
+        review["weakest_link_review"] = prose_review["weakest_link_review"]
+        self.assertEqual([], LEDGER.validate_design_critic_review(
+            review, candidate, ledger, "setting", "setting"
+        ))
+        review["axis_checks"]["fact_and_permission"]["failure_codes"] = ["UNRESOLVED"]
+        self.assertTrue(LEDGER.validate_design_critic_review(
+            review, candidate, ledger, "setting", "setting"
+        ))
+
+
+class SourceLayerPlanningTests(unittest.TestCase):
+    def test_packet_mode_uses_outline_without_future_prose_plans(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            ledger = project / "写作资产" / "规则执行台账.json"
+            (project / "小节大纲.md").write_text(
+                "## 导语\n\n## 1.\n\n## 2.\n\n## 尾声\n", encoding="utf-8"
+            )
+            data = {"groups": [{"rule_id": "liveliness_rules", "planning_policy": "source_layer_packet"}]}
+            regions, errors = LEDGER.ledger_plan_regions(data, ledger)
+            self.assertEqual([], errors)
+            self.assertEqual(["opening", "section:1", "section:2", "epilogue"], regions)
+
+    def test_packet_mode_rejects_missing_outline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "写作资产" / "规则执行台账.json"
+            data = {"groups": [{"rule_id": "liveliness_rules", "planning_policy": "source_layer_packet"}]}
+            _, errors = LEDGER.ledger_plan_regions(data, ledger)
+            self.assertTrue(errors)
+
+    def test_packet_mode_rejects_skipped_region(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "小节大纲.md").write_text("## 导语\n## 2.\n## 尾声\n", encoding="utf-8")
+            data = {"groups": [{"rule_id": "liveliness_rules", "planning_policy": "source_layer_packet"}]}
+            _, errors = LEDGER.ledger_plan_regions(data, project / "写作资产" / "规则执行台账.json")
+            self.assertTrue(errors)
+
+    def test_legacy_plans_remain_readable(self):
+        data = {"groups": [{"rule_id": "liveliness_rules", "section_generation_plans": [
+            {"target_sections": region} for region in ("opening", "section:1", "epilogue")
+        ]}]}
+        regions, errors = LEDGER.ledger_plan_regions(data, Path("unused.json"))
+        self.assertEqual([], errors)
+        self.assertEqual(["opening", "section:1", "epilogue"], regions)
+
+
+class CheckpointReviewPolicyTest(unittest.TestCase):
+    def test_record_checkpoint_requires_independent_current_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "写作资产").mkdir()
+            path = project / "写作资产" / "规则执行台账.json"
+            setting = "当前设定事实。"
+            outline = "## 导语\n开场事实。\n## 1.\n人物交还钥匙。\n## 尾声\n离场后果。"
+            (project / "设定.md").write_text(setting, encoding="utf-8")
+            (project / "小节大纲.md").write_text(outline, encoding="utf-8")
+            (project / "写作资产/项目写作配置.json").write_text("{}", encoding="utf-8")
+            regions, order, _ = LEDGER.split_outline_regions(outline)
+            data = {"review_policy": {"mode": "checkpoint"}, "design_review_state": {
+                "mode": "enforced", "pending": None,
+                "setting": {"content_sha256": LEDGER.text_sha256(setting)},
+                "outline_regions": [{"region_id": key, "content_sha256": LEDGER.text_sha256(regions[key])} for key in order],
+            }}
+            path.write_text(json.dumps(data), encoding="utf-8")
+            review = {
+                "review_mode": "independent", "critic_context_isolated": True,
+                "model_read_final_candidate": True, "final_verdict": "pass", "unresolved_findings": [],
+                "bindings": LEDGER.checkpoint_bindings(project, "outline_complete"),
+                "axis_checks": {name: {"verdict": "pass", "evidence_quotes": ["人物交还钥匙。"],
+                    "judgment": "人物交还钥匙之后失去进入原住处的手段，前后位置和权限连续，没有把结局写成未经触发的跳转。"}
+                    for name in ("causal_continuity", "source_fidelity", "character_and_permission", "voice_and_payoff")},
+            }
+            self.assertEqual([], LEDGER.record_checkpoint(path, "outline_complete", review))
+            self.assertEqual([], LEDGER.validate_design_gate(LEDGER.load(path), project, order))
+            review.update(review_mode="self_check", critic_context_isolated=False)
+            self.assertTrue(LEDGER.record_checkpoint(path, "outline_complete", review))
+            review.update(review_mode="independent", critic_context_isolated=True)
+            review["axis_checks"]["causal_continuity"]["evidence_quotes"] = ["不存在的引句"]
+            self.assertTrue(LEDGER.record_checkpoint(path, "outline_complete", review))
+
+    def test_self_check_is_honest_and_opt_in(self):
+        review = {"review_mode": "self_check", "critic_context_isolated": False}
+        data = {"review_policy": {"mode": "checkpoint"}}
+        self.assertEqual([], LEDGER.validate_review_identity(review, data))
+        self.assertTrue(LEDGER.validate_review_identity(review, {}))
+        self.assertTrue(LEDGER.validate_review_identity(review, data, setting=True))
+        review["critic_context_isolated"] = True
+        self.assertTrue(LEDGER.validate_review_identity(review, data))
+
+    def test_self_check_keeps_sentence_and_rule_gates(self):
+        data = {"review_policy": {"mode": "checkpoint"}, "groups": [
+            {"rule_id": "skill_text_rules", "cases": [{"line": 1}]}
+        ]}
+        text = "我把钥匙放在桌上。"
+        review = precommit_review_for(text)
+        review.update(review_mode="self_check", critic_context_isolated=False)
+        self.assertEqual([], LEDGER.validate_precommit_review(review, text, data))
+        review["sentence_checks"] = []
+        self.assertTrue(LEDGER.validate_precommit_review(review, text, data))
+        review = precommit_review_for(text)
+        review.update(review_mode="self_check", critic_context_isolated=False, rule_refs_considered=["missing:1"])
+        self.assertTrue(LEDGER.validate_precommit_review(review, text, data))
+
+    def test_policy_migration_preserves_frozen_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "ledger.json"
+            frozen = {"setting": {"content_sha256": "setting-hash"}, "outline_regions": [
+                {"region_id": "opening", "content_sha256": "outline-hash"}
+            ]}
+            data = {"design_review_state": frozen, "draft_review_state": {"approved_regions": []}}
+            path.write_text(json.dumps(data), encoding="utf-8")
+            LEDGER.set_review_policy(path, "checkpoint", "减少逐节审核", "保留节点审核")
+            updated = LEDGER.load(path)
+            self.assertEqual(frozen, updated["design_review_state"])
+            self.assertEqual("per_region", updated["review_policy_history"][0]["previous_mode"])
+            updated["design_review_state"]["pending"] = {"candidate_sha256": "pending"}
+            path.write_text(json.dumps(updated), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                LEDGER.set_review_policy(path, "per_region", "恢复", "恢复")
+
+    def test_checkpoint_missing_and_changed_binding_are_blocked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "写作资产").mkdir()
+            for name in ("设定.md", "小节大纲.md", "写作资产/项目写作配置.json"):
+                (project / name).write_text("original", encoding="utf-8")
+            data = {"review_policy": {"mode": "checkpoint"}}
+            self.assertTrue(LEDGER.validate_checkpoint(data, project, "outline_complete"))
+            data["review_checkpoints"] = {"outline_complete": {
+                "bindings": LEDGER.checkpoint_bindings(project, "outline_complete")
+            }}
+            self.assertEqual([], LEDGER.validate_checkpoint(data, project, "outline_complete"))
+            (project / "小节大纲.md").write_text("changed", encoding="utf-8")
+            self.assertTrue(LEDGER.validate_checkpoint(data, project, "outline_complete"))
+            self.assertEqual([], LEDGER.validate_checkpoint({}, project, "outline_complete"))
+
+    def test_complete_gates_require_checkpoint(self):
+        data = {"review_policy": {"mode": "checkpoint"}, "design_review_state": {"mode": "enforced"}}
+        errors = LEDGER.validate_design_gate(data, Path("nonexistent-project"), [])
+        self.assertTrue(any("outline_complete" in error for error in errors))
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "写作资产").mkdir()
+            path = project / "写作资产" / "规则执行台账.json"
+            draft = project / "正文.md"
+            draft.write_text("我把钥匙放下。", encoding="utf-8")
+            regions, order = LEDGER.split_draft_regions(draft.read_text(encoding="utf-8"))
+            data["draft_review_state"] = {"expected_regions": order, "status": "passed", "approved_regions": [
+                {"region_id": key, "content_sha256": LEDGER.text_sha256(value), "generation_context_sha256": "context"}
+                for key, value in regions.items()
+            ]}
+            path.write_text(json.dumps(data), encoding="utf-8")
+            errors = LEDGER.validate_draft_review_state(path, draft, require_complete=True, validate_prewrite_first=False)
+            self.assertTrue(any("draft_complete" in error for error in errors))
+            self.assertEqual([], LEDGER.validate_draft_review_state(path, draft, require_complete=False, validate_prewrite_first=False))
+
+
 if __name__ == "__main__":
     unittest.main()

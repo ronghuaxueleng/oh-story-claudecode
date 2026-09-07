@@ -1076,6 +1076,77 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertTrue(any("性化隐私伤害" in note for note in notes))
 
+    def test_valid_backreference_still_requires_knowledge_cross_check(self) -> None:
+        source = ["那次聚会开始了。", "我说手里有证据。", "婚礼将至。", "那次聚会结束后，我收到录像。"]
+        facts = {"17": {
+            "start": 4, "end": 4, "narrative_time": "婚礼前向读者补揭",
+            "story_time": "人物在早前聚会后已经收到录像",
+            "time_basis": "L4那次聚会回指L1，不是婚礼前首次收到",
+        }}
+        notes: list[str] = []
+        VALIDATOR.collect_timeline_review_notes(self.root / "事实与推断台账.md", source, facts, notes)
+        self.assertEqual(1, len(notes))
+        self.assertIn("核对相关 KS、P/E 与 SF", notes[0])
+        self.assertNotIn("没有指向更早正文行", notes[0])
+        items = VALIDATOR.build_human_review_items(self.root, notes)
+        self.assertEqual(1, len(items))
+        receipt = {
+            "skill_fingerprint": VALIDATOR.compute_skill_fingerprint(),
+            "formal_markdown_sha1s": VALIDATOR.formal_markdown_sha1s(self.root),
+            "review_items": [],
+        }
+        self._write("_finalize_human_review.json", json.dumps(receipt, ensure_ascii=False))
+        errors: list[str] = []
+        VALIDATOR.check_human_review_receipt(self.root, notes, {}, errors)
+        self.assertTrue(any(items[0]["id"] in error for error in errors))
+        receipt["review_items"] = [{
+            "id": items[0]["id"], "status": "resolved",
+            "judgement": "人物早前已经获证，此处仅向读者回叙来源；相关知情状态不得写成首次获证。",
+            "evidence": ["L1聚会；L4那次聚会结束后"],
+        }]
+        self._write("_finalize_human_review.json", json.dumps(receipt, ensure_ascii=False))
+        errors = []
+        VALIDATOR.check_human_review_receipt(self.root, notes, {}, errors)
+        self.assertEqual([], errors)
+
+    def test_forward_sequence_and_hearsay_do_not_imply_flashback(self) -> None:
+        source = ["我当场丢掉请帖。", "听说，他回去争闹后扩大了婚礼。"]
+        facts = {"16": {
+            "start": 1, "end": 2, "narrative_time": "离场后", "story_time": "离场后",
+            "time_basis": "比较后离场，对方再回去争闹",
+        }}
+        notes: list[str] = []
+        VALIDATOR.collect_timeline_review_notes(self.root / "事实与推断台账.md", source, facts, notes)
+        self.assertEqual([], notes)
+
+    def test_annotated_flashback_without_trigger_word_is_reviewed(self) -> None:
+        facts = {"03": {
+            "start": 1, "end": 1, "narrative_time": "此处插叙", "story_time": "三年前",
+            "time_basis": "日期由前文说明",
+        }}
+        notes: list[str] = []
+        VALIDATOR.collect_timeline_review_notes(self.root / "事实与推断台账.md", ["信已经寄到了。"], facts, notes)
+        self.assertEqual(1, len(notes))
+
+    def test_ambiguous_backreference_remains_a_review_not_a_fact_rewrite(self) -> None:
+        facts = {"04": {
+            "start": 1, "end": 1, "narrative_time": "结尾", "story_time": "未知",
+            "time_basis": "那次聚会也可能是未叙及的前史",
+        }}
+        before = json.dumps(facts, ensure_ascii=False)
+        notes: list[str] = []
+        VALIDATOR.collect_timeline_review_notes(self.root / "事实与推断台账.md", ["那次聚会结束后，她拿到了信。"], facts, notes)
+        self.assertEqual(1, len(notes))
+        self.assertIn("回指不唯一保留未知", notes[0])
+        self.assertEqual(before, json.dumps(facts, ensure_ascii=False))
+
+    def test_timeline_review_ignores_invalid_ranges(self) -> None:
+        notes: list[str] = []
+        VALIDATOR.collect_timeline_review_notes(self.root / "事实与推断台账.md", ["那次聚会"], {
+            "01": {"start": 1, "end": 9, "narrative_time": "回叙"},
+        }, notes)
+        self.assertEqual([], notes)
+
     def test_high_agency_negation_is_review_note_not_hard_error(self) -> None:
         self._write("拆文报告.md", "禁止把等待写成主角策划了婚礼。\n")
         errors: list[str] = []

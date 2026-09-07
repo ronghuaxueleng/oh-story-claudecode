@@ -163,6 +163,9 @@ class PrepareUpgradeExistingTest(unittest.TestCase):
             self.assertTrue(
                 all("first_write_contract" in lane for lane in parallel_plan["asset_lanes"])
             )
+            for lane in parallel_plan["foundation_lanes"] + parallel_plan["asset_lanes"]:
+                self.assertIn("人物知情", lane["first_write_contract"]["temporal_boundary_rule"])
+                self.assertIn("信息释放顺序", lane["first_write_contract"]["temporal_boundary_rule"])
 
             progress = (root / "_progress.md").read_text(encoding="utf-8")
             self.assertIn(

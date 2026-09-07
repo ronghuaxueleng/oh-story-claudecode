@@ -591,9 +591,20 @@ def asset_lane_first_write_contract(lane_id: str, word_count: int) -> dict:
     raise ValueError(f"未知 asset lane：{lane_id}")
 
 
+TEMPORAL_BOUNDARY_RULE = (
+    "复用 _analysis_brief.md 时间边界中的 F 引用，区分叙述位置、事件发生与人物知情；"
+    "后文回叙补揭不等于人物此刻首次获证，不得无依据发明分批交证。"
+    "相关 KS、P/E 与 SF 必须同口径；required_sequence 保留信息释放顺序，"
+    "回叙步骤明确写此前，不把故事时间排序覆盖来源层序；回指不唯一保留未知。"
+)
+
+
 def foundation_lane_first_write_contract(lane_id: str) -> dict:
     try:
-        return FOUNDATION_LANE_FIRST_WRITE_CONTRACT[lane_id]
+        return {
+            **FOUNDATION_LANE_FIRST_WRITE_CONTRACT[lane_id],
+            "temporal_boundary_rule": TEMPORAL_BOUNDARY_RULE,
+        }
     except KeyError as exc:
         raise ValueError(f"未知 foundation lane：{lane_id}") from exc
 
@@ -1323,7 +1334,10 @@ def write_parallel_plan(path: Path, source_copy: Path, word_count: int) -> None:
                 "write_files": files,
                 "preferred_reads": ASSET_LANE_PREFERRED_READS[lane_id],
                 "delta_reads": asset_delta_reads[lane_id],
-                "first_write_contract": asset_lane_first_write_contract(lane_id, word_count),
+                "first_write_contract": {
+                    **asset_lane_first_write_contract(lane_id, word_count),
+                    "temporal_boundary_rule": TEMPORAL_BOUNDARY_RULE,
+                },
                 "reuse_context_from": executor_profile["worker_sequences"][
                     executor_profile["asset_executors"][lane_id]
                 ][
@@ -1527,6 +1541,7 @@ def write_execution_prompt(
         "- 第二波不重读共享基础文件；直接继承第一波会话，只按 asset_lanes[].delta_reads 追加尚未见过的证据",
         "- agent-core 与 agent-craft 的第二波任务分别合并成一次派发，避免表格结束后再次等待与装载上下文",
         "- `_analysis_brief.md` 必须先冻结故事核、主角、核心关系、时间边界、固定称谓和 BID 注册表；并发 worker 不得各自改名或重编号",
+        f"- 时间与知情边界首写检查：{TEMPORAL_BOUNDARY_RULE}",
         "- 第一波每条 lane 首写前必须逐项执行自己的 `first_write_contract`；主报告固定标题、节点字段与 BID、全局成文形状审计、写作手法章节、字典 JSON 和候选池字段不得留到预检返修",
         "- 第一波落盘前检查固定标题逐字命中且各一次、Markdown 标题唯一、无占位标题和空字段；禁止先写旧模板再靠 foundation validator 纠正",
         "- 第一波汇合后必须运行 `_parallel_plan.json.foundation_preflight`；没到 `ready-for-asset-lanes` 不得启动第二波",

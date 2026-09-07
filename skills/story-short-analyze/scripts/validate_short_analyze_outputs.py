@@ -646,6 +646,7 @@ FACT_LEDGER_PATTERN = re.compile(
 )
 
 BACKREFERENCE_CUE_PATTERN = re.compile(r"(那次|此前|早在|当年|多年前)")
+NONLINEAR_TIME_PATTERN = re.compile(r"(回叙|倒叙|插叙|预叙|补叙|补揭|回指|回忆)")
 
 HIGH_AGENCY_PATTERN = re.compile(
     r"(推动|策划(?:了|出|这场)|安排(?:了|好|人)|搜集(?:了)?证据|收束证据|"
@@ -2155,20 +2156,38 @@ def collect_timeline_review_notes(
     for fact_id, fact in facts.items():
         start = int(fact.get("start", 0))
         end = int(fact.get("end", start))
-        if start < 1 or end < start:
+        if start < 1 or end < start or end > len(source_lines):
             continue
         source_block = "\n".join(source_lines[start - 1:end])
-        if not BACKREFERENCE_CUE_PATTERN.search(source_block):
+        cue = BACKREFERENCE_CUE_PATTERN.search(source_block)
+        time_description = " / ".join(str(fact.get(key, "")) for key in (
+            "narrative_time", "story_time", "time_basis",
+        ))
+        if not cue and not NONLINEAR_TIME_PATTERN.search(source_block + "\n" + time_description):
             continue
         referenced_lines = [
             int(value)
-            for value in re.findall(r"\bL(\d+)\b", str(fact.get("time_basis", "")))
-        ]
-        if not any(value < start for value in referenced_lines):
-            notes.append(
-                f"模型复核提示：{path} F{fact_id} 含回指词，但时间依据没有指向更早正文行；"
-                "它也可能指向正文外前史，必须由模型结合上下文判断，脚本不硬判"
+            for value in re.findall(
+                r"(?<![A-Za-z0-9_])L([1-9]\d*)(?![A-Za-z0-9_])",
+                str(fact.get("time_basis", "")),
             )
+        ]
+        has_earlier_ref = any(1 <= value < start for value in referenced_lines)
+        reference_note = (
+            "含回指词，但时间依据没有指向更早正文行；也可能是正文外前史或指向尚未明确。"
+            if cue and not has_earlier_ref else
+            "已有时间依据仍不等于人物知情与读者获知一致。"
+        )
+        # A valid backward reference can still be flattened by downstream KS/SF
+        # summaries. Route that semantic check through the existing review gate.
+        notes.append(
+            f"模型复核提示：{path} F{fact_id} L{start}-L{end} 时间与知情边界："
+            f"{reference_note}叙述时点={fact.get('narrative_time', '')}；"
+            f"故事时点={fact.get('story_time', '')}；时间依据={fact.get('time_basis', '')}。"
+            "核对相关 KS、P/E 与 SF：这是人物此刻新知，还是向读者回叙补揭既有知情？"
+            "required_sequence 保留信息释放顺序，不按行号推定事件发生或人物获证时间，"
+            "不得无依据补造分批交证。回指不唯一保留未知；由模型裁决，脚本不硬判。"
+        )
 
 
 def check_fact_integrity_gate(

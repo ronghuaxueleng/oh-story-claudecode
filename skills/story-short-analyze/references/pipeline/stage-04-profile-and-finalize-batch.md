@@ -82,6 +82,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - 人工裁决完成后运行 `run_short_analyze_finalize.py "拆文库/{书名}" --refresh-review-state --json`，只确定性刷新当前 skill 指纹与正式 Markdown SHA；禁止手抄哈希或让该参数改写人工裁决
 - finalize 只允许生成 `book.profile.json`、`写作资产/来源成文脑图.json` 和读取正式产物，不允许修改 Markdown
 - 来源成文脑图由原文、P/E 总账、SF 索引、文字层索引和 profile 确定性编译；不复制大段 `source_text/source_excerpt`，每个 P/E/SF/层单独保存内容哈希以支持下游增量失效
+- 已完整目录仅修正 SF 等结构化定义、正式 Markdown 与既有人工裁决未变时，若全量验收只剩两处 skill 指纹过期，可用 `run_short_analyze_finalize.py "拆文库/{书名}" --refresh-review-state --local-correction-reason "具体对象与纠错理由" --json` 受限刷新元数据与回执指纹，再运行 `--skip-profile --json` 收口。该入口先复跑全量校验，只豁免指纹差异；有任何其他错误、Markdown SHA 变化或目录未完成均阻断，不创建新升级计划，不代写人工裁决，纠错原因保存在原回执的 `local_corrections` 中。
 - 人工复核回执未闭环时，finalize 必须保持阻断
 - 如果本轮来自 `prepare_short_analyze_job.py --upgrade-existing`，先看 `upgrade_actions` 再决定动作顺序：
   - `safe_refresh_process_files` 只说明过程文件已刷新

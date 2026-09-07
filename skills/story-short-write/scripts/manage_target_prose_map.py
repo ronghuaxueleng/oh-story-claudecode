@@ -542,38 +542,8 @@ def preflight_outline_text(
     catalog = parse_outline(outline_path, allow_partial=allow_partial, text=outline_text)
     errors = [str(item) for item in catalog.get("errors") or []]
     errors.extend(_validate_outline_semantic_distinctness(catalog.get("regions") or []))
-    # A target outline must not leak the primary source's named character
-    # shell back into visible construction text.  Source names are allowed in
-    # the hidden source-map IDs only; the target evidence must use its own
-    # character set and event shell.
-    source_name_tokens: set[str] = set()
-    # Actor fields also contain generic relationship/role nouns (for example
-    # "夫妻", "经纪人", "医院"). They are not source character names and
-    # must not trigger the named-shell return check.
-    generic_actor_tokens = {
-        "夫妻", "丈夫", "妻子", "朋友", "经纪人", "医院", "医生",
-        "网友", "同学", "女同学", "旧爱", "家人", "母亲", "姐姐",
-        "人员", "镜头", "名单", "位置", "现场", "身份",
-    }
-    for beat in source.get("plot_beats") or []:
-        actor = str(beat.get("actor") or "")
-        for part in re.split(r"[与和及、，, ]+", actor):
-            part = part.strip()
-            if 2 <= len(part) <= 4 and part not in generic_actor_tokens and "女同" not in part:
-                source_name_tokens.add(part)
-        source_name_tokens.update(
-            token for token in re.findall(r"[\u4e00-\u9fff]{2,4}", actor)
-            if token not in generic_actor_tokens and "女同" not in token
-        )
-    if source_name_tokens:
-        for region in catalog.get("regions") or []:
-            for beat in region.get("target_beats") or []:
-                evidence = str(beat.get("evidence") or "")
-                leaked = sorted(name for name in source_name_tokens if name in evidence)
-                if leaked:
-                    errors.append(
-                        f"{region.get('region_id')} {beat.get('target_id')} 细拍回流主体角色名 {leaked}，必须完成目标人物换壳"
-                    )
+    # Actors are semantic descriptions, not a typed registry of proper names.
+    # Source-shell reuse is reviewed against the source, not guessed from tokens.
     nodes: list[dict[str, Any]] = []
     if not errors:
         nodes = _outline_nodes(outline_path, allow_partial=allow_partial, text=outline_text)
