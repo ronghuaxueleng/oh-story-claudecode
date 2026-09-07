@@ -18,6 +18,8 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" set-review-polic
 - 完整细纲：逐节由 writer 自检八轴并执行 precommit/preflight/confirm；全部完成后进行一次独立整纲审查，记录 `outline_complete`，再运行完整 preflight 与 `--outline-only` 放行。
 - 完整初稿：逐节由 writer 完成句法包、颗粒计划、逐句/话轮自检、precommit 和 confirm；全书完成后进行一次独立通读，记录 `draft_complete`，再运行 `validate-draft --require-complete`、正文放行和原有颗粒覆盖终审。
 
+大纲审查状态按区域和文件 SHA 绑定，不能从旧区域推导新区域。任何对 `小节大纲.md` 的新增、删除、重排、source-map 修改、字段修改或尾声补写，都会使受影响区域变为未审查；若文件整体 SHA 变化，`outline_complete` 也必须重新记录。`preflight` 仅是结构门禁，不是审查结论，不能替代 critic、自检证据或独立整纲审查。
+
 逐节自检 JSON 使用原有字段与证据，额外写 `review_mode: "self_check"`，且 `critic_context_isolated: false`；其余真实阅读、逐轴/逐句、颗粒和清零要求不变。独立审查使用 `review_mode: "independent"` 与 `critic_context_isolated: true`。不能用改标签替代实际独立上下文。
 
 节点独立审查只看已完成的正式文本、设定边界、必要来源及相关完整规则 case，不接收写作者辩护。整纲侧重跨节因果、信息时序、关系变化、权限与来源保真；整稿侧重声线、连续场面、情绪累积和兑现。不重新抄每节全部检查字段，不要求审查者重新发现或遍历文件。来源可按风险定位回读，不能只凭作者总结裁决。

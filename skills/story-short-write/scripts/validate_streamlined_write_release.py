@@ -335,8 +335,26 @@ def validate_release(project_dir: Path, *, outline_only: bool = False) -> list[s
         else:
             if primary.get("prose_voice") != "exclusive":
                 errors.append("主体来源 prose_voice 必须为 exclusive")
-            if primary.get("emotion_transfer_policy") != "primary_full_emotion":
-                errors.append("主体来源必须供应完整情绪骨架")
+            beat_policy = config.get("beat_transfer_policy", {})
+            if not isinstance(beat_policy, dict):
+                errors.append('beat_transfer_policy 必须是对象')
+                beat_policy = {}
+            beat_mode = str(beat_policy.get("mode") or "surface_shell_swap").strip()
+            emotion_policy = primary.get("emotion_transfer_policy")
+            if beat_mode not in {"surface_shell_swap", "functional_beat_transfer"}:
+                errors.append("beat_transfer_policy.mode 只能是 surface_shell_swap 或 functional_beat_transfer")
+            if beat_mode == "functional_beat_transfer":
+                for flag in ('preserve_p_beat_order', 'preserve_e_beat_order', 'preserve_one_to_one_mapping'):
+                    if beat_policy.get(flag, True) is not True:
+                        errors.append(f'functional_beat_transfer 必须启用 {flag}')
+                if emotion_policy != "primary_functional_emotion":
+                    errors.append("functional_beat_transfer 必须使用 primary_functional_emotion")
+                if beat_policy.get("preserve_emotion_function") is not True:
+                    errors.append("functional_beat_transfer 必须保留 E 拍功能")
+                if beat_policy.get("preserve_emotion_proposition") is not False:
+                    errors.append("functional_beat_transfer 不得保留原文具体情绪命题")
+            elif emotion_policy != "primary_full_emotion":
+                errors.append("surface_shell_swap 必须供应完整情绪骨架")
         auxiliaries = config.get("auxiliaries") or []
         if not isinstance(auxiliaries, list):
             errors.append("项目写作配置 auxiliaries 必须是列表")

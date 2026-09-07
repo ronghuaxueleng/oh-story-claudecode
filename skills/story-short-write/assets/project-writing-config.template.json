@@ -9,6 +9,21 @@
     "max_total_ratio": 1.25,
     "max_section_ratio": 1.25
   },
+  "distillation_policy": {
+    "enabled": false,
+    "model_env": "STORY_SHORT_WRITE_DISTILLATION_MODEL",
+    "default_model": "gpt-6-astra",
+    "passes": ["source_sentence_distillation", "anti_synopsis_review", "spoken_dialogue_review"],
+    "temperature": 0.2
+  },
+  "beat_transfer_policy": {
+    "mode": "functional_beat_transfer",
+    "preserve_p_beat_order": true,
+    "preserve_e_beat_order": true,
+    "preserve_one_to_one_mapping": true,
+    "preserve_emotion_function": true,
+    "preserve_emotion_proposition": false
+  },
   "primary": {
     "name": "",
     "profile_path": "",
@@ -18,7 +33,7 @@
     "plot_ledger_path": "",
     "role": "primary_full_plot_and_emotion",
     "prose_voice": "exclusive",
-    "emotion_transfer_policy": "primary_full_emotion"
+    "emotion_transfer_policy": "primary_functional_emotion"
   },
   "auxiliaries": []
 }

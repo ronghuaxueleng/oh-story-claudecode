@@ -43,6 +43,8 @@ class ProjectWritingAssetsTest(unittest.TestCase):
         self.assertEqual("测试书", config["project_name"])
         self.assertEqual("source_anchored", config["length_policy"]["mode"])
         self.assertEqual(1.25, config["length_policy"]["max_total_ratio"])
+        self.assertEqual("functional_beat_transfer", config["beat_transfer_policy"]["mode"])
+        self.assertEqual("primary_functional_emotion", config["primary"]["emotion_transfer_policy"])
         self.assertEqual({"项目写作配置.json"}, {path.name for path in assets.iterdir()})
 
     def test_init_prechecks_all_targets_before_writing(self) -> None:

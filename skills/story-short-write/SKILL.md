@@ -43,6 +43,30 @@ python3 "$SKILL_ROOT/scripts/validate_continuation_gate.py" \
 
 完整边界见 [skill-boundaries.md](references/governance/skill-boundaries.md)。
 
+## GPT-6 蒸馏层（可选但推荐用于颗粒度失真项目）
+
+实现边界：当前仅有可配置模型的独立语言审稿器；以下三步是作者工作要求，不是已实现的三次 GPT 调用或模型训练。`distillation_policy` 是计划性元数据，脚本不读取它，也不承诺质量或耗时收益。实际外审另需 `STORY_SHORT_WRITE_HUMAN_REVIEWER=gpt`、端点和密钥；仅开启 DISTILLATION 不会启动 API。
+
+可选外审指定模型为 `gpt-6-astra`。环境变量 `STORY_SHORT_WRITE_DISTILLATION=1` 仅启用历史兼容的模型选择分支；模型名由 `STORY_SHORT_WRITE_DISTILLATION_MODEL` 覆盖，缺省为代码中的 `gpt-6-astra`，不是从项目 default_model 读取。模型不可用时如实阻断，不静默换模型。
+
+蒸馏不是把正文改写得更长，也不是另存一份大纲。它只在当前区域的写作上下文中运行三道相互独立的任务：
+
+1. `source_sentence_distillation`：按来源层的连续句链逐句抽取“人物当下注意力、动作/受力、承载物、信息变化、可见后果、话轮或静默、断口”。每个来源句必须有独立目标承接位置；禁止用“随后、经过一番、最终、关系因此、完成控制变化”等流程词代替承接。
+2. `anti_synopsis_review`：对蒸馏结果做反概括审查。凡只能回答“发生了什么”而不能回答“谁在什么位置对什么施力、看见了什么、下一步为什么被迫发生”的条目，标为 `block`，退回当前区域重蒸馏；不得靠增加字数或补情绪词放行。
+3. `spoken_dialogue_review`：只审查人物会不会在当前压力下这样说。对白必须落到眼前的名字、钱、门、合同、名单、物件或命令；禁止把细纲字段、机制名称、关系结论和作者分析塞进人物嘴里。
+
+蒸馏结果只作为 `plan-section` 的当前区域计划输入，不创建第二套全书资产，也不保存候选正文。写作者仍须先完成蒸馏计划再形成正文候选；独立 critic 必须逐句核对蒸馏字段是否在正文中出现了对应动作链、物件受力、人物注意力和现实结果。任何一项缺失都回到当前区域修复，不得以“P/E 已出现”或总字数达标替代颗粒覆盖。
+
+推荐配置示例（密钥仍只从环境或项目 `.env` 读取）：
+
+```bash
+export STORY_SHORT_WRITE_DISTILLATION=1
+export STORY_SHORT_WRITE_DISTILLATION_MODEL=gpt-6-astra
+export STORY_SHORT_WRITE_HUMAN_REVIEWER=gpt
+```
+
+该开关只选择审稿模型，不启动三步蒸馏。外审需要另行配置实际端点和密钥并调用正式审稿器；模型不可用、超时或结果不合格时不得冒称外审通过。写作质量和耗时仍需真实样稿验证。
+
 ## 全新开书隔离
 
 用户要求全新开书时，只允许读取：
@@ -107,9 +131,24 @@ python3 "$SKILL_ROOT/scripts/apply_project_profile_policy.py" \
 
 ## 保留层与 P 拍换芯
 
-主体原文的完整层级必须保留：故事核与关系命题、关系/情绪母线、BID 顺序及进入/退出位置、全部 E 拍的内容烈度与原序、全部 SF 六维成文颗粒，以及主体 P 拍的数量、原序和承重槽位。
+功能迁移的执行合同优先于后文及引用文件中的“完整保留”通用描述。P 四字段保留动作、控制、信息、后果的语义功能，不只保留编号；E 五字段保留情绪运动、关系位置变化方向、读者效果和烈度，触发事件和具体情感答案由新主题实现。不能把任意新事件挂在旧 ID 上冒充迁移。
 
-只替换主体 P 拍的可见事件内容。每个来源 P 拍必须一对一改造成目标 P 拍；保留“这一步必须完成什么”，替换人物身份、关系壳、职业领域、现场、触发方式、物件、证据、控制权实现和现实后果。禁止把“颗粒全保留”解释成原事件换名复刻。
+写前：functional_beat_transfer 不使用 `--derive-emotions-from-outline`；init 省略该参数，随后通过 `confirm-fidelity --emotion-reviews-json` 显式提交每个 E 的五字段 target_realization，写清原功能、目标实现、具体命题差异。既有 field_reviews.preserved 表示功能合同兑现，不表示复制原情节。
+
+终审：功能迁移每个 E 提交 `content_realized / trigger_realized / relationship_position_change_realized / reader_effect_preserved / intensity_preserved / whole_beat_in_one_node=true`。前三项指目标主题的实际兑现，后三项指结构功能保留。field_reviews 五字段继续逐项提供正文证据和功能对照；旧模式继续使用五项 `_preserved`。不得用旧全真回执代替新合同，也不得用区域汇总自动生成逐拍结论。来源层 must_preserve_in_target 按功能与叙述组织解释，具体人、物、事件和情绪命题按新主题替换。
+
+项目可以选择两种 P/E 迁移模式。旧项目未填写 `beat_transfer_policy` 时默认按 `surface_shell_swap` 兼容；新项目模板默认使用 `functional_beat_transfer`。
+
+- `surface_shell_swap`：保留原文 P/E 的具体情绪命题、压力机制和读者效果，只替换事件表面与人物/场景/物件壳。
+- `functional_beat_transfer`：保留 P/E/BID 的数量、原序、进入/退出位置、一对一映射、情绪功能、强度曲线和读者效果；不保留原文的具体情绪命题、关系结论、创伤类型或情感答案。新主题必须为每个拍位重新定义事件意义、情绪内容和因果后果。
+
+`functional_beat_transfer` 中，“保留 E 拍功能”只表示保留情绪运动方式，例如“日常秩序出现异常 → 怀疑升级 → 主动选择”；不表示继续写原文的“丈夫背叛 → 替身羞辱 → 离婚反制”。每个来源 E 拍仍必须一对一落到一个目标节点，但目标节点的 `content`、`trigger` 和 `relationship_position_change` 必须来自新主题；只保留 `reader_effect`、`intensity` 及其在全书中的顺序关系。原文具体情绪命题不得进入目标细拍、对白或正文。
+
+用户可以先提供主题分段，例如“第一杯茶、第二杯茶、第三杯茶”。模型先将主题分段编译为新的目标 P/E，再依据主体拍位数量和节奏分配承接关系；一个主题段可以承接多个 P/E，但每个来源 P/E 仍只允许一个目标节点。目标主题不足以承载某个拍位时，必须重做主题施工，不得用原文情绪命题回填。
+
+主体原文的结构层级必须保留：BID 顺序及进入/退出位置、全部 E 拍的功能/强度顺序、全部 SF 六维成文颗粒，以及主体 P 拍的数量、原序和承重槽位。只有 `surface_shell_swap` 才继续保留原文故事核、关系命题和 E 拍具体内容；`functional_beat_transfer` 下，故事核、关系命题和 E 拍具体情绪命题必须由新主题重建。
+
+每个来源 P 拍必须一对一改造成目标 P 拍。两种模式均保留动作、控制、信息、后果的语义功能，替换人物、职业、现场、物件和事件实现。functional_beat_transfer 额外允许重建故事核与具体情绪命题，但不能改变 P/E 功能后只保留编号。禁止把“颗粒全保留”解释成原事件换名复刻。
 
 默认禁止检索或使用社会热点材料。只有用户在当前任务中明确要求使用热点替换事件时，才按各 BID/E 拍的压力机制检索近 30 天的非政府社会新闻或网络热梗；没有合适机制时最多扩到 90 天。不得使用浏览器或 CDP，也不得使用通用搜索引擎、新闻搜索或聚合搜索结果；只能直接访问大型新闻门户、内容社区或社交平台的公开热榜、话题页、当事方页面和报道页。禁止使用政府部门、监管机构、政务网站以及纯政策/会议通稿；候选材料必须有热榜、跨媒体跟进、平台讨论或当事方回应之一的可见热度证据。材料只供应制度压力、职业规则、舆论机制、证据形态或现实后果，不供应声线，也不得复制真实人物、新闻/热梗原句或完整时间线。
 
@@ -146,6 +185,10 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" confirm-design \
 ```
 
 设定完成后逐拍重建目标 P 拍；只有用户明确要求热点时，才在定稿细纲前按 BID/E 压力机制检索热点并注入目标事件。`小节大纲.md` 必须按导语、连续数字节、尾声顺序，**一次只写入一个正式区域**；但每个区域第一次写入正式文件前，先形成只含当前 `##` 区域的候选并交给大纲 critic。critic 必须检查入场/离场状态、P/E 整拍、来源层型、信息取得、物理受力、现实操作、未来对白人话风险和未来区域泄漏；它只拦施工层风险，不提前代写正文措辞。
+
+**大纲审查不可继承或推定。** 任何新增、删除、改写或重排 `小节大纲.md` 的区域，即使只是补充尾声、修正 source-map、改目标字数或调整一条细拍，也必须把该区域标记为未审查，并重新执行当前区域的 `critic → precommit-design → preflight → confirm-design`。已有区域的历史 review 不能覆盖新区域；`preflight` 只证明结构可解析，绝不等同于 critic 或批准。未完成当前区域审查时，禁止继续写下一区域、初始化目标脑图或生成正文。
+
+**完整细纲审查是正文前硬门。** 所有区域首次落盘并确认后，必须由独立审查者读取最终 `小节大纲.md`，记录 `outline_complete`；该记录绑定最终文件 SHA。只要大纲文件再次变化，`outline_complete` 立即失效，必须重新审查并重新记录。不得以“新增区域很短”“只是补尾声”“只改映射编号”“预检已通过”作为跳过理由。
 
 用户在正文开始前明确改变题材承诺、关系母线或主体保留范围时，必须先以正式重开接口记录授权，且不得已有冻结大纲或正文区域。重开只使 `设定.md` 的确认失效，旧 SHA、授权和原因留在同一规则台账；随后必须重新提交设定 critic、precommit 和 confirm，不得手改台账或保留两份设定真源：
 
@@ -406,7 +449,7 @@ python3 "$SKILL_ROOT/scripts/validate_streamlined_write_release.py" \
 
 全文完成后只建立 `正文覆盖回执.json`。静态的区域六维、SF 整链和来源层对象都保留在两张脑图中，终审不再重复三套内容；回执只保存两张脑图与正文 SHA、区域覆盖、全部来源层的正文逐字引句、人工结论以及缺失/倒序/层型错配异常。
 
-人工逐层显式填写 `realized=true / topology_preserved=true`，并分别为层型、进入、退出、叙述距离、无功能顺移、每条来源保留规则和六维提供专属正文引句与结论；同时对全部目标节点逐节点确认颗粒。来源全部 P 拍必须逐拍显式提交五个保真布尔，并为 `action / control_change / information_change / consequence` 分别给正文引句与结论，脚本不得自动全置真。来源全部 E 拍还必须逐拍确认 `content / trigger / relationship_position_change / reader_effect / intensity` 及 `whole_beat_in_one_node=true`，每字段有绑定节点内的专属引句与结论。目标节点只是写到了、情绪相近或事件更合理，都不能替代对应拍位保真；宽泛引句不得替整层、多个字段或多个节点过检。任何漏 P/E、漏层、漏节点、功能顺移、换序、改层型、失效引句或异常未清零都阻断封存；发现问题先改正文，再运行 `audit-init` 增量刷新，仍有效的逐项判断按绑定和引句保留。
+人工逐层显式填写 `realized=true / topology_preserved=true`，并分别为层型、进入、退出、叙述距离、无功能顺移、每条来源保留规则和六维提供专属正文引句与结论；同时对全部目标节点逐节点确认颗粒。来源全部 P 拍必须逐拍显式提交五个保真布尔，并为 `action / control_change / information_change / consequence` 分别给正文引句与结论，脚本不得自动全置真。来源全部 E 拍仍须逐拍确认 `content / trigger / relationship_position_change / reader_effect / intensity` 及 `whole_beat_in_one_node=true`，但裁决口径服从迁移模式：`surface_shell_swap` 核验来源具体情绪内容是否保真；`functional_beat_transfer` 核验目标 `content / trigger / relationship_position_change` 是否由新主题重新生成，并核验来源 `reader_effect / intensity`、拍位顺序和单节点完整性是否保真。后者若复用了原文具体关系结论、创伤类型或情感答案，应判失败，而不是判“更保真”。目标节点只是写到了、情绪相近或事件更合理，都不能替代对应拍位合同；宽泛引句不得替整层、多个字段或多个节点过检。任何漏 P/E、漏层、漏节点、功能顺移、换序、模式错配、失效引句或异常未清零都阻断封存；发现问题先改正文，再运行 `audit-init` 增量刷新，仍有效的逐项判断按绑定和引句保留。
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_zhihu_section_format.py" \
@@ -470,6 +513,7 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
 - `validate_streamlined_write_release.py`
 - `validate_continuation_gate.py`
 - `validate_zhihu_section_format.py`
+- `run_human_language_review.py`（可选外部语言诊断，不等于完整蒸馏；使用时允许其唯一 `规则型真人语言审稿记录.json`）
 
 未列出的单本写作产物或短篇脚本视为流程污染，发现后不得读取或执行。
 
@@ -505,11 +549,11 @@ python3 "$SKILL_ROOT/scripts/manage_target_prose_map.py" audit-seal \
 - 回修前先锁定“目标片段”和“禁止牵连改动”，回修后必须检查差异只落在目标片段；发现无关行被改动，先恢复无关改动，再做格式或终审校验。不得用一次大范围润色掩盖定点修改。
 - 正文唯一声线来自主体原文。保留主体的句间转折、功能词、叙述距离、即时主观声音、对白轮转和段落呼吸。
 - 主体全部 SF 的六维颗粒必须随 P 拍自动落到目标区域；写作和终审都不得只使用 profile 的书级汇总声线。
-- 故事核、关系/情绪母线、BID 进出位置和全部 E 拍必须完整保留；启用热点时也不得改写上层情绪因果。
+- `surface_shell_swap` 必须完整保留故事核、关系/情绪母线、BID 进出位置和全部 E 拍具体内容；`functional_beat_transfer` 只保留 BID/P/E 的拓扑、拍位、功能、强度曲线和读者效果，故事核、具体关系命题、E 拍内容与情绪因果由新主题重建。
 - 主体 P 拍只保留等量同序承重槽位，每一拍都必须换成新的目标事件；原人物、职业、物件、现场和完整事件壳不得回流。
 - 用户未明确要求热点时禁止检索、读取或注入社会热点材料。明确启用后，只允许非政府社会新闻或有可见热度证据的网络热梗；材料只供应目标 P 拍的现实机制，必须可追溯、在检索时不超过 90 天并完成去标识化；不得扩成游离支线。
 - 不复制主体的专名、核心物件、完整关系壳或原句。
-- 主体 P 拍槽位与 E 拍按合同原序兑现；辅助机制只能叠加，不能替换主体上层骨架。
+- 主体 P 拍槽位与 E 拍必须按合同一对一、原序兑现；`functional_beat_transfer` 允许新主题重写拍内语义，但不得改拍位、并拍、漏拍或倒序。辅助机制只能叠加，不能替换主体上层骨架。
 - 强情绪必须改变人物期待、行动冲动或现实位置，不靠情绪词汇报。
 - 关键关系动作要有最小可见情绪承接：松手、转身、递还、推开、离场等动作如果承担关系断裂或态度翻转，不能只写干巴的结果动作；应在不扩写的前提下补一个能被看见的状态或节奏，如“看着她的眼睛，怔怔地松开了手”“停了一下才转身”。这不是要求每个动作都加情绪副词，状态必须服务于当前关系变化，不能堆叠心理标签。
 - 追妻必须由失去控制权、接近资格和真实代价推动，不靠突然自白。

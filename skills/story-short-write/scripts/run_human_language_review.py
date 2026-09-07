@@ -144,6 +144,21 @@ def configured_value(provider: str, suffix: str, dotenv: dict[str, str]) -> str:
     return ""
 
 
+def configured_model(provider: str, dotenv: dict[str, str], explicit: str | None = None) -> str:
+    """Resolve the review model, optionally enabling the high-capability distillation model."""
+    if explicit and explicit.strip():
+        return explicit.strip()
+    enabled = os.environ.get("STORY_SHORT_WRITE_DISTILLATION", "")
+    if not enabled:
+        enabled = dotenv.get("STORY_SHORT_WRITE_DISTILLATION", "")
+    if str(enabled).strip().lower() in {"1", "true", "yes", "on"}:
+        distilled = os.environ.get("STORY_SHORT_WRITE_DISTILLATION_MODEL", "")
+        if not distilled:
+            distilled = dotenv.get("STORY_SHORT_WRITE_DISTILLATION_MODEL", "")
+        return (distilled or "gpt-6-astra").strip()
+    return (configured_value(provider, "MODEL", dotenv) or DEFAULT_MODEL).strip()
+
+
 def human_reviewer(dotenv: dict[str, str]) -> str:
     """Resolve the configured human-review backend."""
     explicit = os.environ.get("STORY_SHORT_WRITE_HUMAN_REVIEWER")
@@ -588,7 +603,7 @@ def resolve_runtime(args: argparse.Namespace, project_dir: Path) -> dict[str, An
     base_url = validate_base_url(
         args.base_url or configured_value(provider, "BASE_URL", dotenv) or DEFAULT_BASE_URL
     )
-    model = (args.model or configured_value(provider, "MODEL", dotenv) or DEFAULT_MODEL).strip()
+    model = configured_model(provider, dotenv, args.model)
     if not model:
         raise ReviewError("审稿 model 不能为空")
     api_mode = (
@@ -981,11 +996,7 @@ def main() -> int:
             or configured_value(provider, "BASE_URL", dotenv)
             or DEFAULT_BASE_URL
         )
-        model = (
-            args.model
-            or configured_value(provider, "MODEL", dotenv)
-            or DEFAULT_MODEL
-        ).strip()
+        model = configured_model(provider, dotenv, args.model)
         if not model:
             raise ReviewError("review model 不能为空")
         api_mode = (

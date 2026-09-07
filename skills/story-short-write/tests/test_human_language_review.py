@@ -176,6 +176,38 @@ class HumanLanguageReviewTest(unittest.TestCase):
         post.assert_called_once()
         self.assertTrue(post.call_args.args[0].endswith("/chat/completions"))
 
+    def test_distillation_model_override_is_opt_in(self) -> None:
+        dotenv = {}
+        with mock.patch.dict(
+            os.environ,
+            {
+                "STORY_SHORT_WRITE_DISTILLATION": "",
+                "STORY_SHORT_WRITE_DISTILLATION_MODEL": "",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                REVIEWER.configured_model("gpt", dotenv),
+                REVIEWER.DEFAULT_MODEL,
+            )
+            with mock.patch.dict(
+                os.environ,
+                {"STORY_SHORT_WRITE_DISTILLATION": "1"},
+                clear=False,
+            ):
+                self.assertEqual(REVIEWER.configured_model("gpt", dotenv), "gpt-6-astra")
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "STORY_SHORT_WRITE_DISTILLATION": "1",
+                    "STORY_SHORT_WRITE_DISTILLATION_MODEL": "custom-gpt6",
+                },
+                clear=False,
+            ):
+                self.assertEqual(
+                    REVIEWER.configured_model("gpt", dotenv), "custom-gpt6"
+                )
+
     def test_parse_outline_regions_covers_opening_sections_and_epilogue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             outline = Path(tmp) / "小节大纲.md"

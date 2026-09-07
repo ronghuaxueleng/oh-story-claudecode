@@ -154,7 +154,13 @@ def apply_policy(config_path: Path) -> Path:
             "role": str(primary_config.get("role") or "primary_full_plot_and_emotion"),
             "prose_voice": str(primary_config.get("prose_voice") or "exclusive"),
             "emotion_transfer_policy": str(
-                primary_config.get("emotion_transfer_policy") or "primary_full_emotion"
+                primary_config.get("emotion_transfer_policy")
+                or (
+                    "primary_functional_emotion"
+                    if str((config.get("beat_transfer_policy") or {}).get("mode") or "surface_shell_swap")
+                    == "functional_beat_transfer"
+                    else "primary_full_emotion"
+                )
             ),
         },
         "auxiliaries": auxiliary_policy,

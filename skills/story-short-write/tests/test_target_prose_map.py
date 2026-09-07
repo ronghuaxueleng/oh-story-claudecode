@@ -537,7 +537,7 @@ class TargetProseMapTest(unittest.TestCase):
             f"- 子事件：{region}子事件\n"
             f"- 入场状态：{region}进入\n"
             f"- 离场状态：{region}离开\n"
-            "- 细拍拆分：细拍 <!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->\n"
+            "- 细拍拆分：甲推开房门，把信递给乙，乙看清署名后退到桌边。 <!-- source-map: P=P-001; E=E-001; SF=SF-01#1; L=SF-01-L01 -->\n"
             f"- 情绪：{region}压迫\n"
             f"- 读者新获知什么：{region}新信息\n"
             f"- 钩子：{region}钩子\n"
@@ -560,7 +560,7 @@ class TargetProseMapTest(unittest.TestCase):
             [item["region_id"] for item in catalog["regions"]],
         )
         first_beat = catalog["regions"][0]["target_beats"][0]
-        self.assertEqual("细拍", first_beat["evidence"])
+        self.assertEqual("甲推开房门，把信递给乙，乙看清署名后退到桌边。", first_beat["evidence"])
         self.assertEqual(["P-001"], first_beat["source_refs"]["plot_beat_ids"])
 
     def test_explicit_source_refs_prefill_all_mapping_surfaces(self) -> None:
@@ -617,7 +617,7 @@ class TargetProseMapTest(unittest.TestCase):
             f"- 子事件：{region}子事件\n"
             f"- 入场状态：{region}进入\n"
             f"- 离场状态：{region}离开\n"
-            "- 细拍拆分：没有声明的旧式细拍\n"
+            "- 细拍拆分：甲推开房门，把信递给乙，乙看清署名后退到桌边。\n"
             f"- 情绪：{region}压迫\n"
             f"- 读者新获知什么：{region}新信息\n"
             f"- 钩子：{region}钩子\n"
@@ -1370,6 +1370,38 @@ class TargetProseMapTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertTrue(confirmed["emotion_reviews"][0]["whole_beat_in_one_node"])
         self.assertTrue(confirmed["emotion_reviews"][0]["trigger_preserved"])
+
+    def test_functional_theme_audit_and_refresh(self) -> None:
+        config_path = self.assets / '项目写作配置.json'
+        config = json.loads(config_path.read_text(encoding='utf-8'))
+        config['beat_transfer_policy'] = {'mode': 'functional_beat_transfer'}
+        MODULE.write_json(config_path, config)
+        target = self.create_target()
+        (self.project / '正文.md').write_text('# 测试项目\n1.\n甲推门。乙拒绝。\n', encoding='utf-8')
+        audit = MODULE.create_audit(self.project, self.target_path, target)
+        self.confirm_layer_reviews(audit)
+        self.confirm_node_reviews(audit)
+        self.confirm_plot_reviews(audit)
+        item = audit['emotion_reviews'][0]
+        old_review = {f'{f}_preserved': True for f in MODULE.EMOTION_AUDIT_FIELDS}
+        old_review['whole_beat_in_one_node'] = True
+        with self.assertRaises(ValueError):
+            MODULE._apply_emotion_audit_review(item, old_review)
+        review = {
+            **{flag: True for flag in MODULE.emotion_flags('functional_beat_transfer')},
+            'whole_beat_in_one_node': True,
+            'field_reviews': self.audit_details(MODULE.EMOTION_AUDIT_FIELDS, '乙拒绝。'),
+            'conclusion': '新主题的拒绝动作兑现关系退让功能，不复用来源具体命题。',
+        }
+        MODULE._apply_emotion_audit_review(item, review)
+        audit['gate_status'] = 'passed'
+        audit['content_sha256'] = MODULE.content_hash(audit)
+        self.assertEqual([], MODULE.validate_audit(audit, self.project))
+        refreshed = MODULE.create_audit(self.project, self.target_path, target, audit)
+        self.assertTrue(refreshed['emotion_reviews'][0]['content_realized'])
+        item['content_realized'] = False
+        audit['content_sha256'] = MODULE.content_hash(audit)
+        self.assertTrue(any('content_realized' in e for e in MODULE.validate_audit(audit, self.project)))
 
     def test_audit_refresh_preserves_unresolved_exceptions(self) -> None:
         target = self.create_target()

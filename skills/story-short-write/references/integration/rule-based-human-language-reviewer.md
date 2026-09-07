@@ -16,6 +16,8 @@
 
 当前 GPT 配置使用：`STORY_SHORT_WRITE_REVIEW_PROVIDER=gpt`、`STORY_SHORT_WRITE_GPT_BASE_URL`、`STORY_SHORT_WRITE_GPT_API_KEY`和 `STORY_SHORT_WRITE_GPT_MODEL`。后续 Gemini 可添加同格式的 `STORY_SHORT_WRITE_GEMINI_BASE_URL`、`STORY_SHORT_WRITE_GEMINI_API_KEY` 和 `STORY_SHORT_WRITE_GEMINI_MODEL`，调用时加 `--provider gemini`。
 
+对颗粒度失真项目可显式启用蒸馏模型：设置 `STORY_SHORT_WRITE_DISTILLATION=1`，并用 `STORY_SHORT_WRITE_DISTILLATION_MODEL=gpt-6-astra` 指定模型。启用后该模型同时用于当前区域的反概括和真人语言审稿；未启用时保持 `STORY_SHORT_WRITE_*_MODEL` 或 `codex-auto-review` 的旧解析顺序。若端点不支持指定模型，审稿必须阻断，不能静默改用低能力模型并宣称已完成 `gpt-6-astra` 蒸馏。
+
 命令行 `--provider` 、`--base-url` 、`--model` 和 `--api-mode` 可覆盖配置。密钥本身没有明文命令行参数；`--api-key-env` 只能更换密钥环境变量名。非本机 HTTP 端点会被拒绝，避免明文传输密钥和正文。
 
 ## 输入

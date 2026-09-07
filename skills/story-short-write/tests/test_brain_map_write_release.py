@@ -17,7 +17,7 @@ SPEC.loader.exec_module(RELEASE)
 
 
 class BrainMapWriteReleaseDensityTest(unittest.TestCase):
-    def run_outline_stage(self, *, outline_only=True, draft=False, preflight_errors=None):
+    def run_outline_stage(self, *, outline_only=True, draft=False, preflight_errors=None, beat_policy=None, emotion_policy="primary_full_emotion"):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
             assets = project / "写作资产"
@@ -30,8 +30,10 @@ class BrainMapWriteReleaseDensityTest(unittest.TestCase):
             profile.write_text("{}", encoding="utf-8")
             config = {"project_name": project.name, "profile_path": str(profile), "primary": {
                 "profile_path": str(profile), "prose_voice": "exclusive",
-                "emotion_transfer_policy": "primary_full_emotion",
+                "emotion_transfer_policy": emotion_policy,
             }, "auxiliaries": []}
+            if beat_policy is not None:
+                config["beat_transfer_policy"] = beat_policy
             (assets / "项目写作配置.json").write_text(json.dumps(config), encoding="utf-8")
             if draft:
                 (project / "正文.md").write_text("", encoding="utf-8")
@@ -51,6 +53,26 @@ class BrainMapWriteReleaseDensityTest(unittest.TestCase):
         self.assertEqual(0, prewrite_calls)
         self.assertEqual(1, design_calls)
         self.assertFalse(preflight_call.kwargs["allow_partial"])
+
+    def test_functional_transfer_accepts_new_emotion_proposition(self):
+        errors, _, _, _ = self.run_outline_stage(
+            beat_policy={"mode": "functional_beat_transfer", "preserve_emotion_function": True, "preserve_emotion_proposition": False},
+            emotion_policy="primary_functional_emotion",
+        )
+        self.assertEqual([], errors)
+
+    def test_functional_transfer_rejects_old_full_emotion_contract(self):
+        errors, _, _, _ = self.run_outline_stage(
+            beat_policy={"mode": "functional_beat_transfer", "preserve_emotion_function": True, "preserve_emotion_proposition": False},
+        )
+        self.assertTrue(any("primary_functional_emotion" in error for error in errors))
+
+    def test_functional_transfer_rejects_original_proposition_retention(self):
+        errors, _, _, _ = self.run_outline_stage(
+            beat_policy={"mode": "functional_beat_transfer", "preserve_emotion_function": True, "preserve_emotion_proposition": True},
+            emotion_policy="primary_functional_emotion",
+        )
+        self.assertTrue(any("不得保留原文具体情绪命题" in error for error in errors))
 
     def test_default_mode_still_requires_brain_map(self):
         errors, prewrite_calls, _, _ = self.run_outline_stage(outline_only=False)

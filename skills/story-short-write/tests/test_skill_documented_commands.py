@@ -17,6 +17,7 @@ ALLOWED_SCRIPTS = {
     "validate_project_directory_name.py",
     "validate_streamlined_write_release.py",
     "validate_zhihu_section_format.py",
+    "run_human_language_review.py",
 }
 
 ALLOWED_PRODUCTS = {

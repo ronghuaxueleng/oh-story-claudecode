@@ -120,6 +120,25 @@ PLOT_AUDIT_FIELDS = (
     "consequence",
 )
 EMOTION_AUDIT_FIELDS = EMOTION_FIDELITY_FIELDS
+
+
+def transfer_mode(target: dict[str, Any]) -> str:
+    config = read_object(Path(target['project_config']['path']), '项目写作配置')
+    policy = config.get('beat_transfer_policy', {})
+    if not isinstance(policy, dict):
+        raise ValueError('beat_transfer_policy 必须是对象')
+    mode = policy.get('mode', 'surface_shell_swap')
+    if mode not in {'surface_shell_swap', 'functional_beat_transfer'}:
+        raise ValueError('未知 beat_transfer_policy.mode')
+    return mode
+
+
+def emotion_flags(mode: str) -> tuple[str, ...]:
+    rebuilt = {'content', 'trigger', 'relationship_position_change'}
+    return tuple(
+        f"{field}_{'realized' if mode == 'functional_beat_transfer' and field in rebuilt else 'preserved'}"
+        for field in EMOTION_AUDIT_FIELDS
+    )
 LAYER_AUDIT_TOPOLOGY_FIELDS = LAYER_TOPOLOGY_FIELDS + ("no_function_shift",)
 
 
@@ -958,6 +977,7 @@ def create_target_map(
             "content_sha256": source["content_sha256"],
         },
         "project_config": binding(config_path),
+        "transfer_mode": (config.get('beat_transfer_policy') or {}).get('mode', 'surface_shell_swap'),
         "target_input": target_input,
         "target_nodes": target_nodes,
         "mappings": mappings,
@@ -1244,6 +1264,11 @@ def validate_target_map(
         errors.append("目标成文脑图 content_sha256 与内容不一致")
     errors.extend(_current_binding_errors(payload.get("source_map"), "来源成文脑图"))
     errors.extend(_current_binding_errors(payload.get("project_config"), "项目写作配置"))
+    try:
+        if payload.get('transfer_mode', 'surface_shell_swap') != transfer_mode(payload):
+            errors.append('迁移模式已变化，旧脑图确认不可复用；须按新模式重新初始化和审查')
+    except (OSError, ValueError, KeyError) as exc:
+        errors.append(str(exc))
     errors.extend(_current_binding_errors(payload.get("target_input"), "目标输入"))
     source_map_value = payload.get("source_map") or {}
     try:
@@ -1672,6 +1697,8 @@ def rebind_target_map(
     # by a stale project_config SHA even though all semantic mappings survived.
     config_path = Path(str((payload.get("project_config") or {}).get("path") or ""))
     if config_path.is_file():
+        if payload.get('transfer_mode', 'surface_shell_swap') != transfer_mode(payload):
+            raise ValueError('rebind 不得跨迁移模式复用旧确认；须重新初始化并审查')
         payload["project_config"] = binding(config_path)
     payload["target_input"] = target_input
     payload["target_nodes"] = target_nodes
@@ -1806,6 +1833,7 @@ def create_audit(
     target_errors = validate_target_map(target, require_gate=True)
     if target_errors:
         raise ValueError("目标成文脑图未放行: " + " / ".join(target_errors))
+    mode = transfer_mode(target)
     source_path = Path(target["source_map"]["path"])
     source = read_object(source_path, "来源成文脑图")
     draft_path = project_dir / "正文.md"
@@ -1995,6 +2023,7 @@ def create_audit(
         region_id = node_regions[target_id]
         base = {
             "source_emotion_id": beat_id,
+            "transfer_mode": mode,
             "source_content_sha256": beat["content_sha256"],
             "target_node_id": target_id,
             "target_region": region_id,
@@ -2008,11 +2037,14 @@ def create_audit(
             "evidence_quotes": [],
             "conclusion": "",
         }
+        for flag in emotion_flags(mode):
+            base[flag] = None
         old = old_emotion_reviews.get(beat_id)
         old_quotes = old.get("evidence_quotes") if isinstance(old, dict) else None
         allowed_text = regions.get(region_id, "")
         if (
             old
+            and old.get('transfer_mode', 'surface_shell_swap') == mode
             and old.get("source_content_sha256") == base["source_content_sha256"]
             and old.get("target_node_id") == target_id
             and old.get("target_region") == region_id
@@ -2035,6 +2067,8 @@ def create_audit(
                 "conclusion",
             ):
                 base[field] = old.get(field)
+            for flag in emotion_flags(mode):
+                base[flag] = old.get(flag)
         emotion_reviews.append(base)
     region_coverage = []
     for region_id in regions:
@@ -2295,10 +2329,12 @@ def validate_audit(
                 errors.append(f"{beat_id} E 拍目标节点绑定已变化")
             if item.get("target_region") != expected_region:
                 errors.append(f"{beat_id} E 拍目标区域与目标节点不一致")
-            for field in EMOTION_AUDIT_FIELDS:
-                flag = f"{field}_preserved"
+            mode = transfer_mode(target)
+            if item.get('transfer_mode', 'surface_shell_swap') != mode:
+                errors.append(f'{beat_id} 情绪迁移模式已变化，必须重新审查')
+            for flag in emotion_flags(mode):
                 if item.get(flag) is not True:
-                    errors.append(f"{beat_id} 尚未确认 {field} 保真")
+                    errors.append(f"{beat_id} 尚未确认 {flag}")
             if item.get("whole_beat_in_one_node") is not True:
                 errors.append(f"{beat_id} 尚未确认整拍未拆散或顺移")
             allowed_text = regions.get(expected_region, "")
@@ -2520,7 +2556,10 @@ def validate_compact_audit_payload(
                 errors.append(f"{beat_id} E 拍目标节点绑定已变化")
             if item.get("target_region") != expected_region:
                 errors.append(f"{beat_id} E 拍目标区域已变化")
-            required_flags = tuple(f"{field}_preserved" for field in EMOTION_AUDIT_FIELDS)
+            mode = transfer_mode(target)
+            if item.get('transfer_mode', 'surface_shell_swap') != mode:
+                errors.append(f'{beat_id} 情绪迁移模式已变化，必须重新审查')
+            required_flags = emotion_flags(mode)
             if any(item.get(field) is not True for field in required_flags):
                 errors.append(f"{beat_id} compact E 拍必须逐项确认五个保真布尔")
             if item.get("whole_beat_in_one_node") is not True:
@@ -2956,6 +2995,8 @@ def command_confirm_fidelity(args: argparse.Namespace) -> tuple[dict[str, Any], 
     if unknown_emotions:
         raise ValueError(f"emotion-reviews-json 包含未知 E 拍: {unknown_emotions}")
     if derive_emotions:
+        if transfer_mode(payload) == 'functional_beat_transfer':
+            raise ValueError('功能迁移必须显式提交 E 五字段目标实现，不能从细拍自动确认')
         target_nodes = {
             str(item.get("target_id") or ""): item
             for item in nodes
@@ -3523,7 +3564,7 @@ def _apply_plot_audit_review(item: dict[str, Any], review: Any) -> None:
 
 def _apply_emotion_audit_review(item: dict[str, Any], review: Any) -> None:
     beat_id = str(item["source_emotion_id"])
-    required_flags = tuple(f"{field}_preserved" for field in EMOTION_AUDIT_FIELDS)
+    required_flags = emotion_flags(item.get('transfer_mode', 'surface_shell_swap'))
     if (
         not isinstance(review, dict)
         or any(review.get(field) is not True for field in required_flags)
@@ -3763,6 +3804,8 @@ def command_audit_confirm_compact(
         raise ValueError("不得同时提交 region-reviews-json 和 compact-reviews-json")
 
     if region_reviews:
+        if transfer_mode(target) == 'functional_beat_transfer':
+            raise ValueError('功能迁移不接受区域汇总自动确认 E 拍，请显式提交 layers/nodes/plots/emotions')
         expected_regions = list(
             dict.fromkeys(
                 [str(item["region_id"]) for item in target.get("target_nodes") or []]

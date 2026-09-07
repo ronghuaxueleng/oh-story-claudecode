@@ -512,6 +512,13 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
     if data.get("schema_version") != SCHEMA:
         errors.append(f"schema_version 必须为 {SCHEMA}")
     skill_root = Path(str(data.get("skill_root") or "")).expanduser()
+    # Projects can outlive a relocated skill checkout. Resolve the rule root
+    # from this validator when the ledger still carries the old absolute path;
+    # source bindings are checked against the resolved root below.
+    if not skill_root.is_dir():
+        local_root = Path(__file__).resolve().parents[1]
+        if local_root.is_dir() and (local_root / "SKILL.md").is_file():
+            skill_root = local_root
     if not skill_root.is_dir():
         errors.append(f"skill_root 不存在: {skill_root}")
         return errors
@@ -1534,6 +1541,13 @@ def prepare_section_context(
         "project": project_dir.name,
         "region_id": next_region,
         "included_target_regions": region_ids,
+        "beat_transfer_policy": config.get('beat_transfer_policy', {'mode': 'surface_shell_swap'}),
+        "emotion_contract": (
+            '保留来源 P/E 的语义功能和顺序；E 的具体内容、触发事件、关系命题由目标细拍重建。'
+            '来源保留规则中的具体事件仅作功能对照；不得将原情绪命题强塞入新主题。'
+            if (config.get('beat_transfer_policy') or {}).get('mode') == 'functional_beat_transfer'
+            else '按来源完整情绪合同执行。'
+        ),
         "target_nodes": nodes,
         "plot_beats": plot_packets,
         "emotion_beats": emotion_packets,
