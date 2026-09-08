@@ -2,12 +2,12 @@
 
 ## 策略与兼容
 
-本文件是审查调度唯一规则，优先于旧工作流中“每区域独立 critic”的描述。没有策略字段的旧台账保持 `per_region`。用户要求减少逐节审查或优化审查耗时时，通过已有台账脚本启用 `checkpoint`，不得直接改批准状态：
+本文件是审查调度唯一规则，优先于旧工作流中“每区域独立 critic”的描述。没有策略字段的旧台账保持 `per_region`。用户要求减少逐节审查或优化审查耗时时，通过已有台账脚本启用 `whole_book`，不得直接改批准状态：
 
 ```bash
 python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" set-review-policy \
-  --ledger "{项目目录}/写作资产/规则执行台账.json" --mode checkpoint \
-  --user-authorization "{用户要求优化审查的原文}" --reason "逐节自检，关键节点独立审查"
+  --ledger "{项目目录}/写作资产/规则执行台账.json" --mode whole_book \
+  --user-authorization "{用户要求优化审查的原文}" --reason "整纲一次、整稿一次，不做逐节复核"
 ```
 
 切换只记录策略与授权，不重开已冻结的设定和区域，也不把历史自检改称独立审查。当前有已领取或待确认候选时，先完成该区域再切换。恢复逐区独立审查使用同一命令的 `--mode per_region`，历史记录保留其实际审查身份。
@@ -20,7 +20,7 @@ python3 "$SKILL_ROOT/scripts/validate_rule_execution_ledger.py" set-review-polic
 
 大纲审查状态按区域和文件 SHA 绑定，不能从旧区域推导新区域。任何对 `小节大纲.md` 的新增、删除、重排、source-map 修改、字段修改或尾声补写，都会使受影响区域变为未审查；若文件整体 SHA 变化，`outline_complete` 也必须重新记录。`preflight` 仅是结构门禁，不是审查结论，不能替代 critic、自检证据或独立整纲审查。
 
-逐节自检 JSON 使用原有字段与证据，额外写 `review_mode: "self_check"`，且 `critic_context_isolated: false`；其余真实阅读、逐轴/逐句、颗粒和清零要求不变。独立审查使用 `review_mode: "independent"` 与 `critic_context_isolated: true`。不能用改标签替代实际独立上下文。
+`whole_book` 不生成逐节自检 JSON，也不要求逐节句子复核。整纲和整稿统一审查使用 `review_mode: "independent"` 与 `critic_context_isolated: true`。
 
 节点独立审查只看已完成的正式文本、设定边界、必要来源及相关完整规则 case，不接收写作者辩护。整纲侧重跨节因果、信息时序、关系变化、权限与来源保真；整稿侧重声线、连续场面、情绪累积和兑现。不重新抄每节全部检查字段，不要求审查者重新发现或遍历文件。来源可按风险定位回读，不能只凭作者总结裁决。
 

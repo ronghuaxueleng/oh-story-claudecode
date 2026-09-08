@@ -166,6 +166,17 @@ def apply_policy(config_path: Path) -> Path:
         "auxiliaries": auxiliary_policy,
     }
     profile_path.parent.mkdir(parents=True, exist_ok=True)
+    # Source bindings belong to the config, the single source-policy authority.
+    # Derive hashes here instead of requiring a one-off project mutation script.
+    primary_config["profile_sha256"] = digest(primary_path)
+    if primary_original_path is not None:
+        primary_config["original_sha256"] = digest(primary_original_path)
+    for configured, bound in zip(auxiliaries, auxiliary_policy):
+        configured["profile_sha256"] = bound["profile_sha256"]
+        configured["original_sha256"] = bound["original_sha256"]
+    config_path.write_text(
+        json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     profile_path.write_text(
         json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )

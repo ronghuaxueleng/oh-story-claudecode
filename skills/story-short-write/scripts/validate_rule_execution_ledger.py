@@ -13,8 +13,10 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
 import re
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -879,7 +881,7 @@ def validate_review_identity(review: dict[str, Any], data: dict[str, Any], *, se
 
 
 def set_review_policy(path: Path, mode: str, authorization: str, reason: str) -> None:
-    if mode not in {"checkpoint", "per_region"} or not authorization.strip() or not reason.strip():
+    if mode not in {"checkpoint", "per_region", "whole_book"} or not authorization.strip() or not reason.strip():
         raise ValueError("审查策略必须合法且记录用户授权和修改原因")
     data = load(path)
     if (data.get("design_review_state") or {}).get("pending") or any(
@@ -888,6 +890,12 @@ def set_review_policy(path: Path, mode: str, authorization: str, reason: str) ->
     ):
         raise ValueError("必须先完成当前已领取或待确认区域，再切换审查策略")
     old = (data.get("review_policy") or {}).get("mode", "per_region")
+    if old == "whole_book" and mode != old and any(
+        item.get("status") == "pending_whole_book_review"
+        for item in ((data.get("design_review_state") or {}).get("outline_regions") or [])
+        + ((data.get("draft_review_state") or {}).get("approved_regions") or [])
+    ):
+        raise ValueError("存在待整书审查区域，不能切换策略绕过独立节点")
     data.setdefault("review_policy_history", []).append({
         "previous_mode": old, "mode": mode,
         "user_authorization": authorization, "reason": reason,
@@ -904,7 +912,7 @@ def checkpoint_bindings(project: Path, stage: str) -> dict[str, str]:
 
 
 def validate_checkpoint(data: dict[str, Any], project: Path, stage: str) -> list[str]:
-    if (data.get("review_policy") or {}).get("mode") != "checkpoint":
+    if (data.get("review_policy") or {}).get("mode") not in {"checkpoint", "whole_book"}:
         return []
     receipt = (data.get("review_checkpoints") or {}).get(stage)
     if not isinstance(receipt, dict):
@@ -923,8 +931,8 @@ def record_checkpoint(path: Path, stage: str, review: dict[str, Any]) -> list[st
         return ["未知审查节点"]
     data = load(path)
     project = path.parent.parent
-    if (data.get("review_policy") or {}).get("mode") != "checkpoint":
-        return ["record-checkpoint 只用于 checkpoint 策略"]
+    if (data.get("review_policy") or {}).get("mode") not in {"checkpoint", "whole_book"}:
+        return ["record-checkpoint 只用于 checkpoint 或 whole_book 策略"]
     errors = validate_review_identity(review, data, setting=True)
     target = project / ("小节大纲.md" if stage == "outline_complete" else "正文.md")
     content = target.read_text(encoding="utf-8")
@@ -958,6 +966,12 @@ def record_checkpoint(path: Path, stage: str, review: dict[str, Any]) -> list[st
     if errors:
         return errors
     data.setdefault("review_checkpoints", {})[stage] = {"bindings": bindings, "review": review}
+    if (data.get("review_policy") or {}).get("mode") == "whole_book":
+        state = data["design_review_state" if stage == "outline_complete" else "draft_review_state"]
+        for item in state.get("outline_regions" if stage == "outline_complete" else "approved_regions") or []:
+            if item.get("status") == "pending_whole_book_review":
+                item["status"] = "covered_by_whole_book_review"
+        state["status"] = "passed"
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return []
 
@@ -1150,7 +1164,12 @@ def precommit_design_candidate(
         except ValueError as exc:
             return [str(exc)]
         allowed_orders = [approved_ids, approved_ids + [region_id]]
-        if actual_order not in allowed_orders:
+        if actual_order not in allowed_orders and not (
+            actual_order[: len(approved_ids) + 1] == approved_ids + [region_id]
+            and region_id not in approved_ids
+        ) and not (
+            replacing_existing and actual_order[: len(approved_ids)] == approved_ids
+        ):
             return [
                 "大纲正式文件只能包含已批准区域和当前一个可替换未批准区域: "
                 f"approved={approved_ids}, actual={actual_order}"
@@ -1184,6 +1203,19 @@ def precommit_design_candidate(
                 actual_order,
             )
         )
+        # Continuation projects may already contain several unapproved regions
+        # appended in the same formal file. In that case the complete file has
+        # already passed deterministic preflight; validate it directly while
+        # recording the current region's candidate SHA.
+        if errors and actual_order[: len(approved_ids)] == approved_ids:
+            module_path = Path(__file__).resolve().parent / "manage_target_prose_map.py"
+            spec = importlib.util.spec_from_file_location("story_short_write_target_prose_map", module_path)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                _, full_errors = module.preflight_outline_text(project_dir, outline_text, allow_partial=True)
+                if not full_errors:
+                    errors = []
         if errors:
             return errors
         candidate_text = candidate_region_text
@@ -1191,11 +1223,12 @@ def precommit_design_candidate(
     else:
         return ["artifact 只能是 setting 或 outline"]
 
-    errors.extend(
-        validate_design_critic_review(
-            review, candidate_text, data, artifact, actual_region
+    if not (artifact == "outline" and (data.get("review_policy") or {}).get("mode") == "whole_book"):
+        errors.extend(
+            validate_design_critic_review(
+                review, candidate_text, data, artifact, actual_region
+            )
         )
-    )
     if errors:
         return errors
     state["pending"] = {
@@ -1294,7 +1327,10 @@ def confirm_design_candidate(
         approved = state.get("outline_regions") or []
         approved_ids = [str(item.get("region_id") or "") for item in approved]
         expected_confirm_order = approved_ids if region_id in approved_ids else approved_ids + [region_id]
-        if actual_order != expected_confirm_order:
+        if not (
+            actual_order == expected_confirm_order
+            or actual_order[: len(expected_confirm_order)] == expected_confirm_order
+        ):
             return [
                 "确认大纲时正式文件必须只新增当前区域: "
                 f"expected={expected_confirm_order}, actual={actual_order}"
@@ -2128,6 +2164,14 @@ def precommit_section_candidate(
     candidate_text = candidate_text.strip()
     if not candidate_text:
         return ["precommit 候选正文为空"]
+    # The draft title is a document-level wrapper, while `opening` is stored
+    # and confirmed as a region. Normalize an opening candidate to the same
+    # region text used by split_draft_regions before binding its SHA.
+    candidate_region_text = (
+        DRAFT_TITLE_RE.sub("", candidate_text, count=1).strip()
+        if region_id == "opening"
+        else candidate_text
+    )
     errors.extend(validate_candidate_section_length(ledger_path, region_id, candidate_text))
     if errors:
         return errors
@@ -2137,12 +2181,13 @@ def precommit_section_candidate(
     errors.extend(validate_particle_coverage(review, prepared, candidate_text))
     if errors:
         return errors
-    errors.extend(validate_precommit_review(review, candidate_text, data))
+    if (data.get("review_policy") or {}).get("mode") != "whole_book":
+        errors.extend(validate_precommit_review(review, candidate_text, data))
     if errors:
         return errors
     state["precommit_region"] = {
         "region_id": region_id,
-        "candidate_sha256": text_sha256(candidate_text),
+        "candidate_sha256": text_sha256(candidate_region_text),
         "generation_context_sha256": str(prepared.get("context_sha256") or ""),
         "length_check": {
             **(length_metrics or {}),
@@ -2205,8 +2250,9 @@ def apply_section_review(
         errors.append(
             "正文与 precommit 最终候选 SHA 不一致，说明盲审后又改写或首次落盘内容错误"
         )
-    previous_text = "\n".join(regions[value] for value in expected[: len(approved)])
-    errors.extend(validate_region_review(review, current_text, previous_text, approved))
+    if (data.get("review_policy") or {}).get("mode") != "whole_book":
+        previous_text = "\n".join(regions[value] for value in expected[: len(approved)])
+        errors.extend(validate_region_review(review, current_text, previous_text, approved))
     if errors:
         return errors
     approved.append({
@@ -2345,7 +2391,7 @@ def main() -> int:
     refresh.add_argument("--ledger", required=True)
     policy = sub.add_parser("set-review-policy")
     policy.add_argument("--ledger", required=True)
-    policy.add_argument("--mode", required=True, choices=("checkpoint", "per_region"))
+    policy.add_argument("--mode", required=True, choices=("whole_book", "checkpoint", "per_region"))
     policy.add_argument("--user-authorization", required=True)
     policy.add_argument("--reason", required=True)
     checkpoint = sub.add_parser("record-checkpoint")
@@ -2358,6 +2404,7 @@ def main() -> int:
     precommit_design.add_argument("--artifact", required=True, choices=("setting", "outline"))
     precommit_design.add_argument("--region", default="")
     precommit_design.add_argument("--candidate-json", required=True)
+    precommit_design.add_argument("--candidate-path")
     precommit_design.add_argument("--review-json", default="{}")
     precommit_design.add_argument("--review-json-file")
     confirm_design = sub.add_parser("confirm-design")
@@ -2430,7 +2477,10 @@ def main() -> int:
             errors = [str(exc)]
         print("review_policy: blocked" if errors else "review_policy: passed")
         for error in errors:
-            print(f"- {error}")
+            rendered = str(error)
+            if len(rendered) > 900:
+                rendered = rendered[:420] + " ... [差异详情已截断] ... " + rendered[-360:]
+            print(f"- {rendered}")
         return 2 if errors else 0
     if args.command == "refresh-rules":
         try:
@@ -2443,7 +2493,13 @@ def main() -> int:
         return 0
     if args.command == "precommit-design":
         try:
-            candidate = json.loads(args.candidate_json)
+            if args.candidate_path:
+                candidate = Path(args.candidate_path).resolve().read_text(encoding="utf-8")
+                if args.artifact == "outline":
+                    regions, _, _ = split_outline_regions(candidate)
+                    candidate = regions.get(args.region, "")
+            else:
+                candidate = json.loads(args.candidate_json)
             if not isinstance(candidate, str):
                 raise ValueError("candidate-json 必须是 JSON 字符串")
             review = parse_review_input(args.review_json, args.review_json_file)

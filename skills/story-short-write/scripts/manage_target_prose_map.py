@@ -742,6 +742,12 @@ def validate_explicit_source_refs(
     ]
     if unknown_steps:
         errors.append(f"细纲引用未知 SF 步骤: {unknown_steps}")
+    first_step_positions = []
+    seen_step_positions = set()
+    for position in actual_step_positions:
+        if position not in seen_step_positions:
+            first_step_positions.append(position)
+            seen_step_positions.add(position)
     if partial:
         unique_steps = list(dict.fromkeys(actual_steps))
         if unique_steps != expected_steps[: len(unique_steps)]:
@@ -749,14 +755,17 @@ def validate_explicit_source_refs(
                 "细纲批次 SF 步骤必须是来源账连续前缀: "
                 f"expected_prefix={expected_steps[:len(unique_steps)]}, actual={unique_steps}"
             )
-        if actual_step_positions != sorted(actual_step_positions):
+        if first_step_positions != sorted(first_step_positions):
             errors.append(
                 "细纲批次 SF 步骤重复承接只能保持来源原序: "
                 f"actual={actual_steps}"
             )
     elif missing_steps:
         errors.append(f"细纲漏掉 SF 步骤: {missing_steps}")
-    if actual_step_positions != sorted(actual_step_positions):
+    # A source step may span multiple target nodes. Validate the order of its
+    # first appearance; repeated references are permitted when they do not
+    # introduce a backward move in the source chain.
+    if first_step_positions != sorted(first_step_positions):
         first = next(
             (
                 (actual_steps[index - 1], actual_steps[index])
