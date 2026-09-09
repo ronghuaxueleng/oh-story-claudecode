@@ -923,7 +923,83 @@ def validate_checkpoint(data: dict[str, Any], project: Path, stage: str) -> list
         return [str(exc)]
     if receipt.get("bindings") != current:
         return [f"独立审查节点 {stage} 的正文或上游 SHA 已变化"]
-    return []
+    return validate_checkpoint_evidence(receipt.get("review") or {}, project, stage)
+
+
+def validate_checkpoint_evidence(review: dict[str, Any], project: Path, stage: str) -> list[str]:
+    """Validate evidence provenance and scope, not the reviewer's semantic verdict."""
+    errors: list[str] = []
+    if not isinstance(review, dict) or review.get("evidence_contract_version") != 1:
+        return ["审查记录缺少对照证据合同；旧 pass 不得自动升级，须补做缺失的语义核查"]
+    target_name = "小节大纲.md" if stage == "outline_complete" else "正文.md"
+    content = (project / target_name).read_text(encoding="utf-8")
+    if stage == "outline_complete":
+        _, order, _ = split_outline_regions(content)
+    else:
+        _, order = split_draft_regions(content)
+    if review.get("reviewed_regions") != order:
+        errors.append("reviewed_regions 必须全量同序覆盖正式文本区域，不能以抽样宣称全量审查")
+    comparisons = review.get("comparisons")
+    required = {"setting_consistency", "state_continuity", "beat_function", "layer_boundary", "ending_payoff"}
+    if not isinstance(comparisons, list):
+        return errors + ["comparisons 必须提供设定、状态、拍位、层边界和结局的实际对照"]
+    if {str(item.get("kind")) for item in comparisons if isinstance(item, dict)} != required:
+        errors.append("comparisons.kind 必须覆盖五类对照，不接受四句总评代替")
+    allowed = {name: project / name for name in checkpoint_bindings(project, stage)}
+    config_path = project / "写作资产/项目写作配置.json"
+    config = load(config_path)
+    primary = config.get("primary") or {}
+    for key in ("source_prose_map_path", "original_path"):
+        value = str(primary.get(key) or "")
+        if value:
+            source = resolve_config_path(config_path, value)
+            allowed[str(source.resolve())] = source.resolve()
+    for index, item in enumerate(comparisons, 1):
+        label = f"comparisons[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"{label} 必须是对象")
+            continue
+        refs = item.get("evidence")
+        if not isinstance(refs, list) or len(refs) < 2:
+            errors.append(f"{label} 必须同时给被审文本与对照依据")
+            continue
+        paths = []
+        for ref in refs:
+            if not isinstance(ref, dict):
+                errors.append(f"{label}.evidence 必须是对象")
+                continue
+            name = ref.get("path")
+            source = allowed.get(name) if isinstance(name, str) else None
+            if source is None or not source.is_file():
+                errors.append(f"{label} 引用了未绑定的正式文件")
+                continue
+            paths.append(name)
+            quote = ref.get("quote")
+            if ref.get("sha256") != sha256(source):
+                errors.append(f"{label} 对照依据 SHA 已失效")
+            if not isinstance(quote, str) or not quote.strip() or quote not in source.read_text(encoding="utf-8"):
+                errors.append(f"{label} 对照引句不在指定文件中")
+        if target_name not in paths:
+            errors.append(f"{label} 缺少当前被审文本证据")
+        if item.get("kind") in {"setting_consistency", "ending_payoff"} and "设定.md" not in paths:
+            errors.append(f"{label} 必须直接对照设定，不能用大纲自证")
+        if item.get("kind") == "state_continuity":
+            target_quotes = [ref.get("quote") for ref in refs
+                             if isinstance(ref, dict) and ref.get("path") == target_name]
+            if len(target_quotes) < 2 or any(not isinstance(q, str) or not q for q in target_quotes):
+                errors.append(f"{label} 必须引用被审文本前后两处状态")
+            elif len(set(target_quotes)) < 2 or any(
+                content.find(left) >= content.find(right)
+                for left, right in zip(target_quotes, target_quotes[1:])
+            ):
+                errors.append(f"{label} 状态引句必须不同且按正文先后排列")
+        if item.get("kind") in {"beat_function", "layer_boundary"} and not any(Path(p).is_absolute() for p in paths):
+            errors.append(f"{label} 必须对照配置绑定的主体来源")
+        if len({str(ref.get("quote")) for ref in refs if isinstance(ref, dict)}) < 2:
+            errors.append(f"{label} 不能重复同一句冒充对照")
+        if item.get("verdict") != "pass" or len(str(item.get("judgment") or "").strip()) < 30:
+            errors.append(f"{label} 缺少具体语义对照裁决")
+    return errors
 
 
 def record_checkpoint(path: Path, stage: str, review: dict[str, Any]) -> list[str]:
@@ -943,6 +1019,7 @@ def record_checkpoint(path: Path, stage: str, review: dict[str, Any]) -> list[st
         errors.append("节点必须完整阅读最终文本且 final_verdict=pass")
     if review.get("unresolved_findings") != []:
         errors.append("节点仍有未解决问题或缺少 unresolved_findings")
+    errors.extend(validate_checkpoint_evidence(review, project, stage))
     axes = review.get("axis_checks") or {}
     if not isinstance(axes, dict):
         return errors + ["checkpoint.axis_checks 必须是对象"]
@@ -1117,8 +1194,21 @@ def precommit_design_candidate(
     state = ensure_design_review_state(data, project_dir)
     if state.get("mode") != "enforced":
         return ["legacy_existing 项目不得补做写前设计 critic 冒充首写门禁"]
-    if (data.get("draft_review_state") or {}).get("approved_regions"):
-        return ["正文已有批准区域，不得回填写前设计 critic"]
+    approved_draft = (data.get("draft_review_state") or {}).get("approved_regions") or []
+    if approved_draft:
+        protected = {str(item.get("region_id") or "") for item in approved_draft}
+        expected_draft = (data.get("draft_review_state") or {}).get("expected_regions") or []
+        if expected_draft and expected_draft[-1] in protected:
+            protected.add("epilogue")
+        if artifact != "outline" or region_id in protected:
+            return ["不得修改已有批准正文对应的设定或大纲区域"]
+        draft_path = project_dir / "正文.md"
+        if not draft_path.is_file():
+            return ["已有批准正文的正式文件不存在"]
+        draft_regions, _ = split_draft_regions(draft_path.read_text(encoding="utf-8"))
+        for item in approved_draft:
+            if item.get("content_sha256") != text_sha256(draft_regions.get(item["region_id"], "")):
+                return [f"已批准正文 {item['region_id']} SHA 已变化"]
     candidate_text = candidate_text.strip()
     if len(candidate_text) < 20:
         return ["设计候选内容过短"]
@@ -1445,6 +1535,9 @@ def prepare_section_context(
         return {}, errors
     data = load(ledger_path)
     state = data["draft_review_state"]
+    prior_prepared = state.get("prepared_region") or {}
+    prior_rules_sha = str(state.get("rules_context_sha256") or prior_prepared.get("rules_context_sha256") or "")
+    rules_sha = text_sha256(json.dumps(data.get("groups") or [], ensure_ascii=False, sort_keys=True))
     expected = [str(value) for value in state.get("expected_regions") or []]
     approved = state.get("approved_regions") or []
     if len(approved) >= len(expected):
@@ -1592,6 +1685,26 @@ def prepare_section_context(
         "primary_sentence_motion": contract.get("sentence_motion") or [],
         "primary_narrator_voice": contract.get("narrator_voice") or [],
         "primary_dialogue_voice": contract.get("dialogue_and_character_voice") or [],
+        # Expose the complete confirmed rule ledger to the writer at every
+        # section boundary.  Keeping it in the preparation packet prevents
+        # the model from relying on an abbreviated memory of prewrite checks.
+        "confirmed_writing_rules": [
+            {
+                "rule_id": item.get("rule_id"),
+                "canonical_rule_text": item.get("canonical_rule_text"),
+                "applicability": item.get("applicability"),
+                "execution_mode": item.get("execution_mode"),
+                "target_phase": item.get("target_phase"),
+                "target_scene": item.get("target_scene"),
+                "judgment": item.get("judgment"),
+                "rule_use_plan": item.get("rule_use_plan") or [],
+                "cases": (item.get("cases") or []) if prior_rules_sha != rules_sha else (item.get("cases") or [])[:3],
+            }
+            for item in data.get("groups") or []
+            if isinstance(item, dict)
+        ],
+        "rules_context_sha256": rules_sha,
+        "rules_context_mode": "full" if prior_rules_sha != rules_sha else "incremental",
         "length_metrics": length_metrics,
         "particle_contract": {
             "source_layer_ids": [item["layer_id"] for item in layer_packets],
@@ -1641,7 +1754,9 @@ def prepare_section_context(
         "source_layer_ids": [item["layer_id"] for item in layer_packets],
         "length_metrics": length_metrics,
         "particle_contract": packet["particle_contract"],
+        "rules_context_sha256": rules_sha,
     }
+    state["rules_context_sha256"] = rules_sha
     state["precommit_region"] = None
     state["status"] = "prepared"
     ledger_path.write_text(
@@ -1987,6 +2102,15 @@ def validate_particle_coverage(
             "正文候选含概括/流程播报句，必须逐颗粒展开后再提交: "
             + "、".join(sorted(set(synopsis_hits))[:8])
         )
+    # Guard against synopsis-like run-on prose: when a sentence chains several
+    # independent actions/information shifts with commas, require natural
+    # breathing points before the candidate can enter the formal draft.
+    for sentence in extract_sentences(candidate_text):
+        if len(sentence) >= 78 and sentence.count("，") >= 3:
+            errors.append(
+                "正文候选存在多动作长句，必须在动作对象或信息换主处拆句: "
+                + sentence[:80]
+            )
     expected_nodes = [str(value) for value in contract.get("target_node_ids") or []]
     required_fields = [str(value) for value in contract.get("required_fields") or []]
     expected_counts = contract.get("source_layer_sentence_counts") or {}
@@ -2079,6 +2203,9 @@ def validate_particle_plan(
                 continue
             if str(unit.get("target_node_id") or "") not in expected_nodes:
                 errors.append(f"{unit_label}.target_node_id 必须引用当前目标节点")
+            for field in ("sentence_breaks", "sentence_focus", "sentence_bridge"):
+                if len(str(unit.get(field) or "").strip()) < 4:
+                    errors.append(f"{unit_label}.{field} 必须预先确定断句、句心与承接")
             for field in required_fields:
                 if len(str(unit.get(field) or "").strip()) < 8:
                     errors.append(f"{unit_label}.{field} 必须写具体落笔计划")
@@ -2170,7 +2297,7 @@ def precommit_section_candidate(
     candidate_region_text = (
         DRAFT_TITLE_RE.sub("", candidate_text, count=1).strip()
         if region_id == "opening"
-        else candidate_text
+        else re.sub(r"^\s*\d+[.]\s*\n", "", candidate_text, count=1).strip()
     )
     errors.extend(validate_candidate_section_length(ledger_path, region_id, candidate_text))
     if errors:
@@ -2305,7 +2432,8 @@ def reconfirm_approved_section(
         ]
     current_text = regions.get(region_id, "")
     previous_text = "\n".join(regions[value] for value in approved_ids[:-1])
-    errors.extend(validate_region_review(review, current_text, previous_text, approved[:-1]))
+    if (data.get("review_policy") or {}).get("mode") != "whole_book":
+        errors.extend(validate_region_review(review, current_text, previous_text, approved[:-1]))
     if errors:
         return errors
     approved[-1].update({
