@@ -78,6 +78,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 理解口径：
 
 - validator 输出的 `human_review_items` 必须逐条写入 `_finalize_human_review.json`；每条补 `resolved / not_applicable + 具体判断 + 证据`
+- 历史增量升级时，顶层 `upgrade_status` 需为 `completed`；`upgrade_reviews` 中的 `process_plan_refresh`、`content_contract_review`、`profile_regeneration` 则分别以 `resolved / not_applicable` 闭环，并附具体判断和证据。不要将子项写成 `completed`。
 - 回执必须记录当前正式 Markdown SHA；任何正式 Markdown 变化后都要重新人工复核
 - 人工裁决完成后运行 `run_short_analyze_finalize.py "拆文库/{书名}" --refresh-review-state --json`，只确定性刷新当前 skill 指纹与正式 Markdown SHA；禁止手抄哈希或让该参数改写人工裁决
 - finalize 只允许生成 `book.profile.json`、`写作资产/来源成文脑图.json` 和读取正式产物，不允许修改 Markdown

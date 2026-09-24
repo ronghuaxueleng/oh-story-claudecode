@@ -876,6 +876,28 @@ class SourceLayerPlanningTests(unittest.TestCase):
 
 
 class CheckpointReviewPolicyTest(unittest.TestCase):
+    def evidence_for(self, project, stage="outline_complete"):
+        source = project / "source.txt"
+        source.write_text("The owner gives back the key. The scene ends at the doorway.", encoding="utf-8")
+        config = project / "写作资产/项目写作配置.json"
+        config.write_text(json.dumps({"primary": {"original_path": str(source)}}), encoding="utf-8")
+        target = "小节大纲.md" if stage == "outline_complete" else "正文.md"
+        content = (project / target).read_text(encoding="utf-8")
+        order = (LEDGER.split_outline_regions(content)[1] if stage == "outline_complete"
+                 else LEDGER.split_draft_regions(content)[1])
+
+        def ref(name, quote):
+            return {"path": name, "sha256": LEDGER.sha256(project / name), "quote": quote}
+
+        comparisons = []
+        for kind in ("setting_consistency", "state_continuity", "beat_function", "layer_boundary", "ending_payoff"):
+            other = (ref("设定.md", "当前设定事实。") if kind in {"setting_consistency", "ending_payoff"}
+                     else ref(target, "离场后果。") if kind == "state_continuity"
+                     else ref(str(source), "The owner gives back the key."))
+            comparisons.append({"kind": kind, "evidence": [ref(target, "人物交还钥匙。"), other],
+                                 "verdict": "pass", "judgment": "人物交还钥匙之后失去进入原住处的手段，前后位置和权限连续，没有把结局写成未经触发的跳转。"})
+        return {"evidence_contract_version": 1, "reviewed_regions": order, "comparisons": comparisons}
+
     def test_record_checkpoint_requires_independent_current_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)
@@ -901,6 +923,9 @@ class CheckpointReviewPolicyTest(unittest.TestCase):
                     "judgment": "人物交还钥匙之后失去进入原住处的手段，前后位置和权限连续，没有把结局写成未经触发的跳转。"}
                     for name in ("causal_continuity", "source_fidelity", "character_and_permission", "voice_and_payoff")},
             }
+            self.assertTrue(LEDGER.record_checkpoint(path, "outline_complete", review))
+            review.update(self.evidence_for(project))
+            review["bindings"] = LEDGER.checkpoint_bindings(project, "outline_complete")
             self.assertEqual([], LEDGER.record_checkpoint(path, "outline_complete", review))
             self.assertEqual([], LEDGER.validate_design_gate(LEDGER.load(path), project, order))
             review.update(review_mode="self_check", critic_context_isolated=False)
@@ -917,6 +942,40 @@ class CheckpointReviewPolicyTest(unittest.TestCase):
         self.assertTrue(LEDGER.validate_review_identity(review, data, setting=True))
         review["critic_context_isolated"] = True
         self.assertTrue(LEDGER.validate_review_identity(review, data))
+
+    def test_checkpoint_comparisons_reject_missing_stale_and_unbound_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            (project / "写作资产").mkdir()
+            (project / "设定.md").write_text("当前设定事实。", encoding="utf-8")
+            (project / "小节大纲.md").write_text("## 导语\n人物交还钥匙。\n## 1.\n离场后果。\n## 尾声\n结束。", encoding="utf-8")
+            (project / "正文.md").write_text("# 《测试》\n人物交还钥匙。\n\n1.\n离场后果。", encoding="utf-8")
+            (project / "写作资产/目标成文脑图.json").write_text("{}", encoding="utf-8")
+            for stage in ("outline_complete", "draft_complete"):
+                review = self.evidence_for(project, stage)
+                self.assertEqual([], LEDGER.validate_checkpoint_evidence(review, project, stage))
+                for mutation in ("missing_setting", "stale", "unknown", "missing_region", "same_quote", "missing_source", "state_from_setting", "state_reversed"):
+                    with self.subTest(stage=stage, mutation=mutation):
+                        broken = json.loads(json.dumps(review))
+                        if mutation == "missing_setting":
+                            broken["comparisons"][0]["evidence"][1] = broken["comparisons"][1]["evidence"][1]
+                        elif mutation == "stale":
+                            broken["comparisons"][0]["evidence"][1]["sha256"] = "old"
+                        elif mutation == "unknown":
+                            broken["comparisons"][0]["evidence"][1]["path"] = "/unrelated.txt"
+                        elif mutation == "missing_region":
+                            broken["reviewed_regions"].pop()
+                        elif mutation == "same_quote":
+                            broken["comparisons"][1]["evidence"][1] = broken["comparisons"][1]["evidence"][0]
+                        elif mutation == "state_from_setting":
+                            broken["comparisons"][1]["evidence"][1] = broken["comparisons"][0]["evidence"][1]
+                        elif mutation == "state_reversed":
+                            broken["comparisons"][1]["evidence"].reverse()
+                        else:
+                            broken["comparisons"][2]["evidence"][1] = broken["comparisons"][0]["evidence"][1]
+                        self.assertTrue(LEDGER.validate_checkpoint_evidence(broken, project, stage))
+                (project / "source.txt").write_text("Changed source", encoding="utf-8")
+                self.assertTrue(LEDGER.validate_checkpoint_evidence(review, project, stage))
 
     def test_self_check_keeps_sentence_and_rule_gates(self):
         data = {"review_policy": {"mode": "checkpoint"}, "groups": [
@@ -960,7 +1019,7 @@ class CheckpointReviewPolicyTest(unittest.TestCase):
             data["review_checkpoints"] = {"outline_complete": {
                 "bindings": LEDGER.checkpoint_bindings(project, "outline_complete")
             }}
-            self.assertEqual([], LEDGER.validate_checkpoint(data, project, "outline_complete"))
+            self.assertTrue(LEDGER.validate_checkpoint(data, project, "outline_complete"))
             (project / "小节大纲.md").write_text("changed", encoding="utf-8")
             self.assertTrue(LEDGER.validate_checkpoint(data, project, "outline_complete"))
             self.assertEqual([], LEDGER.validate_checkpoint({}, project, "outline_complete"))

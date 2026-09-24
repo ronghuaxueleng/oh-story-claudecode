@@ -1037,11 +1037,19 @@ def build_upgrade_actions(
 
 
 def write_upgrade_review_receipt(path: Path) -> None:
-    payload = {
-        "version": 1,
-        "skill_fingerprint": compute_skill_fingerprint(),
-        "upgrade_status": "pending_content_review",
-        "upgrade_reviews": [
+    previous = {}
+    if path.exists():
+        try:
+            loaded = json.loads(read_text(path))
+            if isinstance(loaded, dict):
+                previous = loaded
+        except (OSError, json.JSONDecodeError):
+            previous = {}
+    previous_reviews = previous.get("upgrade_reviews")
+    if not isinstance(previous_reviews, list) or {
+        str(item.get("scope")) for item in previous_reviews if isinstance(item, dict)
+    } != set(UPGRADE_REVIEW_SCOPES):
+        previous_reviews = [
             {
                 "scope": scope,
                 "status": "pending",
@@ -1049,9 +1057,22 @@ def write_upgrade_review_receipt(path: Path) -> None:
                 "evidence": [],
             }
             for scope in UPGRADE_REVIEW_SCOPES
-        ],
+        ]
+    previous_items = previous.get("review_items")
+    if not isinstance(previous_items, list):
+        previous_items = []
+    payload = {
+        "version": 1,
+        "skill_fingerprint": compute_skill_fingerprint(),
+        "upgrade_status": (
+            "completed"
+            if previous.get("upgrade_status") == "completed"
+            and all(item.get("status") == "resolved" for item in previous_reviews if isinstance(item, dict))
+            else "pending_content_review"
+        ),
+        "upgrade_reviews": previous_reviews,
         "formal_markdown_sha1s": [],
-        "review_items": [],
+        "review_items": previous_items,
     }
     dump_json(path, payload)
 
@@ -1061,22 +1082,27 @@ def reset_upgrade_progress(path: Path, book_name: str, layout: ContractLayout) -
         write_progress(path, book_name, layout)
         return
     text = read_text(path)
-    lines: list[str] = []
-    for line in text.splitlines():
-        if "模型人工复核" in line or "run_short_analyze_finalize.py" in line:
-            line = re.sub(r"^- \[[xX]\]", "- [ ]", line)
-        lines.append(line)
+    lines = [
+        re.sub(r"^- \[x\]", "- [ ]", line, count=1)
+        if "模型人工复核" in line or "run_short_analyze_finalize.py" in line
+        else line
+        for line in text.splitlines()
+    ]
+    reset_labels = (
+        "已按当前 `_parallel_plan.json` 复核全部 first-write contract",
+        "已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
+        "已重新生成 profile 并核对整句资产",
+        "已闭环 `_finalize_human_review.json`",
+    )
     if "## 增量升级复核" not in text:
-        lines.extend(
-            [
-                "",
-                "## 增量升级复核",
-                "- [ ] 已按当前 `_parallel_plan.json` 复核全部 first-write contract",
-                "- [ ] 已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
-                "- [ ] 已重新生成 profile 并核对整句资产",
-                "- [ ] 已闭环 `_finalize_human_review.json`",
-            ]
-        )
+        lines.extend(["", "## 增量升级复核", *[f"- [ ] {label}" for label in reset_labels]])
+    else:
+        lines = [
+            re.sub(r"^- \[x\]", "- [ ]", line, count=1)
+            if any(label in line for label in reset_labels)
+            else line
+            for line in lines
+        ]
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 

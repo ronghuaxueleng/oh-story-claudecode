@@ -1630,6 +1630,27 @@ def rebind_target_map(
         for empty in empty_reviews:
             source_id = str(empty["source_id"])
             old = old_by_id.get(source_id)
+            if old and not schema_changed:
+                target_ids = empty.get("target_node_ids") or [empty.get("target_id")]
+                same_binding = (
+                    old.get("source_content_sha256") == empty.get("source_content_sha256")
+                    and old.get("target_id") == empty.get("target_id")
+                    and old.get("target_node_ids") == empty.get("target_node_ids")
+                )
+                # Earlier insertions can shift global indices without changing
+                # this region's text, explicit references, or local order.
+                if same_binding and all(
+                    target_id in old_nodes and target_id in new_nodes
+                    and {k: v for k, v in old_nodes[target_id].items()
+                         if k not in {"sequence_index", "content_sha256"}}
+                    == {k: v for k, v in new_nodes[target_id].items()
+                        if k not in {"sequence_index", "content_sha256"}}
+                    for target_id in target_ids
+                ):
+                    old = dict(old)
+                    for field in ("target_node_content_sha256", "target_node_content_sha256s"):
+                        if field in empty:
+                            old[field] = empty[field]
             if (
                 not schema_changed
                 and old

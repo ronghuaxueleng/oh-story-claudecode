@@ -21,6 +21,30 @@ def write_json(path: Path, value: object) -> None:
 
 
 class SourceProseMapTest(unittest.TestCase):
+    def test_bom_year_extra_heading_and_damaged_marker_are_not_prose(self) -> None:
+        lines = ["\ufeff2023", "番外：", "「（一」2", "16（周贺也视角）", "她仍站在雪里。"]
+        self.assertEqual({5}, MODULE.prose_line_numbers(lines, 1, len(lines)))
+
+    def test_prose_lines_exclude_metadata_and_only_outer_punctuation(self) -> None:
+        lines = [
+            "！",
+            "正文起手。",
+            "！",
+            "14【裴溯】",
+            "正文落锤。",
+            "完事觉得自己肯定要坐牢了。",
+            "- 完 -",
+            "【完】",
+            "（全文完）",
+            "（完）",
+            "备案号:ABC123",
+            "作者署名：冰糖吖",
+            "----------(已完结)----------",
+            "(已完结):YXXBzj78Pb867RIJZknWet4PZ",
+        ]
+
+        self.assertEqual({2, 3, 5, 6}, MODULE.prose_line_numbers(lines, 1, len(lines)))
+
     def build_fixture(self, root: Path) -> None:
         original = root / "原文" / "样书.txt"
         original.parent.mkdir(parents=True)
@@ -356,6 +380,31 @@ class SourceProseMapTest(unittest.TestCase):
             errors = MODULE.validate_source_map(payload)
 
         self.assertTrue(any("parent_bridge_id" in item for item in errors), errors)
+
+    def test_bridge_external_subflow_allows_null_parent(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "样书"
+            self.build_fixture(root)
+            payload = MODULE.compile_source_map(root)
+            payload["subflows"][0]["parent_bridge_id"] = None
+            for key in ("plot_beats", "emotion_beats"):
+                for beat in payload[key]:
+                    beat["bid_ids"] = []
+                    beat["content_sha256"] = MODULE.canonical_sha256(
+                        {name: value for name, value in beat.items() if name != "content_sha256"}
+                    )
+            payload["bridges"][0]["plot_beat_ids"] = []
+            payload["bridges"][0]["emotion_beat_ids"] = []
+            payload["bridges"][0]["subflow_ids"] = []
+            payload["subflows"][0]["content_sha256"] = MODULE.canonical_sha256(
+                {name: value for name, value in payload["subflows"][0].items() if name != "content_sha256"}
+            )
+            payload["content_sha256"] = MODULE.canonical_sha256(
+                {name: value for name, value in payload.items() if name != "content_sha256"}
+            )
+            errors = MODULE.validate_source_map(payload)
+
+        self.assertFalse(any("parent_bridge_id" in item for item in errors), errors)
 
     def test_missing_compiled_dependency_is_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

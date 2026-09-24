@@ -45,11 +45,20 @@ BRIEF_REQUIRED_LABELS = (
 )
 
 BRIEF_BID_PATTERN = re.compile(
-    r"^(?P<id>BID-\d{2})\s*\|\s*L(?P<start>\d+)\s*-\s*L?(?P<end>\d+)"
+    r"^(?P<id>BID-\d{2})\s*\|\s*(?P<ranges>L\d+\s*-\s*L?\d+"
+    r"(?:\s*[,，、]\s*L\d+\s*-\s*L?\d+)*)"
     r"\s*\|\s*锚点[：:]\s*`?(?P<anchor>[^|`]+)`?"
     r"\s*\|\s*桥段角色[：:]\s*(?P<role>\S.+?)\s*$",
     flags=re.M,
 )
+MAX_BRIDGE_SPAN_LINES = 180
+
+
+def parse_bid_ranges(raw: str) -> list[tuple[int, int]]:
+    return [
+        (int(start), int(end))
+        for start, end in re.findall(r"L(\d+)\s*-\s*L?(\d+)", raw)
+    ]
 
 
 def read_text(path: Path) -> str:
@@ -70,21 +79,28 @@ def check_analysis_brief(root: Path, source_lines: list[str], errors: list[str])
     bids: list[str] = []
     for match in BRIEF_BID_PATTERN.finditer(text):
         bid = match.group("id")
-        start = int(match.group("start"))
-        end = int(match.group("end"))
+        ranges = parse_bid_ranges(match.group("ranges"))
         anchor = VALIDATOR.clean_anchor(match.group("anchor"))
         role = match.group("role").strip()
         bids.append(bid)
-        if start < 1 or end < start or end > len(source_lines):
-            errors.append(f"{path} {bid} 原文范围越界：L{start}-L{end}")
-            continue
-        if end - start + 1 > 140:
-            errors.append(f"{path} {bid} 范围过宽：L{start}-L{end}")
-        source_block = "\n".join(source_lines[start - 1:end])
+        valid_ranges: list[tuple[int, int]] = []
+        for start, end in ranges:
+            if start < 1 or end < start or end > len(source_lines):
+                errors.append(f"{path} {bid} 原文范围越界：L{start}-L{end}")
+                continue
+            if end - start + 1 > MAX_BRIDGE_SPAN_LINES:
+                errors.append(f"{path} {bid} 范围过宽（单段）：L{start}-L{end}")
+            valid_ranges.append((start, end))
+        source_block = "\n".join(
+            "\n".join(source_lines[start - 1:end])
+            for start, end in valid_ranges
+        )
         if len(anchor) < 4:
             errors.append(f"{path} {bid} 锚点过短：`{anchor}`")
         elif anchor not in source_block:
-            errors.append(f"{path} {bid} 锚点不在 L{start}-L{end}：`{anchor}`")
+            errors.append(
+                f"{path} {bid} 锚点不在登记范围 {match.group('ranges')}：`{anchor}`"
+            )
         if len(VALIDATOR.normalize_text(role)) < 4:
             errors.append(f"{path} {bid} 桥段角色过短：`{role}`")
 
@@ -110,6 +126,52 @@ def check_bid_alignment(root: Path, bids: list[str], errors: list[str]) -> None:
         missing = [bid for bid in bids if bid not in text]
         if missing:
             errors.append(f"{path} 未贯通 `_analysis_brief.md` BID：{', '.join(missing)}")
+
+
+def check_ledger_bid_ranges(
+    ledger: dict,
+    ledger_label: str,
+    bid_ranges: dict[str, list[tuple[int, int]] | tuple[int, int]],
+    errors: list[str],
+) -> None:
+    """Reject bridge labels attached to beats outside the frozen brief range."""
+    for index, beat in enumerate(ledger.get("beats", []), start=1):
+        if not isinstance(beat, dict):
+            continue
+        source_range = beat.get("source_range")
+        if isinstance(source_range, dict):
+            start = source_range.get("start_line")
+            end = source_range.get("end_line")
+        else:
+            start = beat.get("start_line")
+            end = beat.get("end_line")
+        if not isinstance(start, int) or not isinstance(end, int):
+            continue
+        for raw_bid in beat.get("bid_ids", []):
+            bid = str(raw_bid).strip()
+            frozen = bid_ranges.get(bid)
+            if frozen is None:
+                continue
+            if (
+                isinstance(frozen, tuple)
+                and len(frozen) == 2
+                and all(isinstance(value, int) for value in frozen)
+            ):
+                frozen = [frozen]
+            if not any(
+                frozen_start <= start <= end <= frozen_end
+                for frozen_start, frozen_end in frozen
+            ):
+                beat_id = str(beat.get("beat_id") or f"第{index}拍")
+                frozen_label = ",".join(
+                    f"L{frozen_start}-L{frozen_end}"
+                    for frozen_start, frozen_end in frozen
+                )
+                errors.append(
+                    f"{ledger_label} {beat_id} 的 L{start}-L{end} 超出 {bid} "
+                    f"冻结范围 {frozen_label}；桥外拍必须使用 bid_ids=[]，"
+                    "跨边界拍必须按真实变化点重切"
+                )
 
 
 def validate(root: Path) -> tuple[list[str], list[str]]:
@@ -145,6 +207,11 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
     )
     bids = check_analysis_brief(root, source_lines, errors)
     registered_bids = set(bids)
+    brief_text = read_text(root / "_analysis_brief.md") if (root / "_analysis_brief.md").is_file() else ""
+    bid_ranges = {
+        match.group("id"): parse_bid_ranges(match.group("ranges"))
+        for match in BRIEF_BID_PATTERN.finditer(brief_text)
+    }
     for beat in full_emotion_ledger.get("beats", []):
         if not isinstance(beat, dict):
             continue
@@ -163,6 +230,12 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
                 errors.append(
                     f"全文情节微拍总账引用了 `_analysis_brief.md` 未注册的 BID：{bid}"
                 )
+    check_ledger_bid_ranges(
+        full_emotion_ledger, "全文情绪颗粒总账", bid_ranges, errors
+    )
+    check_ledger_bid_ranges(
+        full_plot_ledger, "全文情节微拍总账", bid_ranges, errors
+    )
     VALIDATOR.check_sample_comparison(root / "_sample_comparison.md", errors)
     VALIDATOR.check_source_coverage_gate(root, errors, notes)
     VALIDATOR.check_fact_integrity_gate(root, source_lines, errors, notes)

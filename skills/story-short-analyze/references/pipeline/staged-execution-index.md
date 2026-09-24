@@ -2,6 +2,10 @@
 
 这份索引只做一件事：让 `story-short-analyze` 按阶段加载规则，同时在阶段内大批量连续落盘。
 
+用户明确要求“不批量”时，不执行“阶段内大批量连续落盘”和 lane 并发。改为一次只处理一本书、一本内逐责任资产串行回修；当前书未达到 `ready-for-write / error_count=0` 前，不得进入下一本。详细限制以 `session-manual-execution-protocol.md` 的“非批量覆盖协议”为准。
+
+一旦进入 `manual_single_book`，下文所有“并发 / 波次 / lane / 子 agent”描述都只作为默认模式说明，不得执行；阶段顺序保留，但每个责任资产必须串行产出并立即核验。
+
 ## 读取规则
 
 正式拆书时，固定按下面顺序读取：
@@ -43,7 +47,7 @@
 - `事实与推断台账.md`
 - `_analysis_brief.md`
 
-随后按 `_parallel_plan.json.foundation_lanes` 并发处理：
+默认模式随后按 `_parallel_plan.json.foundation_lanes` 并发处理；`manual_single_book` 模式按下列顺序逐责任资产串行处理，且不读取 `_parallel_plan.json` 作为派发依据：
 
 - `拆文报告.md`
 - `情节节点.md`
@@ -61,7 +65,9 @@
 - `dynamic-signal-dictionary.md`
 - `source-asset-coverage-ledger.md`
 
-foundation 预检通过后，Stage 2 与 Stage 3 合并成 3 次粗粒度并发派发。12000 字以内使用“主线程 + 3 个复用子 agent”：`agent-core` 承担结构动作表+高敏资产，`agent-craft` 承担对白关系表+常规资产，`agent-discovery` 从发现索引续到细节库。第二波不重读第一波资源，只追加 `delta_reads`；禁止每条 lane 重新 spawn。
+默认模式下，foundation 预检通过后，Stage 2 与 Stage 3 合并成 3 次粗粒度并发派发。12000 字以内使用“主线程 + 3 个复用子 agent”：`agent-core` 承担结构动作表+高敏资产，`agent-craft` 承担对白关系表+常规资产，`agent-discovery` 从发现索引续到细节库。第二波不重读第一波资源，只追加 `delta_reads`；禁止每条 lane 重新 spawn。
+
+`manual_single_book` 模式下，上述并发安排全部失效：主线程按责任资产逐个完成 16 张表、细节库和写作资产，每项完成后核对证据、颗粒度、层级与重复，再进入下一项。
 
 ### Stage 3：细节库与写作资产
 

@@ -50,6 +50,7 @@ BRIEF_BID_PATTERN = re.compile(
     r"\s*\|\s*桥段角色[：:]\s*(?P<role>\S.+?)\s*$",
     flags=re.M,
 )
+MAX_BRIDGE_SPAN_LINES = 180
 
 
 def read_text(path: Path) -> str:
@@ -78,7 +79,7 @@ def check_analysis_brief(root: Path, source_lines: list[str], errors: list[str])
         if start < 1 or end < start or end > len(source_lines):
             errors.append(f"{path} {bid} 原文范围越界：L{start}-L{end}")
             continue
-        if end - start + 1 > 140:
+        if end - start + 1 > MAX_BRIDGE_SPAN_LINES:
             errors.append(f"{path} {bid} 范围过宽：L{start}-L{end}")
         source_block = "\n".join(source_lines[start - 1:end])
         if len(anchor) < 4:

@@ -1050,22 +1050,27 @@ def reset_upgrade_progress(path: Path, book_name: str, layout: ContractLayout) -
         write_progress(path, book_name, layout)
         return
     text = read_text(path)
-    lines: list[str] = []
-    for line in text.splitlines():
-        if "模型人工复核" in line or "run_short_analyze_finalize.py" in line:
-            line = re.sub(r"^- \[[xX]\]", "- [ ]", line)
-        lines.append(line)
+    lines = [
+        re.sub(r"^- \[x\]", "- [ ]", line, count=1)
+        if "模型人工复核" in line or "run_short_analyze_finalize.py" in line
+        else line
+        for line in text.splitlines()
+    ]
+    reset_labels = (
+        "已按当前 `_parallel_plan.json` 复核全部 first-write contract",
+        "已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
+        "已重新生成 profile 并核对整句资产",
+        "已闭环 `_finalize_human_review.json`",
+    )
     if "## 增量升级复核" not in text:
-        lines.extend(
-            [
-                "",
-                "## 增量升级复核",
-                "- [ ] 已按当前 `_parallel_plan.json` 复核全部 first-write contract",
-                "- [ ] 已重建全文情绪拍总账，并确认各 BID 只引用总账原序子集",
-                "- [ ] 已重新生成 profile 并核对整句资产",
-                "- [ ] 已闭环 `_finalize_human_review.json`",
-            ]
-        )
+        lines.extend(["", "## 增量升级复核", *[f"- [ ] {label}" for label in reset_labels]])
+    else:
+        lines = [
+            re.sub(r"^- \[x\]", "- [ ]", line, count=1)
+            if any(label in line for label in reset_labels)
+            else line
+            for line in lines
+        ]
     path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 

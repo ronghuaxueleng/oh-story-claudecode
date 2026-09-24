@@ -8,6 +8,7 @@ import importlib.util
 import json
 import math
 import re
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -430,8 +431,7 @@ SKILL_FINGERPRINT_FILES = (
 DETAIL_PLACEHOLDER_PATTERNS = [
     "原文里出现了",
     "这一类场面或关系后果",
-    "可迁到",
-    "同题材桥段",
+    "可迁到同题材桥段",
     "对应人物A、人物B、人物C三角关系",
 ]
 
@@ -703,12 +703,6 @@ STYLE_ASSET_POLLUTION_MARKERS = (
     "说明",
     "负责",
 )
-OBJECT_PRESSURE_CUE_RE = re.compile(
-    r"视频|录音|录像|证据册|协议|离婚证|借条|钥匙|戒指|指环|声明书|铁盒|盒子|"
-    r"听诊器|医药箱|候诊(?:号|单)|红绳|保健册|回执|签收栏|"
-    r"[零一二三四五六七八九十百千万两\d]+封(?:信)?|"
-    r"花束|玫瑰|礼物|副驾驶|主位|座位|家属栏|门禁|工牌|账单|转账|截图|照片|信|卡|票|报告|档案|药"
-)
 OBJECT_PRESSURE_BAD_RE = re.compile(
     r"(花粉过敏|协议离婚了|怎么都|每次都会|不是|已经|开始|结束|回家|彻夜未归|回收成|整理成了)"
 )
@@ -726,13 +720,19 @@ CORE_WRITING_ASSET_FILES = (
 )
 
 
-def read_text(path: Path) -> str:
+@lru_cache(maxsize=512)
+def _read_text_cached(path_string: str) -> str:
+    path = Path(path_string)
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
         try:
             return path.read_text(encoding=encoding).replace("\r\n", "\n")
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n")
+
+
+def read_text(path: Path) -> str:
+    return _read_text_cached(str(path))
 
 
 def formal_markdown_sha1s(root: Path) -> dict[str, str]:
@@ -781,7 +781,9 @@ def check_human_review_receipt(
         )
         return
     try:
-        receipt = json.loads(read_text(path))
+        # Human-review receipts are mutable between validator runs; never
+        # reuse the general source-text cache for this file.
+        receipt = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         errors.append(f"{path} 不是合法 JSON：{exc}")
         return
@@ -948,7 +950,7 @@ def check_file_exists(path: Path, errors: list[str]) -> None:
     if not path.exists():
         errors.append(f"缺少文件：{path}")
         return
-    if path.is_file() and not read_text(path).strip():
+    if path.is_file() and path.stat().st_size == 0:
         errors.append(f"空文件：{path}")
 
 
@@ -1827,12 +1829,31 @@ def extract_report_character_names(path: Path) -> set[str]:
         return set()
     text = read_text(path)
     section = extract_any_section_text(text, ("### 人物分析", "## 人物分析"))
+    headers, rows = parse_first_markdown_table(section)
+    role_index = next(
+        (
+            index
+            for index, header in enumerate(headers)
+            if any(marker in header for marker in ("人物", "角色"))
+        ),
+        None,
+    )
+    if role_index is not None:
+        table_names = {
+            row[role_index].strip()
+            for row in rows
+            if role_index < len(row)
+            and 1 < len(row[role_index].strip()) <= 12
+            and not any(token in row[role_index] for token in ("分析", "角色", "人物"))
+        }
+        if table_names:
+            return table_names
     names = {
-        name.strip()
+        re.split(r"为什么|人设|弧线|分析", name.strip(), maxsplit=1)[0].strip()
         for name in re.findall(r"\*\*([^*：:\n]{2,12})\*\*", section)
         if not any(token in name for token in ("分析", "角色", "人物"))
     }
-    return names
+    return {name for name in names if 1 < len(name) <= 12}
 
 
 def check_character_bias_role_coverage(
@@ -2121,6 +2142,7 @@ def check_fact_references(
                 )
             if not refs:
                 continue
+            fact_claims: list[str] = []
             for cited_stance, ref in refs:
                 if ref not in facts:
                     errors.append(f"{path}:{line_no} 引用了不存在的事实台账 F{ref}")
@@ -2131,19 +2153,22 @@ def check_fact_references(
                         f"{path}:{line_no} F{ref} 引用口径与台账不一致："
                         f"引用={cited_stance} 台账={fact['stance']}"
                     )
-                fact_claim = normalize_text(
-                    fact["action"] + fact["result"] + fact["boundary"]
+                fact_claims.append(
+                    normalize_text(fact["action"] + fact["result"] + fact["boundary"])
                 )
-                unsupported = [
-                    pattern.pattern
-                    for pattern, support_terms in HIGH_AGENCY_SUPPORT_GROUPS
-                    if pattern.search(line) and not any(term in fact_claim for term in support_terms)
-                ]
-                if unsupported:
-                    notes.append(
-                        f"模型复核提示：{path}:{line_no} F{ref} 与当前高主动性表达的支持关系不明显；"
-                        "请人工核对是否为否定、引用、边界说明或真正越界"
-                    )
+            combined_fact_claim = "".join(fact_claims)
+            unsupported = [
+                pattern.pattern
+                for pattern, support_terms in HIGH_AGENCY_SUPPORT_GROUPS
+                if pattern.search(line)
+                and not any(term in combined_fact_claim for term in support_terms)
+            ]
+            if unsupported:
+                cited_ids = "/".join(f"F{ref}" for _, ref in refs)
+                notes.append(
+                    f"模型复核提示：{path}:{line_no} {cited_ids} 与当前高主动性表达的"
+                    "联合支持关系不明显；请人工核对是否为否定、引用、边界说明或真正越界"
+                )
 
 
 def collect_timeline_review_notes(
@@ -2652,11 +2677,12 @@ def object_pressure_pollution_reason(
     text = str(value).strip()
     if reason := style_asset_pollution_reason(text):
         return reason
-    if not OBJECT_PRESSURE_CUE_RE.search(text) and not matches_dynamic_object_term(
-        text,
-        dynamic_terms,
-    ):
-        return "不像物件/证据/位置件短语"
+    if dynamic_terms and any(term and term in text for term in dynamic_terms):
+        remainder = text
+        for term in sorted(dynamic_terms, key=len, reverse=True):
+            remainder = remainder.replace(term, " ")
+        if re.search(r"(?:交给|递给|交出|拿起|拿走|收起|放下|摔碎|撕掉|烧掉|递上|塞进|交到)", remainder):
+            return "物件词后接行为叙述，不是物件短语"
     if OBJECT_PRESSURE_BAD_RE.search(text):
         return "更像事实句或解释句，不是物件短语"
     if re.search(r"[我你他她它您咱][和们]?", text) and not text.endswith(
@@ -3179,7 +3205,7 @@ def check_cross_asset_semantics(
                 "请人工判断是否用其他表达写清了关系根部"
             )
         if re.search(r"(小时候|童年|上学|从前|多年前|旧案|旧事)", original_text) and not re.search(
-            r"(旧案关系|旧账关系|历史关系|过去关系|旧事牵系|旧案牵系)",
+            r"(旧案标签|关系旧案|旧事关系|旧案关系|旧账关系|历史关系|过去关系|旧事牵系|旧案牵系)",
             relationship_text,
         ) and notes is not None:
             notes.append(
@@ -3393,6 +3419,7 @@ def check_full_text_emotion_ledger(
         candidates = []
     candidate_ids: list[str] = []
     covered_beat_ids: set[str] = set()
+    candidate_bound_sequence: list[list[str]] = []
     beat_id_set = set(beat_ids)
     for index, candidate in enumerate(candidates, start=1):
         label = f"{path} source_emotion_candidate_audit[{index}]"
@@ -3435,6 +3462,7 @@ def check_full_text_emotion_ledger(
             errors.append(f"{label} bound_beat_ids 必须是列表")
             bound_beat_ids = []
         normalized_ids = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
+        candidate_bound_sequence.append(normalized_ids)
         missing_ids = [beat_id for beat_id in normalized_ids if beat_id not in beat_id_set]
         if missing_ids:
             errors.append(f"{label} 绑定了不存在的 E 拍: {', '.join(missing_ids)}")
@@ -3453,6 +3481,22 @@ def check_full_text_emotion_ledger(
     unbound_beat_ids = [beat_id for beat_id in beat_ids if beat_id not in covered_beat_ids]
     if unbound_beat_ids:
         errors.append(f"{path} E 拍未被源文情绪候选反查绑定: {', '.join(unbound_beat_ids)}")
+    emotion_candidate_decisions = {
+        str(item.get("decision") or "").strip()
+        for item in candidates
+        if isinstance(item, dict)
+    }
+    if (
+        len(candidates) >= 12
+        and len(candidates) == len(beats)
+        and emotion_candidate_decisions == {"independent_beat"}
+        and candidate_bound_sequence == [[beat_id] for beat_id in beat_ids]
+    ):
+        errors.append(
+            f"{path} source_emotion_candidate_audit 与 beats 等量同序一对一镜像："
+            f"{len(candidates)} 个候选全部由对应 E 拍反推；"
+            "必须独立盘点合并项与非情绪支撑项后再绑定"
+        )
 
     review = data.get("completeness_review")
     if not isinstance(review, dict):
@@ -3580,6 +3624,7 @@ def check_full_text_plot_ledger(
         candidates = []
     candidate_ids: list[str] = []
     candidate_bound_beats: dict[str, list[str]] = {}
+    candidate_bound_sequence: list[list[str]] = []
     for index, candidate in enumerate(candidates, start=1):
         label = f"{path} source_plot_candidate_audit[{index}]"
         if not isinstance(candidate, dict):
@@ -3616,6 +3661,7 @@ def check_full_text_plot_ledger(
             bound_beat_ids = []
         normalized_beats = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
         candidate_bound_beats[candidate_id] = normalized_beats
+        candidate_bound_sequence.append(normalized_beats)
         if decision == "independent_beat" and len(normalized_beats) != 1:
             errors.append(f"{label} independent_beat 必须唯一绑定一个 P 拍")
         if decision == "merged_same_atomic_chain":
@@ -3717,6 +3763,22 @@ def check_full_text_plot_ledger(
     unbound_plot_ids = [beat_id for beat_id in plot_ids if beat_id not in covered_plot_ids]
     if unbound_plot_ids:
         errors.append(f"{path} P 拍未被源文候选反查绑定: {', '.join(unbound_plot_ids)}")
+    plot_candidate_decisions = {
+        str(item.get("decision") or "").strip()
+        for item in candidates
+        if isinstance(item, dict)
+    }
+    if (
+        len(candidates) >= 12
+        and len(candidates) == len(beats)
+        and plot_candidate_decisions == {"independent_beat"}
+        and candidate_bound_sequence == [[beat_id] for beat_id in plot_ids]
+    ):
+        errors.append(
+            f"{path} source_plot_candidate_audit 与 beats 等量同序一对一镜像："
+            f"{len(candidates)} 个候选全部由对应 P 拍反推；"
+            "必须独立盘点合并项与非情节支撑项后再绑定"
+        )
 
     emotion_beats = [
         beat
@@ -3882,6 +3944,10 @@ def check_book_profile_emotion_ledger_alignment(
             if beat.get("role") != source_beat.get("role"):
                 errors.append(
                     f"{root / 'book.profile.json'} {bridge_id}/{beat_id} role 与全文情绪总账不一致"
+                )
+            if beat.get("content") != source_beat.get("content"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} content 与全文情绪总账不一致"
                 )
             if beat.get("intensity") != source_beat.get("intensity"):
                 errors.append(

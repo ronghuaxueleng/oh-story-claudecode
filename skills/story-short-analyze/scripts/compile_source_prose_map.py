@@ -14,8 +14,27 @@ from typing import Any
 SCHEMA_VERSION = "story-short-analyze.source-prose-map.v2"
 RANGE_RE = re.compile(r"^L(\d+)(?:-L?(\d+))?$")
 SECTION_MARKER_RE = re.compile(
-    r"^\s*(?:\d+(?:[.、．])?|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇])\s*$"
+    r"^\ufeff?\s*(?:\d+(?:[.、．])?(?:\s*(?:[【\[][^】\]\r\n]{1,20}[】\]]|[（(][^）)\r\n]{1,20}[）)]))?"
+    r"|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇]"
+    r"|番外\s*[:：]?"
+    r"|[「“][(（][零〇一二三四五六七八九十]+[」”]\d+"
+    r"|[【\[]\s*(?:全文)?完(?:结)?\s*[】\]]"
+    r"|[（(]\s*(?:全文)?完(?:结)?\s*[）)])\s*$"
 )
+BOOK_METADATA_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"[(（]?(?:全文)?完(?:结)?[)）]?"
+    r"|[【\[]\s*(?:全文)?完(?:结)?\s*[】\]]"
+    r"|备案号\s*[:：]\s*\S+"
+    r"|作者署名\s*[:：].+"
+    r"|[（(]\s*已完结\s*[）)]"
+    r"|[（(]\s*已完结\s*[）)]\s*[:：]\s*\S+"
+    r"|[-—_=~·•*]+\s*(?:全文)?完(?:结)?\s*[-—_=~·•*]+"
+    r"|[-—_=~·•*]{2,}\s*[(（]?已完结[)）]?\s*[-—_=~·•*]{2,}"
+    r")\s*$",
+    re.IGNORECASE,
+)
+OUTER_PUNCTUATION_LINES = {"!", "！", "?", "？"}
 DIMENSION_FIELDS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -43,6 +62,22 @@ EMOTION_SEGMENT_KINDS = {
     "non_emotional_support",
     "structural_marker",
 }
+
+
+def prose_line_numbers(lines: list[str], start: int, end: int) -> set[int]:
+    nonempty = [index for index, value in enumerate(lines, start=1) if value.strip()]
+    outer_nonempty = {nonempty[0], nonempty[-1]} if nonempty else set()
+    return {
+        line_number
+        for line_number in range(start, end + 1)
+        if lines[line_number - 1].strip()
+        and not SECTION_MARKER_RE.fullmatch(lines[line_number - 1])
+        and not BOOK_METADATA_LINE_RE.match(lines[line_number - 1])
+        and not (
+            line_number in outer_nonempty
+            and lines[line_number - 1].strip() in OUTER_PUNCTUATION_LINES
+        )
+    }
 
 
 def validate_plot_candidate_coverage(
@@ -609,12 +644,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
         return first[0] <= second[1] and second[0] <= first[1]
 
     def prose_lines(start: int, end: int) -> set[int]:
-        return {
-            line_number
-            for line_number in range(start, end + 1)
-            if source_lines[line_number - 1].strip()
-            and not SECTION_MARKER_RE.fullmatch(source_lines[line_number - 1])
-        }
+        return prose_line_numbers(source_lines, start, end)
     collections = (
         ("plot_beat_ids", "plot_beats", "beat_id"),
         ("emotion_beat_ids", "emotion_beats", "beat_id"),
@@ -657,7 +687,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
                 )
             elif collection_key == "subflows":
                 required = (
-                    "parent_bridge_id", "name", "required_sequence",
+                    "name", "required_sequence",
                     "scene_granularity", "causal_preconditions", "information_delay",
                     "control_changes", "emotion_sequence", "end_state",
                 )
@@ -739,7 +769,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
             if not isinstance(item, dict):
                 continue
             parent = item.get("parent_bridge_id")
-            if parent not in known_bid_ids:
+            if parent is not None and parent not in known_bid_ids:
                 errors.append(
                     f"{item.get('subflow_id') or '未知 SF'}.parent_bridge_id 引用未知 BID: {parent!r}"
                 )
@@ -850,7 +880,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
                 if not beat_range or not overlaps(beat_range, sf_range):
                     continue
                 bids = [str(value) for value in beat.get("bid_ids") or [] if str(value).strip()]
-                if bids and bids != [parent]:
+                if bids and parent not in bids:
                     errors.append(
                         f"{sf_id} parent_bridge_id={parent} 与 {beat.get('beat_id')} bid_ids={bids} 不一致"
                     )
@@ -862,7 +892,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
             if not beat_range:
                 continue
             if not any(
-                str(sf.get("parent_bridge_id") or "") == bids[0]
+                str(sf.get("parent_bridge_id") or "") in bids
                 and sf_id in subflow_ranges
                 and overlaps(beat_range, subflow_ranges[sf_id])
                 for sf_id, sf in ((str(item.get("subflow_id") or ""), item) for item in subflows if isinstance(item, dict))

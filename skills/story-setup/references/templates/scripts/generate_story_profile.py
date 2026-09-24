@@ -480,7 +480,7 @@ ASSET_LABEL_PREFIXES = (
 
 
 def strip_asset_wrappers(text: str) -> str:
-    stripped = text.strip().strip("：:，。；;、 ")
+    stripped = text.strip().strip("`'\"“”‘’：:，。；;、 ")
     stripped = re.sub(
         r"^(证据\d*|反面\d*|典型口气|常见模式|禁句型|禁写法|空总结句|成品体面对话|轻飘过渡句"
         r"|推荐迁移顺序|不能丢的顺序|为什么这个顺序不能乱|原文为什么能过|原文为什么过检"
@@ -491,7 +491,7 @@ def strip_asset_wrappers(text: str) -> str:
         "",
         stripped,
     )
-    stripped = stripped.strip("：:，。；;、 ")
+    stripped = stripped.strip("`'\"“”‘’：:，。；;、 ")
     return stripped
 
 
@@ -730,6 +730,7 @@ def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None
         role_match = re.search(r"(?:实际)?作用[：:]\s*([^|]+)", text)
         content_match = re.search(r"内容[：:]\s*([^|]+)", text)
         beat_id = beat_id_match.group(1).strip() if beat_id_match else ""
+        beat_id = re.sub(r"^E-(\d{1,3})$", lambda match: f"E-{int(match.group(1)):04d}", beat_id)
         role = role_match.group(1).strip() if role_match else ""
         content = content_match.group(1).strip() if content_match else ""
     result: dict[str, object] = {
@@ -1643,49 +1644,6 @@ def keep_explicit_style_asset(text: str) -> bool:
     return True
 
 
-OBJECT_PRESSURE_CUE_PATTERNS = (
-    r"视频",
-    r"录音",
-    r"录像",
-    r"证据册",
-    r"协议",
-    r"离婚证",
-    r"借条",
-    r"钥匙",
-    r"戒指",
-    r"指环",
-    r"声明书",
-    r"铁盒",
-    r"盒子",
-    r"听诊器",
-    r"医药箱",
-    r"候诊(?:号|单)",
-    r"红绳",
-    r"保健册",
-    r"回执",
-    r"签收栏",
-    r"[零一二三四五六七八九十百千万两\d]+封(?:信)?",
-    r"花束",
-    r"玫瑰",
-    r"礼物",
-    r"副驾驶",
-    r"主位",
-    r"座位",
-    r"家属栏",
-    r"门禁",
-    r"工牌",
-    r"账单",
-    r"转账",
-    r"截图",
-    r"照片",
-    r"信",
-    r"卡",
-    r"票",
-    r"报告",
-    r"档案",
-    r"药",
-)
-OBJECT_PRESSURE_CUE_RE = re.compile("|".join(OBJECT_PRESSURE_CUE_PATTERNS))
 OBJECT_PRESSURE_BAD_RE = re.compile(
     r"(花粉过敏|协议离婚了|怎么都|每次都会|不是|已经|开始|结束|回家|彻夜未归|回收成|整理成了)"
 )
@@ -1707,7 +1665,7 @@ def keep_object_pressure_asset(
     if not keep_explicit_style_asset(stripped):
         return False
     dynamic_match = matches_dynamic_object_term(stripped, dynamic_terms)
-    if not OBJECT_PRESSURE_CUE_RE.search(stripped) and not dynamic_match:
+    if dynamic_terms is not None and not dynamic_match:
         return False
     if OBJECT_PRESSURE_BAD_RE.search(stripped):
         return False

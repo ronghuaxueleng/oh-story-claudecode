@@ -14,7 +14,9 @@ from typing import Any
 SCHEMA_VERSION = "story-short-analyze.source-prose-map.v2"
 RANGE_RE = re.compile(r"^L(\d+)(?:-L?(\d+))?$")
 SECTION_MARKER_RE = re.compile(
-    r"^\s*(?:\d+(?:[.、．])?|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇])\s*$"
+    r"^\s*(?:\d+(?:[.、．])?(?:\s*[【\[][^】\]\r\n]{1,20}[】\]])?"
+    r"|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇]"
+    r"|[【\[]\s*(?:全文)?完(?:结)?\s*[】\]])\s*$"
 )
 DIMENSION_FIELDS = (
     "narrative_voice_and_attitude",
@@ -657,7 +659,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
                 )
             elif collection_key == "subflows":
                 required = (
-                    "parent_bridge_id", "name", "required_sequence",
+                    "name", "required_sequence",
                     "scene_granularity", "causal_preconditions", "information_delay",
                     "control_changes", "emotion_sequence", "end_state",
                 )
@@ -739,7 +741,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
             if not isinstance(item, dict):
                 continue
             parent = item.get("parent_bridge_id")
-            if parent not in known_bid_ids:
+            if parent is not None and parent not in known_bid_ids:
                 errors.append(
                     f"{item.get('subflow_id') or '未知 SF'}.parent_bridge_id 引用未知 BID: {parent!r}"
                 )

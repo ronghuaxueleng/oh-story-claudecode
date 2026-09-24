@@ -169,7 +169,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
         bridge = parsed["bridge_rules"][0]
         self.assertEqual("BID-01", bridge["id"])
         self.assertEqual(
-            ["E-01", "E-02", "E-03", "E-04", "E-05", "E-06"],
+            ["E-0001", "E-0002", "E-0003", "E-0004", "E-0005", "E-0006"],
             [item["beat_id"] for item in bridge["emotion_sequence"]],
         )
         self.assertEqual(9, bridge["emotion_sequence"][4]["intensity"])
@@ -320,7 +320,26 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             merged,
         )
 
-    def test_generate_profile_keeps_profile_source_and_table_opening_hooks_together(self) -> None:
+    def test_profile_source_style_field_overrides_table_fallback_fragments(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / "样例书"
+            (root / "写作资产").mkdir(parents=True)
+            (root / "写作资产" / "profile_source.md").write_text(
+                "## 11. style_assets 原始材料\n"
+                "- quiet_pressure：长乐宫一片寂静；魏延礼不吭声\n",
+                encoding="utf-8",
+            )
+            (root / "可直接仿写_安静压迫场表.md").write_text(
+                "| 场景 | 压迫 |\n|---|---|\n| 宫门 | 无；我是靳扶玉；污臭味 |\n",
+                encoding="utf-8",
+            )
+            profile = GENERATOR.generate_profile_from_sources([root], "样例书")
+            self.assertEqual(
+                ["长乐宫一片寂静", "魏延礼不吭声"],
+                profile["style_assets"]["quiet_pressure"],
+            )
+
+    def test_generate_profile_explicit_opening_hooks_exclude_table_fallback(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "样例书"
             (root / "写作资产").mkdir(parents=True)
@@ -338,7 +357,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             )
             profile = GENERATOR.generate_profile_from_sources([root], "样例书")
             self.assertEqual(
-                ["初恋赌气嫁给我", "婚姻先天错位"],
+                ["初恋赌气嫁给我"],
                 profile["style_assets"]["opening_hooks"],
             )
 
@@ -399,6 +418,16 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
                 "| 录音，录像整理成了证据册 | 单位门口 | 终局双投 |\n"
             )
             (root / "可直接仿写_物件表.md").write_text(table, encoding="utf-8")
+            (root / "原文").mkdir()
+            (root / "原文" / "样例书.txt").write_text(
+                "副驾驶 7只黄玫瑰 录音", encoding="utf-8"
+            )
+            (root / "写作资产").mkdir()
+            (root / "写作资产" / "本书动态信号字典.json").write_text(
+                json.dumps({"categories": {"核心物件": [
+                    {"term": "副驾驶"}, {"term": "7只黄玫瑰"}, {"term": "录音"}
+                ]}}, ensure_ascii=False), encoding="utf-8"
+            )
             profile = GENERATOR.generate_profile_from_sources([root], "样例书")
             self.assertEqual(
                 ["副驾驶", "7只黄玫瑰", "录音"],
@@ -492,7 +521,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
                 profile["style_assets"]["object_pressure"],
             )
 
-    def test_generate_profile_rejects_unknown_object_without_dynamic_entry(self) -> None:
+    def test_generate_profile_keeps_explicit_object_without_closed_vocabulary(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / "样例书"
             source_dir = root / "原文"
@@ -508,7 +537,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
 
             profile = GENERATOR.generate_profile_from_sources([root], "样例书")
 
-            self.assertEqual([], profile["style_assets"]["object_pressure"])
+            self.assertEqual(["裂纹陶哨"], profile["style_assets"]["object_pressure"])
 
     def test_generate_profile_dialogue_bridges_use_source_backed_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -534,7 +563,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             )
             profile = GENERATOR.generate_profile_from_sources([root], "样例书")
             self.assertEqual(
-                ["你可以不要"],
+                ["你可以不要，但我得让你知道这东西是谁的", "你可以不要"],
                 profile["style_assets"]["dialogue_bridges"],
             )
 
@@ -581,7 +610,7 @@ class StoryProfileSceneAssetsTest(unittest.TestCase):
             )
 
     def test_validator_accepts_unknown_object_from_book_dynamic_dictionary(self) -> None:
-        self.assertIsNotNone(
+        self.assertIsNone(
             VALIDATOR.object_pressure_pollution_reason("裂纹陶哨")
         )
         self.assertIsNone(

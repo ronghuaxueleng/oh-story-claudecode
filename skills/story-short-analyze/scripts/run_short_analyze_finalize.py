@@ -16,7 +16,31 @@ def repo_root_from_script() -> Path:
 
 
 def run_command(cmd: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="ignore")
+    """Run a pipeline helper with a hard upper bound.
+
+    The skill files may live on a mounted Windows volume where Python startup
+    can be unusually slow, so the timeout is intentionally generous.  A
+    bounded call prevents a stuck generator/validator from blocking the whole
+    single-book incremental workflow forever.
+    """
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout or ""
+        stderr = exc.stderr or ""
+        return subprocess.CompletedProcess(
+            cmd,
+            124,
+            stdout=stdout,
+            stderr=(stderr + "\n子流程超过 300 秒超时，已终止。"),
+        )
 
 
 def markdown_sha1s(root: Path) -> dict[str, str]:
@@ -267,34 +291,18 @@ def main() -> int:
         else:
             notes.append("来源成文脑图.json 已确定性编译。")
 
-    if errors:
-        payload = {
-            "root": str(root),
-            "ok": False,
-            "status": "blocked-on-assets",
-            "profile_generated": profile_generated,
-            "error_count": len(errors),
-            "errors": errors,
-            "notes": notes,
-        }
-        if args.json:
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-        else:
-            print(f"root: {root}")
-            print("status: blocked-on-assets")
-            for item in errors:
-                print(f"- {item}")
-        return 2
-
     result = run_command([sys.executable, str(validator), str(root), "--json"])
     if result.returncode not in {0, 1, 2}:
+        combined_errors = errors + [
+            result.stderr.strip() or result.stdout.strip() or "验收脚本执行失败"
+        ]
         payload = {
             "root": str(root),
             "ok": False,
             "status": "blocked-on-assets",
             "profile_generated": profile_generated,
-            "error_count": 1,
-            "errors": [result.stderr.strip() or result.stdout.strip() or "验收脚本执行失败"],
+            "error_count": len(combined_errors),
+            "errors": combined_errors,
             "notes": notes,
         }
         if args.json:
@@ -307,6 +315,16 @@ def main() -> int:
         return 2
 
     validator_payload = parse_validator_output(result.stdout)
+    if errors:
+        validator_errors = validator_payload.get("errors")
+        if not isinstance(validator_errors, list):
+            validator_errors = []
+        validator_payload["errors"] = errors + [
+            item for item in validator_errors if item not in errors
+        ]
+        validator_payload["ok"] = False
+        validator_payload["status"] = "blocked-on-assets"
+        validator_payload["error_count"] = len(validator_payload["errors"])
     markdown_after = markdown_sha1s(root)
     if markdown_after != markdown_before:
         changed = sorted(

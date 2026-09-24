@@ -70,6 +70,42 @@ TIMING_SPEC.loader.exec_module(TIMING)
 
 
 class HumanQualityGateTest(unittest.TestCase):
+    def test_metadata_match_requires_the_whole_line(self) -> None:
+        self.assertIsNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("完事觉得自己肯定要坐牢了。"))
+        self.assertIsNotNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("（全文完）"))
+        self.assertIsNotNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("全文完结"))
+        self.assertIsNotNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("- 完 -"))
+        self.assertIsNotNone(VALIDATOR.SUBFLOW.BOOK_METADATA_LINE_RE.match("- 完 -"))
+
+    def test_subflow_rejects_dynamic_required_sequence_shell(self) -> None:
+        self.assertTrue(
+            VALIDATOR.SUBFLOW.is_generic_required_sequence(
+                ["沈阙先处理一段原文截句", "关系或信息发生一次可见换位"]
+            )
+        )
+        self.assertFalse(
+            VALIDATOR.SUBFLOW.is_generic_required_sequence(
+                ["香囊坠地后沈阙弯腰重捡", "童养夫旧约公开封死良娣入口"]
+            )
+        )
+
+    def test_subflow_merge_rejects_declared_layer_order_from_another_sf(self) -> None:
+        errors: list[str] = []
+        rows = [
+            {
+                "subflow_id": "SF-30",
+                "source_layer_order": ["SF-12-L01"],
+            },
+            {
+                "record_type": "source_layer",
+                "schema_version": VALIDATOR.SUBFLOW.SCHEMA_VERSION,
+                "subflow_id": "SF-30",
+                "layer": {"layer_id": "SF-30-L01"},
+            },
+        ]
+        VALIDATOR.SUBFLOW.merge_normalized_layer_records(rows, errors)
+        self.assertTrue(any("声明与规范化来源层不一致" in error for error in errors), errors)
+
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
@@ -285,6 +321,184 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertEqual([], errors)
 
+    def test_full_plot_ledger_rejects_generic_semantic_scaffold(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["action"] = "完成本行所载动作、话轮或叙事推进"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("禁用概括占位句" in error for error in errors))
+
+    def test_full_emotion_ledger_rejects_generic_semantic_scaffold(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["role"] = "逐行情绪与预期位移"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("禁用概括占位句" in error for error in errors))
+
+    def test_plot_ledger_rejects_source_quote_inside_fixed_sentence_frame(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["information_change"] = "第1行新增事实：导语里的刺痛。"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("原文嵌入固定句式" in error for error in errors))
+
+    def test_emotion_ledger_rejects_line_number_inside_fixed_sentence_frame(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["trigger"] = "L1 的具体刺激：导语里的刺痛。"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("原文嵌入固定句式" in error for error in errors))
+
+    def test_plot_ledger_rejects_raw_quote_as_action(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["beats"][0]["action"] = "看见“导语里的刺痛。”"
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("原文嵌入固定句式" in error for error in errors))
+
+    def test_emotion_ledger_rejects_quote_swapped_generic_frames(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        beat = data["beats"][0]
+        beat["trigger"] = "场景中的新事实或回忆触发：导语里的刺痛。"
+        beat["relationship_position_change"] = (
+            "从短暂松弛移动到旧伤回响，关系距离出现可感变化"
+        )
+        beat["reader_effect"] = (
+            "读者先接收“导语里的刺痛”的表层，再等待其后果兑现"
+        )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("trigger 使用原文嵌入固定句式" in error for error in errors))
+        self.assertTrue(
+            any("relationship_position_change 使用原文嵌入固定句式" in error for error in errors)
+        )
+        self.assertTrue(any("reader_effect 使用原文嵌入固定句式" in error for error in errors))
+
+    def test_cloud_style_six_line_scaffolds_are_rejected(self) -> None:
+        plot_beats = [{
+            "action": "交付“他推门进来”这一步局势变化",
+            "pressure_or_trigger": "此前场景推进到L7，他推门进来",
+        }]
+        emotion_beats = [{
+            "content": "她因“他推门进来”从上一状态进入警觉抬升",
+            "trigger": "L7出现的施压话轮直接触发这次位移",
+            "relationship_position_change": "她在这段中被迫重新判断对方与自身距离",
+            "reader_effect": "“他推门进来”让读者在本段末确认警觉抬升已经落地",
+        }]
+        plot_hits = VALIDATOR.collect_ledger_pattern_hits(
+            plot_beats, VALIDATOR.PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+        )
+        emotion_hits = VALIDATOR.collect_ledger_pattern_hits(
+            emotion_beats, VALIDATOR.EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+        )
+        self.assertEqual(1, plot_hits["action"])
+        self.assertEqual(1, plot_hits["pressure_or_trigger"])
+        self.assertEqual(1, emotion_hits["content"])
+        self.assertEqual(1, emotion_hits["trigger"])
+        self.assertEqual(1, emotion_hits["relationship_position_change"])
+        self.assertEqual(1, emotion_hits["reader_effect"])
+
+    def test_repetitive_plot_sentence_frames_are_detected(self) -> None:
+        beats = [
+            {"pressure_or_trigger": f"前拍留下的压力在‘证据{i}’处被接住"}
+            for i in range(10)
+        ]
+        hits = VALIDATOR.collect_ledger_pattern_hits(
+            beats, VALIDATOR.PLOT_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS
+        )
+        self.assertEqual(10, hits["pressure_or_trigger"])
+
+    def test_plot_ledger_rejects_rotating_exact_semantic_categories(self) -> None:
+        beats = [
+            {
+                "pressure_or_trigger": "双方给同一动作相反解释",
+                "control_change": "误读者据自己的剧本先行动",
+                "information_change": "表层言行和真实意图裂开",
+            }
+            for _ in range(16)
+        ]
+        hits = VALIDATOR.collect_excessive_exact_repetitions(
+            beats,
+            ("pressure_or_trigger", "control_change", "information_change"),
+        )
+        self.assertEqual(16, hits["pressure_or_trigger"][1])
+        self.assertEqual(16, hits["control_change"][1])
+        self.assertEqual(16, hits["information_change"][1])
+
+    def test_repetitive_emotion_sentence_frames_are_detected(self) -> None:
+        beats = [
+            {"reader_effect": f"读者先沿旧剧本误判，再被证据{i}迫使改判"}
+            for i in range(10)
+        ]
+        hits = VALIDATOR.collect_ledger_pattern_hits(
+            beats, VALIDATOR.EMOTION_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS
+        )
+        self.assertEqual(10, hits["reader_effect"])
+
+    def test_plot_ledger_rejects_action_copied_into_object_field(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        template = data["beats"][0]
+        data["beats"] = []
+        for index in range(8):
+            beat = dict(template)
+            beat["beat_id"] = f"P-{index + 1:02d}"
+            beat["action"] = f"动作{index}"
+            beat["object_or_receiver"] = f"动作{index}"
+            data["beats"].append(beat)
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("跨字段复制" in error for error in errors))
+
+    def test_direct_table_rejects_literal_asset_placeholder(self) -> None:
+        path = self._write(
+            "可直接仿写_顺序事件表.md",
+            "# 顺序事件表\n|资产|功能|读者情绪|烈度|峰值|余痛|迁移提醒|\n"
+            "|---|---|---|---|---|---|---|\n"
+            "|顺序事件表资产1|推进|紧张|3|否|无|替换人物与场景|\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_direct_imitation_quality(path, 1, errors)
+        self.assertTrue(any("字面资产占位符" in error for error in errors))
+
+    def test_detail_libraries_reject_cross_category_copy(self) -> None:
+        detail_dir = self.root / "原文细节库"
+        detail_dir.mkdir()
+        block = (
+            "# 细节库\n\n## 同一张卡\n"
+            "- 具体发生了什么：同一场景被重复搬运。\n"
+            "- 这个细节为什么有用：测试。\n"
+            "- 它压的是谁、压在哪：测试。\n"
+            "- 后续能迁到什么新桥段：测试。\n"
+            "- 它对应的角色 / 情绪 / 反转是什么：测试。\n"
+        )
+        for filename in VALIDATOR.DETAIL_LIBRARY_FILES[:4]:
+            (detail_dir / filename).write_text(block, encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_detail_library_cross_category_overlap(detail_dir, errors)
+        self.assertTrue(any("必须按语义分库" in error for error in errors))
+
     def test_full_plot_ledger_rejects_all_book_plot_bucket_with_structural_marker(self) -> None:
         source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
         source_lines[1] = "1"
@@ -378,6 +592,61 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertTrue(any("不存在的 P 拍" in error for error in errors), errors)
 
+    def test_full_plot_ledger_rejects_dynamic_quote_candidate_scaffold(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_plot_candidate_audit"][0]["manual_judgment"] = (
+            "“推开房门并拿走钥匙”独立改变持有、知情、名分或现实后果，"
+            "删除会切断后续因果。"
+        )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+
+        self.assertTrue(any("候选审计固定句壳" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_merge_reason_on_independent_candidate(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_plot_candidate_audit"][0]["merge_reason"] = (
+            "这条被误填了只应属于合并候选的理由。"
+        )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+
+        self.assertTrue(any("independent_beat 不得填写 merge_reason" in error for error in errors), errors)
+
+    def test_full_plot_ledger_rejects_candidate_beat_one_to_one_mirror(self) -> None:
+        source_lines, ledger, emotion_ledger = self._write_full_plot_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        template_beat = data["beats"][0]
+        template_candidate = data["source_plot_candidate_audit"][0]
+        data["beats"] = []
+        data["source_plot_candidate_audit"] = []
+        for index in range(1, 13):
+            beat_id = f"P-{index:03d}"
+            data["beats"].append(dict(template_beat, beat_id=beat_id))
+            data["source_plot_candidate_audit"].append(
+                dict(
+                    template_candidate,
+                    candidate_id=f"PC-{index:03d}",
+                    bound_beat_ids=[beat_id],
+                )
+            )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_plot_ledger(
+            self.root, source_lines, errors, emotion_ledger
+        )
+        self.assertTrue(any("等量同序一对一镜像" in error for error in errors), errors)
+
     def test_full_emotion_ledger_rejects_line_coverage_gap(self) -> None:
         source_lines, ledger = self._write_full_emotion_ledger()
         data = json.loads(ledger.read_text(encoding="utf-8"))
@@ -413,6 +682,55 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
         self.assertTrue(any("与 beats 全集同序相等" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_candidate_beat_one_to_one_mirror(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        template_beat = data["beats"][0]
+        template_candidate = data["source_emotion_candidate_audit"][0]
+        data["beats"] = []
+        data["source_emotion_candidate_audit"] = []
+        for index in range(1, 13):
+            beat_id = f"E-{index:03d}"
+            data["beats"].append(dict(template_beat, beat_id=beat_id))
+            data["source_emotion_candidate_audit"].append(
+                dict(
+                    template_candidate,
+                    candidate_id=f"EC-{index:03d}",
+                    bound_beat_ids=[beat_id],
+                )
+            )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+        self.assertTrue(any("等量同序一对一镜像" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_dynamic_role_candidate_scaffold(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_emotion_candidate_audit"][0]["manual_judgment"] = (
+            "“开场关系刺痛”使期待对象、关系位置或行动权限发生不可逆变化，"
+            "需独立保留。"
+        )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+
+        self.assertTrue(any("候选审计固定句壳" in error for error in errors), errors)
+
+    def test_full_emotion_ledger_rejects_merge_reason_on_independent_candidate(self) -> None:
+        source_lines, ledger = self._write_full_emotion_ledger()
+        data = json.loads(ledger.read_text(encoding="utf-8"))
+        data["source_emotion_candidate_audit"][0]["merge_reason"] = (
+            "这条被误填了只应属于合并候选的理由。"
+        )
+        ledger.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_full_text_emotion_ledger(self.root, source_lines, errors)
+
+        self.assertTrue(any("independent_beat 不得填写 merge_reason" in error for error in errors), errors)
 
     def test_large_direct_table_requires_tiers(self) -> None:
         rows = "\n".join(
@@ -529,6 +847,80 @@ class HumanQualityGateTest(unittest.TestCase):
         VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, notes)
         self.assertFalse(any("只有抽象术语" in error for error in errors))
         self.assertTrue(any("只有抽象术语" in note for note in notes))
+
+    def test_bridge_cards_reject_repeated_cross_bid_explanations(self) -> None:
+        repeated_role = "把旧账转成可见的名分、财物、身体或公共秩序后果。"
+        blocks = []
+        for idx in range(1, 4):
+            blocks.append(
+                f"## BID-0{idx}\n"
+                f"- 桥段名：BID-0{idx} 独立事件{idx}\n"
+                f"- 一句人话抓手：人物{idx}在现场完成动作{idx}并改变结果。\n"
+                f"- 桥段角色：{repeated_role}\n"
+                f"- 原文位置：L{idx}-L{idx + 1}\n"
+                f"- 原文现象证据：动作{idx}落地。\n"
+                f"- 原文为什么能过：动作{idx}先改变现场再触发后果。\n"
+                f"- 为什么不像加工稿：人物{idx}出现犹豫和误判。\n"
+                f"- 新稿最容易写假的点：省掉动作{idx}的现实阻力。\n"
+                f"- 必须保留的承重件：动作{idx} -> 后果{idx}\n"
+                f"- 不能丢的顺序：动作{idx} -> 后果{idx}\n"
+                f"- 为什么这个顺序不能乱：后果{idx}依赖动作{idx}。\n"
+                f"- 后续调用方式：更换动作{idx}和后果载体。\n"
+            )
+        path = self._write("桥段施工卡.md", "\n".join(blocks))
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, notes)
+        self.assertTrue(
+            any("`桥段角色` 跨 BID 完全重复 3/3 次" in error for error in errors),
+            errors,
+        )
+
+    def test_bridge_card_rejects_must_keep_copied_as_sequence(self) -> None:
+        path = self._write(
+            "桥段施工卡.md",
+            "## BID-01\n"
+            "- 桥段名：BID-01 门禁夺权\n"
+            "- 一句人话抓手：先没收钥匙，再让守门人当众改口。\n"
+            "- 桥段角色：用门禁实物完成关系降位。\n"
+            "- 原文位置：L1-L8\n"
+            "- 原文现象证据：钥匙落到桌上。\n"
+            "- 原文为什么能过：钥匙换手后守门人才改口。\n"
+            "- 为什么不像加工稿：守门人先摸空口袋才认输。\n"
+            "- 新稿最容易写假的点：只宣布权限变化。\n"
+            "- 必须保留的承重件：钥匙换手 -> 门禁失效 -> 守门人改口\n"
+            "- 不能丢的顺序：钥匙换手 -> 门禁失效 -> 守门人改口\n"
+            "- 为什么这个顺序不能乱：没有钥匙换手，改口就没有现实压力。\n"
+            "- 后续调用方式：把钥匙替换成门卡或授权章。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_bridge_workcards_quality(path, 1000, errors, [])
+        self.assertTrue(
+            any("`必须保留的承重件` 与 `不能丢的顺序` 跨字段复制" in error for error in errors),
+            errors,
+        )
+
+    def test_high_risk_card_rejects_must_keep_copied_as_sequence(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "## BID-01\n"
+            "- 桥段名：BID-01 门禁夺权\n"
+            "- 桥段角色：用实体门禁完成关系降位。\n"
+            "- 原文：钥匙落到桌上。\n"
+            "- 必须保留的承重件：钥匙换手 -> 门禁失效 -> 守门人改口\n"
+            "- 不能丢的顺序：钥匙换手 -> 门禁失效 -> 守门人改口\n"
+            "- 高敏点：钥匙、门禁和改口的完整组合。\n"
+            "- 可学层：以实体权限件触发称谓变化。\n"
+            "- 禁学层：不要复刻钥匙和守门人话轮。\n"
+            "- 情绪拍：E-0001 | 作用：权限撤销 | 内容：钥匙换手后守门人改口 | 烈度：7 | 原文证据：钥匙落到桌上。\n"
+            "- 情绪拍完整性复核：已按原序核对。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_high_risk_asset_quality(path, 1000, errors)
+        self.assertTrue(
+            any("`必须保留的承重件` 与 `不能丢的顺序` 跨字段复制" in error for error in errors),
+            errors,
+        )
 
     def test_candidate_ledger_rejects_overcompressed_table_rows(self) -> None:
         (self.root / "写作资产").mkdir(parents=True, exist_ok=True)
@@ -686,6 +1078,158 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
         self.assertEqual([], errors)
+
+    def test_bridge_emotion_asset_accepts_explicit_bid_field(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "- BID：BID-01\n"
+            "- 桥段名：位置翻转\n"
+            "- 情绪拍：E-001 | 作用：进入 | 内容：先给位置。 | 烈度：4 | 原文证据：先给位置\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        ledger = {
+            "beats": [
+                {"beat_id": "E-001", "role": "进入", "content": "先给位置。", "intensity": 4, "source_evidence": ["先给位置"], "bid_ids": ["BID-01"]},
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
+        self.assertEqual([], errors)
+
+    def test_bridge_emotion_asset_accepts_bid_in_card_heading(self) -> None:
+        path = self._write(
+            "桥段施工卡.md",
+            "## BID-01 位置翻转\n\n"
+            "- 桥段名：位置翻转\n"
+            "- 情绪拍：E-001 | 作用：进入 | 内容：先给位置。 | 烈度：4 | 原文证据：先给位置\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        ledger = {
+            "beats": [
+                {"beat_id": "E-001", "role": "进入", "content": "先给位置。", "intensity": 4, "source_evidence": ["先给位置"], "bid_ids": ["BID-01"]},
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
+        self.assertEqual([], errors)
+
+    def test_bridge_emotion_asset_accepts_suffix_beat_id(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "- 桥段名：BID-01 误判补拍\n"
+            "- 情绪拍：E-014B | 作用：错判 | 内容：查问后仍误判。 | 烈度：6 | 原文证据：仍未看清来人。\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        ledger = {
+            "beats": [
+                {"beat_id": "E-014B", "role": "错判", "content": "查问后仍误判。", "intensity": 6, "source_evidence": ["仍未看清来人。"], "bid_ids": ["BID-01"]},
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_bridge_emotion_asset_alignment(path, ledger, errors)
+        self.assertEqual([], errors)
+
+    def test_high_risk_asset_rejects_quote_wrapped_scaffold(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "- 桥段名：BID-01 位置翻转\n"
+            "- 桥段角色：承接关系换权、信息揭示和现实后果的高敏桥段。\n"
+            "- 原文证据：她把花踢到座后。\n"
+            "- 高敏点：不可照搬人物身份、具体物件、表达顺序与原句组合。\n"
+            "- 可学层：可迁移因果功能、压力递进、动作权限差和后果回流。\n"
+            "- 禁学层：禁止照搬。\n"
+            "- 情绪拍：E-001 | 作用：叙述者在此处的情绪落点是“她踢走了花”。 | "
+            "内容：情绪由前一状态转为对“她踢走了花”的即时感受。 | "
+            "烈度：4 | 原文证据：她把花踢到座后。\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_high_risk_asset_quality(path, 1000, errors)
+        self.assertTrue(any("高敏资产固定句壳" in error for error in errors))
+
+    def test_high_risk_asset_accepts_bridge_specific_language(self) -> None:
+        path = self._write(
+            "高敏桥段识别.md",
+            "- 桥段名：BID-01 花枝被踢走\n"
+            "- 桥段角色：主角用一个无人注意的脚部动作，主动放弃被选中的位置。\n"
+            "- 原文证据：她把花踢到座后。\n"
+            "- 高敏点：花枝、夜宴和婚约在同一动作中锁死，组合后极易还原原桥。\n"
+            "- 可学层：让弱势者用微动作拒绝表面奖励。\n"
+            "- 禁学层：不保留宴席藏花、捡到即成婚的连锁设定。\n"
+            "- 情绪拍：E-001 | 作用：拒绝被选中 | 内容：她宁可错过婚约，也不暴露自己捡到了花。 | "
+            "烈度：4 | 原文证据：她把花踢到座后。\n"
+            "- 情绪拍完整性复核：已复核。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_high_risk_asset_quality(path, 1000, errors)
+        self.assertEqual([], errors)
+
+    def test_high_risk_asset_rejects_repeated_cross_bid_boundaries(self) -> None:
+        blocks = []
+        for idx in range(1, 4):
+            blocks.append(
+                f"## BID-0{idx}\n"
+                f"- 桥段名：BID-0{idx} 独立高敏桥{idx}\n"
+                f"- 桥段角色：人物{idx}用动作{idx}改变关系位置。\n"
+                f"- 原文证据：动作{idx}发生。\n"
+                f"- 高敏点：物件{idx}与场景{idx}组合后容易还原原桥。\n"
+                "- 可学层：物件证词、称谓改判、硬牌验心与后果回收。\n"
+                "- 禁学层：禁止复刻姓名、身份、物件与原句组合。\n"
+                f"- 情绪拍：E-00{idx} | 作用：位置改变 | 内容：动作{idx}改变关系。 | "
+                f"烈度：{idx + 3} | 原文证据：动作{idx}发生。\n"
+                "- 情绪拍完整性复核：已复核。\n"
+            )
+        path = self._write("高敏桥段识别.md", "\n".join(blocks))
+        errors: list[str] = []
+        VALIDATOR.check_high_risk_asset_quality(path, 1000, errors)
+        self.assertTrue(
+            any("`可学层` 跨 BID 完全重复 3/3 次" in error for error in errors),
+            errors,
+        )
+        self.assertTrue(
+            any("`禁学层` 跨 BID 完全重复 3/3 次" in error for error in errors),
+            errors,
+        )
+
+    def test_profile_source_rejects_fixed_emotion_sentence_shells(self) -> None:
+        path = self._write(
+            "profile_source.md",
+            "## 6. 桥段承重件\n"
+            "- 桥段：BID-01 花枝被踢走\n"
+            "  - 桥段角色：主角用微动作拒绝被选中。\n"
+            "  - 原文怎么起手：她认出花枝对应旧婚约。\n"
+            "  - 不能丢的顺序：认花 -> 踢花 -> 花被送回。\n"
+            "  - 为什么这个顺序不能乱：先成功避开，回花才构成反刀。\n"
+            "  - 最容易写假的点：直接让她发表独立宣言。\n"
+            "  - 原文为什么能过：拒绝先发生在脚下动作里。\n"
+            "  - 情绪拍：E-001 | 作用：叙述者在此处的情绪落点是‘她踢走花枝’。 | "
+            "内容：情绪由前一状态转为对‘她踢走花枝’的即时感受。 | "
+            "烈度：4 | 原文证据：她踢走花枝。\n"
+            "  - 情绪拍完整性复核：已按 BID 子序列复核。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_profile_source_quality(path, 1000, errors)
+        self.assertTrue(any("profile_source 固定伪情绪句壳污染" in error for error in errors))
+
+    def test_profile_source_accepts_bridge_specific_emotion_language(self) -> None:
+        path = self._write(
+            "profile_source.md",
+            "## 6. 桥段承重件\n"
+            "- 桥段：BID-01 花枝被踢走\n"
+            "  - 桥段角色：主角用微动作拒绝被选中。\n"
+            "  - 原文怎么起手：她认出花枝对应旧婚约。\n"
+            "  - 不能丢的顺序：认花 -> 踢花 -> 花被送回。\n"
+            "  - 为什么这个顺序不能乱：先成功避开，回花才构成反刀。\n"
+            "  - 最容易写假的点：直接让她发表独立宣言。\n"
+            "  - 原文为什么能过：拒绝先发生在脚下动作里。\n"
+            "  - 情绪拍：E-001 | 作用：侥幸被阴风夺走 | "
+            "内容：花枝重新落回膝上，她刚获得的退路立刻消失。 | "
+            "烈度：8 | 原文证据：花落回她膝上。\n"
+            "  - 情绪拍完整性复核：已按 BID 子序列复核。\n",
+        )
+        errors: list[str] = []
+        VALIDATOR.check_profile_source_quality(path, 1000, errors)
+        self.assertFalse(any("profile_source 固定伪情绪句壳污染" in error for error in errors))
 
     def test_bridge_reconciliation_accepts_bid_on_node_line(self) -> None:
         asset_dir = self.root / "写作资产"
@@ -986,8 +1530,34 @@ class HumanQualityGateTest(unittest.TestCase):
             errors,
             notes,
         )
-        self.assertFalse(any("资产过少" in error for error in errors))
+        self.assertTrue(
+            any("style_assets.opening_hooks 为空" in error for error in errors),
+            errors,
+        )
         self.assertTrue(any("低于篇幅参考值" in note for note in notes))
+
+    def test_profile_style_assets_cannot_all_compile_to_empty(self) -> None:
+        data = {
+            "scene_assets": {},
+            "banned_phrases": ["禁句"],
+            "author_stance_patterns": ["站位"],
+            "style_assets": {
+                key: ([] if key == "misdirection" else ["原文短语"])
+                for key in VALIDATOR.REQUIRED_STYLE_ASSET_KEYS
+            },
+        }
+        errors: list[str] = []
+        VALIDATOR.check_book_profile_quality(
+            self.root / "book.profile.json",
+            data,
+            1000,
+            "原文短语",
+            errors,
+        )
+        self.assertTrue(
+            any("style_assets.misdirection 为空" in item for item in errors),
+            errors,
+        )
 
     def test_profile_requires_complete_primary_prose_contract(self) -> None:
         data = {
@@ -1161,6 +1731,57 @@ class HumanQualityGateTest(unittest.TestCase):
         notes: list[str] = []
         VALIDATOR.check_fact_references(self.root, {}, errors, notes)
         self.assertTrue(any("不存在的事实台账 F99" in error for error in errors))
+
+    def test_multiple_fact_references_are_checked_as_joint_support(self) -> None:
+        self._write(
+            "拆文报告.md",
+            "主角推动证据公开传播【原文明确 F01】【原文明确 F02】。\n",
+        )
+        facts = {
+            "01": {
+                "stance": "原文明确",
+                "action": "主角取得证据并推动调查",
+                "result": "调查启动",
+                "boundary": "未直接发布",
+            },
+            "02": {
+                "stance": "原文明确",
+                "action": "同伴公开传播证据",
+                "result": "舆论转向",
+                "boundary": "传播者不是主角",
+            },
+        }
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_fact_references(self.root, facts, errors, notes)
+        self.assertEqual([], errors)
+        self.assertFalse(any("支持关系不明显" in note for note in notes))
+
+    def test_specific_detail_migration_phrases_are_not_placeholder_warnings(self) -> None:
+        detail = self._write(
+            "场景细节库.md",
+            "\n".join(
+                f"## 卡{i}\n- 后续能迁到什么新桥段：可迁到发布会救场、楼道挡镜头{i}。"
+                for i in range(1, 6)
+            ),
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_detail_library_quality(detail, 9000, errors, notes)
+        self.assertFalse(any("常见模板句" in note for note in notes))
+
+    def test_generic_detail_migration_placeholder_still_warns(self) -> None:
+        detail = self._write(
+            "场景细节库.md",
+            "\n".join(
+                f"## 卡{i}\n- 后续能迁到什么新桥段：可迁到同题材桥段。"
+                for i in range(1, 6)
+            ),
+        )
+        errors: list[str] = []
+        notes: list[str] = []
+        VALIDATOR.check_detail_library_quality(detail, 9000, errors, notes)
+        self.assertTrue(any("常见模板句" in note for note in notes))
 
     def test_completion_updates_meta_but_preserves_manual_checkpoints(self) -> None:
         self._write(
@@ -1611,6 +2232,41 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertTrue(any("重生 book.profile.json" in item for item in errors))
 
+    def test_profile_alignment_rejects_summarized_emotion_content(self) -> None:
+        full_emotion_ledger = {
+            "beats": [
+                {
+                    "beat_id": "E-01",
+                    "role": "第一次刺痛",
+                    "content": "她当众问出旧案责任，旁观者第一次停止附和。",
+                    "intensity": 7,
+                    "source_evidence": ["L10 第一次略过"],
+                    "bid_ids": ["BID-01"],
+                }
+            ]
+        }
+        book_profile = {
+            "bridge_rules": [
+                {
+                    "id": "BID-01",
+                    "emotion_sequence": [
+                        {
+                            "beat_id": "E-01",
+                            "role": "第一次刺痛",
+                            "content": "她受了委屈。",
+                            "intensity": 7,
+                            "source_evidence": "L10 第一次略过",
+                        }
+                    ],
+                }
+            ]
+        }
+        errors: list[str] = []
+        VALIDATOR.check_book_profile_emotion_ledger_alignment(
+            self.root, book_profile, full_emotion_ledger, errors
+        )
+        self.assertTrue(any("content 与全文情绪总账不一致" in item for item in errors))
+
     def test_human_review_receipt_must_match_current_notes_and_markdown_hashes(self) -> None:
         self._write("拆文报告.md", "第一版\n")
         notes = [
@@ -1696,6 +2352,107 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         self.assertEqual(bids, ["BID-01"])
         self.assertEqual(errors, [])
+
+    def test_foundation_bridge_span_allows_dense_bridge_but_rejects_overwide_one(self) -> None:
+        source_lines = [f"第{index}行" for index in range(1, 183)]
+        source_lines[0] = "桥段锚点"
+        self._write(
+            "_analysis_brief.md",
+            "\n".join(
+                [
+                    "# 分析契约",
+                    "- 故事核：关系规则经过连续现场完成翻转",
+                    "- 主角：甲",
+                    "- 核心关系：甲 / 乙",
+                    "- 时间边界：当日至次日",
+                    "- 固定称谓：甲、乙",
+                    "- BID 注册表：以下记录为全书唯一编号",
+                    "BID-01 | L1-L180 | 锚点：桥段锚点 | 桥段角色：保留连续现场的完整承重链",
+                    "BID-02 | L1-L181 | 锚点：桥段锚点 | 桥段角色：故意越过允许的桥段行域上限",
+                ]
+            )
+            + "\n",
+        )
+        errors: list[str] = []
+        bids = FOUNDATION.check_analysis_brief(self.root, source_lines, errors)
+        self.assertEqual(bids, ["BID-01", "BID-02"])
+        self.assertFalse(any("BID-01 范围过宽" in error for error in errors))
+        self.assertTrue(any("BID-02 范围过宽" in error for error in errors))
+
+    def test_foundation_rejects_ledger_bid_outside_frozen_range(self) -> None:
+        ledger = {
+            "beats": [
+                {
+                    "beat_id": "P-001",
+                    "source_range": {"start_line": 8, "end_line": 9},
+                    "bid_ids": ["BID-01"],
+                }
+            ]
+        }
+        errors: list[str] = []
+        FOUNDATION.check_ledger_bid_ranges(
+            ledger,
+            "全文情节微拍总账",
+            {"BID-01": (2, 4)},
+            errors,
+        )
+        self.assertTrue(any("超出 BID-01 冻结范围" in error for error in errors))
+
+    def test_character_names_prefer_report_character_table(self) -> None:
+        path = self._write(
+            "拆文报告.md",
+            """### 人物分析
+
+| 人物 | 叙事角色 |
+|---|---|
+| 嘉宁 | 主人公 |
+| 傅与宁 | 共同情感主人公 |
+
+**嘉宁为什么不是扁平圣人**：她会误判。
+**傅与宁为什么不只是被救男配**：他会试探。
+
+### 开头分析
+""",
+        )
+        self.assertEqual(
+            {"嘉宁", "傅与宁"},
+            VALIDATOR.extract_report_character_names(path),
+        )
+
+    def test_relationship_old_case_label_is_not_reported_missing(self) -> None:
+        detail_dir = self.root / "原文细节库"
+        detail_dir.mkdir()
+        (detail_dir / "关系细节库.md").write_text(
+            "# 关系细节库\n\n- 关系起点：两人从利益合作开始。\n"
+            "- 旧案标签：童年失约、旧事隐瞒共同构成关系旧案。\n",
+            encoding="utf-8",
+        )
+        notes: list[str] = []
+        VALIDATOR.check_cross_asset_semantics(
+            self.root,
+            "他小时候曾经失约。",
+            1000,
+            [],
+            notes,
+        )
+        self.assertFalse(any("未命中常用旧案标签" in note for note in notes))
+
+    def test_relationship_old_case_warning_remains_without_semantic_label(self) -> None:
+        detail_dir = self.root / "原文细节库"
+        detail_dir.mkdir()
+        (detail_dir / "关系细节库.md").write_text(
+            "# 关系细节库\n\n- 关系起点：两人在公司认识。\n",
+            encoding="utf-8",
+        )
+        notes: list[str] = []
+        VALIDATOR.check_cross_asset_semantics(
+            self.root,
+            "他小时候曾经失约。",
+            1000,
+            [],
+            notes,
+        )
+        self.assertTrue(any("未命中常用旧案标签" in note for note in notes))
 
 
 if __name__ == "__main__":

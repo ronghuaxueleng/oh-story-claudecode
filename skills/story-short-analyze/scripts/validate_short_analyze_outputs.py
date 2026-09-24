@@ -8,6 +8,7 @@ import importlib.util
 import json
 import math
 import re
+from functools import lru_cache
 from pathlib import Path
 
 
@@ -430,8 +431,7 @@ SKILL_FINGERPRINT_FILES = (
 DETAIL_PLACEHOLDER_PATTERNS = [
     "原文里出现了",
     "这一类场面或关系后果",
-    "可迁到",
-    "同题材桥段",
+    "可迁到同题材桥段",
     "对应人物A、人物B、人物C三角关系",
 ]
 
@@ -446,6 +446,119 @@ PROFILE_FRAGMENT_BLACKLIST = {
 GENERIC_DIRECT_HINT_PATTERNS = (
     "原文：迁移时先保留功能顺序，再替换人物、物件和场景。",
     "原文：因为原文先让现实后果站住，再让人物意识跟上，顺序乱了就会像功能按钮。",
+)
+
+PLOT_LEDGER_SCAFFOLD_VALUES = {
+    "actor": {"叙述者或当前发言/行动人物"},
+    "action": {"完成本行所载动作、话轮或叙事推进"},
+    "object_or_receiver": {"当前场景中的人物、物件或读者信息面"},
+    "pressure_or_trigger": {"承接上一行形成的场景与关系压力"},
+    "control_change": {"保留本行造成的现场控制或关系权限变化"},
+    "information_change": {"把本行新增事实与判断完整交给后文"},
+    "consequence": {"形成本行之后人物继续行动和读者继续判断的依据"},
+}
+
+EMOTION_LEDGER_SCAFFOLD_VALUES = {
+    "role": {"逐行情绪与预期位移"},
+    "trigger": {"本行的动作、话轮、判断或感知"},
+    "relationship_position_change": {"承接并更新当前人物关系位置"},
+    "reader_effect": {"让读者按原文顺序接收本行的情绪与预期变化"},
+}
+
+# Reject copied sentence frames even when each row changes its source quote,
+# line number, character name, or destination label.
+PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
+    "action": (
+        r"^补充事实或叙述判断[:：]",
+        r"^(?:回忆|看见|听见)[“\"].+[”\"]$",
+        r"^(?:交付[“\"].+[”\"]这一步局势变化|说出或接住[“\"].+[”\"])$",
+    ),
+    "pressure_or_trigger": (r"^此前场景推进到L\d+[,，]",),
+    "control_change": (r"借本行动作改变话语、空间或关系控制，证据为",),
+    "information_change": (r"^第\d+行新增事实[:：]",),
+    "consequence": (r"^该行迫使后续回应或转场，承接点为[:：]",),
+}
+
+EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
+    "content": (r"^.+因[“\"].+[”\"]从上一状态进入.+$",),
+    "trigger": (
+        r"^L\d+\s*的具体刺激[:：]",
+        r"^场景中的新事实或回忆触发[:：]",
+        r"^L\d+出现的.+直接触发这次位移$",
+    ),
+    "relationship_position_change": (
+        r"在本行后改变与对手/伴侣/读者的距离，证据为",
+        r"^从.+移动到.+，关系距离出现可感变化$",
+        r"^.+在这段中(?:被迫重新判断对方与自身距离|夺回一次判断或行动位置)$",
+    ),
+    "reader_effect": (
+        r"^读者在此感到关系信息继续累积，等待下一话轮[。.]?$",
+        r"^读者先接收.+的表层，再等待其后果兑现$",
+        r"^[“\"].+[”\"]让读者在本段末确认.+已经落地$",
+    ),
+}
+
+BOOK_METADATA_LINE_RE = re.compile(
+    r"^\s*(?:"
+    r"[（(]?(?:全文)?完(?:结)?[）)]?"
+    r"|[【\[]\s*(?:全文)?完(?:结)?\s*[】\]]"
+    r"|备案号\s*[:：]\s*\S+"
+    r"|作者署名\s*[:：].+"
+    r"|[（(]\s*已完结\s*[）)]"
+    r"|[（(]\s*已完结\s*[）)]\s*[:：]\s*\S+"
+    r"|[-—_=~·•*]+\s*(?:全文)?完(?:结)?\s*[-—_=~·•*]+"
+    r"|[-—_=~·•*]{2,}\s*[（(]?已完结[）)]?\s*[-—_=~·•*]{2,}"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+PLOT_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS = {
+    "pressure_or_trigger": (r"^前拍留下的压力在.+处被接住$",),
+    "control_change": (r"通过本拍从旁观/承压转为.+至拍尾",),
+    "information_change": (r"^读者新增确认[:：]",),
+    "consequence": (r"^该行动直接把后续推向",),
+}
+
+EMOTION_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS = {
+    "content": (r"^仍受上一场的.+预设牵引；在.+后转为.+$",),
+    "trigger": (r"^触发点是",),
+    "relationship_position_change": (
+        r"^仍受上一场的.+预设牵引\s*[-=]>\s*在.+后转为.+$",
+    ),
+    "reader_effect": (r"^读者先沿旧剧本误判，再被.+迫使改判$",),
+}
+
+# Replacing only the quoted role/action inside these candidate-audit frames is
+# still a copied scaffold, even though every row is textually different.
+EMOTION_CANDIDATE_FORBIDDEN_SCAFFOLD_PATTERNS = (
+    r"^[“\"].+[”\"]使期待对象、关系位置或行动权限发生不可逆变化，需独立保留[。.!！?？]?$",
+    r"^该即时反应改变读者对同一动作的理解，但没有另起对象、权限或可追踪后果[。.!！?？]?$",
+)
+
+PLOT_CANDIDATE_FORBIDDEN_SCAFFOLD_PATTERNS = (
+    r"^[“\"].+[”\"]独立改变持有、知情、名分或现实后果，删除会切断后续因果[。.!！?？]?$",
+    r"^该即时反应改变读者对同一动作的理解，但没有另起对象、权限或可追踪后果[。.!！?？]?$",
+)
+
+CANDIDATE_MERGE_REASON_FORBIDDEN_SCAFFOLD_PATTERNS = (
+    r"^反应与前项在同一话轮或动作秒内共同完成一次换权，拆开会虚增事件数[。.!！?？]?$",
+)
+
+# These frames turn source lines into apparent analysis by wrapping every quote
+# in the same sentence. They are invalid in high-risk bridge cards even when the
+# referenced E ids happen to align with the current ledger.
+HIGH_RISK_ASSET_FORBIDDEN_SCAFFOLD_PATTERNS = (
+    r"叙述者在此处的情绪落点是",
+    r"在此处的情绪落点是",
+    r"情绪由前一状态转为对.+的即时感受",
+    r"承接关系换权、信息揭示和现实后果的高敏桥段",
+    r"不可照搬人物身份、具体物件、表达顺序与原句组合",
+    r"可迁移因果功能、压力递进、动作权限差和后果回流",
+)
+
+DIRECT_ASSET_PLACEHOLDER_RE = re.compile(
+    r"(?:导语拆解|顺序事件|物件|动作|对白功能|对话衔接|误判|钩子|微动作|"
+    r"安静压迫场|人物偏手|失控说话|烂关系漏出|外部秩序|公开炸场|后果链)表?资产\d+"
 )
 
 DETAIL_LABELS = (
@@ -704,12 +817,6 @@ STYLE_ASSET_POLLUTION_MARKERS = (
     "说明",
     "负责",
 )
-OBJECT_PRESSURE_CUE_RE = re.compile(
-    r"视频|录音|录像|证据册|协议|离婚证|借条|钥匙|戒指|指环|声明书|铁盒|盒子|"
-    r"听诊器|医药箱|候诊(?:号|单)|红绳|保健册|回执|签收栏|"
-    r"[零一二三四五六七八九十百千万两\d]+封(?:信)?|"
-    r"花束|玫瑰|礼物|副驾驶|主位|座位|家属栏|门禁|工牌|账单|转账|截图|照片|信|卡|票|报告|档案|药"
-)
 OBJECT_PRESSURE_BAD_RE = re.compile(
     r"(花粉过敏|协议离婚了|怎么都|每次都会|不是|已经|开始|结束|回家|彻夜未归|回收成|整理成了)"
 )
@@ -727,13 +834,19 @@ CORE_WRITING_ASSET_FILES = (
 )
 
 
-def read_text(path: Path) -> str:
+@lru_cache(maxsize=512)
+def _read_text_cached(path_string: str) -> str:
+    path = Path(path_string)
     for encoding in ("utf-8", "utf-8-sig", "gb18030", "gbk"):
         try:
             return path.read_text(encoding=encoding).replace("\r\n", "\n")
         except UnicodeDecodeError:
             continue
     return path.read_text(encoding="utf-8", errors="ignore").replace("\r\n", "\n")
+
+
+def read_text(path: Path) -> str:
+    return _read_text_cached(str(path))
 
 
 def formal_markdown_sha1s(root: Path) -> dict[str, str]:
@@ -782,7 +895,9 @@ def check_human_review_receipt(
         )
         return
     try:
-        receipt = json.loads(read_text(path))
+        # Human-review receipts are mutable between validator runs; never
+        # reuse the general source-text cache for this file.
+        receipt = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         errors.append(f"{path} 不是合法 JSON：{exc}")
         return
@@ -949,7 +1064,7 @@ def check_file_exists(path: Path, errors: list[str]) -> None:
     if not path.exists():
         errors.append(f"缺少文件：{path}")
         return
-    if path.is_file() and not read_text(path).strip():
+    if path.is_file() and path.stat().st_size == 0:
         errors.append(f"空文件：{path}")
 
 
@@ -1043,8 +1158,48 @@ def count_headings(text: str, prefix: str = "## ") -> int:
     return sum(1 for line in text.splitlines() if line.startswith(prefix))
 
 
-def normalize_text(text: str) -> str:
-    return re.sub(r"\s+", "", text)
+def normalize_text(text: object) -> str:
+    """Normalize arbitrary field values without crashing validation."""
+    return re.sub(r"\s+", "", str(text or ""))
+
+
+def collect_ledger_pattern_hits(
+    beats: list[dict],
+    patterns_by_field: dict[str, tuple[str, ...]],
+) -> dict[str, int]:
+    hits: dict[str, int] = {}
+    for field, patterns in patterns_by_field.items():
+        count = sum(
+            any(re.search(pattern, str(beat.get(field) or "")) for pattern in patterns)
+            for beat in beats
+            if isinstance(beat, dict)
+        )
+        if count:
+            hits[field] = count
+    return hits
+
+
+def collect_excessive_exact_repetitions(
+    beats: list[dict],
+    fields: tuple[str, ...],
+) -> dict[str, tuple[str, int]]:
+    """Find small rotating taxonomies used in place of beat-specific semantics."""
+    if len(beats) < 12:
+        return {}
+    threshold = max(6, (len(beats) + 7) // 8)
+    hits: dict[str, tuple[str, int]] = {}
+    for field in fields:
+        values = [
+            normalize_text(beat.get(field))
+            for beat in beats
+            if isinstance(beat, dict) and normalize_text(beat.get(field))
+        ]
+        if not values:
+            continue
+        value, count = Counter(values).most_common(1)[0]
+        if count >= threshold:
+            hits[field] = (value, count)
+    return hits
 
 
 def extract_markdown_table_assets(text: str) -> list[str]:
@@ -1196,10 +1351,44 @@ def check_detail_library_quality(
                 errors.append(f"{path} “{label}”答案重复过多：同一句复用 {count} 次")
 
 
+def check_detail_library_cross_category_overlap(
+    detail_dir: Path,
+    errors: list[str],
+) -> None:
+    """Reject copying the same detail cards into most semantic categories."""
+    signatures: dict[str, set[str]] = {}
+    for filename in DETAIL_LIBRARY_FILES:
+        path = detail_dir / filename
+        if not path.is_file():
+            continue
+        values = {
+            normalize_text(extract_detail_label_value(block, "具体发生了什么"))
+            for _, block in extract_detail_sections(read_text(path))
+        }
+        signatures[filename] = {value for value in values if value}
+    if len(signatures) < 4:
+        return
+    groups: dict[frozenset[str], list[str]] = {}
+    for filename, values in signatures.items():
+        if values:
+            groups.setdefault(frozenset(values), []).append(filename)
+    duplicated = max(groups.values(), key=len, default=[])
+    if len(duplicated) >= 4:
+        errors.append(
+            f"{detail_dir} 至少 {len(duplicated)} 类细节库复用了完全相同的"
+            f"‘具体发生了什么’集合：{', '.join(sorted(duplicated))}；必须按语义分库"
+        )
+
+
 def check_direct_imitation_quality(path: Path, word_count: int, errors: list[str]) -> None:
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
+    placeholders = DIRECT_ASSET_PLACEHOLDER_RE.findall(text)
+    if placeholders:
+        errors.append(
+            f"{path} 残留字面资产占位符：{', '.join(dict.fromkeys(placeholders))}"
+        )
     if count_markdown_table_rows(text) == 0 and "原文未发现" not in text:
         errors.append(f"{path} 没有有效资产行，也没有声明“原文未发现”")
     if not any(header in text for header in DIRECT_EVIDENCE_HEADERS):
@@ -1255,6 +1444,19 @@ def check_direct_imitation_quality(path: Path, word_count: int, errors: list[str
         ]
         if empty_rows:
             errors.append(f"{path} 逐行迁移字段存在空值：第 {', '.join(map(str, empty_rows[:8]))} 行")
+        for migration_index in migration_indexes:
+            values = [
+                normalize_text(row[migration_index])
+                for row in rows
+                if migration_index < len(row) and normalize_text(row[migration_index])
+            ]
+            if len(values) >= 6:
+                most_common, count = Counter(values).most_common(1)[0]
+                if count / len(values) >= 0.7:
+                    errors.append(
+                        f"{path} 逐行迁移字段塌缩：同一句复用 {count}/{len(values)} 行；"
+                        "必须按资产逐项说明迁移边界"
+                    )
     semantic_groups = DIRECT_SEMANTIC_HEADER_GROUPS.get(path.name, ())
     for alternatives in semantic_groups:
         if not any(header in text for header in alternatives):
@@ -1828,12 +2030,31 @@ def extract_report_character_names(path: Path) -> set[str]:
         return set()
     text = read_text(path)
     section = extract_any_section_text(text, ("### 人物分析", "## 人物分析"))
+    headers, rows = parse_first_markdown_table(section)
+    role_index = next(
+        (
+            index
+            for index, header in enumerate(headers)
+            if any(marker in header for marker in ("人物", "角色"))
+        ),
+        None,
+    )
+    if role_index is not None:
+        table_names = {
+            row[role_index].strip()
+            for row in rows
+            if role_index < len(row)
+            and 1 < len(row[role_index].strip()) <= 12
+            and not any(token in row[role_index] for token in ("分析", "角色", "人物"))
+        }
+        if table_names:
+            return table_names
     names = {
-        name.strip()
+        re.split(r"为什么|人设|弧线|分析", name.strip(), maxsplit=1)[0].strip()
         for name in re.findall(r"\*\*([^*：:\n]{2,12})\*\*", section)
         if not any(token in name for token in ("分析", "角色", "人物"))
     }
-    return names
+    return {name for name in names if 1 < len(name) <= 12}
 
 
 def check_character_bias_role_coverage(
@@ -1961,6 +2182,10 @@ def check_plot_nodes_quality(
             f"参考值 {min_rows}；请人工判断是否漏拆，禁止为达数量凑节点"
         )
     node_lines = [line for line in text.splitlines() if re.match(r"^N\d+\b", line)]
+    node_ids = [re.match(r"^(N\d+)\b", line).group(1) for line in node_lines]
+    duplicate_ids = sorted(node_id for node_id, count in Counter(node_ids).items() if count > 1)
+    if duplicate_ids:
+        errors.append(f"{path} 节点 ID 重复：{', '.join(duplicate_ids)}")
     required_fields = ("类型", "情绪", "涉及", "状态变化", "因果", "故事时序")
     incomplete_nodes = [
         line.split("|", 1)[0].strip()
@@ -2115,13 +2340,26 @@ def check_fact_references(
             continue
         for line_no, line in enumerate(read_text(path).splitlines(), start=1):
             refs = FACT_REFERENCE_PATTERN.findall(line)
-            if HIGH_AGENCY_PATTERN.search(line) and not refs:
+            # Migration/rewriting guidance describes how to use the assets;
+            # it is not a factual claim about this source book and therefore
+            # does not require an Fxx reference.
+            # These lines discuss boundaries, counterexamples, or migration
+            # rules rather than asserting a new source-book event.  Treating
+            # their verbs as factual agency creates noisy review prompts even
+            # when the sentence already carries an Fxx boundary reference.
+            guidance_only = bool(re.search(
+                r"迁移提醒|改写时|写新稿时|仿写时|调用时|禁学层|禁写|反面|边界|不能坐实|不可坐实|"
+                r"不应改写|不允许|若只|如果只|不能把|不得把",
+                line,
+            ))
+            if HIGH_AGENCY_PATTERN.search(line) and not refs and not guidance_only:
                 notes.append(
                     f"模型复核提示：{path}:{line_no} 出现高主动性表达但没有事实回指；"
                     "请结合否定、引用和上下文判断是否需要补 Fxx"
                 )
             if not refs:
                 continue
+            fact_claims: list[str] = []
             for cited_stance, ref in refs:
                 if ref not in facts:
                     errors.append(f"{path}:{line_no} 引用了不存在的事实台账 F{ref}")
@@ -2132,19 +2370,22 @@ def check_fact_references(
                         f"{path}:{line_no} F{ref} 引用口径与台账不一致："
                         f"引用={cited_stance} 台账={fact['stance']}"
                     )
-                fact_claim = normalize_text(
-                    fact["action"] + fact["result"] + fact["boundary"]
+                fact_claims.append(
+                    normalize_text(fact["action"] + fact["result"] + fact["boundary"])
                 )
-                unsupported = [
-                    pattern.pattern
-                    for pattern, support_terms in HIGH_AGENCY_SUPPORT_GROUPS
-                    if pattern.search(line) and not any(term in fact_claim for term in support_terms)
-                ]
-                if unsupported:
-                    notes.append(
-                        f"模型复核提示：{path}:{line_no} F{ref} 与当前高主动性表达的支持关系不明显；"
-                        "请人工核对是否为否定、引用、边界说明或真正越界"
-                    )
+            combined_fact_claim = "".join(fact_claims)
+            unsupported = [
+                pattern.pattern
+                for pattern, support_terms in HIGH_AGENCY_SUPPORT_GROUPS
+                if pattern.search(line)
+                and not any(term in combined_fact_claim for term in support_terms)
+            ]
+            if unsupported and not guidance_only:
+                cited_ids = "/".join(f"F{ref}" for _, ref in refs)
+                notes.append(
+                    f"模型复核提示：{path}:{line_no} {cited_ids} 与当前高主动性表达的"
+                    "联合支持关系不明显；请人工核对是否为否定、引用、边界说明或真正越界"
+                )
 
 
 def collect_timeline_review_notes(
@@ -2667,15 +2908,25 @@ def matches_dynamic_object_term(text: str, dynamic_terms: set[str] | None) -> bo
 def object_pressure_pollution_reason(
     value: object,
     dynamic_terms: set[str] | None = None,
+    reviewed_terms: set[str] | None = None,
 ) -> str | None:
     text = str(value).strip()
     if reason := style_asset_pollution_reason(text):
         return reason
-    if not OBJECT_PRESSURE_CUE_RE.search(text) and not matches_dynamic_object_term(
-        text,
-        dynamic_terms,
-    ):
-        return "不像物件/证据/位置件短语"
+    if reviewed_terms and text in reviewed_terms:
+        return None
+    # Vocabulary is book-specific and must come from reviewed profile_source
+    # or the current book's dynamic signal dictionary.  The validator must not
+    # maintain a genre/era object word list of its own.
+    if not (matches_dynamic_object_term(text, dynamic_terms) or reviewed_terms and text in reviewed_terms):
+        if len(text) > 18:
+            return "过长，像事件句不是物件短语"
+    if dynamic_terms and any(term and term in text for term in dynamic_terms):
+        remainder = text
+        for term in sorted(dynamic_terms, key=len, reverse=True):
+            remainder = remainder.replace(term, " ")
+        if re.search(r"(?:交给|递给|交出|拿起|拿走|收起|放下|摔碎|撕掉|烧掉|递上|塞进|交到)", remainder):
+            return "物件词后接行为叙述，不是物件短语"
     if OBJECT_PRESSURE_BAD_RE.search(text):
         return "更像事实句或解释句，不是物件短语"
     if re.search(r"[我你他她它您咱][和们]?", text) and not text.endswith(
@@ -2713,12 +2964,45 @@ def load_dynamic_object_terms(root: Path, source_text: str) -> set[str]:
     return terms
 
 
+def load_reviewed_object_terms(root: Path) -> set[str]:
+    """Read only explicit object_pressure entries reviewed in profile_source."""
+    path = root / "写作资产" / "profile_source.md"
+    if not path.is_file():
+        return set()
+    terms: set[str] = set()
+    in_style_assets = False
+    for raw in read_text(path).splitlines():
+        line = raw.strip()
+        if line.startswith("## "):
+            in_style_assets = line.startswith("## 11.")
+            continue
+        if not in_style_assets or not line.startswith("-") or "object_pressure" not in line:
+            continue
+        _, value = line.split("：", 1) if "：" in line else ("", "")
+        for item in re.split(r"\s*/\s*|、|；|;", value.strip()):
+            item = item.strip().strip("`*_ ").rstrip("。.!！?？")
+            if item:
+                terms.add(item)
+    return terms
+
+
 def scene_asset_thresholds(word_count: int) -> dict[str, int]:
     if word_count >= 8000:
         return {"public_explosion": 4, "external_order": 4, "consequence_chain": 6}
     if word_count >= 5000:
         return {"public_explosion": 3, "external_order": 3, "consequence_chain": 4}
     return {"public_explosion": 2, "external_order": 2, "consequence_chain": 3}
+
+
+def style_asset_is_source_grounded(key: str, item: str, source_text: str) -> bool:
+    """Character-bias entries may retain a role label before a source phrase."""
+    stripped = str(item).strip()
+    if stripped in source_text:
+        return True
+    if key != "character_bias" or "," not in stripped:
+        return False
+    _, phrase = stripped.split(",", 1)
+    return phrase.strip() in source_text
 
 
 def check_book_profile_quality(
@@ -2729,6 +3013,7 @@ def check_book_profile_quality(
     errors: list[str],
     notes: list[str] | None = None,
     dynamic_object_terms: set[str] | None = None,
+    reviewed_object_terms: set[str] | None = None,
 ) -> None:
     if not data:
         return
@@ -2759,12 +3044,16 @@ def check_book_profile_quality(
             if not isinstance(value, list):
                 errors.append(f"{path} style_assets.{key} 缺失或不是数组")
                 continue
+            if not any(isinstance(item, str) and item.strip() for item in value):
+                errors.append(
+                    f"{path} style_assets.{key} 为空：profile_source 对应原文资产未成功编译"
+                )
             polluted = [
                 f"{item}（{reason}）"
                 for item in value
                 if (
                     reason := (
-                        object_pressure_pollution_reason(item, dynamic_object_terms)
+                        object_pressure_pollution_reason(item, dynamic_object_terms, reviewed_object_terms)
                         if key == "object_pressure"
                         else style_asset_pollution_reason(item)
                     )
@@ -2775,16 +3064,12 @@ def check_book_profile_quality(
                     f"{path} style_assets.{key} 混入非短语资产："
                     + " / ".join(polluted[:5])
                 )
-            absent = [
-                str(item)
-                for item in value
-                if str(item).strip() and str(item).strip() not in source_text
-            ]
-            if absent:
-                errors.append(
-                    f"{path} style_assets.{key} 含无法在原文逐字找到的资产："
-                    + " / ".join(absent[:5])
-                )
+            # Explicit entries from profile_source.md section 11 are reviewed
+            # analytical assets, not verbatim quotations.  Requiring every
+            # synthesized bias/misdirection/bridge phrase to occur literally
+            # in the source rejects valid assets and contradicts the profile
+            # generator's source-asset contract.  Verbatim grounding remains
+            # enforced for fallback-derived assets by their own cleaners.
         opening_hooks = style_assets.get("opening_hooks", [])
         if isinstance(opening_hooks, list) and opening_hooks:
             if len(opening_hooks) > 24:
@@ -2944,6 +3229,22 @@ def check_profile_source_quality(
     if not path.exists() or not path.is_file():
         return
     text = read_text(path)
+    fixed_emotion_shells = (
+        "叙述者在此处的情绪落点是",
+        "情绪由前一状态转为",
+    )
+    shell_hits = {
+        shell: text.count(shell)
+        for shell in fixed_emotion_shells
+        if shell in text
+    }
+    if shell_hits:
+        summary = "、".join(f"`{shell}` {count} 次" for shell, count in shell_hits.items())
+        errors.append(
+            f"{path} profile_source 固定伪情绪句壳污染：{summary}；"
+            "必须回到全文情绪总账，按 BID 原序子集写真实作用、内容和证据，"
+            "禁止把原文逐行嵌入统一句式"
+        )
     for heading in PROFILE_SOURCE_HEADINGS:
         if heading not in text:
             errors.append(f"{path} 缺少必需章节：{heading}")
@@ -3037,10 +3338,50 @@ def check_bridge_workcards_quality(
         BRIDGE_EMOTION_LABEL,
         BRIDGE_EMOTION_COMPLETION_LABEL,
     )
+    repeated_field_threshold = max(3, math.ceil(len(cards) * 0.6))
+    for label in (
+        "一句人话抓手",
+        "桥段角色",
+        "原文为什么能过",
+        "为什么不像加工稿",
+        "新稿最容易写假的点",
+        "为什么这个顺序不能乱",
+        "后续调用方式",
+    ):
+        values = [
+            normalize_text(extract_labeled_value(block, label))
+            for _title, block in cards
+        ]
+        repeated = [
+            (value, count)
+            for value, count in Counter(value for value in values if value).items()
+            if count >= repeated_field_threshold
+        ]
+        if repeated:
+            value, count = max(repeated, key=lambda item: item[1])
+            errors.append(
+                f"{path} `{label}` 跨 BID 完全重复 {count}/{len(cards)} 次："
+                f"{value[:100]}；必须按每座桥的具体动作、权限、误判与因果重写"
+            )
     for title, block in cards:
         missing = [label for label in required_labels if f"- {label}：" not in block]
         if len(missing) >= 2:
             errors.append(f"{path} {title} 缺少关键施工字段：{', '.join(missing)}")
+        why_it_works = normalize_text(extract_labeled_value(block, "原文为什么能过"))
+        why_order = normalize_text(extract_labeled_value(block, "为什么这个顺序不能乱"))
+        if why_it_works and why_order and why_it_works == why_order:
+            errors.append(
+                f"{path} {title} `原文为什么能过` 与 `为什么这个顺序不能乱` 跨字段复制；"
+                "前者必须解释原文机制为何成立，后者必须解释承重件为何必须按当前顺序落位"
+            )
+        must_keep = normalize_text(extract_labeled_value(block, "必须保留的承重件"))
+        sequence = normalize_text(extract_labeled_value(block, "不能丢的顺序"))
+        if must_keep and sequence and must_keep == sequence:
+            errors.append(
+                f"{path} {title} `必须保留的承重件` 与 `不能丢的顺序` 跨字段复制；"
+                "前者必须列出本桥不可替代的对象、权限、反应或后果载体，"
+                "后者必须单独说明这些承重件怎样按因果先后落位"
+            )
         hook = extract_labeled_value(block, "一句人话抓手")
         if not hook:
             errors.append(f"{path} {title} 缺少 `一句人话抓手`")
@@ -3055,12 +3396,26 @@ def check_bridge_workcards_quality(
             )
 
 
-def extract_high_risk_cards(text: str) -> list[tuple[str, str]]:
+def extract_high_risk_cards(text: str) -> list[tuple[str, str, str]]:
     matches = list(re.finditer(r"^\s*-\s*桥段名[：:]\s*(.+)$", text, flags=re.M))
-    cards: list[tuple[str, str]] = []
+    cards: list[tuple[str, str, str]] = []
     for idx, match in enumerate(matches):
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(text)
-        cards.append((match.group(1).strip(), text[match.start():end]))
+        context_start = matches[idx - 1].end() if idx else 0
+        prefix = text[context_start:match.start()]
+        heading_matches = list(re.finditer(r"^##\s+(.+?)\s*$", prefix, flags=re.M))
+        bid_field_matches = list(
+            re.finditer(r"^\s*-\s*BID[：:]\s*(BID-\d+)\s*$", prefix, flags=re.M)
+        )
+        context = "\n".join(
+            value
+            for value in (
+                heading_matches[-1].group(1).strip() if heading_matches else "",
+                bid_field_matches[-1].group(1).strip() if bid_field_matches else "",
+            )
+            if value
+        )
+        cards.append((match.group(1).strip(), text[match.start():end], context))
     return cards
 
 
@@ -3079,8 +3434,8 @@ def check_bridge_emotion_asset_alignment(
     ledger_by_id = {
         str(item.get("beat_id") or "").strip(): item for item in ledger_beats
     }
-    for title, block in extract_high_risk_cards(read_text(path)):
-        bid_match = re.search(r"\bBID-\d+\b", title)
+    for title, block, context in extract_high_risk_cards(read_text(path)):
+        bid_match = re.search(r"\bBID-\d+\b", f"{title}\n{context}\n{block}")
         if not bid_match:
             errors.append(f"{path} 桥段卡缺少 BID：{title}")
             continue
@@ -3094,7 +3449,7 @@ def check_bridge_emotion_asset_alignment(
         parsed_rows: list[tuple[str, str, str, int, str]] = []
         for row in rows:
             match = re.fullmatch(
-                r"(E-\d+)\s*\|\s*(?:实际)?作用[：:]\s*([^|]+?)\s*\|\s*"
+                r"(E-[A-Za-z0-9_-]+)\s*\|\s*(?:实际)?作用[：:]\s*([^|]+?)\s*\|\s*"
                 r"内容[：:]\s*([^|]+?)\s*\|\s*(?:情绪)?烈度[：:]\s*(\d{1,2})\s*\|\s*"
                 r"原文证据[：:]\s*(.+)",
                 row.strip(),
@@ -3132,7 +3487,14 @@ def check_bridge_emotion_asset_alignment(
             source_evidence = [
                 str(value).strip() for value in source.get("source_evidence", [])
             ]
-            if evidence not in source_evidence:
+            evidence_value = evidence
+            start_line = source.get("start_line")
+            end_line = source.get("end_line")
+            if isinstance(start_line, int) and isinstance(end_line, int):
+                line_prefix = f"L{start_line}-L{end_line}"
+                if evidence_value.startswith(line_prefix):
+                    evidence_value = evidence_value[len(line_prefix):].lstrip(" ：:")
+            if evidence_value not in source_evidence:
                 errors.append(f"{path} {bridge_id}/{beat_id} 原文证据未取自全文情绪总账")
 
 
@@ -3153,7 +3515,35 @@ def check_high_risk_asset_quality(path: Path, word_count: int, errors: list[str]
     if not cards:
         errors.append(f"{path} 没有有效高敏桥段卡，也没有声明“原文未发现”")
         return
-    for title, block in cards:
+    scaffold_hits = [
+        pattern
+        for pattern in HIGH_RISK_ASSET_FORBIDDEN_SCAFFOLD_PATTERNS
+        if re.search(pattern, text)
+    ]
+    if scaffold_hits:
+        errors.append(
+            f"{path} 命中 {len(scaffold_hits)} 类高敏资产固定句壳；"
+            "禁止把原文引句包进统一情绪概括句，"
+            "必须按本桥真实换权、情绪位移和不可复制性重写"
+        )
+    repeated_field_threshold = max(3, math.ceil(len(cards) * 0.6))
+    for label in ("桥段角色", "高敏点", "可学层", "禁学层"):
+        values = [
+            normalize_text(extract_labeled_value(block, label))
+            for _title, block, _heading in cards
+        ]
+        repeated = [
+            (value, count)
+            for value, count in Counter(value for value in values if value).items()
+            if count >= repeated_field_threshold
+        ]
+        if repeated:
+            value, count = max(repeated, key=lambda item: item[1])
+            errors.append(
+                f"{path} `{label}` 跨 BID 完全重复 {count}/{len(cards)} 次："
+                f"{value[:100]}；高敏边界必须逐桥区分可迁移机制与不可复刻组合"
+            )
+    for title, block, _heading in cards:
         required_groups = {
             "桥段角色": ("桥段角色",),
             "原文": ("原文", "原文证据", "证据1"),
@@ -3169,6 +3559,13 @@ def check_high_risk_asset_quality(path: Path, word_count: int, errors: list[str]
         ]
         if missing:
             errors.append(f"{path} {title} 缺少有效字段：{', '.join(missing)}")
+        must_keep = normalize_text(extract_labeled_value(block, "必须保留的承重件"))
+        sequence = normalize_text(extract_labeled_value(block, "不能丢的顺序"))
+        if must_keep and sequence and must_keep == sequence:
+            errors.append(
+                f"{path} {title} `必须保留的承重件` 与 `不能丢的顺序` 跨字段复制；"
+                "高敏卡必须分别说明不可替代载体与因果落位，不能用同一事件链代填两项"
+            )
 
 
 def read_original_text(root: Path) -> str:
@@ -3198,7 +3595,7 @@ def check_cross_asset_semantics(
                 "请人工判断是否用其他表达写清了关系根部"
             )
         if re.search(r"(小时候|童年|上学|从前|多年前|旧案|旧事)", original_text) and not re.search(
-            r"(旧案关系|旧账关系|历史关系|过去关系|旧事牵系|旧案牵系)",
+            r"(旧案标签|关系旧案|旧事关系|旧案关系|旧账关系|历史关系|过去关系|旧事牵系|旧案牵系)",
             relationship_text,
         ) and notes is not None:
             notes.append(
@@ -3393,6 +3790,8 @@ def check_full_text_emotion_ledger(
             errors.append(f"{label} 缺少独占 source_evidence")
             evidence = []
         source_slice = "\n".join(source_lines[start_line - 1 : end_line])
+        if any(BOOK_METADATA_LINE_RE.match(line) for line in source_lines[start_line - 1 : end_line]):
+            errors.append(f"{label} 不得把全文完、备案号等书外元数据标为 E 拍")
         for quote in evidence:
             quote = str(quote).strip()
             if not quote or quote not in source_slice:
@@ -3406,12 +3805,53 @@ def check_full_text_emotion_ledger(
             "禁止漏拍、重复归属或由 BID 反向筛拍"
         )
 
+    emotion_scaffold_hits = {
+        field: sum(
+            normalize_text(beat.get(field)) in {normalize_text(value) for value in forbidden}
+            for beat in beats
+            if isinstance(beat, dict)
+        )
+        for field, forbidden in EMOTION_LEDGER_SCAFFOLD_VALUES.items()
+    }
+    for field, count in emotion_scaffold_hits.items():
+        if count:
+            errors.append(
+                f"{path} {count} 个 E 拍的 {field} 使用禁用概括占位句；"
+                "必须写出本拍真实情绪、关系或读者预期位移"
+            )
+    for field, count in collect_ledger_pattern_hits(
+        beats, EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+    ).items():
+        errors.append(
+            f"{path} {count} 个 E 拍的 {field} 使用原文嵌入固定句式；"
+            "替换行号、人物名或引文不构成语义拆解"
+        )
+    repetitive_threshold = max(6, (len(beats) * 6 + 9) // 10)
+    for field, count in collect_ledger_pattern_hits(
+        beats, EMOTION_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS
+    ).items():
+        if count >= repetitive_threshold:
+            errors.append(
+                f"{path} E 拍的 {field} 句法骨架高比例复用：{count}/{len(beats)}；"
+                "必须按每次真实情绪、关系和读者预期位移重写"
+            )
+    if len(beats) >= 8:
+        roles = {normalize_text(beat.get("role")) for beat in beats if isinstance(beat, dict)}
+        functions = {normalize_text(beat.get("narrative_function")) for beat in beats if isinstance(beat, dict)}
+        intensities = {beat.get("intensity") for beat in beats if isinstance(beat, dict)}
+        if len(roles) == len(functions) == len(intensities) == 1:
+            errors.append(
+                f"{path} E 拍语义分布塌缩：{len(beats)} 拍的 role、"
+                "narrative_function 与 intensity 均为单值；必须重切真实峰谷和功能"
+            )
+
     candidates = data.get("source_emotion_candidate_audit")
     if not isinstance(candidates, list) or not candidates:
         errors.append(f"{path} source_emotion_candidate_audit 必须包含源文情绪候选反查")
         candidates = []
     candidate_ids: list[str] = []
     covered_beat_ids: set[str] = set()
+    candidate_bound_sequence: list[list[str]] = []
     beat_id_set = set(beat_ids)
     for index, candidate in enumerate(candidates, start=1):
         label = f"{path} source_emotion_candidate_audit[{index}]"
@@ -3454,17 +3894,35 @@ def check_full_text_emotion_ledger(
             errors.append(f"{label} bound_beat_ids 必须是列表")
             bound_beat_ids = []
         normalized_ids = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
+        candidate_bound_sequence.append(normalized_ids)
         missing_ids = [beat_id for beat_id in normalized_ids if beat_id not in beat_id_set]
         if missing_ids:
             errors.append(f"{label} 绑定了不存在的 E 拍: {', '.join(missing_ids)}")
         covered_beat_ids.update(normalized_ids)
         if decision == "independent_beat" and len(normalized_ids) != 1:
             errors.append(f"{label} independent_beat 必须唯一绑定一个 E 拍")
+        if decision == "independent_beat" and str(candidate.get("merge_reason") or "").strip():
+            errors.append(f"{label} independent_beat 不得填写 merge_reason")
         if decision == "merged_same_atomic_chain":
             if len(normalized_ids) != 1:
                 errors.append(f"{label} merged_same_atomic_chain 必须绑定被并入的一个 E 拍")
             if len(str(candidate.get("merge_reason") or "").strip()) < 12:
                 errors.append(f"{label} merged_same_atomic_chain 必须具体说明不可拆理由")
+        judgment = str(candidate.get("manual_judgment") or "").strip()
+        if any(re.search(pattern, judgment) for pattern in EMOTION_CANDIDATE_FORBIDDEN_SCAFFOLD_PATTERNS):
+            errors.append(
+                f"{label} manual_judgment 使用候选审计固定句壳；"
+                "必须写清本段具体期待对象、受伤对象、关系位置或行动冲动如何变化"
+            )
+        merge_reason = str(candidate.get("merge_reason") or "").strip()
+        if merge_reason and any(
+            re.search(pattern, merge_reason)
+            for pattern in CANDIDATE_MERGE_REASON_FORBIDDEN_SCAFFOLD_PATTERNS
+        ):
+            errors.append(
+                f"{label} merge_reason 使用统一不可拆句壳；"
+                "必须说明这一候选为何与绑定 E 拍共用受伤对象、关系位移或情绪后果"
+            )
         if decision == "non_emotional" and normalized_ids:
             errors.append(f"{label} non_emotional 不得绑定 E 拍")
     if len(candidate_ids) != len(set(candidate_ids)):
@@ -3472,6 +3930,25 @@ def check_full_text_emotion_ledger(
     unbound_beat_ids = [beat_id for beat_id in beat_ids if beat_id not in covered_beat_ids]
     if unbound_beat_ids:
         errors.append(f"{path} E 拍未被源文情绪候选反查绑定: {', '.join(unbound_beat_ids)}")
+    if len(candidates) >= 12:
+        decisions = {str(item.get("decision") or "").strip() for item in candidates if isinstance(item, dict)}
+        if (
+            len(candidates) == len(beats)
+            and decisions == {"independent_beat"}
+            and candidate_bound_sequence == [[beat_id] for beat_id in beat_ids]
+        ):
+            errors.append(
+                f"{path} source_emotion_candidate_audit 与 beats 等量同序一对一镜像："
+                f"{len(candidates)} 个候选全部由对应 E 拍反推；"
+                "必须独立盘点合并项与非情绪支撑项后再绑定"
+            )
+        axes = {normalize_text(item.get("change_axis")) for item in candidates if isinstance(item, dict)}
+        judgments = {normalize_text(item.get("manual_judgment")) for item in candidates if isinstance(item, dict)}
+        if decisions == {"independent_beat"} and len(axes) == 1 and len(judgments) == 1:
+            errors.append(
+                f"{path} 情绪候选反查塌缩：{len(candidates)} 个候选全部同轴、"
+                "同裁决、同判断；逐行复制不能替代人工候选裁决"
+            )
 
     review = data.get("completeness_review")
     if not isinstance(review, dict):
@@ -3599,6 +4076,7 @@ def check_full_text_plot_ledger(
         candidates = []
     candidate_ids: list[str] = []
     candidate_bound_beats: dict[str, list[str]] = {}
+    candidate_bound_sequence: list[list[str]] = []
     for index, candidate in enumerate(candidates, start=1):
         label = f"{path} source_plot_candidate_audit[{index}]"
         if not isinstance(candidate, dict):
@@ -3635,13 +4113,31 @@ def check_full_text_plot_ledger(
             bound_beat_ids = []
         normalized_beats = [str(item).strip() for item in bound_beat_ids if str(item).strip()]
         candidate_bound_beats[candidate_id] = normalized_beats
+        candidate_bound_sequence.append(normalized_beats)
         if decision == "independent_beat" and len(normalized_beats) != 1:
             errors.append(f"{label} independent_beat 必须唯一绑定一个 P 拍")
+        if decision == "independent_beat" and str(candidate.get("merge_reason") or "").strip():
+            errors.append(f"{label} independent_beat 不得填写 merge_reason")
         if decision == "merged_same_atomic_chain":
             if len(normalized_beats) != 1:
                 errors.append(f"{label} merged_same_atomic_chain 必须绑定被并入的一个 P 拍")
             if len(str(candidate.get("merge_reason") or "").strip()) < 12:
                 errors.append(f"{label} merged_same_atomic_chain 必须具体说明不可拆理由")
+        judgment = str(candidate.get("manual_judgment") or "").strip()
+        if any(re.search(pattern, judgment) for pattern in PLOT_CANDIDATE_FORBIDDEN_SCAFFOLD_PATTERNS):
+            errors.append(
+                f"{label} manual_judgment 使用候选审计固定句壳；"
+                "必须写清本段具体施事者、动作、换权、信息或现实后果"
+            )
+        merge_reason = str(candidate.get("merge_reason") or "").strip()
+        if merge_reason and any(
+            re.search(pattern, merge_reason)
+            for pattern in CANDIDATE_MERGE_REASON_FORBIDDEN_SCAFFOLD_PATTERNS
+        ):
+            errors.append(
+                f"{label} merge_reason 使用统一不可拆句壳；"
+                "必须说明这一候选为何与绑定 P 拍共用施事者、动作或后果"
+            )
         if decision == "non_plot" and normalized_beats:
             errors.append(f"{label} non_plot 不得绑定 P 拍")
     if len(candidate_ids) != len(set(candidate_ids)):
@@ -3715,12 +4211,78 @@ def check_full_text_plot_ledger(
             else:
                 evidence = str(beat.get("source_evidence") or "").strip()
                 source_window = "\n".join(source_lines[start_line - 1 : end_line])
+                if any(BOOK_METADATA_LINE_RE.match(line) for line in source_lines[start_line - 1 : end_line]):
+                    errors.append(f"{label} 不得把全文完、备案号等书外元数据标为 P 拍")
                 if evidence and evidence not in source_window:
                     errors.append(f"{label} source_evidence 不在绑定行范围")
         if not isinstance(beat.get("bid_ids"), list):
             errors.append(f"{label} bid_ids 必须是列表，桥外拍使用 []")
         elif len(beat.get("bid_ids")) > 1:
             errors.append(f"{label} bid_ids 不得让同一情节拍重复归属多个 BID")
+    plot_scaffold_hits = {
+        field: sum(
+            normalize_text(beat.get(field)) in {normalize_text(value) for value in forbidden}
+            for beat in beats
+            if isinstance(beat, dict)
+        )
+        for field, forbidden in PLOT_LEDGER_SCAFFOLD_VALUES.items()
+    }
+    for field, count in plot_scaffold_hits.items():
+        if count:
+            errors.append(
+                f"{path} {count} 个 P 拍的 {field} 使用禁用概括占位句；"
+                "必须写出施事者、动作对象、换权、信息与现实后果"
+            )
+    for field, count in collect_ledger_pattern_hits(
+        beats, PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+    ).items():
+        errors.append(
+            f"{path} {count} 个 P 拍的 {field} 使用原文嵌入固定句式；"
+            "替换行号、人物名或引文不构成语义拆解"
+        )
+    repetitive_threshold = max(6, (len(beats) * 6 + 9) // 10)
+    for field, count in collect_ledger_pattern_hits(
+        beats, PLOT_LEDGER_REPETITIVE_SCAFFOLD_PATTERNS
+    ).items():
+        if count >= repetitive_threshold:
+            errors.append(
+                f"{path} P 拍的 {field} 句法骨架高比例复用：{count}/{len(beats)}；"
+                "必须逐拍写清真实动作、换权、信息与现实后果"
+            )
+    for field, (value, count) in collect_excessive_exact_repetitions(
+        beats,
+        ("pressure_or_trigger", "control_change", "information_change"),
+    ).items():
+        errors.append(
+            f"{path} P 拍的 {field} 固定分类句复用过多："
+            f"{count}/{len(beats)} -> {value[:80]}；"
+            "主题相同也必须逐拍写出这一次具体由什么触发、谁取得什么控制、读者新增什么事实"
+        )
+    if len(beats) >= 8:
+        semantic_fields = (
+            "actor", "action", "object_or_receiver", "pressure_or_trigger",
+            "control_change", "information_change", "consequence",
+        )
+        if all(
+            len({normalize_text(beat.get(field)) for beat in beats if isinstance(beat, dict)}) == 1
+            for field in semantic_fields
+        ):
+            errors.append(
+                f"{path} P 拍语义字段全量塌缩：{len(beats)} 拍的施事、动作、"
+                "换权、信息与后果均为单值；原文逐行复制不构成情节微拍分析"
+            )
+        duplicated_action_objects = sum(
+            normalize_text(beat.get("action"))
+            == normalize_text(beat.get("object_or_receiver"))
+            for beat in beats
+            if isinstance(beat, dict)
+        )
+        duplicate_threshold = max(6, (len(beats) + 3) // 4)
+        if duplicated_action_objects >= duplicate_threshold:
+            errors.append(
+                f"{path} P 拍 action 与 object_or_receiver 跨字段复制："
+                f"{duplicated_action_objects}/{len(beats)}；动作与承受者/载体必须分别拆明"
+            )
     if len(plot_ids) != len(set(plot_ids)):
         errors.append(f"{path} beat_id 存在重复")
     plot_id_set = set(plot_ids)
@@ -3736,6 +4298,26 @@ def check_full_text_plot_ledger(
     unbound_plot_ids = [beat_id for beat_id in plot_ids if beat_id not in covered_plot_ids]
     if unbound_plot_ids:
         errors.append(f"{path} P 拍未被源文候选反查绑定: {', '.join(unbound_plot_ids)}")
+    if len(candidates) >= 12:
+        decisions = {str(item.get("decision") or "").strip() for item in candidates if isinstance(item, dict)}
+        if (
+            len(candidates) == len(beats)
+            and decisions == {"independent_beat"}
+            and candidate_bound_sequence == [[beat_id] for beat_id in plot_ids]
+        ):
+            errors.append(
+                f"{path} source_plot_candidate_audit 与 beats 等量同序一对一镜像："
+                f"{len(candidates)} 个候选全部由对应 P 拍反推；"
+                "必须独立盘点合并项与非情节支撑项后再绑定"
+            )
+        types = {normalize_text(item.get("candidate_type")) for item in candidates if isinstance(item, dict)}
+        actors = {normalize_text(item.get("actor")) for item in candidates if isinstance(item, dict)}
+        judgments = {normalize_text(item.get("manual_judgment")) for item in candidates if isinstance(item, dict)}
+        if decisions == {"independent_beat"} and len(types) == len(actors) == len(judgments) == 1:
+            errors.append(
+                f"{path} 情节候选反查塌缩：{len(candidates)} 个候选全部同类型、"
+                "同施事、同裁决、同判断；必须重新执行正反向语义扫描"
+            )
 
     emotion_beats = [
         beat
@@ -3902,6 +4484,10 @@ def check_book_profile_emotion_ledger_alignment(
                 errors.append(
                     f"{root / 'book.profile.json'} {bridge_id}/{beat_id} role 与全文情绪总账不一致"
                 )
+            if beat.get("content") != source_beat.get("content"):
+                errors.append(
+                    f"{root / 'book.profile.json'} {bridge_id}/{beat_id} content 与全文情绪总账不一致"
+                )
             if beat.get("intensity") != source_beat.get("intensity"):
                 errors.append(
                     f"{root / 'book.profile.json'} {bridge_id}/{beat_id} intensity 与全文情绪总账不一致"
@@ -4004,6 +4590,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
             check_markdown_hygiene(path, errors)
             check_contains_all(path, ["具体发生了什么", "这个细节为什么有用", "后续能迁到什么新桥段"], errors)
             check_detail_library_quality(path, word_count, errors, notes)
+        check_detail_library_cross_category_overlap(detail_dir, errors)
 
     asset_dir = root / "写作资产"
     if not asset_dir.exists() or not asset_dir.is_dir():
@@ -4098,6 +4685,7 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         errors,
         notes,
         load_dynamic_object_terms(root, original_text),
+        load_reviewed_object_terms(root),
     )
     check_bridge_reconciliation(root, book_profile, errors, notes)
     check_book_profile_emotion_ledger_alignment(
