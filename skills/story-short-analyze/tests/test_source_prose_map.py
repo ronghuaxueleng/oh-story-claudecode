@@ -22,8 +22,30 @@ def write_json(path: Path, value: object) -> None:
 
 class SourceProseMapTest(unittest.TestCase):
     def test_bom_year_extra_heading_and_damaged_marker_are_not_prose(self) -> None:
-        lines = ["\ufeff2023", "番外：", "「（一」2", "16（周贺也视角）", "她仍站在雪里。"]
-        self.assertEqual({5}, MODULE.prose_line_numbers(lines, 1, len(lines)))
+        lines = ["\ufeff2023", "简介", "内容简介：", "番外：", "「（一」2", "16（周贺也视角）", "（01）", "(二十)", "她仍站在雪里。"]
+        self.assertEqual({9}, MODULE.prose_line_numbers(lines, 1, len(lines)))
+
+    def test_anti_piracy_watermarks_are_not_prose(self) -> None:
+        lines = [
+            "正文。",
+            "小 唬 𝗯𝗼𝘁文件防盗印，找书机器人选小虎。",
+            "【●x●i●A●O● ●H●U●】●b●o●t● 文●件●防●盗●印，找书机器人。",
+            "后文。",
+        ]
+        self.assertEqual({1, 4}, MODULE.prose_line_numbers(lines, 1, 4))
+
+    def test_punctuation_continuation_after_watermark_is_not_prose(self) -> None:
+        lines = [
+            "正文。",
+            "[ 小丶虎bot文丶件防丶][盗印，找书机器人选小丶][虎！",
+            "]",
+            "后文。",
+        ]
+        self.assertEqual({1, 4}, MODULE.prose_line_numbers(lines, 1, 4))
+
+    def test_combining_control_only_line_is_not_prose(self) -> None:
+        lines = ["正文。", "\u034f", "e\u0301仍是正文。"]
+        self.assertEqual({1, 3}, MODULE.prose_line_numbers(lines, 1, 3))
 
     def test_prose_lines_exclude_metadata_and_only_outer_punctuation(self) -> None:
         lines = [

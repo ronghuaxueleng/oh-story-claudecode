@@ -245,8 +245,12 @@ FOUNDATION_LANE_FIRST_WRITE_CONTRACT = {
         "contract_type": "discovery_index",
         "files": {
             "写作资产/本书动态信号字典.json": {
-                "required_phases": ["首次全文发现", "表后回扫"],
-                "required_state_fields": ["stabilized", "state_sha1"],
+                "required_initial_phase": "首次全文发现",
+                "required_initial_state": {
+                    "stabilized": False,
+                    "stability_checks": [],
+                },
+                "deferred_until_after_tables": ["表后回扫", "两轮独立漏项审计"],
                 "format": "合法 JSON；禁止 Markdown 代码围栏",
             },
             "写作资产/原文资产候选池.md": {
@@ -552,7 +556,7 @@ def asset_lane_first_write_contract(lane_id: str, word_count: int) -> dict:
                 "三个二级标题在每个文件中各出现且只出现一次",
                 "每段至少 2 条，并直接点名本表至少 2 个具体资产",
                 "所有表从首写起保留 `层级` 列；核心资产写 `核心`，其余写 `次级索引`",
-                "候选池已收录数高于最低行数时，以候选池已收录数为实际行数下限",
+                "候选池数量不设篇幅配额，以分块扫描、分类覆盖和逐字锚点核对质量",
             ],
         }
     if lane_id == "source_details":
@@ -1578,7 +1582,7 @@ def write_execution_prompt(
         "- 任一 lane 失败只二分责任批次重跑；二分仍失败才降级为双文件模式，不回退整波",
         "- 文件读取、grep、厚度统计、BID 贯通、foundation/finalize validator 一律优先走主线程工具流，不交给子 agent 重复执行",
         "- 子 agent 只用于正式内容产出；同一 executor 的后续 lane 必须继续使用原会话，任何时候不得超过 `_parallel_plan.json.agent_strategy.agent_session_limit`",
-        "- 候选池达到篇幅最低值且反向漏项审计不少于 5 项后，foundation 才能放行；profile 迁移资产低于篇幅最低值也必须回补",
+        "- 候选池、反向漏项审计与 profile 迁移资产均不设固定数量；必须逐项有原文证据、分类归属和迁移边界",
         f"- 每阶段用 `python3 skills/story-short-analyze/scripts/record_short_analyze_timing.py \"{out_dir}\" start|finish 阶段名` 写入 `_timing.json`",
         "- 不要整份加载 `output-templates.md`；先用标题检索定位当前文件模板，只读取命中标题到下一同级标题之间的区段",
         "- 批量模式不得压缩表格行数、细节卡数量、有效字符或高敏桥解释层",
@@ -1593,13 +1597,13 @@ def write_execution_prompt(
         "- `run_short_analyze_finalize.py` 只允许生成 `book.profile.json` 和执行校验，禁止修改任何 Markdown 正式产物",
         "- `profile_source.md` 的 `## 7. 禁句 / 禁写法` 里，每条禁写法后必须补 `- 为什么假：...`；少于 2 条视为当前批未完成",
         "- `scene_assets.public_explosion / scene_assets.external_order` 必须拆成多条独立事件，不要用分号把 4 个场面塞成 1 条",
-        "- `情节节点.md` 不能只保开头链和终局链；默认至少保 1 条中段承重链，单节点原文范围尽量控制在 80 行内，过宽就继续拆细",
+        "- `情节节点.md` 不能只保开头链和终局链；默认至少保 1 条中段承重链。节点原文范围按真实状态变化、因果推进和信息释放决定，不设固定行数上限；只有在一个节点混入多个独立承重变化时才拆细",
         "- `事实与推断台账.md` 里的单条事实不要吞大段剧情；遇到中段承重桥，宁可拆成 2-3 条 `Fxx`，也不要写成一个超宽范围",
         "- 16 张表不能只靠表后总结过检；表格本身要带原文证据列或同语义列，并且每行都要有迁移字段",
-        "- 16 张表优先保表格承重：8000 字以上样本里，`物件/动作/对白功能/钩子/微动作/失控说话` 默认至少保 5 条独立资产行，`公开炸场` 默认至少保 4 条，`顺序事件/对话衔接/误判/安静压迫场/人物偏手/烂关系漏出/后果链` 默认至少保 4 条，`导语拆解/外部秩序` 默认至少保 3 条；解释层再厚也不能代替表格行",
+        "- 16 张表只保留原文中真实存在、功能独立且可逐字核验的资产；不得按篇幅、表名或默认数量凑行。原文不足时注明扫描范围与不足原因；解释层不能代替表格证据",
         "- 16 张表后面的 `可直接借的承重结构 / 迁移顺序提醒 / 为什么这个顺序不能乱` 都必须直接点名本表条目，不能只写抽象总结",
         "- `原文资产候选池.md` 里凡是标记“已收录”的资产，目标文件里必须能搜到同名资产名或原文锚点；搜不到就算漏收",
-        "- `原文资产候选池.md` 某一表如果已收录了 4-6 条独立候选，目标表就应当至少有同量级行数；不要把 5 条候选压成 3 行‘更概括的总结’",
+        "- `原文资产候选池.md` 中标记已收录的候选必须逐条核对目标表是否存在对应原文锚点；不得用固定行数或同量级要求逼迫拆分，也不得把多个独立候选合并成无法反查的概括句",
         "- `原文资产候选池.md` 如果某类资产原文确实没有，必须显式写“已扫，原文未发现”，不能空着",
         "- `profile_source.md`、16 张表和 `book.profile.json.style_assets` 的原文资产，只写原文能逐字命中的短语/短句；解释句、总结句一律改写进说明层或 `derived_patterns`",
         "- `story_guardrails.character_face_split`、中段承重桥 `BID`、`桥段角色` 必须贯通 `拆文报告 / 情节节点 / 对应仿写表 / 高敏桥段识别 / 桥段施工卡 / profile_source / book.profile.json`",
@@ -1642,7 +1646,12 @@ def prepare(args: argparse.Namespace) -> dict:
     for dirname in layout.root_dirs:
         (out_dir / dirname).mkdir(parents=True, exist_ok=True)
 
-    source_copy = out_dir / "原文" / source.name
+    # Reparse workflows may use a temporary保全文件 such as `*.reparse-backup`.
+    # That suffix is an input transport detail, not the book's formal source
+    # filename; keep the in-book source path canonical for manifests, reading
+    # plans, validators, and downstream profile references.
+    formal_source_name = f"{book_name}.txt" if source.name.endswith(".reparse-backup") else source.name
+    source_copy = out_dir / "原文" / formal_source_name
     shutil.copy2(source, source_copy)
 
     text = read_text(source)

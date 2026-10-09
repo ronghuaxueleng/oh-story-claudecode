@@ -91,13 +91,14 @@ description: |
 ## 硬规则
 
 - 8 个类别键必须全部存在，允许空数组。
-- `anchor` 必须真实存在于 `line_start-line_end`，单条最多跨 80 行。
+- `anchor` 必须真实存在于 `line_start-line_end`，单条动态信号锚点最多跨 80 行；该限制只用于词条的局部核验，不适用于节点、场次、SF 或来源层的范围划分。
 - 每条信号必须关联至少一个候选 ID，或填写具体 `index_only_reason`。
 - `人物别名` 等只用于实体归一时，可以仅索引。
-- 两轮都必须覆盖 manifest 全部 Chunk。
+- foundation 初始态只写 `首次全文发现`，覆盖 manifest 全部 Chunk，固定保存 `stability_checks: [] / stabilized: false`；不得在 16 张表尚未完成时伪造表后回扫。
+- 16 张表完成后的最终稳定态必须补 `表后回扫`，该轮同样覆盖 manifest 全部 Chunk。
 - 两轮允许在同一模型回合内完成，但扫描顺序和 `notes` 必须不同，不得复制同一轮结果充数。
 - `added_terms` 必须能在类别条目中找到，`new_candidate_ids` 必须能在候选池找到。
-- `stability_checks` 必须恰好保留最后两轮独立漏项审计；两轮的 `added_terms / new_candidate_ids` 必须为空。
+- 最终稳定态的 `stability_checks` 必须恰好保留最后两轮独立漏项审计；两轮的 `added_terms / new_candidate_ids` 必须为空。foundation 初始态必须为空数组。
 - `state_sha1` 由 validator 按“全部标准化动态词 + 全部候选 ID”计算；手填 `stabilized: true` 不能绕过指纹检查。
 - 任一稳定审计发现新增项时，先回补字典、候选池和目标产物，再重新执行两轮稳定审计。
 - 单书词不得自动写回全局静态词表；跨书晋升另行审查。

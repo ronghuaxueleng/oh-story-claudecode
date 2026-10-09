@@ -41,7 +41,6 @@ BRIEF_REQUIRED_LABELS = (
     "核心关系",
     "时间边界",
     "固定称谓",
-    "BID 注册表",
 )
 
 BRIEF_BID_PATTERN = re.compile(
@@ -104,7 +103,10 @@ def check_analysis_brief(root: Path, source_lines: list[str], errors: list[str])
         if len(VALIDATOR.normalize_text(role)) < 4:
             errors.append(f"{path} {bid} 桥段角色过短：`{role}`")
 
-    if "原文无独立承重桥" not in text and not bids:
+    has_bid_registry = bool(
+        re.search(r"^\s*-\s*BID 注册表[：:]\s*\S+", text, flags=re.M)
+    )
+    if "原文无独立承重桥" not in text and not bids and not has_bid_registry:
         errors.append(
             f"{path} `BID 注册表` 没有可解析记录；"
             "有承重桥时使用 `BID-01 | L起-L止 | 锚点：... | 桥段角色：...`"
@@ -272,7 +274,13 @@ def validate(root: Path) -> tuple[list[str], list[str]]:
         for item in candidate_errors
         if "标记已收录，但资产名/锚点未出现在" not in item
     )
-    VALIDATOR.check_dynamic_signal_dictionary(root, source_lines, errors, notes)
+    VALIDATOR.check_dynamic_signal_dictionary(
+        root,
+        source_lines,
+        errors,
+        notes,
+        require_stable=False,
+    )
 
     if not errors:
         notes.append("foundation 预检通过，可以启动第二波资产 lane。")

@@ -228,6 +228,13 @@ class AssetCandidateLedgerTest(unittest.TestCase):
         errors, _ = self._check()
         self.assertTrue(any("标记已收录" in error for error in errors))
 
+    def test_included_candidate_can_precede_target_table_in_foundation(self) -> None:
+        entry = self.entries[0]
+        target_path = self.root / str(entry["target"])
+        target_path.unlink()
+        errors, _ = self._check()
+        self.assertFalse(any("标记已收录" in error for error in errors))
+
     def test_each_chunk_requires_rescan_confirmation(self) -> None:
         self._write_ledger(include_chunk_2=False)
         errors, _ = self._check()

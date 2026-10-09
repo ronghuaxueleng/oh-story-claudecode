@@ -162,6 +162,16 @@ class StoryProfileProseContractTest(unittest.TestCase):
     def test_unknown_object_without_source_dictionary_still_needs_evidence(self) -> None:
         self.assertFalse(PROFILE.keep_object_pressure_asset("她留下的旧怀表", set()))
 
+    def test_bridge_emotion_beat_preserves_stable_id_spelling(self) -> None:
+        for beat_id in ("E-001", "E-0001", "E-015B"):
+            with self.subTest(beat_id=beat_id):
+                parsed = PROFILE.parse_bridge_emotion_beat(
+                    "情绪拍",
+                    f"{beat_id} | 实际作用：受压 | 内容：人物退让",
+                )
+                self.assertIsNotNone(parsed)
+                self.assertEqual(beat_id, parsed["beat_id"])
+
 
 if __name__ == "__main__":
     unittest.main()

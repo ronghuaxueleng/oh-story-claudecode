@@ -13,6 +13,7 @@ import argparse
 from collections import Counter
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -20,9 +21,11 @@ from typing import Any
 SCHEMA_VERSION = "story-short-analyze.subflow-catalog.v2"
 SOURCE_LINE_RANGE_RE = re.compile(r"L?(\d+)\s*[-~至]\s*L?(\d+)", re.IGNORECASE)
 SOURCE_SECTION_MARKER_RE = re.compile(
-    r"\ufeff?\s*(?:\d+(?:[.、．])?(?:\s*[【\[][^】\]\r\n]{1,20}[】\]])?"
+    r"\ufeff?\s*(?:(?:内容)?简介\s*[:：]?"
+    r"|\d+(?:[.、．])?(?:\s*[【\[][^】\]\r\n]{1,20}[】\]])?"
     r"|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇]"
-    r"|番外\s*[:：]?"
+    r"|番外(?:\s*[:：—\-].*)?"
+    r"|[（(]\s*(?:\d+|[零〇一二三四五六七八九十百千万两]+)\s*[）)]"
     r"|[「“][(（][零〇一二三四五六七八九十]+[」”]\d+)\s*"
 )
 BOOK_METADATA_LINE_RE = re.compile(
@@ -39,6 +42,12 @@ BOOK_METADATA_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 OUTER_PUNCTUATION_LINES = {"!", "！", "?", "？"}
+ANTI_PIRACY_WATERMARK_RE = re.compile(
+    r"(?:小.{0,20}[虎唬].{0,120}防.{0,12}盗.{0,12}印"
+    r"|[bBｂＢ].{0,4}[oOｏＯ].{0,4}[tTｔＴ].{0,120}防.{0,12}盗.{0,12}印"
+    r"|防.{0,12}盗.{0,12}印.{0,120}机器人)",
+    re.IGNORECASE,
+)
 
 LANGUAGE_DIMENSIONS = (
     "narrative_voice_and_attitude",
@@ -76,6 +85,41 @@ GENERIC_LAYER_TEXT = {
     "exit_relation": "把本层新增动作、信息或情绪压力交给下一层。",
     "narrative_distance": "贴近叙述者的现场感知，必要处短暂拉开作压缩或回叙。",
 }
+
+
+def has_visible_text(value: str) -> bool:
+    return any(
+        not char.isspace() and unicodedata.category(char) not in {"Cf", "Mn", "Me"}
+        for char in value
+    )
+
+
+def watermark_line_numbers(lines: list[str]) -> set[int]:
+    """Return watermark lines, including punctuation-only continuation fragments."""
+    direct = {
+        index
+        for index, value in enumerate(lines, start=1)
+        if ANTI_PIRACY_WATERMARK_RE.search(value)
+    }
+    contaminated = set(direct)
+    for line_number in sorted(direct):
+        next_number = line_number + 1
+        while next_number <= len(lines):
+            visible = "".join(
+                char
+                for char in lines[next_number - 1]
+                if unicodedata.category(char) not in {"Cf", "Mn", "Me"}
+            ).strip()
+            if visible and not re.fullmatch(r"[\[\]【】()（）<>《》·•…—_=~\-]+", visible):
+                break
+            contaminated.add(next_number)
+            next_number += 1
+    return contaminated
+
+
+def exact_source_text(lines: list[str], start: int, end: int) -> str:
+    """Return the literal source range; contamination is classified separately."""
+    return "\n".join(lines[start - 1:end])
 
 GENERIC_SUBFLOW_TEXT = {
     "entry_state": "承接前文已建立的叙事状态。",
@@ -348,14 +392,16 @@ def parse_line_range(value: Any, label: str) -> tuple[int, int]:
 
 
 def prose_line_numbers(lines: list[str], start: int, end: int) -> list[int]:
-    nonempty = [index for index, value in enumerate(lines, start=1) if value.strip()]
+    nonempty = [index for index, value in enumerate(lines, start=1) if has_visible_text(value)]
     outer_nonempty = {nonempty[0], nonempty[-1]} if nonempty else set()
+    watermark_lines = watermark_line_numbers(lines)
     return [
         line_number
         for line_number in range(start, end + 1)
-        if lines[line_number - 1].strip()
+        if has_visible_text(lines[line_number - 1])
         and not SOURCE_SECTION_MARKER_RE.fullmatch(lines[line_number - 1])
         and not BOOK_METADATA_LINE_RE.match(lines[line_number - 1])
+        and line_number not in watermark_lines
         and not (
             line_number in outer_nonempty
             and lines[line_number - 1].strip() in OUTER_PUNCTUATION_LINES
@@ -559,7 +605,9 @@ def validate_dimension_realization(
         if status == "inactive" and evidence:
             errors.append(f"{dimension_label} 缺席时不得伪造原文证据")
         for quote in evidence:
-            if quote not in layer_text:
+            if ANTI_PIRACY_WATERMARK_RE.search(quote):
+                errors.append(f"{dimension_label} 不得引用防盗水印：{quote!r}")
+            elif quote not in layer_text:
                 errors.append(f"{dimension_label} 证据不在本层原文：{quote!r}")
             elif (
                 SOURCE_SECTION_MARKER_RE.fullmatch(quote.strip())
@@ -706,10 +754,12 @@ def validate_catalog(
         if sf_start < previous_sf_start:
             errors.append(f"{label} 必须按原文行区间非递减排列")
         previous_sf_start = sf_start
-        exact_excerpt = "\n".join(lines[sf_start - 1 : sf_end])
+        exact_excerpt = exact_source_text(lines, sf_start, sf_end)
         if not isinstance(item.get("source_excerpt"), str):
-            item["source_excerpt"] = exact_excerpt
-        if item.get("source_excerpt") != exact_excerpt:
+            errors.append(
+                f"{label}.source_excerpt 必须显式保存逐字原文，不能由 validator 静默补写"
+            )
+        elif item.get("source_excerpt") != exact_excerpt:
             errors.append(f"{label}.source_excerpt 必须逐字等于 L{sf_start}-L{sf_end}")
         source_evidence = item.get("source_evidence")
         if source_evidence is not None:
@@ -720,7 +770,9 @@ def validate_catalog(
                 errors.append(f"{label}.source_evidence 必须是非空原文短句列表")
             else:
                 for quote in source_evidence:
-                    if quote not in exact_excerpt:
+                    if ANTI_PIRACY_WATERMARK_RE.search(quote):
+                        errors.append(f"{label}.source_evidence 不得引用防盗水印：{quote!r}")
+                    elif quote not in exact_excerpt:
                         errors.append(
                             f"{label}.source_evidence 跨 SF 错绑或不在当前行域：{quote!r}"
                         )
@@ -773,10 +825,12 @@ def validate_catalog(
                 errors.append(f"{layer_label} 与前一层重叠或倒序")
             previous_layer_end = layer_end
             layer_span_lengths.append(layer_end - layer_start + 1)
-            exact_layer_text = "\n".join(lines[layer_start - 1 : layer_end])
+            exact_layer_text = exact_source_text(lines, layer_start, layer_end)
             if not isinstance(layer.get("source_text"), str):
-                layer["source_text"] = exact_layer_text
-            if layer.get("source_text") != exact_layer_text:
+                errors.append(
+                    f"{layer_label}.source_text 必须显式保存逐字原文，不能由 validator 静默补写"
+                )
+            elif layer.get("source_text") != exact_layer_text:
                 errors.append(
                     f"{layer_label}.source_text 必须逐字等于 L{layer_start}-L{layer_end}"
                 )
@@ -974,6 +1028,25 @@ def validate_catalog(
             errors.append(
                 f"来源层六维 {dimension}.how 去除引文/行号后的固定句法重复："
                 f"{count}/{total_layers}；必须重写本层真实成文机制"
+            )
+        fingerprint_counts = Counter(
+            normalize_layer_scaffold(value) for value in values
+            if normalize_layer_scaffold(value)
+        )
+        rotating_scaffolds = [
+            count for count in fingerprint_counts.values() if count >= 3
+        ]
+        rotating_coverage = sum(rotating_scaffolds)
+        rotating_threshold = max(9, (total_layers + 4) // 5)
+        if (
+            len(rotating_scaffolds) >= 2
+            and rotating_coverage >= rotating_threshold
+        ):
+            errors.append(
+                f"来源层六维 {dimension}.how 疑似模板库轮换："
+                f"{len(rotating_scaffolds)} 组固定说明覆盖 "
+                f"{rotating_coverage}/{total_layers} 层；"
+                "每层必须解释本层独有的原文成文机制，不能靠多套通用句错峰复用"
             )
     preserve_fingerprint, preserve_count = Counter(
         normalize_layer_scaffold(value) for value in preserve_values

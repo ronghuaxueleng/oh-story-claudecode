@@ -23,6 +23,9 @@ def dimension(status: str, how: str, evidence: list[str]) -> dict:
 
 
 class SubflowCatalogTest(unittest.TestCase):
+    def test_intro_heading_is_not_required_as_source_prose(self) -> None:
+        self.assertEqual([2], VALIDATOR.prose_line_numbers(["简介", "正文。"], 1, 2))
+
     def test_metadata_match_requires_the_whole_line(self) -> None:
         self.assertIsNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("完事觉得自己肯定要坐牢了。"))
         self.assertIsNotNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("（全文完）"))
@@ -31,12 +34,41 @@ class SubflowCatalogTest(unittest.TestCase):
     def test_chinese_chapter_heading_is_structural(self) -> None:
         self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("第一章"))
         self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("第二章"))
+        self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("（01）"))
+        self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("(二十)"))
 
     def test_bom_year_extra_heading_and_damaged_marker_are_structural(self) -> None:
         self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("\ufeff2023"))
         self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("番外："))
         self.assertIsNotNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("「（一」2"))
         self.assertIsNone(VALIDATOR.SOURCE_SECTION_MARKER_RE.fullmatch("番外下起了雪。"))
+
+    def test_anti_piracy_watermarks_are_not_prose(self) -> None:
+        lines = [
+            "正文。",
+            "小 唬 𝗯𝗼𝘁文件防盗印，找书机器人选小虎。",
+            "【●x●i●A●O● ●H●U●】●b●o●t● 文●件●防●盗●印，找书机器人。",
+            "后文。",
+        ]
+        self.assertEqual([1, 4], VALIDATOR.prose_line_numbers(lines, 1, 4))
+
+    def test_source_text_preserves_watermark_lines_verbatim(self) -> None:
+        lines = [
+            "正文。",
+            "[ 小丶虎bot文丶件防丶][盗印，找丶书机器人选小丶][虎，稳定靠谱！",
+            "]",
+            "后文。",
+        ]
+        self.assertEqual({2, 3}, VALIDATOR.watermark_line_numbers(lines))
+        self.assertEqual(
+            "正文。\n[ 小丶虎bot文丶件防丶][盗印，找丶书机器人选小丶][虎，稳定靠谱！\n]\n后文。",
+            VALIDATOR.exact_source_text(lines, 1, 4),
+        )
+        self.assertEqual([1, 4], VALIDATOR.prose_line_numbers(lines, 1, 4))
+
+    def test_combining_control_only_line_is_not_prose(self) -> None:
+        lines = ["正文。", "\u034f", "e\u0301仍是正文。"]
+        self.assertEqual([1, 3], VALIDATOR.prose_line_numbers(lines, 1, 3))
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -141,6 +173,35 @@ class SubflowCatalogTest(unittest.TestCase):
         rows, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
         self.assertEqual(1, len(rows))
         self.assertEqual([], errors)
+
+    def test_catalog_source_assets_preserve_watermark_but_evidence_must_exclude_it(self) -> None:
+        watermark = "小 唬 bot文件防盗印，找书机器人选小唬。"
+        self.original.write_text(
+            f"她先把门关上。\n他问：你怕什么？\n{watermark}\n]\n1\n"
+            "后来法院判了三年。\n",
+            encoding="utf-8",
+        )
+        row = self.valid_row()
+        row["source_range"] = "L1-L6"
+        row["source_excerpt"] = (
+            f"她先把门关上。\n他问：你怕什么？\n{watermark}\n]\n1\n后来法院判了三年。"
+        )
+        row["source_layer_topology"][1] = self.layer(
+            "SF-01-L02",
+            "L3-L6",
+            f"{watermark}\n]\n1\n后来法院判了三年。",
+            "institutional_result",
+        )
+        self.write(row)
+
+        _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+        row["source_evidence"] = [watermark]
+        self.write(row)
+
+        _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+        self.assertFalse(any("source_excerpt 必须逐字等于" in error for error in errors), errors)
+        self.assertFalse(any("source_text 必须逐字等于" in error for error in errors), errors)
+        self.assertTrue(any("不得引用防盗水印" in error for error in errors), errors)
 
     def test_book_metadata_and_outer_punctuation_are_not_required_as_prose(self) -> None:
         self.original.write_text(
@@ -396,6 +457,41 @@ class SubflowCatalogTest(unittest.TestCase):
             self.assertTrue(
                 any(f"{dimension}.how 句法骨架高比例复用" in error for error in errors)
             )
+
+    def test_many_layers_cannot_evade_gate_by_rotating_exact_how_templates(self) -> None:
+        source_lines = [f"人物{index}完成独立动作。" for index in range(1, 13)]
+        self.original.write_text("\n".join(source_lines) + "\n", encoding="utf-8")
+        templates = (
+            "动作先落地，人物态度随后才从反应中显形。",
+            "公开表象先出现，第一人称再用细节校正判断。",
+            "叙述先保留可见事实，末句才露出人物偏向。",
+        )
+        layers = []
+        for index, source_text in enumerate(source_lines, start=1):
+            layer = self.layer(
+                f"SF-01-L{index:02d}", f"L{index}-L{index}", source_text, "live_scene"
+            )
+            layer["dimension_realization"]["narrative_voice_and_attitude"]["how"] = (
+                templates[(index - 1) % len(templates)]
+            )
+            layers.append(layer)
+        row = {
+            "schema_version": VALIDATOR.SCHEMA_VERSION,
+            "subflow_id": "SF-01",
+            "source_range": "L1-L12",
+            "source_excerpt": "\n".join(source_lines),
+            "source_layer_order": [layer["layer_id"] for layer in layers],
+            "source_layer_topology": layers,
+        }
+        self.write(row)
+        _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+        self.assertTrue(
+            any(
+                "narrative_voice_and_attitude.how 疑似模板库轮换" in error
+                for error in errors
+            ),
+            errors,
+        )
 
     def test_dimension_how_cannot_hide_one_frame_behind_distinct_quotes(self) -> None:
         source_lines = [f"动作{i}落地。" for i in range(1, 13)]
@@ -857,7 +953,7 @@ class SubflowCatalogTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertEqual(["SF-01", "SF-02"], [row["subflow_id"] for row in rows])
 
-    def test_normalized_records_derive_exact_source_text_from_ranges(self) -> None:
+    def test_normalized_records_require_explicit_exact_source_text(self) -> None:
         row = self.valid_row()
         layers = row.pop("source_layer_topology")
         row.pop("schema_version")
@@ -878,14 +974,17 @@ class SubflowCatalogTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-        rows, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+        _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
 
-        self.assertEqual([], errors)
-        self.assertEqual(
-            "她先把门关上。\n他问：你怕什么？",
-            rows[0]["source_layer_topology"][0]["source_text"],
+        self.assertTrue(
+            any("source_excerpt 必须显式保存逐字原文" in error for error in errors),
+            errors,
         )
-        self.assertEqual(self.original.read_text(encoding="utf-8").rstrip("\n"), rows[0]["source_excerpt"])
+        self.assertEqual(
+            2,
+            sum("source_text 必须显式保存逐字原文" in error for error in errors),
+            errors,
+        )
 
 
 if __name__ == "__main__":

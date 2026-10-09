@@ -396,6 +396,13 @@ def collect_profile_source_pairs(lines: list[str]) -> dict[str, list[str]]:
             if value:
                 result[f"{current_parent}::{key.strip()}"].append(value.strip())
             continue
+        # Accept the common one-level bullet form used by profile_source.md:
+        # each bridge field is a sibling bullet, so bind it to the latest bridge.
+        if current_parent and body.startswith(("桥段角色：", "原文怎么起手：", "不能丢的顺序：", "为什么这个顺序不能乱：", "最容易写假的点：", "原文为什么能过：", "情绪拍：")):
+            key, _, value = body.partition("：")
+            if value:
+                result[f"{current_parent}::{key.strip()}"].append(value.strip())
+            continue
         if re.match(r"^桥段[：:]", body):
             current_parent = body
             result[current_parent]
@@ -721,14 +728,55 @@ LEGACY_BRIDGE_EMOTION_LABELS = (
 )
 
 
-def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None:
+def parse_bridge_emotion_beat(
+    beat: str,
+    value: str,
+    emotion_ledger: dict[str, dict[str, object]] | None = None,
+) -> dict[str, object] | None:
     # Emotion-beat evidence is a verbatim ledger key. Generic asset cleanup
     # strips terminal Chinese punctuation and breaks exact reconciliation.
     text = re.sub(r"\s+", " ", value).strip()
     if not text:
         return None
+    # Older incremental profile_source files recorded only an ordered list of
+    # E-IDs. Resolve those IDs against the already-audited full ledger so the
+    # generated profile retains the exact source role/content/intensity/evidence
+    # instead of manufacturing placeholder beats.
+    if beat == "情绪拍" and "|" not in text and emotion_ledger:
+        compact_ids = [item.strip() for item in re.split(r"[,，、;；]", text) if item.strip()]
+        if len(compact_ids) == 1 and compact_ids[0] in emotion_ledger:
+            source = emotion_ledger[compact_ids[0]]
+            evidence = source.get("source_evidence", [])
+            return {
+                "beat_id": compact_ids[0],
+                "beat": str(source.get("role") or "").strip(),
+                "role": str(source.get("role") or "").strip(),
+                "content": str(source.get("content") or "").strip(),
+                "intensity": source.get("intensity"),
+                "source_evidence": str(evidence[0]).strip() if isinstance(evidence, list) and evidence else "",
+            }
     intensity_match = re.search(r"(?:情绪)?烈度[：:]\s*(-?\d{1,2})", text)
     evidence_match = re.search(r"原文证据[：:]\s*(.+)$", text)
+    if beat == "情绪拍" and "|" not in text:
+        legacy_match = re.match(
+            r"(?P<id>E-\d{1,4})[；;]\s*(?:实际作用[：:])?(?P<role>[^；;]+)[；;]\s*(?:情绪动作/处境内容|内容)[：:](?P<content>[^；;]+)[；;]\s*(?:烈度)[：:](?P<intensity>\d{1,2})[；;]\s*(?:原文证据)[：:](?P<evidence>.+)$",
+            text,
+        )
+        if legacy_match:
+            beat_id = legacy_match.group("id")
+            role = legacy_match.group("role").strip()
+            content = legacy_match.group("content").strip()
+            if emotion_ledger and beat_id in emotion_ledger:
+                source = emotion_ledger[beat_id]
+                evidence = source.get("source_evidence", [])
+                return {
+                    "beat_id": beat_id,
+                    "beat": str(source.get("role") or "").strip(),
+                    "role": str(source.get("role") or "").strip(),
+                    "content": str(source.get("content") or "").strip(),
+                    "intensity": source.get("intensity"),
+                    "source_evidence": str(evidence[0]).strip() if isinstance(evidence, list) and evidence else "",
+                }
     content = re.split(r"\s*\|\s*(?:情绪)?烈度[：:]", text, maxsplit=1)[0].strip()
     beat_id = ""
     role = beat
@@ -737,11 +785,27 @@ def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None
         role_match = re.search(r"(?:实际)?作用[：:]\s*([^|]+)", text)
         content_match = re.search(r"内容[：:]\s*([^|]+)", text)
         beat_id = beat_id_match.group(1).strip() if beat_id_match else ""
-        # Normalize legacy short IDs at the profile boundary for canonical
-        # reconciliation with the emotion ledger.
-        beat_id = re.sub(r"^E-(\d{1,3})$", lambda match: f"E-{int(match.group(1)):04d}", beat_id)
         role = role_match.group(1).strip() if role_match else ""
         content = content_match.group(1).strip() if content_match else ""
+        # The full emotion ledger is authoritative. Inline profile text is a
+        # human-facing note and may be stale after an incremental re-cut; once
+        # an audited E-ID is present, preserve the ledger tuple verbatim.
+        if emotion_ledger and beat_id in emotion_ledger:
+            source = emotion_ledger[beat_id]
+            evidence = source.get("source_evidence", [])
+            return {
+                "beat_id": beat_id,
+                "beat": str(source.get("role") or "").strip(),
+                "role": str(source.get("role") or "").strip(),
+                "content": str(source.get("content") or "").strip(),
+                "intensity": source.get("intensity"),
+                "source_evidence": str(evidence[0]).strip() if isinstance(evidence, list) and evidence else "",
+            }
+    # Legacy profile sources used E-01/E-02 while current ledgers use
+    # three-digit IDs (E-001). Preserve current IDs verbatim, but canonicalize
+    # the short legacy form so parser output remains stable for old samples.
+    if beat_id and re.fullmatch(r"E-\d{1,2}", beat_id):
+        beat_id = f"E-{int(beat_id[2:]):04d}"
     result: dict[str, object] = {
         "beat_id": beat_id or beat,
         "beat": role or beat,
@@ -756,12 +820,30 @@ def parse_bridge_emotion_beat(beat: str, value: str) -> dict[str, object] | None
 
 def collect_bridge_emotion_sequence(
     collect_aliases: Callable[..., list[str]],
+    emotion_ledger: dict[str, dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     sequence: list[dict[str, object]] = []
     dynamic_values = collect_aliases("情绪拍")
     if dynamic_values:
         for value in dynamic_values:
-            item = parse_bridge_emotion_beat("情绪拍", value)
+            if emotion_ledger and "|" not in value:
+                compact_ids = [item.strip() for item in re.split(r"[,，、;；]", value) if item.strip()]
+                if len(compact_ids) > 1 and all(item in emotion_ledger for item in compact_ids):
+                    for beat_id in compact_ids:
+                        source = emotion_ledger[beat_id]
+                        evidence = source.get("source_evidence", [])
+                        sequence.append(
+                            {
+                                "beat_id": beat_id,
+                                "beat": str(source.get("role") or "").strip(),
+                                "role": str(source.get("role") or "").strip(),
+                                "content": str(source.get("content") or "").strip(),
+                                "intensity": source.get("intensity"),
+                                "source_evidence": str(evidence[0]).strip() if isinstance(evidence, list) and evidence else "",
+                            }
+                        )
+                    continue
+            item = parse_bridge_emotion_beat("情绪拍", value, emotion_ledger)
             if item:
                 sequence.append(item)
         return sequence
@@ -939,6 +1021,13 @@ def collect_explicit_story_guardrails(text: str) -> dict[str, object]:
     explicit: dict[str, dict[str, list[str]]] = defaultdict(lambda: defaultdict(list))
     for raw_line in text.splitlines():
         line = raw_line.strip()
+        natural = re.match(r"^-\s*(人物不同脸证据|谁先解释谁先压场|不同角色的动作权限差|重大证据前隔开的现实后果|后果回灌方式|尾声入口归属|不给另一条线的原因)[：:]\s*(.+)$", line)
+        if natural:
+            label, value = natural.groups()
+            group = "character_face_split" if label in ("人物不同脸证据", "谁先解释谁先压场", "不同角色的动作权限差") else "consequence_structure"
+            key_map = {"人物不同脸证据":"different_face_evidence", "谁先解释谁先压场":"reaction_order_split", "不同角色的动作权限差":"action_authority_split", "重大证据前隔开的现实后果":"pre_evidence_reality_consequences", "后果回灌方式":"consequence_rebound_modes", "尾声入口归属":"tail_entry_owner", "不给另一条线的原因":"tail_entry_exclusion_reason"}
+            explicit[group][key_map[label]].append(value.strip())
+            continue
         if not line.startswith("- profile_story_guardrail::"):
             continue
         payload = line[2:].strip()
@@ -1116,7 +1205,10 @@ def parse_sample_grading_text(text: str) -> dict[str, object]:
     return result
 
 
-def build_profile_source_bridge_rules(text: str) -> list[dict]:
+def build_profile_source_bridge_rules(
+    text: str,
+    emotion_ledger: dict[str, dict[str, object]] | None = None,
+) -> list[dict]:
     sections = parse_markdown_sections(text)
     bridge_lines = sections.get("6. 桥段承重件", [])
     if not bridge_lines:
@@ -1125,11 +1217,14 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
     rules: list[dict] = []
     bridge_index = 0
     for key in list(pairs.keys()):
-        if not key.startswith("桥段") or "::" in key:
+        # Only the canonical bridge header is a bridge record.  Fields such as
+        # “桥段角色：...” share the prefix but must remain children of the
+        # current bridge; treating them as bridges creates empty duplicate rules.
+        if not re.match(r"^桥段[：:]\s*", key) or "::" in key:
             continue
         bridge_index += 1
         title = key
-        title_body = title.removeprefix("桥段：").removeprefix("桥段").strip()
+        title_body = title.removeprefix("桥段：").removeprefix("桥段:").removeprefix("桥段").strip()
         bid_match = re.search(r"\b(BID-\d{2,3})\b", title_body, flags=re.I)
         bid = bid_match.group(1).upper() if bid_match else ""
         title_body = re.sub(r"^\[?(BID-\d{2,3})\]?\s*", "", title_body, flags=re.I).strip()
@@ -1152,6 +1247,8 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
                 "必留承重件",
                 "仿写必留",
                 "必须保留件",
+                "必须保留的承重件",
+                "不能丢的顺序",
             )
         )
         order = collect_bridge_step_terms(
@@ -1173,7 +1270,7 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
         why_passes = collect_bridge_reason_terms(
             collect_aliases("原文为什么能过", "原文为什么过检", "为什么能过")
         )
-        emotion_sequence = collect_bridge_emotion_sequence(collect_aliases)
+        emotion_sequence = collect_bridge_emotion_sequence(collect_aliases, emotion_ledger)
         rule = {
             "bridge": f"桥段{bridge_index}：{title_body}" if title_body else f"桥段{bridge_index}",
             "opening_pattern": normalize_items(opening),
@@ -1192,7 +1289,10 @@ def build_profile_source_bridge_rules(text: str) -> list[dict]:
     return rules
 
 
-def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
+def parse_profile_source(
+    text: str,
+    emotion_ledger: dict[str, dict[str, object]] | None = None,
+) -> dict[str, list[str] | list[dict]]:
     sections = parse_markdown_sections(text)
     result: dict[str, list[str] | list[dict]] = {}
 
@@ -1493,13 +1593,32 @@ def parse_profile_source(text: str) -> dict[str, list[str] | list[dict]]:
     if story_guardrails:
         result["story_guardrails"] = story_guardrails
 
-    result["bridge_rules"] = build_profile_source_bridge_rules(text)
+    result["bridge_rules"] = build_profile_source_bridge_rules(text, emotion_ledger)
     return result
 
 
 def existing_file(root: Path, rel: str) -> Path | None:
     path = root / rel
     return path if path.exists() else None
+
+
+def load_profile_emotion_ledger(root: Path) -> dict[str, dict[str, object]]:
+    """Load the audited full E ledger for compact profile_source bridge refs."""
+    path = root / "写作资产" / "全文情绪颗粒总账.json"
+    if not path.is_file():
+        return {}
+    try:
+        payload = json.loads(read_text(path))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    beats = payload.get("beats", []) if isinstance(payload, dict) else []
+    if not isinstance(beats, list):
+        return {}
+    return {
+        str(item.get("beat_id") or "").strip(): item
+        for item in beats
+        if isinstance(item, dict) and str(item.get("beat_id") or "").strip()
+    }
 
 
 def normalize_items(items: list[str]) -> list[str]:
@@ -2658,7 +2777,7 @@ def generate_profile_from_sources(sources: list[Path], name: str) -> dict:
         profile_source = existing_file(root, "写作资产/profile_source.md")
         if profile_source:
             text = read_text(profile_source)
-            parsed = parse_profile_source(text)
+            parsed = parse_profile_source(text, load_profile_emotion_ledger(root))
             sample_grading = parsed.get("sample_grading", {})
             if isinstance(sample_grading, dict):
                 for key, bucket_key in (

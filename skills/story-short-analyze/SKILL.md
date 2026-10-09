@@ -40,6 +40,8 @@ description: |
 - 仿写资产必须分轨建立两份全文总账：`全文情绪颗粒总账.json` 记录全部 `E-*` 感受位移，`全文情节微拍总账.json` 记录全部 `P-*` 事件行动。两者都必须从 L1 扫到 EOF，保留重复、过场和桥外拍，不得从 BID 并集或另一份总账反推。`E-*` 与 `P-*` 不得共用 ID，两轨数量不设配额也不默认相等。
 - 同一次逐行扫描还必须建立 `写作资产/子流程索引.jsonl + 子流程层次索引.jsonl`。前者保存 SF 整链，后者按原文真实叙事模式换挡保存逐层精确原文、前后连接、叙述距离、六维在本层怎样协同或为何缺席，以及目标必须保留的层级关系。两份由同一正式 validator 合并为合同中的 `source_layer_topology`，都不是第三份事件摘要。
 - 两份总账都必须做源文反查。情节轨同时建立逐行 `coverage_segments` 和逐候选 `source_plot_candidate_audit`，从两个相反扫描方向盘点独立动作、施压话轮、接招反应、身体/物件/空间换权、信息新增、旁观者反应、文案发布、评论转向与现实后果。情绪轨除逐行覆盖外，另建 `source_emotion_candidate_audit`，逐项盘点期待对象、受伤对象、关系位置、行动冲动或读者预期的每次变化。候选只能裁决为 `independent_beat / merged_same_atomic_chain / non_plot|non_emotional`；需要承载的候选必须绑定真实 P/E 拍，非承载项必须说明为什么没有变化。只列拍子而不反查原文候选，或把多次锯齿并成“大功能拍”，一律视为压缩化失败。
+- 节点、场次、P/E、SF 与来源层只按原文真实推进、换权、信息释放和叙事模式换挡确定；不得设置按篇幅估算的参考数量或固定最低数量，也不得用数量提示要求人工证明“为什么没有更多”。完整性只由逐行覆盖、候选审计、因果连续性和层级边界验证。
+- 节点与 SF 的原文范围不设固定行数上限；任何“最多 80 行”的文字只约束单条候选资产或动态信号的可核验锚点范围，不得反向套用为节点、场次或 SF 的硬闸。若一个候选跨越多个独立资产，应按真实资产边界拆分，而不是为了满足行数截断节点。
 - 情节候选反查必须先于 P 拍绑定独立完成。数字章节行必须单列 `structural_marker`，`plot_bearing` 中每个非空正文行必须进入至少一个候选 `source_range`；禁止用 `L1-EOF` 单一 `plot_bearing` 大桶包住全书，也禁止候选表与 P 表等量同序互抄后声称完成正反扫。判断句、即时插嘴或微动作不成 P 时，仍须进入候选并裁决为 `merged_same_atomic_chain / non_plot`，或被明确划入有理由的 `non_plot_support` 段。
 - 情绪候选反查执行同一行域原则：每个 `emotion_bearing` 非空正文行必须落入该段 E 拍所绑定候选的 `source_range`；纯换场、省略号或无情绪变化的支撑行必须单列 `non_emotional_support`，不得用 E 数量齐全掩盖段内漏行。
 - 通过 validator 只是放行底线，不是完成标准
@@ -139,6 +141,7 @@ description: |
 - 禁止任何兜底生成、自动补写、自动扩写、默认事件代填或跨书内容借位；依据不足时直接阻断
 - finalize 只允许生成 `book.profile.json` 和执行验证，不允许修改任何 Markdown 正式产物
 - 历史已拆目录需要补新资产时，必须走 `prepare_short_analyze_job.py --upgrade-existing "拆文库/{书名}"`；禁止用 `--force` 冒充增量，禁止删除旧成果后重建
+- 若 validator/finalize 明确判定为来源层模板轮换、书外 SF/结构标记污染、全局 P/E 语义塌缩等结构性错误，且用户要求从原文重拆，则升级规则让位于重解析：先把 `原文/` 文件复制到拆文库外的临时保全位置，再用 `prepare_short_analyze_job.py --force --name "{书名}" --output-root "拆文库"` 清理并在原目录初始化；初始化后必须核对原文 SHA/行数一致，禁止新建重拆目录、禁止删除原文
 - `--upgrade-existing` 必须刷新 `_required_outputs.json / _parallel_plan.json / _progress.md / _execution_prompt.md` 等过程文件，生成 `_upgrade_plan.md` 与 `_finalize_human_review.json`；同时必须读取并执行 `upgrade_actions` 分类结果，至少逐条处理 `safe_refresh_process_files / manual_backfill_missing_outputs / finalize_generated_outputs / profile_regeneration_required / profile_dependency_review`。缺失正式 Markdown 必须由模型按原文、模板和样本人工回填，不允许脚本空壳补文件；`book.profile.json` 与 `来源成文脑图.json` 只能进入 `finalize_generated_outputs`，禁止列入人工回填
 - 历史增量升级必须跑两段验收：先看 `_upgrade_plan.md` 与 `upgrade_actions`，确认文件缺失、profile 重生和依赖复核责任都已接单，再运行 `run_short_analyze_finalize.py` 抓内容级缺项；`missing_files=[]` 不等于完成，`upgrade_actions=[]` 才表示没有额外升级责任
 - 历史增量升级后 `_meta.json.upgrade_status` 固定重置为 `pending_content_review`；只有当前 first-write contract、全文情绪总账重建、各 BID 子集贯通和 profile 重生全部复核完成，且 `_finalize_human_review.json` 记录当前正式 Markdown SHA，才能改为完成态
@@ -162,6 +165,8 @@ description: |
   - 第 3 类：资产完整性提醒。凡提示“某张表可能漏掉终局证据载体 / 公开身份场 / 关系硬牌 / 物件回流载体”，必须回到对应正式产物补拆或显式记录“已人工复核，无需补”的判断，不能因为不阻断就直接结束。
   - 第 4 类：人物 / 关系拆解密度提醒。凡提示“未命中人物口气词 / 关系起点词 / 旧案标签 / 关系根部”等，必须回到 `写作手法.md`、`原文细节库/关系细节库.md` 等正式产物补出显性拆法，不允许只留脚本提示。
   - 这两类属于“通过后仍需回看”的强制收尾项，不是可选优化项；后续要把处理结果写进正式产物，而不是只停留在对话说明里。
+
+- `_finalize_human_review.json` 必须另有 `manual_sampling_reviews` 数组，记录定向人工抽检，不得用普通 `review_items` 代替。数组至少包含 `前段 / 中段 / 后段` 各一条连续原文窗口；每条必须有 `source_range`（如 `L12-L28`）、原文 `evidence`、具体 `judgement` 和 `writeback`。窗口数量不设固定配额：遇到叙事换挡密集或高敏桥，必须追加窗口。前/中/后抽检只验证代表性风险，不能替代 EOF、P/E、候选审计、SF 与逐层来源的全量覆盖。
 
 ---
 
@@ -276,6 +281,7 @@ description: |
 8. 必须在两份总账中各自覆盖原文 L1 到 EOF：情绪总账每拍写 `E-* / 实际作用 / 内容 / 触发 / 关系位置变化 / 读者体感 / 烈度 / 独占证据 / bid_ids`；情节总账每拍写 `P-* / actor / action / object_or_receiver / pressure_or_trigger / control_change / information_change / consequence / source_range / source_evidence / bid_ids`。两轨均保留桥外拍和同类重复；`P-*` 不得从 `E-*` 改名、扩写或复制得到。BID 必须在两份总账完成后归纳，并各自保持原序子集。
 8.1 情节总账不能用 `all_effective_plot_beats_preserved=true` 自证完整。必须由当前模型落盘逐行覆盖段与源文候选反查：每个独立话轮压力、动作换手、人物接招、旁观秩序反应、公开文案/评论和现实后果都要么单独成 P 拍，要么绑定同一不可拆身体/感官链并具体解释合并理由。若删除该候选会改变后续人物为什么行动、谁掌握什么、读者知道什么或现场如何站队，就不得标 `non_plot`，也不得并进只保留高潮结果的大拍。
 8.2 `子流程索引.jsonl + 子流程层次索引.jsonl` 联合覆盖 L1 到 EOF 全部非空正文行；纯数字章节标记、「全文完」、备案号和仅位于文件首尾的孤立书外标点不是正文，禁止为它们制造 SF 或来源层。validator 必须同时检查每个 SF 内的逐层覆盖和全部 SF 对原文有效行的联合覆盖；只做到“各 SF 内不漏层”、却把某段原文排除在所有 SF 外，仍视为压缩化失败。每个 SF 的正式 `source_layer` 记录按叙事模式真正换挡处切层，不按固定句数、字数、人物/动作/物件组件凑层。每层逐字保存 `source_text` 并填写层型、进出关系、叙述距离、六维 active/inactive 与目标保留规则；validator 合并后的 `source_layer_topology` 才是写作入口。SF 级摘要、完整 `source_excerpt`、P/E 拍或桥段施工卡均不得替代逐层记录。
+8.3 前段、中段、后段人工抽检只是定向复核，不是全文覆盖证明，也不得替代 EOF 通读、P/E 逐行覆盖、候选审计、SF/来源层联合覆盖或自动 validator。每一段抽检必须记录当前原文的真实行号范围、至少一个连续证据窗口、该窗口涉及的动作/信息/关系/控制权/后果裁决、对应正式产物以及复核结论；若该段含多个独立换挡或高敏桥，必须追加相应窗口，不能用一个开头或结尾短句代表整段。抽检窗口数量不设固定配额，按原文长度、换挡密度和风险决定；数量少不自动合格，数量多也不替代全量证据。`_progress.md` 与 `_finalize_human_review.json` 必须分别写明三段是否闭环及其证据锚点。
 9. `profile_source.md` 同时服务结构化抽取和单书厚规则包；`桥段施工卡.md` 继续承担更厚的人类施工解释层，但不能把桥规则骨架全甩给施工卡
 10. `拆文报告.md`、`写作手法.md`、`写作资产/样本分级与可学层.md` 必须共同承接全局成文形状审计；只在细节表或模型备注中提及不算完成
 11. `book.profile.json` 与 `写作资产/来源成文脑图.json` 均由正式收口脚本确定性生成，不与 Markdown 同批手写；来源脑图只保存行号、结构字段和哈希，不复制大段原文

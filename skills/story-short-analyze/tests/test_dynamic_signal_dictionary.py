@@ -112,7 +112,7 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def _check(self) -> tuple[list[str], list[str]]:
+    def _check(self, *, require_stable: bool = True) -> tuple[list[str], list[str]]:
         errors: list[str] = []
         notes: list[str] = []
         VALIDATOR.check_dynamic_signal_dictionary(
@@ -120,6 +120,7 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
             self.source_lines,
             errors,
             notes,
+            require_stable=require_stable,
         )
         return errors, notes
 
@@ -145,6 +146,28 @@ class DynamicSignalDictionaryTest(unittest.TestCase):
         self._write_payload()
         errors, _ = self._check()
         self.assertTrue(any("缺少回补阶段：表后回扫" in error for error in errors))
+
+    def test_foundation_accepts_initial_discovery_without_post_table_state(self) -> None:
+        self.payload["backfill_rounds"] = self.payload["backfill_rounds"][:1]
+        self.payload["stability_checks"] = []
+        self.payload["stabilized"] = False
+        self._write_payload()
+
+        errors, notes = self._check(require_stable=False)
+
+        self.assertEqual([], errors)
+        self.assertTrue(any("闸门通过（foundation 初始）" in note for note in notes))
+
+    def test_final_validation_rejects_foundation_initial_state(self) -> None:
+        self.payload["backfill_rounds"] = self.payload["backfill_rounds"][:1]
+        self.payload["stability_checks"] = []
+        self.payload["stabilized"] = False
+        self._write_payload()
+
+        errors, _ = self._check()
+
+        self.assertTrue(any("缺少回补阶段：表后回扫" in error for error in errors))
+        self.assertTrue(any("必须恰好包含两轮独立漏项审计" in error for error in errors))
 
     def test_stability_fingerprint_must_match_current_state(self) -> None:
         self.payload["stability_checks"][1]["state_sha1"] = "bad"

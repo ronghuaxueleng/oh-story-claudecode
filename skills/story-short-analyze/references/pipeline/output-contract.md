@@ -141,7 +141,8 @@ C001 | L起-L止 | 锚点：原文短语 | 类别：物件 | 资产名：具体�
 
 - 固定包含 `人物别名 / 核心物件 / 动作与微动作 / 对白功能信号 / 安静场信号 / 证据载体 / 未来事件 / 关系与秩序变化` 8 个键
 - 每条词带原文行号、真实锚点、候选 ID；仅作实体索引时写具体理由
-- `首次全文发现 / 表后回扫` 两轮都覆盖 manifest 全部 Chunk
+- foundation 前只要求 `首次全文发现` 覆盖 manifest 全部 Chunk，并保持 `stabilized=false`；不得提前伪造表后状态
+- 16 张表完成后再执行 `表后回扫`，最终两轮均覆盖 manifest 全部 Chunk
 - 新词先回补本书字典，再重扫原文、候选池和目标表
 - 连续一轮无新增后才能写 `stabilized: true`
 - 单书新词不自动写回全局静态词表
@@ -220,14 +221,14 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
 
 每条 SF 固定使用 `story-short-analyze.subflow-catalog.v2`，除既有进入态、必经顺序、情绪序列和 SF 级六维分析外，必须包含：
 
-- `source_excerpt`：逐字等于整个 SF 原文范围。
+- `source_excerpt`：逐字等于整个 SF 原文范围，包括原文件中的水印、控制字符、空行和结构标记；来源字段不得清洗或静默删改。水印不得单独作为 `source_evidence` 引句，也不得计入正文行域判断。
 - `source_layer_order`：与逐层拓扑完整同序的 layer ID。
 - `source_layer_topology`：按原文现场、概述、插嘴、跳时、判刑急刹、传闻余尾等真实模式换挡切层。
 - 每层保存 `layer_id / source_range / source_text / layer_modes / layer_role / entry_relation / exit_relation / narrative_distance`。
 - 每层保存六维 `dimension_realization`。每维写 `status: active|inactive / how / source_evidence`；激活必须给本层逐字证据，缺席必须说明本层为什么不用该维度。
 - 每层保存 `must_preserve_in_target`，明确新稿必须保持的层型、连接和气口；只允许替换事件壳，不允许把现场、概述、插嘴、急刹和余尾改成同一种说明段。
 
-完整性由正式 `validate_subflow_catalog.py` 校验：逐层原文必须与 TXT 完全一致、层内无漏行、层间无重叠倒序、每个 SF 和全书正文行全覆盖。不得用字数比例、固定组件数量、SF 级摘要或“已完整”布尔值推定颗粒度。
+完整性由正式 `validate_subflow_catalog.py` 校验：逐层原文必须与 TXT 完全一致（含水印等输入污染原样保留在来源字段）、层内无漏行、层间无重叠倒序、每个 SF 和全书正文行全覆盖。水印行是否属于正文由独立正文行分类处理，不能通过改写来源摘录来规避。不得用字数比例、固定组件数量、SF 级摘要或“已完整”布尔值推定颗粒度。
 
 **语义约定**：`样本分级与可学层 / 作者DNA指纹 / 仿写约束_禁写清单 / 同桥段过检规则 / profile_source` 不能只是非空文件，必须是“证据型资产”：
 
@@ -275,7 +276,7 @@ F01 | L起-L止 | 锚点：原文短语 | 类别：主体边界 | 主体：角�
     - `场面资产` 使用 `scene_assets.public_explosion / scene_assets.external_order / scene_assets.consequence_chain` 显式标签；`4/4/6`、`3/3/4`、`2/2/3` 仅作按字数档的漏拆复核参考，不得凑数
     - `后果链` 至少补 `感情伤抬升到现实伤的节点 / 秩序回正节点 / 长尾惩罚节点 / 离场 / 换图节点`
     - `作者站位高危句` 至少补 `容易写成作者判词的句型 / 容易写成主题总结的句型 / 容易写成整齐揭露的句型`
-    - `迁移替换资产` 使用 `object_substitutes / scene_substitutes / action_substitutes / dialogue_substitutes / role_bias_variants` 显式标签，每类按字数档至少 `4 / 3 / 2`
+    - `迁移替换资产` 使用 `object_substitutes / scene_substitutes / action_substitutes / dialogue_substitutes / role_bias_variants` 显式标签；各类数量不设固定配额，只收录原文确有依据且能说明替换边界的条目
   - 这两项不能写成合并长句，也不能写成 `为什么假1 / 为什么假2`
 - `写作资产/桥段施工卡.md`：必须把原文实际存在且最值钱的桥写成“人类可直接调用”的厚卡，不按字数凑数量，每张卡都覆盖：
   - `桥段名`
@@ -438,7 +439,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - `原文细节库/` 有真实细节却漏记，或无对应细节却未声明“原文未发现”
 - `book.profile.json` 虽存在，但 `scene_assets / banned_phrases / author_stance_patterns / must_keep` 等关键资产抽空或抽碎
 - `book.profile.json.style_assets` 缺固定键；原文无对应资产时允许空数组
-- `book.profile.json.migration_assets` 任一类未达到按原文字数分档的 `4 / 3 / 2` 条唯一短语
+- `book.profile.json.migration_assets` 任一类出现无原文依据、无替换边界或空标签
 - `scene_assets.public_explosion / external_order` 把原文实际存在的事件级动作/后果资产全部压成地点、道具或机构名
 
 ### 7.5 仿写资产完整性校验
@@ -483,7 +484,7 @@ python3 "$CODEX_HOME/skills/story-short-analyze/scripts/run_short_analyze_finali
 - `写作资产/profile_source.md` 里如果缺 `## 12. 迁移替换资产` 或 5 类迁移标签，视为未通过
 - `写作资产/profile_source.md / 桥段施工卡.md / 高敏桥段识别.md` 如果真实核心桥漏记，或同一桥的功能标签不一致，视为未通过
 - `写作资产/桥段施工卡.md` 里如果每张卡缺 `原文现象证据 / 原文为什么能过 / 为什么不像加工稿 / 新稿最容易写假的点 / 必须保留的承重件 / 不能丢的顺序 / 为什么这个顺序不能乱 / 后续调用方式 / 实际情绪拍全集` 里的任意 2 项，视为未通过
-- `写作资产/桥段施工卡.md` 里如果没有至少 1 张中段承重桥，视为未通过
+- `写作资产/桥段施工卡.md` 必须覆盖原文实际登记的全部 BID；不得另设中段桥最低数量，也不得按位置补桥
 - 这 5 份里任意 1 份缺“正面可学项 + 负面禁写项”双侧信息，默认仍是 `blocked-on-assets`
 
 ### 7.6 生成单书 profile

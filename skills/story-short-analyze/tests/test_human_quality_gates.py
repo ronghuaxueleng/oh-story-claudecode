@@ -70,6 +70,14 @@ TIMING_SPEC.loader.exec_module(TIMING)
 
 
 class HumanQualityGateTest(unittest.TestCase):
+    def test_direct_asset_quality_merges_multiple_tables(self) -> None:
+        headers, rows = VALIDATOR.parse_markdown_tables(
+            "| 资产 | 原文证据 |\n|---|---|\n| 一 | L1 |\n\n| 迁移提醒 | 层级 |\n|---|---|\n| 换载体 | 核心 |"
+        )
+        self.assertIn("原文证据", headers)
+        self.assertIn("迁移提醒", headers)
+        self.assertEqual(2, len(rows))
+
     def test_metadata_match_requires_the_whole_line(self) -> None:
         self.assertIsNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("完事觉得自己肯定要坐牢了。"))
         self.assertIsNotNone(VALIDATOR.BOOK_METADATA_LINE_RE.match("（全文完）"))
@@ -415,6 +423,38 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertEqual(1, emotion_hits["trigger"])
         self.assertEqual(1, emotion_hits["relationship_position_change"])
         self.assertEqual(1, emotion_hits["reader_effect"])
+
+    def test_rotating_sf_expansion_plot_scaffolds_are_rejected(self) -> None:
+        beats = [
+            {
+                "action": "孟商用“证据一”改变现场可接受的说法与回应范围。",
+                "pressure_or_trigger": "旧场残留迫使这一步在此刻发生。",
+                "control_change": "动作完成后，孟商在“证据一”这次变化中取得、失去或转交具体权限。",
+                "information_change": "读者由“证据一”确认：关系已经断裂。",
+                "consequence": "本拍之后必须承接“后果一”，不能跳过中间代价。",
+            },
+            {
+                "action": "孟商落实“证据二”，动作直接改写现场结果。",
+                "pressure_or_trigger": "新事实迫使这一步在此刻发生。",
+                "control_change": "回应完成后，贺琛在“证据二”这次变化中取得、失去或转交具体权限。",
+                "information_change": "读者由“证据二”确认：旧解释失效。",
+                "consequence": "本拍之后必须承接“后果二”，不能跳过中间代价。",
+            },
+            {
+                "action": "孟商离场，关系或局势从停滞进入新的受力状态。",
+            },
+            {
+                "action": "真相公开，原先被遮住的事实由此进入当前判断。",
+            },
+        ]
+        hits = VALIDATOR.collect_ledger_pattern_hits(
+            beats, VALIDATOR.PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+        )
+        self.assertEqual(4, hits["action"])
+        self.assertEqual(2, hits["pressure_or_trigger"])
+        self.assertEqual(2, hits["control_change"])
+        self.assertEqual(2, hits["information_change"])
+        self.assertEqual(2, hits["consequence"])
 
     def test_repetitive_plot_sentence_frames_are_detected(self) -> None:
         beats = [
@@ -980,7 +1020,7 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         notes: list[str] = []
         VALIDATOR.check_asset_candidate_ledger(self.root, source_lines, 8000, errors, notes)
-        self.assertTrue(any("不能把多条候选压成几行长解释" in error for error in errors))
+        self.assertFalse(any("不能把多条候选压成几行长解释" in error for error in errors))
 
     def test_asset_candidate_ledger_requires_object_seat_cue(self) -> None:
         (self.root / "写作资产").mkdir(parents=True, exist_ok=True)
@@ -1259,6 +1299,32 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertEqual([], errors)
         self.assertFalse(any("未发现 BID" in note for note in notes))
 
+    def test_bridge_reconciliation_does_not_force_middle_bid_into_high_risk_subset(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write(
+            "情节节点.md",
+            "N01 | L1-L1 | 锚点：开场 | 类型：BID-01 承重桥 | 情绪：紧 | "
+            "涉及：甲 | 状态变化：入场 | 因果：起因 | 故事时序：一\n"
+            "N02 | L2-L2 | 锚点：过桥 | 类型：BID-02 承重桥 | 情绪：缓 | "
+            "涉及：甲 | 状态变化：转场 | 因果：承接 | 故事时序：二\n"
+            "N03 | L3-L3 | 锚点：终局 | 类型：BID-03 承重桥 | 情绪：决 | "
+            "涉及：甲 | 状态变化：离场 | 因果：收束 | 故事时序：三\n",
+        )
+        self._write("拆文报告.md", "BID-01 BID-02 BID-03\n")
+        (asset_dir / "高敏桥段识别.md").write_text("BID-01\n", encoding="utf-8")
+        for name in ("桥段施工卡.md", "profile_source.md"):
+            (asset_dir / name).write_text("BID-01 BID-02 BID-03\n", encoding="utf-8")
+        errors: list[str] = []
+
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": bid} for bid in ("BID-01", "BID-02", "BID-03")]},
+            errors,
+        )
+
+        self.assertEqual([], errors)
+
     def test_bridge_reconciliation_rejects_bid_only_in_explanation(self) -> None:
         asset_dir = self.root / "写作资产"
         asset_dir.mkdir()
@@ -1442,7 +1508,7 @@ class HumanQualityGateTest(unittest.TestCase):
         VALIDATOR.check_plot_nodes_quality(path, 1, errors)
         self.assertTrue(any("故事时序" in error for error in errors))
 
-    def test_plot_node_count_is_review_note_not_hard_error(self) -> None:
+    def test_plot_node_count_does_not_create_length_quota_note(self) -> None:
         path = self._write(
             "情节节点.md",
             "N1 | L1-L2 | 锚点：开场 | 类型：信息 | 情绪：冷 | "
@@ -1451,8 +1517,8 @@ class HumanQualityGateTest(unittest.TestCase):
         errors: list[str] = []
         notes: list[str] = []
         VALIDATOR.check_plot_nodes_quality(path, 8000, errors, notes)
-        self.assertFalse(any("颗粒度不足" in error for error in errors))
-        self.assertTrue(any("禁止为达数量凑节点" in note for note in notes))
+        self.assertEqual([], errors)
+        self.assertEqual([], notes)
 
     def test_manual_review_checkpoints_cannot_be_skipped(self) -> None:
         self._write(
@@ -1534,7 +1600,7 @@ class HumanQualityGateTest(unittest.TestCase):
             any("style_assets.opening_hooks 为空" in error for error in errors),
             errors,
         )
-        self.assertTrue(any("低于篇幅参考值" in note for note in notes))
+        self.assertFalse(any("scene_assets" in note and "参考值" in note for note in notes))
 
     def test_profile_style_assets_cannot_all_compile_to_empty(self) -> None:
         data = {

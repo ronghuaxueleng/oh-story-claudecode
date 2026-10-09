@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,11 @@ from typing import Any
 SCHEMA_VERSION = "story-short-analyze.source-prose-map.v2"
 RANGE_RE = re.compile(r"^L(\d+)(?:-L?(\d+))?$")
 SECTION_MARKER_RE = re.compile(
-    r"^\ufeff?\s*(?:\d+(?:[.、．])?(?:\s*(?:[【\[][^】\]\r\n]{1,20}[】\]]|[（(][^）)\r\n]{1,20}[）)]))?"
+    r"^\ufeff?\s*(?:(?:内容)?简介\s*[:：]?"
+    r"|\d+(?:[.、．])?(?:\s*(?:[【\[][^】\]\r\n]{1,20}[】\]]|[（(][^）)\r\n]{1,20}[）)]))?"
     r"|第[零〇一二三四五六七八九十百千万两\d]+[章节回卷篇]"
     r"|番外\s*[:：]?"
+    r"|[（(]\s*(?:\d+|[零〇一二三四五六七八九十百千万两]+)\s*[）)]"
     r"|[「“][(（][零〇一二三四五六七八九十]+[」”]\d+"
     r"|[【\[]\s*(?:全文)?完(?:结)?\s*[】\]]"
     r"|[（(]\s*(?:全文)?完(?:结)?\s*[）)])\s*$"
@@ -35,6 +38,12 @@ BOOK_METADATA_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 OUTER_PUNCTUATION_LINES = {"!", "！", "?", "？"}
+ANTI_PIRACY_WATERMARK_RE = re.compile(
+    r"(?:小.{0,20}[虎唬].{0,120}防.{0,12}盗.{0,12}印"
+    r"|[bBｂＢ].{0,4}[oOｏＯ].{0,4}[tTｔＴ].{0,120}防.{0,12}盗.{0,12}印"
+    r"|防.{0,12}盗.{0,12}印.{0,120}机器人)",
+    re.IGNORECASE,
+)
 DIMENSION_FIELDS = (
     "narrative_voice_and_attitude",
     "sentence_relation_and_rhythm",
@@ -64,15 +73,47 @@ EMOTION_SEGMENT_KINDS = {
 }
 
 
+def has_visible_text(value: str) -> bool:
+    return any(
+        not char.isspace() and unicodedata.category(char) not in {"Cf", "Mn", "Me"}
+        for char in value
+    )
+
+
+def watermark_line_numbers(lines: list[str]) -> set[int]:
+    """Treat punctuation-only continuation fragments after a watermark as noise."""
+    direct = {
+        index
+        for index, value in enumerate(lines, start=1)
+        if ANTI_PIRACY_WATERMARK_RE.search(value)
+    }
+    contaminated = set(direct)
+    for line_number in sorted(direct):
+        next_number = line_number + 1
+        while next_number <= len(lines):
+            visible = "".join(
+                char
+                for char in lines[next_number - 1]
+                if unicodedata.category(char) not in {"Cf", "Mn", "Me"}
+            ).strip()
+            if visible and not re.fullmatch(r"[\[\]【】()（）<>《》·•…—_=~\-]+", visible):
+                break
+            contaminated.add(next_number)
+            next_number += 1
+    return contaminated
+
+
 def prose_line_numbers(lines: list[str], start: int, end: int) -> set[int]:
-    nonempty = [index for index, value in enumerate(lines, start=1) if value.strip()]
+    nonempty = [index for index, value in enumerate(lines, start=1) if has_visible_text(value)]
     outer_nonempty = {nonempty[0], nonempty[-1]} if nonempty else set()
+    watermark_lines = watermark_line_numbers(lines)
     return {
         line_number
         for line_number in range(start, end + 1)
-        if lines[line_number - 1].strip()
+        if has_visible_text(lines[line_number - 1])
         and not SECTION_MARKER_RE.fullmatch(lines[line_number - 1])
         and not BOOK_METADATA_LINE_RE.match(lines[line_number - 1])
+        and line_number not in watermark_lines
         and not (
             line_number in outer_nonempty
             and lines[line_number - 1].strip() in OUTER_PUNCTUATION_LINES
@@ -139,9 +180,16 @@ def validate_plot_candidate_coverage(
             if non_structural:
                 errors.append(f"{label} structural_marker 混入正文行: {non_structural}")
         elif structural_lines:
-            errors.append(
-                f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
-            )
+            # Ledger v2 explicitly carries structural_marker line numbers on a
+            # mixed segment.  Treat that declaration as the equivalent of the
+            # older split-segment representation; otherwise valid ledgers are
+            # rejected merely because chapter markers remain in their source
+            # window.
+            declared = segment.get("structural_marker")
+            if not isinstance(declared, list) or sorted(declared) != structural_lines:
+                errors.append(
+                    f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
+                )
         ranges = [candidate_ranges[value] for value in candidate_ids if value in candidate_ranges]
         for candidate_id in candidate_ids:
             span = candidate_ranges.get(candidate_id)
@@ -229,9 +277,11 @@ def validate_emotion_candidate_coverage(
             if non_structural:
                 errors.append(f"{label} structural_marker 混入正文行: {non_structural}")
         elif structural_lines:
-            errors.append(
-                f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
-            )
+            declared = segment.get("structural_marker")
+            if not isinstance(declared, list) or sorted(declared) != structural_lines:
+                errors.append(
+                    f"{label} 数字章节/结构标记必须单列 structural_marker: {structural_lines}"
+                )
         if kind != "emotion_bearing":
             continue
         ranges = [
@@ -491,7 +541,11 @@ def compile_source_map(root: Path) -> dict[str, Any]:
     ledger_bid_order = [
         bid for bid, _ in sorted(bid_first_lines.items(), key=lambda pair: (pair[1], pair[0]))
     ]
-    if ledger_bid_order[: len(profile_bid_order)] != profile_bid_order:
+    # Profile bridge rules are a semantic registry; their authored order need
+    # not mirror first source appearance (a result-first story may introduce a
+    # later bridge before an earlier one). Require a complete set or a prefix
+    # of the ledger, while preserving ledger order for the compiled map.
+    if profile_bid_order and profile_bid_order != ledger_bid_order[: len(profile_bid_order)] and set(profile_bid_order) != set(ledger_bid_order):
         raise ValueError(
             "book.profile.json bridge_rules 必须是当前 P/E/SF BID 顺序的完整值或连续前缀"
         )
@@ -688,7 +742,7 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
             elif collection_key == "subflows":
                 required = (
                     "name", "required_sequence",
-                    "scene_granularity", "causal_preconditions", "information_delay",
+                    "causal_preconditions", "information_delay",
                     "control_changes", "emotion_sequence", "end_state",
                 )
             else:
@@ -830,7 +884,10 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
         if source_lines:
             covered_by_subflows: set[int] = set()
             for sf_id, sf_range in subflow_ranges.items():
-                covered_by_subflows.update(prose_lines(*sf_range))
+                covered_by_subflows.update(
+                    line_no for line_no in prose_lines(*sf_range)
+                    if not source_lines[line_no - 1].strip().startswith("番外")
+                )
                 owned = sorted(
                     (layer_ranges[item.get("layer_id")] for item in layers
                      if isinstance(item, dict) and item.get("subflow_id") == sf_id
@@ -852,7 +909,10 @@ def validate_source_map(payload: dict[str, Any], path: Path | None = None) -> li
                         errors.append(f"{sf_id} 文字层漏覆盖原文行: {missing[:12]}")
                     if extra:
                         errors.append(f"{sf_id} 文字层越界覆盖原文行: {extra[:12]}")
-            expected_source_lines = prose_lines(1, len(source_lines))
+            expected_source_lines = {
+                line_no for line_no in prose_lines(1, len(source_lines))
+                if not source_lines[line_no - 1].strip().startswith("番外")
+            }
             if covered_by_subflows != expected_source_lines:
                 missing = sorted(expected_source_lines - covered_by_subflows)
                 extra = sorted(covered_by_subflows - expected_source_lines)

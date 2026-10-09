@@ -343,6 +343,13 @@ def main() -> int:
         notes.extend(update_completion_state(root))
     payload = build_payload(root, profile_generated, validator_payload, notes)
 
+    # 终端输出与落盘回执必须使用同一份最终 payload，避免旧回执掩盖本次失败。
+    for result_name in ("_finalize_result.json", "_finalize_result.latest.json"):
+        (root / result_name).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
