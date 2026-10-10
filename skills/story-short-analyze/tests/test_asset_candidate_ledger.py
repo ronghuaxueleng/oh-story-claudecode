@@ -246,9 +246,9 @@ class AssetCandidateLedgerTest(unittest.TestCase):
         self._write_ledger(chunk_2_empty=True)
         errors, notes = self._check()
         self.assertEqual([], errors)
-        self.assertTrue(any("低于按篇幅要求的最低值" in note for note in notes))
+        self.assertTrue(any("候选数量不设篇幅配额" in note for note in notes))
 
-    def test_long_sample_candidate_floor_is_blocking(self) -> None:
+    def test_long_sample_candidate_floor_is_non_blocking_review_note(self) -> None:
         errors: list[str] = []
         notes: list[str] = []
         VALIDATOR.check_asset_candidate_ledger(
@@ -258,9 +258,10 @@ class AssetCandidateLedgerTest(unittest.TestCase):
             errors,
             notes,
         )
-        self.assertTrue(any("低于按篇幅要求的最低值 40" in error for error in errors))
+        self.assertEqual([], errors)
+        self.assertTrue(any("候选数量不设篇幅配额" in note for note in notes))
 
-    def test_reverse_audit_floor_is_blocking(self) -> None:
+    def test_reverse_audit_has_no_fixed_floor(self) -> None:
         ledger_path = self.root / "写作资产" / "原文资产候选池.md"
         text = ledger_path.read_text(encoding="utf-8")
         audit_start = text.index("## 反向漏项审计")
@@ -272,7 +273,7 @@ class AssetCandidateLedgerTest(unittest.TestCase):
             encoding="utf-8",
         )
         errors, _ = self._check()
-        self.assertTrue(any("低于最低要求 5 项" in error for error in errors))
+        self.assertEqual([], errors)
 
     def test_missing_category_requires_explicit_absence_declaration(self) -> None:
         ledger_path = self.root / "写作资产" / "原文资产候选池.md"

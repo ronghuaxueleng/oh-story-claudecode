@@ -662,7 +662,18 @@ def collect_profile_source_reason_lines(values: list[str]) -> list[str]:
             if not frag:
                 continue
             cleaned.append(frag)
+    # A character-face line commonly lists several independent role cues
+    # separated by semicolons. Keep those cues as separate records; callers
+    # that need a whole sentence can supply a field-specific collector.
     return normalize_items(cleaned)
+
+
+def collect_profile_source_reason_fragments(values: list[str]) -> list[str]:
+    """Split semicolon-delimited independent guardrail records."""
+    fragments: list[str] = []
+    for value in values:
+        fragments.extend(re.split(r"[；;]", value))
+    return collect_profile_source_reason_lines(fragments)
 
 
 def filter_character_guardrail_lines(values: list[str]) -> list[str]:
@@ -874,7 +885,7 @@ def collect_profile_source_style_fragments(
 
 def build_profile_story_guardrails(author_pairs: dict[str, list[str]], consequence_pairs: dict[str, list[str]]) -> dict[str, object]:
     character_face_split = {
-        "different_face_evidence": collect_profile_source_reason_lines(
+        "different_face_evidence": collect_profile_source_reason_fragments(
             author_pairs.get("人物不同脸证据", [])
         ),
         "reaction_order_split": collect_profile_source_reason_lines(
@@ -954,7 +965,7 @@ def build_story_guardrails_from_aux_text(text: str, source_kind: str) -> dict[st
 
     character_face_split = {
         "different_face_evidence": filter_character_guardrail_lines(
-            collect_profile_source_reason_lines(face_evidence)
+            collect_profile_source_reason_fragments(face_evidence)
         ),
         "reaction_order_split": filter_character_guardrail_lines(
             collect_profile_source_reason_lines(reaction_order)
@@ -1026,7 +1037,13 @@ def collect_explicit_story_guardrails(text: str) -> dict[str, object]:
             label, value = natural.groups()
             group = "character_face_split" if label in ("人物不同脸证据", "谁先解释谁先压场", "不同角色的动作权限差") else "consequence_structure"
             key_map = {"人物不同脸证据":"different_face_evidence", "谁先解释谁先压场":"reaction_order_split", "不同角色的动作权限差":"action_authority_split", "重大证据前隔开的现实后果":"pre_evidence_reality_consequences", "后果回灌方式":"consequence_rebound_modes", "尾声入口归属":"tail_entry_owner", "不给另一条线的原因":"tail_entry_exclusion_reason"}
-            explicit[group][key_map[label]].append(value.strip())
+            target_key = key_map[label]
+            if target_key == "different_face_evidence":
+                explicit[group][target_key].extend(
+                    part.strip() for part in re.split(r"[；;]", value) if part.strip()
+                )
+            else:
+                explicit[group][target_key].append(value.strip())
             continue
         if not line.startswith("- profile_story_guardrail::"):
             continue

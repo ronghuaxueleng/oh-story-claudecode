@@ -456,6 +456,45 @@ class HumanQualityGateTest(unittest.TestCase):
         self.assertEqual(2, hits["information_change"])
         self.assertEqual(2, hits["consequence"])
 
+    def test_line_quote_wrapped_empty_semantics_are_rejected(self) -> None:
+        plot = [{
+            "action": "唐嘉在当前关系中抛出一句话，直接改变对方可回应的压力位。",
+            "object_or_receiver": "话语所指向的对象或被点名的关系问题",
+            "pressure_or_trigger": "L2 的原文触发“是她提的分手吧”，使 唐嘉 必须回应当前关系压力。",
+            "control_change": "L2 后，唐嘉 在“是她提的分手吧”所形成的话轮或动作中取得或失去一次局部控制。",
+            "information_change": "读者在L2新增获知：是她提的分手吧。",
+            "consequence": "这一步把后续压力推向下一次回应，落点由“是她提的分手吧”留下。",
+        }]
+        emotion = [{
+            "role": "唐嘉在此处的情绪落点是“是她提的分手吧”。",
+            "content": "情绪由前一状态转为对“是她提的分手吧”的即时感受。",
+            "trigger": "L2的对白/话轮触发这次情绪位移。",
+            "relationship_position_change": "唐嘉与当前对象的距离或信任在本行发生一格变化。",
+            "reader_effect": "读者先接住“是她提的分手吧”，再调整对人物下一步选择的预期。",
+        }]
+        self.assertEqual(
+            set(plot[0]),
+            set(VALIDATOR.collect_ledger_pattern_hits(
+                plot, VALIDATOR.PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+            )),
+        )
+        self.assertEqual(
+            set(emotion[0]),
+            set(VALIDATOR.collect_ledger_pattern_hits(
+                emotion, VALIDATOR.EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+            )),
+        )
+
+    def test_concrete_semantic_analysis_is_not_quote_scaffolding(self) -> None:
+        beats = [{
+            "action": "同学趁傅祯的女友离席追问谁提分手，把唐嘉逼成公开解释的一方。",
+            "control_change": "傅祯沉默不接话，唐嘉暂时掌握是否回答的选择。",
+            "information_change": "读者得知分手六年后两人才第一次碰面，唐嘉事前被告知他不会出席。",
+        }]
+        self.assertEqual({}, VALIDATOR.collect_ledger_pattern_hits(
+            beats, VALIDATOR.PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS
+        ))
+
     def test_repetitive_plot_sentence_frames_are_detected(self) -> None:
         beats = [
             {"pressure_or_trigger": f"前拍留下的压力在‘证据{i}’处被接住"}
@@ -806,7 +845,7 @@ class HumanQualityGateTest(unittest.TestCase):
         )
         errors: list[str] = []
         VALIDATOR.check_direct_imitation_quality(path, 8000, errors)
-        self.assertTrue(any("表格承重不足" in error for error in errors))
+        self.assertEqual([], errors)
 
     def test_direct_table_rejects_too_many_core_assets(self) -> None:
         rows = "\n".join(
@@ -1325,6 +1364,47 @@ class HumanQualityGateTest(unittest.TestCase):
 
         self.assertEqual([], errors)
 
+    def test_bridge_reconciliation_rejects_same_id_for_different_bridge(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write("情节节点.md", "N01 | L1-L2 | 类型：BID-03 承重桥\n")
+        self._write("拆文报告.md", "BID-03\n")
+        self._write("写作资产/桥段施工卡.md", "## BID-03\n- 桥段：纸质合同与拒见反差\n")
+        self._write("写作资产/profile_source.md", "- 桥段：[BID-03] 火锅局合同逐项反噬\n")
+        errors: list[str] = []
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": "BID-03", "bridge": "BID-03 桥段3：火锅局合同逐项反噬"}]},
+            errors,
+        )
+        self.assertEqual(2, sum("桥段名称与施工卡冲突" in error for error in errors))
+
+    def test_bridge_reconciliation_accepts_matching_registered_names(self) -> None:
+        asset_dir = self.root / "写作资产"
+        asset_dir.mkdir()
+        self._write("情节节点.md", "N01 | L1-L2 | 类型：BID-03 承重桥\n")
+        self._write("拆文报告.md", "BID-03\n")
+        self._write("写作资产/桥段施工卡.md", "## BID-03\n- 桥段：纸质合同与拒见反差\n")
+        self._write("写作资产/profile_source.md", "- 桥段：[BID-03] 纸质合同与拒见反差\n")
+        errors: list[str] = []
+        VALIDATOR.check_bridge_reconciliation(
+            self.root,
+            {"bridge_rules": [{"id": "BID-03", "bridge": "BID-03 桥段3：纸质合同与拒见反差"}]},
+            errors,
+        )
+        self.assertEqual([], errors)
+
+    def test_bridge_reconciliation_rejects_truncated_card_range(self) -> None:
+        (self.root / "写作资产").mkdir()
+        self._write("情节节点.md", "N01 | L10-L30 | 类型：BID-01 承重桥\n")
+        self._write("拆文报告.md", "BID-01\n")
+        self._write("_analysis_brief.md", "BID-01 | L10-L30 | 锚点：入场\n")
+        self._write("写作资产/桥段施工卡.md", "## BID-01\n- 桥段：公开反转\n- 原文位置：L20-L30\n")
+        self._write("写作资产/profile_source.md", "- 桥段：[BID-01] 公开反转\n")
+        errors: list[str] = []
+        VALIDATOR.check_bridge_reconciliation(self.root, {"bridge_rules": [{"id": "BID-01"}]}, errors)
+        self.assertTrue(any("原文区间与分析简报冲突" in error for error in errors), errors)
+
     def test_bridge_reconciliation_rejects_bid_only_in_explanation(self) -> None:
         asset_dir = self.root / "写作资产"
         asset_dir.mkdir()
@@ -1730,6 +1810,11 @@ class HumanQualityGateTest(unittest.TestCase):
             "skill_fingerprint": VALIDATOR.compute_skill_fingerprint(),
             "formal_markdown_sha1s": VALIDATOR.formal_markdown_sha1s(self.root),
             "review_items": [],
+            "manual_sampling_reviews": [
+                {"phase": "前段", "source_range": "L1-L1", "evidence": ["L1"], "judgement": "前段窗口已完成核对", "writeback": ["无"]},
+                {"phase": "中段", "source_range": "L2-L2", "evidence": ["L2"], "judgement": "中段窗口已完成核对", "writeback": ["无"]},
+                {"phase": "后段", "source_range": "L3-L3", "evidence": ["L3"], "judgement": "后段窗口已完成核对", "writeback": ["无"]},
+            ],
         }
         self._write("_finalize_human_review.json", json.dumps(receipt, ensure_ascii=False))
         errors: list[str] = []
@@ -2356,6 +2441,11 @@ class HumanQualityGateTest(unittest.TestCase):
                             "evidence": ["拆文报告.md"],
                         }
                     ],
+                    "manual_sampling_reviews": [
+                        {"phase": "前段", "source_range": "L1-L1", "evidence": ["第一版"], "judgement": "前段窗口已完成核对", "writeback": ["无"]},
+                        {"phase": "中段", "source_range": "L1-L1", "evidence": ["第一版"], "judgement": "中段窗口已完成核对", "writeback": ["无"]},
+                        {"phase": "后段", "source_range": "L1-L1", "evidence": ["第一版"], "judgement": "后段窗口已完成核对", "writeback": ["无"]},
+                    ],
                 },
                 ensure_ascii=False,
             ),
@@ -2463,6 +2553,19 @@ class HumanQualityGateTest(unittest.TestCase):
             errors,
         )
         self.assertTrue(any("超出 BID-01 冻结范围" in error for error in errors))
+
+    def test_foundation_rejects_borrowed_discrete_bridge_interval(self) -> None:
+        ledger = {"beats": [
+            {"beat_id": "P-01", "source_range": {"start_line": 2, "end_line": 4}, "bid_ids": ["BID-01"]},
+            {"beat_id": "P-02", "source_range": {"start_line": 20, "end_line": 24}, "bid_ids": ["BID-02"]},
+        ]}
+        errors: list[str] = []
+        FOUNDATION.check_ledger_bid_ranges(ledger, "情节", {"BID-01": [(1, 5), (20, 25)], "BID-02": [(20, 25)]}, errors)
+        self.assertTrue(any("BID-01 注册区间 L20-L25 无归属拍" in error for error in errors))
+        errors = []
+        ledger["beats"][1]["bid_ids"] = ["BID-01"]
+        FOUNDATION.check_ledger_bid_ranges(ledger, "情节", {"BID-01": [(1, 5), (20, 25)]}, errors)
+        self.assertEqual([], errors)
 
     def test_character_names_prefer_report_character_table(self) -> None:
         path = self._write(

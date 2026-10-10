@@ -233,6 +233,9 @@ FORBIDDEN_PRESERVE_SCAFFOLD_PATTERNS = (
 )
 
 GLOBAL_FORBIDDEN_DIMENSION_HOW_SCAFFOLD_PATTERNS = (
+    r"^(?:[A-Z]{4,}\s*)?(?:声音从叙述者选择的冷/热词汇与句末姿态显形|句子通过长短交错和信息延迟制造下一句的阅读牵引|段落在一个可见动作或判断落地处换气并留下断点|话轮用抢答、回避或错位回应改变双方能说什么|先落身体动作，再落感官反应，最后才出现情绪判断|旁白保留不平整的偏见词或停顿，让态度不被抹平)（核验锚点[:：].+）[。.]?$",
+    r"^(?:[A-Z]{4,}\s*)?叙述声部只保留当事人的冷暖距离，读者从可见词句判断态度[。.]?$",
+    r"^(?:[A-Z]{4,}\s*)?(?:句间安排一问一答或短长相撞，压力在停顿之后重新回弹|段落把动作证据与解释拆开，断点落在本层后果真正出现的位置|对白保留回避、误听或反问的缺口，让角色不能用一句话洗平冲突|感知把身体、空间或物件的变化接到关系位置，情绪不由标签代替|旁白保留一个具体棱角判断，让叙述声音与人物当下不平整地贴合)[。.]?$",
     r"^证据锚点[^:：]{1,16}[:：]本维度从<Q>观察(?:narrative_voice_and_attitude|sentence_relation_and_rhythm|paragraph_breath_and_cut_points|dialogue_misfire_or_avoidance|action_perception_emotion_weave|narrator_interjection_and_roughness)的独有变化，再由<Q>确认落点[。.]?$",
 )
 

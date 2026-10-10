@@ -137,6 +137,17 @@ def check_ledger_bid_ranges(
     errors: list[str],
 ) -> None:
     """Reject bridge labels attached to beats outside the frozen brief range."""
+    for bid, frozen in bid_ranges.items():
+        ranges = [frozen] if isinstance(frozen, tuple) else frozen
+        owned = [beat for beat in ledger.get("beats", []) if isinstance(beat, dict) and bid in beat.get("bid_ids", [])]
+        for start, end in ranges:
+            if owned and not any(
+                isinstance(beat.get("source_range"), dict)
+                and start <= beat["source_range"].get("start_line", 0)
+                <= beat["source_range"].get("end_line", 0) <= end
+                for beat in owned
+            ):
+                errors.append(f"{ledger_label} {bid} 注册区间 L{start}-L{end} 无归属拍；不得借入其他桥段的后置区间")
     for index, beat in enumerate(ledger.get("beats", []), start=1):
         if not isinstance(beat, dict):
             continue

@@ -505,6 +505,33 @@ def write_new(path: Path, value: dict[str, Any]) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
+def refresh_prewrite_rules(path: Path) -> None:
+    data = load(path)
+    design = data.get("design_review_state") or {}
+    draft = data.get("draft_review_state") or {}
+    if design.get("setting") or design.get("pending") or design.get("outline_regions") or draft.get("approved_regions") or draft.get("prepared_region"):
+        raise ValueError("refresh-prewrite-rules 仅用于设定首次确认前；不能替换已审查作品的规则依据")
+    refreshed = build_ledger(path.parent.parent, Path(data["skill_root"]))
+    old_groups = {item["rule_id"]: item for item in data["groups"]}
+    changes = []
+    groups = []
+    for group in refreshed["groups"]:
+        old = old_groups.get(group["rule_id"])
+        if old and old.get("source") == group["source"]:
+            groups.append(old)
+        else:
+            groups.append(group)
+            changes.append({"rule_id": group["rule_id"], "previous_source": old.get("source") if old else None, "current_source": group["source"]})
+    if not changes:
+        return
+    data.setdefault("rule_refresh_history", []).append({"changes": changes})
+    data["groups"] = groups
+    data["source_files"] = refreshed["source_files"]
+    data["prewrite_review"] = refreshed["prewrite_review"]
+    data["gate_status"] = "pending"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def validate_prewrite_ledger(path: Path) -> list[str]:
     errors: list[str] = []
     try:
@@ -638,7 +665,11 @@ def validate_prewrite_ledger(path: Path) -> list[str]:
         errors.append("draft_review_state 必须是对象")
     else:
         plan_regions, plan_errors = ledger_plan_regions(data, path)
-        errors.extend(plan_errors)
+        if plan_errors and not (
+            not (path.parent.parent / "小节大纲.md").is_file()
+            and not (data.get("design_review_state") or {}).get("setting")
+        ):
+            errors.extend(plan_errors)
         if not plan_errors:
             expected_draft_regions = plan_regions[:-1]
             if state.get("expected_regions") != expected_draft_regions:
@@ -750,7 +781,13 @@ def apply_prewrite_reviews(path: Path, reviews: dict[str, Any]) -> None:
         "judgment": "已逐组阅读全部规则案例；首写禁止梗概污染，只有来源本来是总结/公共传播/机构结果/传闻尾声的层才保留粗跳，辅助书仅提供事件机制，不进入声线。",
     })
     plan_regions, plan_errors = ledger_plan_regions(data, path)
-    if plan_errors:
+    # The setting review is intentionally completed before the first outline
+    # exists.  source_layer_packet plans become mandatory once the formal
+    # outline has been created, but must not block the initial prewrite load.
+    if plan_errors and not (
+        not (path.parent.parent / "小节大纲.md").is_file()
+        and not (data.get("design_review_state") or {}).get("setting")
+    ):
         raise ValueError(" / ".join(plan_errors))
     expected_draft_regions = plan_regions[:-1]
     state = data.setdefault("draft_review_state", {})
@@ -2513,6 +2550,8 @@ def main() -> int:
     validate = sub.add_parser("validate-prewrite")
     validate.add_argument("--ledger", required=True)
     confirm = sub.add_parser("confirm-prewrite")
+    refresh = sub.add_parser("refresh-prewrite-rules")
+    refresh.add_argument("--ledger", required=True)
     confirm.add_argument("--ledger", required=True)
     confirm.add_argument("--reviews-json", required=True)
     refresh = sub.add_parser("refresh-rules")
@@ -2594,6 +2633,14 @@ def main() -> int:
         print(f"ledger: {output}")
         return 0
     ledger_path = Path(args.ledger).resolve()
+    if args.command == "refresh-prewrite-rules":
+        try:
+            refresh_prewrite_rules(ledger_path)
+        except (OSError, ValueError, KeyError) as exc:
+            print(f"rule_execution_ledger: blocked\n- {exc}")
+            return 2
+        print("rule_execution_ledger_rules: refreshed")
+        return 0
     if args.command in {"set-review-policy", "record-checkpoint"}:
         try:
             if args.command == "set-review-policy":

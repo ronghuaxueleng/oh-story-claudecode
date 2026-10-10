@@ -527,6 +527,16 @@ class SubflowCatalogTest(unittest.TestCase):
         _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
         self.assertTrue(any("同层六维 how 跨维复制" in error for error in errors))
 
+    def test_unquoted_anchor_and_rotating_prefix_do_not_make_semantic_analysis(self) -> None:
+        row = self.valid_row()
+        layer = row["source_layer_topology"][0]
+        layer["dimension_realization"]["narrative_voice_and_attitude"]["how"] = (
+            "MAAA 声音从叙述者选择的冷/热词汇与句末姿态显形（核验锚点：她先把门关上）。"
+        )
+        self.write(row)
+        _, errors = VALIDATOR.validate_catalog(self.catalog, self.original)
+        self.assertTrue(any("原文嵌施工术语壳" in error for error in errors))
+
     def test_single_layer_cannot_hide_generic_scaffold_behind_quote(self) -> None:
         row = self.valid_row()
         layer = row["source_layer_topology"][0]

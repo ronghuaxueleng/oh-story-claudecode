@@ -469,6 +469,9 @@ EMOTION_LEDGER_SCAFFOLD_VALUES = {
 # line number, character name, or destination label.
 PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
     "action": (
+        r"^.+在当前关系中抛出一句话，直接改变对方可回应的压力位[。.]?$",
+        r"^.+以[“\"].+[”\"]给出判断或转折[。.]?$",
+        r"^.+做出[“\"].+[”\"]所写的具体动作[。.]?$",
         r"^补充事实或叙述判断[:：]",
         r"^(?:回忆|看见|听见)[“\"].+[”\"]$",
         r"^(?:交付[“\"].+[”\"]这一步局势变化|说出或接住[“\"].+[”\"])$",
@@ -478,24 +481,31 @@ PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
         r"^.+，关系或局势从停滞进入新的受力状态[。.]?$",
         r"^.+，原先被遮住的事实由此进入当前判断[。.]?$",
     ),
-    "object_or_receiver": (r"^行\d+中的具体人物、物件或场面位置$",),
+    "object_or_receiver": (
+        r"^行\d+中的具体人物、物件或场面位置$",
+        r"^(?:话语所指向的对象或被点名的关系问题|该判断重新框定的事件意义|动作直接作用的身体、物件或现场位置)$",
+    ),
     "pressure_or_trigger": (
+        r"^L\d+\s*的原文触发[“\"].+[”\"]，使\s*.+必须回应当前关系压力[。.]?$",
         r"^此前场景推进到L\d+[,，]",
         r"^上一拍留下的压力在[“\"].+[”\"]处转成可见事件$",
         r"^行\d+前积累的关系压力逼出这句回应$",
         r"^.+迫使这一步在此刻发生[。.]?$",
     ),
     "control_change": (
+        r"^L\d+\s*后，.+所形成的话轮或动作中取得或失去一次局部控制[。.]?$",
         r"借本行动作改变话语、空间或关系控制，证据为",
         r"^.+在行\d+对.+形成的具体权限/站位变化$",
         r"^.+完成后，.+在[“\"].+[”\"]这次变化中取得、失去或转交具体权限[。.]?$",
     ),
     "information_change": (
+        r"^读者在L\d+新增获知[:：]",
         r"^第\d+行新增事实[:：]",
         r"^读者新增[“\"].+[”\"]这一事实，人物知情边界按原文推进$",
         r"^读者由[“\"].+[”\"]确认[:：].+[。.]?$",
     ),
     "consequence": (
+        r"^这一步把后续压力推向下一次回应，落点由.+留下[。.]?$",
         r"^该行迫使后续回应或转场，承接点为[:：]",
         r"^该动作改变后续人物为何继续靠近、试探或离场$",
         r"^对话对象必须在下一拍接招、回避或改变行动$",
@@ -505,11 +515,16 @@ PLOT_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
 
 EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
     "role": (
+        r"^.+在此处的情绪落点是[“\"].+[”\"][。.]?$",
         r"^.+在[“\"].+[”\"]中的动作或判断改变读者对关系的站位$",
         r"^.+通过话轮[“\"].+[”\"]暴露当前期待或防御$",
     ),
-    "content": (r"^.+因[“\"].+[”\"]从上一状态进入.+$",),
+    "content": (
+        r"^.+因[“\"].+[”\"]从上一状态进入.+$",
+        r"^情绪由前一状态转为对[“\"].+[”\"]的即时感受[。.]?$",
+    ),
     "trigger": (
+        r"^L\d+的.+触发这次情绪位移[。.]?$",
         r"^L\d+\s*的具体刺激[:：]",
         r"^场景中的新事实或回忆触发[:：]",
         r"^L\d+出现的.+直接触发这次位移$",
@@ -517,12 +532,14 @@ EMOTION_LEDGER_FORBIDDEN_SCAFFOLD_PATTERNS = {
         r"^前一拍的压力逼出.+说出[“\"].+[”\"]$",
     ),
     "relationship_position_change": (
+        r"^.+与当前对象的距离或信任在本行发生一格变化[。.]?$",
         r"在本行后改变与对手/伴侣/读者的距离，证据为",
         r"^从.+移动到.+，关系距离出现可感变化$",
         r"^.+在这段中(?:被迫重新判断对方与自身距离|夺回一次判断或行动位置)$",
         r"^行\d+让.+与现场对象的距离、权限或防备发生具体变化$",
     ),
     "reader_effect": (
+        r"^读者先接住[“\"].+[”\"]，再调整对人物下一步选择的预期[。.]?$",
         r"^读者在此感到关系信息继续累积，等待下一话轮[。.]?$",
         r"^读者先接收.+的表层，再等待其后果兑现$",
         r"^[“\"].+[”\"]让读者在本段末确认.+已经落地$",
@@ -2915,6 +2932,28 @@ def check_sample_grading_quality(
                 )
 
 
+def declared_bridge_names(text: str) -> dict[str, str]:
+    names: dict[str, str] = {}
+    current_id = ""
+    for line in text.splitlines():
+        heading = re.match(r"^#{1,6}\s+(BID-\d+)\b", line, flags=re.I)
+        if heading:
+            current_id = heading.group(1).upper()
+        elif re.match(r"^#{1,6}\s", line):
+            current_id = ""
+        field = re.match(r"^\s*-\s*桥段(?:名)?[：:]\s*(.+)$", line)
+        if not field:
+            continue
+        value = field.group(1).strip()
+        explicit = re.match(r"\[?(BID-\d+)\]?\s*(.*)$", value, flags=re.I)
+        bridge_id = explicit.group(1).upper() if explicit else current_id
+        name = explicit.group(2).strip() if explicit else value
+        name = re.sub(r"^桥段\d+[：:]\s*", "", name)
+        if bridge_id and name:
+            names[bridge_id] = name
+    return names
+
+
 def check_bridge_reconciliation(
     root: Path,
     profile: dict,
@@ -2958,6 +2997,21 @@ def check_bridge_reconciliation(
             for item in BRIDGE_ID_PATTERN.findall(text)
         }
 
+    # Compare registered identities, not prose descriptions of their function.
+    cards_path = root / "写作资产" / "桥段施工卡.md"
+    canonical_names = declared_bridge_names(read_text(cards_path)) if cards_path.is_file() else {}
+    source_path = root / "写作资产" / "profile_source.md"
+    source_names = declared_bridge_names(read_text(source_path)) if source_path.is_file() else {}
+    for bridge_id, name in canonical_names.items():
+        if bridge_id in source_names and source_names[bridge_id] != name:
+            errors.append(f"{source_path} {bridge_id} 桥段名称与施工卡冲突：{source_names[bridge_id]} != {name}；同号不能指向不同桥段")
+    for bridge in profile.get("bridge_rules", []):
+        bridge_id = str(bridge.get("id") or "").upper()
+        name = str(bridge.get("bridge") or "").strip()
+        name = re.sub(r"^\[?BID-\d+\]?\s*(?:桥段\d+[：:]\s*)?", "", name, flags=re.I)
+        if bridge_id in canonical_names and name and name != canonical_names[bridge_id]:
+            errors.append(f"{root / 'book.profile.json'} {bridge_id} 桥段名称与施工卡冲突：{name} != {canonical_names[bridge_id]}")
+
     profile_text = json.dumps(profile, ensure_ascii=False)
     profile_ids = {item.upper() for item in BRIDGE_ID_PATTERN.findall(profile_text)}
     declared_ids = set(profile_ids)
@@ -2978,6 +3032,30 @@ def check_bridge_reconciliation(
                 "请人工判断原文确实无独立承重桥，还是整条链均漏标"
             )
         return
+
+    # A bridge registration must cover the full declared source interval. The
+    # validator cannot judge semantics, but it can reject a card whose listed
+    # line range omits beats explicitly assigned to the same BID.
+    brief_path = root / "_analysis_brief.md"
+    if brief_path.is_file():
+        brief_ranges = {
+            match.group("id").upper(): match.group("ranges")
+            for match in re.finditer(
+                r"^(?P<id>BID-\d+)\s*\|\s*(?P<ranges>L\d+\s*-\s*L?\d+(?:\s*,\s*L\d+\s*-\s*L?\d+)*)",
+                read_text(brief_path), flags=re.M | re.I,
+            )
+        }
+        for bridge_id, ranges in brief_ranges.items():
+            if bridge_id not in canonical_names:
+                continue
+            listed_numbers = [int(value) for value in re.findall(r"L(\d+)", ranges)]
+            if len(listed_numbers) < 2:
+                continue
+            card_text = read_text(cards_path) if cards_path.is_file() else ""
+            card_match = re.search(rf"^##\s+{re.escape(bridge_id)}\b(?P<body>.*?)(?=^##\s+BID-|\Z)", card_text, flags=re.M | re.S | re.I)
+            card_range = re.search(r"原文位置：[：:]?\s*(L\d+\s*-\s*L?\d+(?:\s*,\s*L\d+\s*-\s*L?\d+)*)", card_match.group("body"), flags=re.I) if card_match else None
+            if card_range and [int(value) for value in re.findall(r"L(\d+)", card_range.group(1))] != listed_numbers:
+                errors.append(f"{cards_path} {bridge_id} 原文区间与分析简报冲突：{card_range.group(1)} != {ranges}")
 
     for path, present in target_ids.items():
         # 高敏桥段识别是风险子集，不要求覆盖每个 BID；完整贯通由施工卡与 profile_source 承担。

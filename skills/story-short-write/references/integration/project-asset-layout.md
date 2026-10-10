@@ -81,6 +81,8 @@ description: |
 
 放跨书通用资产，不跟某一本书绑定。
 
+根目录也可能包含拆书 skill 生成的 `书目索引.json`、`实体索引.json`、`机制索引.json` 和 `书目/{书名}/` 分册。全新开书默认读取除主体书以外的全部实体详情；实体进入正文前必须绑定 `source_book/source_ref/entity_type/asset_type/adaptation_decision`。主体书的 `forbidden_reentry=true` 条目只能用于识别和拦截，主体书具体主体不得回流；其他书籍的实体可使用，但仍必须经过改编和来源登记。
+
 适合放：
 
 - 句式模板库
